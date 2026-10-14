@@ -29,11 +29,16 @@ _Plan de referencia: `PLAN_herramienta_stl_articulable.md`_
       brazo izq.: mediana 0,11 mm, p95 0,45, máx 2,9, volumen 2009 vs 2003 mm³ (**cumple ≤0,3 mm en mediana**);
       pierna izq.: mediana ≈0,27, p95 ≈1,9, máx ≈8,3, volumen 5238 vs 5123 mm³.
 
+- [x] Validación de recorrido libre (§9): la pierna se rota cada 2,5° de 0° a 95° y se verifica que no interfiera con el torso (detecta pasos de barrido demasiado gruesos: con 10° falla, con 5° pasa).
+- [x] Decimación cuadrática del torso (`solids.decimate`, dependencia `fast-simplification`) con reducción adaptativa que preserva la holgura:
+      Mickey 129 260 → 51 290 triángulos (torso sin aristas no-variedad); Güemes 149 292 → 79 356 (holgura ≥0,476 mm).
+
 ## Descubrimientos (2026-10-14)
 - Mickey: las caras de contacto salen del borde vertical (x = const) de la silueta: hombro x≈5,1 y cadera x≈5,45 (STL original), deducido de las piezas finales.
 - Pierna: la diferencia máxima (≈8 mm) no cambia al variar tope/borde de la silueta (probado 22–26 y x 5,0–6,0): parece venir de la posición del pasador de cadera o de su forma (el cliente usa un cilindro Ø6,6), no de la silueta. Pendiente de investigar.
 - Los `guemes_*.stl` subidos por el cliente coinciden en triángulos y dimensiones con la salida del motor: son resultado de la herramienta.
 - **Torso de Güemes: 149 292 triángulos** (offset Minkowski + barrido de 19 ángulos): STL pesado.
+- (Actualización: la decimación reduce o elimina las aristas no-variedad del torso; quedan 2 en cada pierna de Mickey y algunas en brazos/piernas de Güemes.)
 - Las piezas son variedad para manifold3d, pero al soldar vértices por posición quedan aristas con != 2 caras
   (brazo: 38; torso: ~1700). Ahora se reportan como `avisos` en la validación. Pendiente: reducir/reparar
   (remallado por SDF + marching cubes, o decimar el barrido con menos pasos/segmentos).

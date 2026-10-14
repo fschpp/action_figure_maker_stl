@@ -122,3 +122,30 @@ def dilate(mf: Manifold, r: float, segments: int = 12) -> Manifold:
 
 def mirror_x(mf: Manifold) -> Manifold:
     return mf.mirror((1, 0, 0))
+
+
+# ------------------------------------------------------------------ decimación
+def decimate(mf: Manifold, reduction: float = 0.6, max_vol_change: float = 0.002) -> Manifold:
+    """Reduce triángulos con decimación cuadrática (fast_simplification), conservando la forma.
+
+    Devuelve el original si la librería no está, si el resultado no es variedad o si el volumen
+    cambia más de `max_vol_change` (fracción). Descarta cáscaras de volumen despreciable.
+    """
+    if reduction <= 0:
+        return mf
+    try:
+        import fast_simplification as fs
+    except ImportError:
+        return mf
+    tm = to_trimesh(mf)
+    tm.merge_vertices()
+    v, f = fs.simplify(tm.vertices.astype(np.float32), tm.faces.astype(np.int32),
+                       target_reduction=reduction, agg=5)
+    try:
+        out = to_manifold(trimesh.Trimesh(v, f, process=False))
+    except MeshNotManifold:
+        return mf
+    out = drop_small_components(out, 1e-4)
+    if abs(out.volume() - mf.volume()) > max_vol_change * abs(mf.volume()):
+        return mf
+    return out

@@ -30,6 +30,7 @@ class Piece:
 class BuildResult:
     pieces: dict[str, S.Manifold]
     report: dict = field(default_factory=dict)
+    motion: dict = field(default_factory=dict)   # name -> (limb de pie, centro, eje, (a0, a1)) para validar el recorrido
 
 
 def align_to_symmetry(mesh: trimesh.Trimesh, sym: Plane | None) -> trimesh.Trimesh:
@@ -99,11 +100,13 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
 
     say("Pose sentada y espejado…")
     pieces: dict[str, S.Manifold] = {}
+    res_motion: dict = {}
     report: dict = {"limbs": {}}
     for name, b in built.items():
         limb = b["limb"]
         if sit and b["spec"].kind == "leg":
             limb = S.rotate_about_axis(limb, b["face"].center, b["axis"], p.sit_angle)
+        res_motion[name] = (b["limb"], b["face"].center, b["axis"], (b["angles"][0], b["angles"][-1]))
         pieces[f"{name}_izq"] = limb
         pieces[f"{name}_der"] = S.mirror_x(limb)
         report["limbs"][name] = {
@@ -111,7 +114,29 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
             "contact_area": b["face"].area, "sweep": [b["angles"][0], b["angles"][-1]],
         }
     pieces["torso"] = S.union(torso_half, S.mirror_x(torso_half))
-    return BuildResult(pieces=pieces, report=report)
+    if p.decimate > 0:
+        say("Reduciendo triángulos…")
+        n0 = pieces["torso"].num_tri()
+        pieces["torso"] = _decimate_keeping_clearance(pieces, p)
+        report["torso_triangulos"] = [n0, pieces["torso"].num_tri()]
+    return BuildResult(pieces=pieces, report=report, motion=res_motion)
+
+
+def _decimate_keeping_clearance(pieces: dict, p: Params, tol: float = 0.02) -> S.Manifold:
+    """Decima el torso bajando la intensidad hasta que la holgura mínima con cada miembro
+    no caiga más de `tol` mm respecto de la original."""
+    torso = pieces["torso"]
+    limbs = [m for n, m in pieces.items() if n != "torso"]
+    base = [m.min_gap(torso, 5.0) for m in limbs]
+    for red in (p.decimate, 0.45, 0.3, 0.15):
+        if red > p.decimate:
+            continue
+        cand = S.decimate(torso, red)
+        if cand is torso:
+            continue
+        if all(m.min_gap(cand, 5.0) >= g - tol for m, g in zip(limbs, base)):
+            return cand
+    return torso
 
 
 # ------------------------------------------------------------------ validación
@@ -123,7 +148,8 @@ def _nonmanifold_edges(mf: S.Manifold) -> int:
     return int((counts != 2).sum())
 
 
-def validate(res: BuildResult, p: Params, limbs: list[LimbSpec], sit: bool = True) -> dict:
+def validate(res: BuildResult, p: Params, limbs: list[LimbSpec], sit: bool = True,
+             sweep_check_step: float = 2.5) -> dict:
     out: dict = {"ok": True, "problems": [], "avisos": [], "pieces": {}, "gaps": {}}
     torso = res.pieces["torso"]
     for name, mf in res.pieces.items():
@@ -158,6 +184,16 @@ def validate(res: BuildResult, p: Params, limbs: list[LimbSpec], sit: bool = Tru
         pin = _pin_spec(spec, p)
         if pin.shaft_d < p.min_pin_d:
             out["problems"].append(f"{spec.name}: vástago Ø{pin.shaft_d} < {p.min_pin_d}")
+    out["recorrido"] = {}
+    for name, (limb0, center, axis, (a0, a1)) in res.motion.items():
+        if a1 <= a0:
+            continue
+        worst = 0.0
+        for ang in np.arange(a0, a1 + 1e-9, sweep_check_step):
+            worst = max(worst, (S.rotate_about_axis(limb0, center, axis, ang) ^ torso).volume())
+        out["recorrido"][name] = round(float(worst), 5)
+        if worst > 1e-4:
+            out["problems"].append(f"{name}: interfiere con el torso durante el giro ({worst:.4f} mm³)")
     out["ok"] = not out["problems"]
     return out
 

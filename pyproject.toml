@@ -18,6 +18,7 @@ dependencies = [
     "mapbox_earcut",
     "networkx",
     "scikit-image",
+    "fast-simplification",
 ]
 
 [project.optional-dependencies]

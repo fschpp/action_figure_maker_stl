@@ -26,6 +26,7 @@ class Params:
     min_wall: float = 1.2            # espesor mínimo de pared (validación)
     min_pin_d: float = 3.0           # diámetro mínimo de pasador (validación)
     nozzle: float = 0.4
+    decimate: float = 0.6            # reducción de triángulos de las piezas al exportar (0 = desactivar)
 
     def to_dict(self) -> dict:
         return asdict(self)
