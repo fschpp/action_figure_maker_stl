@@ -14,6 +14,7 @@ class Project:
     params: Params = field(default_factory=Params)
     symmetry: Plane | None = None
     crown_z: float | None = None          # cota de la coronilla en unidades del STL original
+    front: str = "+Y"                     # hacia dónde mira la figura en el STL ("+Y" o "-Y")
     limbs: list[LimbSpec] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -22,6 +23,7 @@ class Project:
             "params": self.params.to_dict(),
             "symmetry": None if self.symmetry is None else self.symmetry.to_dict(),
             "crown_z": self.crown_z,
+            "front": self.front,
             "limbs": [l.to_dict() for l in self.limbs],
         }
 
@@ -31,6 +33,7 @@ class Project:
             params=Params.from_dict(d.get("params", {})),
             symmetry=None if d.get("symmetry") is None else Plane.from_dict(d["symmetry"]),
             crown_z=d.get("crown_z"),
+            front=d.get("front", "+Y"),
             limbs=[LimbSpec.from_dict(x) for x in d.get("limbs", [])],
         )
 
