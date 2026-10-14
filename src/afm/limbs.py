@@ -21,6 +21,13 @@ class LimbSpec:
     contact_axis: tuple = (1.0, 0.0, 0.0)   # eje (sin signo) en que está la cara de contacto
     pin_center: tuple | None = None         # centro del pasador (opcional; si no, centroide de la cara)
     sweep_deg: tuple | None = None          # (min, max) del barrido; por defecto según el tipo
+    # Extremo redondeado (tutorial pasos 027-028): el extremo del miembro del lado del torso se
+    # recorta a un cilindro de eje paralelo al pasador. Solo se toca lo que queda más allá de
+    # `cap_center` en la dirección opuesta a `cap_dir` (hacia el torso); el resto del miembro no cambia.
+    burr: float | None = None               # rebaba a rebajar en la cara de contacto; None = el de Params
+    cap_radius: float | None = None         # radio del cilindro (mm); None = sin recorte
+    cap_center: tuple | None = None         # un punto del eje del cilindro
+    cap_dir: tuple = (0.0, 0.0, -1.0)       # dirección del miembro, del torso hacia la punta
 
     def to_dict(self) -> dict:
         return {
@@ -29,6 +36,10 @@ class LimbSpec:
             "contact_axis": list(self.contact_axis),
             "pin_center": None if self.pin_center is None else list(self.pin_center),
             "sweep_deg": None if self.sweep_deg is None else list(self.sweep_deg),
+            "burr": self.burr,
+            "cap_radius": self.cap_radius,
+            "cap_center": None if self.cap_center is None else list(self.cap_center),
+            "cap_dir": list(self.cap_dir),
         }
 
     @classmethod
@@ -39,6 +50,10 @@ class LimbSpec:
             contact_axis=tuple(d.get("contact_axis", (1, 0, 0))),
             pin_center=None if d.get("pin_center") is None else tuple(d["pin_center"]),
             sweep_deg=None if d.get("sweep_deg") is None else tuple(d["sweep_deg"]),
+            burr=d.get("burr"),
+            cap_radius=d.get("cap_radius"),
+            cap_center=None if d.get("cap_center") is None else tuple(d["cap_center"]),
+            cap_dir=tuple(d.get("cap_dir", (0.0, 0.0, -1.0))),
         )
 
 
@@ -86,6 +101,7 @@ def separate_limb(half: S.Manifold, spec: LimbSpec, burr: float) -> tuple[S.Mani
     prism = S.prism_from_polygon(spec.plane, spec.polygon, spec.thickness, symmetric=True)
     limb = S.largest_component(S.intersection(half, prism))
     face = find_contact_face(limb, spec.contact_axis)
+    burr = spec.burr if spec.burr is not None else burr
     if burr > 0:
         # Extrude Remove de `burr` mm sobre la huella de la cara de contacto (tutorial, paso 014)
         limb = S.difference(limb, _footprint_slab(face, burr))
@@ -94,7 +110,22 @@ def separate_limb(half: S.Manifold, spec: LimbSpec, burr: float) -> tuple[S.Mani
     if spec.pin_center is not None:
         pc = np.asarray(spec.pin_center, float)
         face = ContactFace(pc - ((pc - face.center) @ face.outward) * face.outward, face.outward, face.area)
+    if spec.cap_radius:
+        limb = S.largest_component(round_end(limb, face, spec))
     return limb, face
+
+
+def round_end(limb: S.Manifold, face: ContactFace, spec: LimbSpec) -> S.Manifold:
+    """Recorta el extremo del miembro (lado del torso) a un cilindro de radio `cap_radius`.
+
+    Se conserva todo lo que está del lado de la punta respecto del plano que pasa por `cap_center`
+    (perpendicular a `cap_dir`) y, del otro lado, solo lo que cae dentro del cilindro.
+    """
+    c = np.asarray(spec.cap_center if spec.cap_center is not None else face.center, float)
+    ax = face.outward / np.linalg.norm(face.outward)
+    cyl = S.cylinder_along(c, ax, spec.cap_radius, 400.0, start=-200.0)
+    tip_side = S.halfspace(Plane.from_normal(c, spec.cap_dir))
+    return S.intersection(limb, S.union(cyl, tip_side))
 
 
 def _footprint_slab(face: ContactFace, depth: float) -> S.Manifold:
