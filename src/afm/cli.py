@@ -16,6 +16,8 @@ def run(stl_path: str, project: Project, outdir: str, name: str, progress=print)
     mesh, rep = meshio.load_figure(stl_path, project.params.ref_height, project.crown_z)
     for w in rep.warnings:
         progress(f"AVISO: {w}")
+    if project.front == "-Y":      # girar 180° sobre Z para que el frente quede en +Y
+        mesh.apply_transform([[-1, 0, 0, 0], [0, -1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]])
     mesh = P.align_to_symmetry(mesh, project.symmetry)
     body = S.to_manifold(mesh)
     res = P.build(body, project.limbs, project.params, project.symmetry, progress=progress)
