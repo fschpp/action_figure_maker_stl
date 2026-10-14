@@ -1,5 +1,31 @@
 # Progreso del desarrollo
 
+## Current Focus
+Fase 1 (repetibilidad): validar la propuesta automática de pasador/recorte (`auto=True`) con Güemes y seguir con Belgrano y Azurduy.
+_Última actualización: 2026-10-14 21:10 (America/Argentina/Buenos_Aires). Repo en `e43db74`, 23 tests pasan._
+
+## Todo List
+### [ ] Todo
+- [ ] Belgrano: STL propio, siluetas y prueba con `auto=True` (sin STL en `examples/` todavía)
+- [ ] Azurduy (no estanca): probar remallado por voxelización
+- [ ] Propuesta automática de siluetas (§8.3 / §8.5)
+- [ ] Usar `orient` en la exportación (CLI) y mostrar voladizos en la GUI
+- [ ] GUI GTK4 + visor OpenGL (Fases 2–5)
+### [/] In Progress
+- [/] Validar el cociente R/3 del pasador de cadera con una segunda figura (Güemes hecho, falta una referencia real)
+### [x] Done
+- [x] Güemes con `auto=True`: pieza válida, torso 1 componente, holguras 0,474–0,476 mm (manual: 0,476–0,477)
+
+## Latest Blockers/Discoveries
+- **Güemes `auto=True` vs manual (2026-10-14):** brazo casi idéntico (mediana 0,13 mm, p95 0,27, máx 0,51; volumen 2311 vs 2311).
+  Pierna distinta a propósito: auto agrega el recorte cilíndrico de cadera (R ≈ 6,8 mm) que el ajuste manual de Güemes no tenía
+  (mediana 1,14 mm, p95 2,16, máx 5,43; volumen 4368 vs 4321) y sube el pasador de z 52,5 a 54,3.
+- **No hay verdad de referencia para Güemes:** sus STL de `examples/` son salida del propio motor, así que no valida R/3 de forma independiente.
+  Hace falta una pierna hecha a mano por el cliente (o Belgrano) para confirmarlo.
+- Pendiente de arrastre: aristas no-variedad en piezas (2 por pierna de Mickey, algunas en Güemes); torso de Güemes ≈ 93–174 k triángulos.
+
+---
+
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`_
 
 ## Hecho
