@@ -13,6 +13,7 @@ from .limbs import LimbSpec, ContactFace, separate_limb
 from .params import Params
 from .pins import mushroom_pin
 from .planes import Plane
+from .trims import Trim, apply_trims
 
 log = logging.getLogger(__name__)
 
@@ -69,15 +70,17 @@ def _rotation_axis(face: ContactFace) -> np.ndarray:
 
 
 def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None = None,
-          sit: bool = True, progress=None) -> BuildResult:
+          sit: bool = True, progress=None, trims: list[Trim] | None = None) -> BuildResult:
     """Construye las piezas. `body` debe estar normalizado y con el plano de simetría en x = 0."""
     say = progress or (lambda *_: None)
+    trims = trims or []
     half = body.trim_by_plane((1.0, 0.0, 0.0), 0.0)          # lado de trabajo (+X)
     torso_half = half
     built: dict[str, dict] = {}
     for spec in limbs:
         say(f"Separando {spec.name}…")
         limb_raw, face = separate_limb(half, spec, p.burr)
+        limb_raw = apply_trims(limb_raw, trims, spec.name)
         pin = mushroom_pin(face.center, face.outward, _pin_spec(spec, p))
         limb = S.union(limb_raw, pin)
         say(f"Cavidad de {spec.name}…")
@@ -91,6 +94,7 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
         torso_half = S.difference(torso_half, sweep)
         built[spec.name] = {"limb": limb, "face": face, "axis": axis, "spec": spec,
                             "angles": [float(a) for a in angles]}
+    torso_half = apply_trims(torso_half, trims, "torso")
     torso_half = S.drop_small_components(torso_half, 0.02)
 
     say("Pose sentada y espejado…")
@@ -111,13 +115,26 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
 
 
 # ------------------------------------------------------------------ validación
+def _nonmanifold_edges(mf: S.Manifold) -> int:
+    """Aristas con != 2 caras tras soldar vértices coincidentes (lo que ve un slicer al leer el STL)."""
+    tm = S.to_trimesh(mf)
+    tm.merge_vertices()
+    _, counts = np.unique(tm.edges_sorted, axis=0, return_counts=True)
+    return int((counts != 2).sum())
+
+
 def validate(res: BuildResult, p: Params, limbs: list[LimbSpec], sit: bool = True) -> dict:
-    out: dict = {"ok": True, "problems": [], "pieces": {}, "gaps": {}}
+    out: dict = {"ok": True, "problems": [], "avisos": [], "pieces": {}, "gaps": {}}
     torso = res.pieces["torso"]
     for name, mf in res.pieces.items():
         comps = len(mf.decompose())
         wt = mf.status() == S.m3.Error.NoError
-        out["pieces"][name] = {"componentes": comps, "variedad_ok": wt, "volumen": mf.volume()}
+        nme = _nonmanifold_edges(mf)
+        out["pieces"][name] = {"componentes": comps, "variedad_ok": wt, "volumen": mf.volume(),
+                               "aristas_no_variedad": nme, "triangulos": mf.num_tri()}
+        if nme:
+            out["avisos"].append(f"{name}: {nme} aristas con != 2 caras al soldar vértices por posición "
+                                 "(el slicer puede avisar de 'non-manifold edge')")
         if not wt:
             out["problems"].append(f"{name}: no es variedad estanca")
         if name == "torso" and comps != 1:

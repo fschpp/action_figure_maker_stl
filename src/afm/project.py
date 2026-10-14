@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from .limbs import LimbSpec
 from .params import Params
 from .planes import Plane
+from .trims import Trim
 
 
 @dataclass
@@ -16,6 +17,7 @@ class Project:
     crown_z: float | None = None          # cota de la coronilla en unidades del STL original
     front: str = "+Y"                     # hacia dónde mira la figura en el STL ("+Y" o "-Y")
     limbs: list[LimbSpec] = field(default_factory=list)
+    trims: list[Trim] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -25,6 +27,7 @@ class Project:
             "crown_z": self.crown_z,
             "front": self.front,
             "limbs": [l.to_dict() for l in self.limbs],
+            "trims": [t.to_dict() for t in self.trims],
         }
 
     @classmethod
@@ -35,6 +38,7 @@ class Project:
             crown_z=d.get("crown_z"),
             front=d.get("front", "+Y"),
             limbs=[LimbSpec.from_dict(x) for x in d.get("limbs", [])],
+            trims=[Trim.from_dict(x) for x in d.get("trims", [])],
         )
 
     def save(self, path: str) -> None:
