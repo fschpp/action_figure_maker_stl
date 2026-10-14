@@ -43,6 +43,27 @@ _Plan de referencia: `PLAN_herramienta_stl_articulable.md`_
   (brazo: 38; torso: ~1700). Ahora se reportan como `avisos` en la validación. Pendiente: reducir/reparar
   (remallado por SDF + marching cubes, o decimar el barrido con menos pasos/segmentos).
 
+## Pierna de Mickey: desvío de ~8 mm resuelto (2026-10-14)
+Causa: no era la silueta ni el pasador. El motor dejaba el extremo de cadera como un bloque plano; el cliente lo recorta a un
+**cilindro R = 7,6 mm** (eje X) con centro 3,75 mm por debajo del pasador (tutorial 027-028). Además, midiendo contra la pieza del cliente
+(alineando por el pie, que debe coincidir 1:1; el ICP completo se sesgaba):
+- pasador de cadera: 1,6 mm más arriba y 0,6 mm hacia atrás que el centroide de la cara; la punta queda a 6,6 mm de la cara **original**
+  (el cliente no rebaja rebaba en la pierna -> `burr = 0` por miembro);
+- borde interno del pie: superficie natural del STL (x >= 2,7 mm) hasta z ≈ 12 mm; el corte plano en x = 4,95 mm solo rige en la pelvis;
+- la cola de Mickey sobraba pegada a la pierna (≈36 mm³): dos recortes (`TAIL_ROOT`, `TAIL_TIP` en `examples/mickey.py`).
+Nuevo en el motor: `LimbSpec.cap_radius/cap_center/cap_dir` (extremo redondeado, `limbs.round_end`) y `LimbSpec.burr` (override por miembro).
+Resultado (distancia entre mallas, pierna izq.): mediana 0,27 -> **0,14 mm**, p95 1,9 -> **0,33**, máx 8,3 -> **2,9**, volumen 5238 -> 5170 vs 5123.
+Sin aristas no-variedad en la pierna; 22 tests pasan.
+Residual (máx ≈ 3 mm, solo ~0,5 % de los puntos): forma del pasador (cilindro del cliente vs. hongo achaflanado) y una lámina de ~0,5 mm en el disco.
+
+## Propuesta automática de pasador y recorte de cadera (2026-10-14)
+`LimbSpec(auto=True)` (+ `limbs.propose_geometry`): toma el **mayor círculo inscrito en la cara de contacto** (polo de inaccesibilidad).
+Brazo: pasador en el centro del círculo. Pierna: el círculo es el recorte cilíndrico del extremo de cadera y el pasador sube R/3 hacia el torso.
+Lo que el usuario fija (`pin_center`, `cap_*`) no se pisa. Contra Mickey: círculo a 0,02 mm del cliente en el eje lateral, R 7,40 vs 7,6;
+pasador a 0,02 mm del medido. Pierna con `auto=True`: mediana 0,15 mm, p95 0,62, máx 3,0 (ajuste manual: 0,14 / 0,33 / 2,9).
+**Ojo:** el cociente 1/3 sale de una sola figura; hay que validarlo con Güemes y Belgrano antes de darlo por bueno.
+Quedan manuales: el borde interno del pie y los recortes de la cola (dependen de cada personaje). 23 tests pasan.
+
 ## Limitaciones conocidas
 - Un solo plano de silueta por miembro; la cara de contacto debe quedar plana y perpendicular a X.
 - La cabeza queda unida al torso (fuera de alcance v1).
