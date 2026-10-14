@@ -1,0 +1,158 @@
+"""Pipeline completo: STL normalizado -> piezas articuladas (plan §8.3–§8.10)."""
+from __future__ import annotations
+
+import logging
+import os
+from dataclasses import dataclass, field
+
+import numpy as np
+import trimesh
+
+from . import solids as S
+from .limbs import LimbSpec, ContactFace, separate_limb
+from .params import Params
+from .pins import mushroom_pin
+from .planes import Plane
+
+log = logging.getLogger(__name__)
+
+DEFAULT_SWEEP = {"arm": (0.0, 0.0), "leg": None}  # leg: (0, sit_angle + margen)
+
+
+@dataclass
+class Piece:
+    name: str
+    solid: S.Manifold
+
+
+@dataclass
+class BuildResult:
+    pieces: dict[str, S.Manifold]
+    report: dict = field(default_factory=dict)
+
+
+def align_to_symmetry(mesh: trimesh.Trimesh, sym: Plane | None) -> trimesh.Trimesh:
+    """Lleva el plano de simetría a x = 0 con normal +X (solo rotación sobre Z + traslación)."""
+    if sym is None:
+        return mesh
+    n = sym.normal.copy()
+    if abs(n[2]) > 0.05:
+        log.warning("El plano de simetría no es vertical (nz=%.3f)", n[2])
+    ang = -np.arctan2(n[1], n[0]) if n[0] >= 0 else -np.arctan2(-n[1], -n[0])
+    c, s = np.cos(ang), np.sin(ang)
+    R = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
+    mesh = mesh.copy()
+    o = R @ sym.origin
+    T = np.eye(4)
+    T[:3, :3] = R
+    T[:3, 3] = [-o[0], 0, 0]
+    mesh.apply_transform(T)
+    return mesh
+
+
+def _sweep_range(spec: LimbSpec, p: Params) -> tuple[float, float]:
+    if spec.sweep_deg is not None:
+        return spec.sweep_deg
+    if spec.kind == "leg":
+        return (0.0, p.sit_angle + p.hip_margin)
+    return DEFAULT_SWEEP.get(spec.kind) or (0.0, 0.0)
+
+
+def _pin_spec(spec: LimbSpec, p: Params):
+    return p.hip_pin if spec.kind == "leg" else p.shoulder_pin
+
+
+def _rotation_axis(face: ContactFace) -> np.ndarray:
+    """Eje de giro: el del pasador, orientado de modo que +ángulo = hacia adelante (+Y) para -Z."""
+    ax = face.outward / np.linalg.norm(face.outward)
+    return ax if ax[0] >= 0 else -ax
+
+
+def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None = None,
+          sit: bool = True, progress=None) -> BuildResult:
+    """Construye las piezas. `body` debe estar normalizado y con el plano de simetría en x = 0."""
+    say = progress or (lambda *_: None)
+    half = body.trim_by_plane((1.0, 0.0, 0.0), 0.0)          # lado de trabajo (+X)
+    torso_half = half
+    built: dict[str, dict] = {}
+    for spec in limbs:
+        say(f"Separando {spec.name}…")
+        limb_raw, face = separate_limb(half, spec, p.burr)
+        pin = mushroom_pin(face.center, face.outward, _pin_spec(spec, p))
+        limb = S.union(limb_raw, pin)
+        say(f"Cavidad de {spec.name}…")
+        grown = S.dilate(limb, p.clearance)
+        a0, a1 = _sweep_range(spec, p)
+        axis = _rotation_axis(face)
+        angles = np.arange(a0, a1 + 1e-9, p.sweep_step) if a1 > a0 else [a0]
+        if len(angles) > 1 and angles[-1] < a1 - 1e-9:
+            angles = np.append(angles, a1)
+        sweep = S.union(*[S.rotate_about_axis(grown, face.center, axis, a) for a in angles])
+        torso_half = S.difference(torso_half, sweep)
+        built[spec.name] = {"limb": limb, "face": face, "axis": axis, "spec": spec,
+                            "angles": [float(a) for a in angles]}
+    torso_half = S.drop_small_components(torso_half, 0.02)
+
+    say("Pose sentada y espejado…")
+    pieces: dict[str, S.Manifold] = {}
+    report: dict = {"limbs": {}}
+    for name, b in built.items():
+        limb = b["limb"]
+        if sit and b["spec"].kind == "leg":
+            limb = S.rotate_about_axis(limb, b["face"].center, b["axis"], p.sit_angle)
+        pieces[f"{name}_izq"] = limb
+        pieces[f"{name}_der"] = S.mirror_x(limb)
+        report["limbs"][name] = {
+            "pin_center": b["face"].center.tolist(), "pin_dir": b["face"].outward.tolist(),
+            "contact_area": b["face"].area, "sweep": [b["angles"][0], b["angles"][-1]],
+        }
+    pieces["torso"] = S.union(torso_half, S.mirror_x(torso_half))
+    return BuildResult(pieces=pieces, report=report)
+
+
+# ------------------------------------------------------------------ validación
+def validate(res: BuildResult, p: Params, limbs: list[LimbSpec], sit: bool = True) -> dict:
+    out: dict = {"ok": True, "problems": [], "pieces": {}, "gaps": {}}
+    torso = res.pieces["torso"]
+    for name, mf in res.pieces.items():
+        comps = len(mf.decompose())
+        wt = mf.status() == S.m3.Error.NoError
+        out["pieces"][name] = {"componentes": comps, "variedad_ok": wt, "volumen": mf.volume()}
+        if not wt:
+            out["problems"].append(f"{name}: no es variedad estanca")
+        if name == "torso" and comps != 1:
+            out["problems"].append(f"torso: {comps} componentes (debería ser 1, soldado)")
+    for name, mf in res.pieces.items():
+        if name == "torso":
+            continue
+        inter = (mf ^ torso).volume()
+        gap = mf.min_gap(torso, 5.0)
+        out["gaps"][name] = round(float(gap), 4)
+        if inter > 1e-6:
+            out["problems"].append(f"{name}: interpenetra el torso ({inter:.4f} mm³)")
+        elif gap < p.clearance - 0.1 * p.clearance - 1e-6 and gap < 5.0:
+            out["problems"].append(f"{name}: holgura mínima {gap:.3f} mm < {p.clearance:.3f} mm")
+    names = [n for n in res.pieces if n != "torso"]
+    for i, a in enumerate(names):
+        for b in names[i + 1:]:
+            if (res.pieces[a] ^ res.pieces[b]).volume() > 1e-6:
+                out["problems"].append(f"{a} y {b} se interpenetran")
+    for spec in limbs:
+        pin = _pin_spec(spec, p)
+        if pin.shaft_d < p.min_pin_d:
+            out["problems"].append(f"{spec.name}: vástago Ø{pin.shaft_d} < {p.min_pin_d}")
+    out["ok"] = not out["problems"]
+    return out
+
+
+# ----------------------------------------------------------------- exportación
+def export(res: BuildResult, outdir: str, name: str = "figura") -> dict:
+    os.makedirs(os.path.join(outdir, "piezas"), exist_ok=True)
+    meshes = []
+    for part, mf in res.pieces.items():
+        tm = S.to_trimesh(mf)
+        tm.export(os.path.join(outdir, "piezas", f"{name}_{part}.stl"))
+        meshes.append(tm)
+    asm = trimesh.util.concatenate(meshes)
+    asm.export(os.path.join(outdir, f"{name}_ensamblada.stl"))
+    return {"ensamblada": f"{name}_ensamblada.stl", "piezas": sorted(res.pieces)}
