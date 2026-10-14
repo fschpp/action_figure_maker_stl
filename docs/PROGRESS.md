@@ -56,6 +56,14 @@ Resultado (distancia entre mallas, pierna izq.): mediana 0,27 -> **0,14 mm**, p9
 Sin aristas no-variedad en la pierna; 22 tests pasan.
 Residual (máx ≈ 3 mm, solo ~0,5 % de los puntos): forma del pasador (cilindro del cliente vs. hongo achaflanado) y una lámina de ~0,5 mm en el disco.
 
+## Propuesta automática de pasador y recorte de cadera (2026-10-14)
+`LimbSpec(auto=True)` (+ `limbs.propose_geometry`): toma el **mayor círculo inscrito en la cara de contacto** (polo de inaccesibilidad).
+Brazo: pasador en el centro del círculo. Pierna: el círculo es el recorte cilíndrico del extremo de cadera y el pasador sube R/3 hacia el torso.
+Lo que el usuario fija (`pin_center`, `cap_*`) no se pisa. Contra Mickey: círculo a 0,02 mm del cliente en el eje lateral, R 7,40 vs 7,6;
+pasador a 0,02 mm del medido. Pierna con `auto=True`: mediana 0,15 mm, p95 0,62, máx 3,0 (ajuste manual: 0,14 / 0,33 / 2,9).
+**Ojo:** el cociente 1/3 sale de una sola figura; hay que validarlo con Güemes y Belgrano antes de darlo por bueno.
+Quedan manuales: el borde interno del pie y los recortes de la cola (dependen de cada personaje). 23 tests pasan.
+
 ## Limitaciones conocidas
 - Un solo plano de silueta por miembro; la cara de contacto debe quedar plana y perpendicular a X.
 - La cabeza queda unida al torso (fuera de alcance v1).

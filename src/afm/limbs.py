@@ -1,6 +1,7 @@
 """Separación de miembros del cuerpo y detección de la cara de contacto (plan §8.3, §8.5)."""
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass
 
 import numpy as np
@@ -24,6 +25,7 @@ class LimbSpec:
     # Extremo redondeado (tutorial pasos 027-028): el extremo del miembro del lado del torso se
     # recorta a un cilindro de eje paralelo al pasador. Solo se toca lo que queda más allá de
     # `cap_center` en la dirección opuesta a `cap_dir` (hacia el torso); el resto del miembro no cambia.
+    auto: bool = False                      # proponer pin_center / cap_* desde la cara de contacto (si no se indican)
     burr: float | None = None               # rebaba a rebajar en la cara de contacto; None = el de Params
     cap_radius: float | None = None         # radio del cilindro (mm); None = sin recorte
     cap_center: tuple | None = None         # un punto del eje del cilindro
@@ -36,6 +38,7 @@ class LimbSpec:
             "contact_axis": list(self.contact_axis),
             "pin_center": None if self.pin_center is None else list(self.pin_center),
             "sweep_deg": None if self.sweep_deg is None else list(self.sweep_deg),
+            "auto": self.auto,
             "burr": self.burr,
             "cap_radius": self.cap_radius,
             "cap_center": None if self.cap_center is None else list(self.cap_center),
@@ -50,6 +53,7 @@ class LimbSpec:
             contact_axis=tuple(d.get("contact_axis", (1, 0, 0))),
             pin_center=None if d.get("pin_center") is None else tuple(d["pin_center"]),
             sweep_deg=None if d.get("sweep_deg") is None else tuple(d["sweep_deg"]),
+            auto=d.get("auto", False),
             burr=d.get("burr"),
             cap_radius=d.get("cap_radius"),
             cap_center=None if d.get("cap_center") is None else tuple(d["cap_center"]),
@@ -107,6 +111,8 @@ def separate_limb(half: S.Manifold, spec: LimbSpec, burr: float) -> tuple[S.Mani
         limb = S.difference(limb, _footprint_slab(face, burr))
         limb = S.largest_component(limb)
         face = find_contact_face(limb, spec.contact_axis)
+    if spec.auto:
+        spec = propose_geometry(face, spec)
     if spec.pin_center is not None:
         pc = np.asarray(spec.pin_center, float)
         face = ContactFace(pc - ((pc - face.center) @ face.outward) * face.outward, face.outward, face.area)
@@ -155,3 +161,52 @@ def _footprint_slab(face: ContactFace, depth: float) -> S.Manifold:
     slab = slab.translate((0, 0, -depth))            # z in [-depth, 0.5]: entra al miembro y sobresale 0,5
     # la normal del plano apunta hacia afuera del miembro: z<0 es "hacia adentro"
     return slab.transform(plane.matrix()[:3, :])
+
+
+def _face_shape(face: ContactFace):
+    """Huella de la cara de contacto como geometría shapely en el plano (u, v) de la cara."""
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+
+    plane = Plane.from_normal(face.center, face.outward)
+    polys = []
+    for t in face.triangles:
+        pg = Polygon(plane.to_uv(t))
+        if pg.area > 1e-12:
+            polys.append(pg.buffer(0))
+    return plane, unary_union(polys)
+
+
+def propose_geometry(face: ContactFace, spec: LimbSpec) -> LimbSpec:
+    """Propone centro de pasador y extremo redondeado a partir de la cara de contacto.
+
+    Se toma el mayor círculo inscrito en la cara (polo de inaccesibilidad): su centro es el del pasador
+    en los brazos; en las piernas el círculo es además el recorte cilíndrico del extremo de cadera
+    (radio R) y el pasador se sube R/3 hacia el torso, como en el proceso manual (tutorial 027-034).
+    El cociente 1/3 está calibrado con una sola figura (Mickey: 2,49 mm / R 7,40): revisar con Güemes y Belgrano.
+    Lo que el usuario ya indicó en `spec` no se pisa. Medido contra Mickey: centro del círculo a 0,02 mm
+    del cliente en el eje lateral y radio 3 % menor (7,40 vs 7,6); ver docs/PROGRESS.md.
+    """
+    from shapely.ops import polylabel
+
+    plane, shape = _face_shape(face)
+    geoms = list(shape.geoms) if hasattr(shape, "geoms") else [shape]
+    big = max(geoms, key=lambda g: g.area)
+    pole = polylabel(big, tolerance=0.01)
+    radius = float(big.exterior.distance(pole))
+    for h in big.interiors:
+        radius = min(radius, float(h.distance(pole)))
+    center = plane.to_world(np.array([[pole.x, pole.y]]))[0]
+    changes = {}
+    if spec.kind == "leg":
+        up = -np.asarray(spec.cap_dir, float)
+        up /= np.linalg.norm(up)
+        if spec.pin_center is None:
+            pin = center + up * (radius / 3)
+            changes["pin_center"] = tuple(float(x) for x in pin)
+        if spec.cap_radius is None:
+            changes["cap_radius"] = radius
+            changes["cap_center"] = tuple(float(x) for x in center)
+    elif spec.pin_center is None:
+        changes["pin_center"] = tuple(float(x) for x in center)
+    return dataclasses.replace(spec, **changes)
