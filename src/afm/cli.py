@@ -20,7 +20,8 @@ def run(stl_path: str, project: Project, outdir: str, name: str, progress=print)
         mesh.apply_transform([[-1, 0, 0, 0], [0, -1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]])
     mesh = P.align_to_symmetry(mesh, project.symmetry)
     body = S.to_manifold(mesh)
-    res = P.build(body, project.limbs, project.params, project.symmetry, progress=progress)
+    res = P.build(body, project.limbs, project.params, project.symmetry, progress=progress,
+                  trims=project.trims)
     val = P.validate(res, project.params, project.limbs)
     files = P.export(res, outdir, name)
     info = {"carga": rep.__dict__, "construccion": res.report, "validacion": val, "archivos": files}
@@ -40,9 +41,24 @@ def main(argv=None) -> int:
     b.add_argument("proyecto")
     b.add_argument("--out", default="out/figura")
     b.add_argument("--name", default=None)
+    pr = sub.add_parser("probe", help="generar placa de probetas de articulación (§8.11)")
+    pr.add_argument("--out", default="out/probetas")
+    pr.add_argument("--clearances", default="0.3,0.4,0.5,0.6")
+    pr.add_argument("--deltas", default="-0.2,0,0.2", help="variación del Ø de vástago (mm)")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO)
     os.makedirs(args.out, exist_ok=True)
+    if args.cmd == "probe":
+        from . import probes
+        from .params import Params
+        p = Params()
+        cells = probes.probe_cells(p, clearances=[float(x) for x in args.clearances.split(",")],
+                                   shaft_deltas=[float(x) for x in args.deltas.split(",")])
+        S.to_trimesh(probes.build_probe(p, cells)).export(os.path.join(args.out, "probetas.stl"))
+        with open(os.path.join(args.out, "probetas.txt"), "w") as f:
+            f.write(probes.labels_text(cells) + "\n")
+        print(probes.labels_text(cells))
+        return 0
     if args.cmd == "demo":
         stl = os.path.join(args.out, "muneco.stl")
         make_doll().export(stl)
@@ -54,6 +70,8 @@ def main(argv=None) -> int:
     print("Validación:", "OK" if val["ok"] else "CON PROBLEMAS")
     for pr in val["problems"]:
         print(" -", pr)
+    for av in val.get("avisos", []):
+        print(" AVISO:", av)
     print("Holguras mínimas (mm):", val["gaps"])
     return 0 if val["ok"] else 1
 
