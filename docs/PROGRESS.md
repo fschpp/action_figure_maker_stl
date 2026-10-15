@@ -6,6 +6,7 @@ _Última actualización: 2026-10-14 21:55 (America/Argentina/Buenos_Aires). 26 t
 
 ## Todo List
 ### [ ] Todo
+- [ ] Detectar y quitar automáticamente las láminas finas/rebabas típicas de Hunyuan3D (hoy son `Trim` manuales por figura)
 - [ ] Propuesta automática de siluetas (§8.3 / §8.5)
 - [ ] Usar `orient` en la exportación (CLI) y mostrar voladizos en la GUI
 - [ ] GUI GTK4 + visor OpenGL (Fases 2–5)
@@ -20,7 +21,7 @@ _Última actualización: 2026-10-14 21:55 (America/Argentina/Buenos_Aires). 26 t
 ## Latest Blockers/Discoveries
 - **Azurduy no necesita voxelizar:** tiene solo 4 aristas abiertas y `fill_holes` alcanza. Fallaba porque `repair` borraba antes 2 triángulos «degenerados» que sostienen la topología
   (la voxelización daba 1,15 M de triángulos). `meshio.repair` ahora prueba (1) con limpieza y (2) sin limpieza, y solo voxeliza si ninguna sirve.
-- **Azurduy trae láminas de ~0,4 mm (z 0,6–1,1)** que salen de las suelas hasta x = 14,9 / y = −11,9 (la bota real: x 4,1–10,8, y −8,7..7,0). Se recortan con `Trim` (cajas) en `examples/azurduy.py`; hay que confirmar con el cliente que son basura y no una base intencional.
+- **Azurduy trae láminas de ~0,4 mm (z 0,6–1,1)** que salen de las suelas hasta x = 14,9 / y = −11,9 (la bota real: x 4,1–10,8, y −8,7..7,0). Se recortan con `Trim` (cajas) en `examples/azurduy.py`. **Confirmado por el cliente:** son rebabas del proceso de generación de la malla (Hunyuan3D, 3d.hunyuan.tencent.com/studio/creation/concept), no una base intencional. Como las figuras salen de ahí, es probable que se repita en otras.
 - **Azurduy, contacto de brazo chico:** 75 mm² (Belgrano 104, Güemes 147). El hombro se funde con el torso solo entre z≈68 y 80; si el pasador queda justo, subir el corte (x = 9) o mover la silueta.
 - **`crown_z` va en unidades del ARCHIVO, no en mm** (Belgrano mide 1,16 de alto: con `crown_z=100` no se escalaba y todo fallaba en cascada). Documentado en `examples/belgrano.py`.
 - **Corregido en `meshio.load_figure`:** (1) se escala a mm antes de reparar (las tolerancias de `repair` son absolutas); (2) `repair` ya no borra triángulos
