@@ -1,8 +1,8 @@
 # Progreso del desarrollo
 
 ## Current Focus
-Fase 2 (visor y planos): la ventana GTK4 ya está escrita sobre un controlador probado, pero nunca se abrió con GTK real (falta `gir1.2-gtk-4.0` en el entorno de desarrollo). Lo siguiente es abrirla en el escritorio del cliente y, después, dibujar siluetas de miembros dentro de la GUI.
-_Última actualización: 2026-10-14 23:55 (America/Argentina/Buenos_Aires), rama `main`. 58 tests pasan._
+Fase 2 (visor y planos): la ventana GTK4 **abre y dibuja la figura** en el equipo del cliente (Debian 13, GTK 4.18; captura con Güemes, 2026-10-14 23:50). Falta que el cliente pruebe orbitar/zoom, los clics de 3 puntos, los planos y guardar; después, dibujar siluetas de miembros dentro de la GUI.
+_Última actualización: 2026-10-14 23:58 (America/Argentina/Buenos_Aires), rama `main`. 58 tests pasan._
 
 ## Todo List
 ### [ ] Todo
@@ -13,7 +13,7 @@ _Última actualización: 2026-10-14 23:55 (America/Argentina/Buenos_Aires), rama
 - [ ] Detectar y quitar automáticamente las láminas finas/rebabas típicas de Hunyuan3D (hoy son `Trim` manuales por figura) — el cliente pidió **no hacerlo por ahora**
 - [ ] GUI Fases 3–5 (un lado + espejado en vivo, límite de cadera/sentada/recortes/probetas, empaquetado)
 ### [/] In Progress
-- [/] GUI Fase 2: `controller.py` + `window.py` + `app.py` escritos y con tests del controlador; la ventana solo está compilada, no ejecutada
+- [/] GUI Fase 2: `controller.py` + `window.py` + `app.py` con tests del controlador; la ventana abre y muestra la figura en el equipo del cliente; falta probar la interacción (clics, planos, guardar/abrir proyecto)
 - [/] Validar el cociente R/3 del pasador de cadera: Güemes y Belgrano no tienen pieza hecha a mano; falta una referencia real
 - [/] Belgrano: primera pasada válida; revisar con el cliente el corte de cadera bajo el abrigo (z 38–48) y el del hombro (x = 11)
 ### [x] Done
@@ -27,7 +27,7 @@ _Última actualización: 2026-10-14 23:55 (America/Argentina/Buenos_Aires), rama
 - [x] Güemes con `auto=True`: pieza válida, torso 1 componente, holguras 0,474–0,476 mm (manual: 0,476–0,477)
 
 ## Latest Blockers/Discoveries
-- **Primer intento del cliente en su equipo (2026-10-14 23:47):** `afm-gui` falló con `No module named 'gi'`: su `python3` del PATH es 3.12 y `python3-gi` de Debian 13 es para 3.13. Solución indicada: crear el venv con `/usr/bin/python3 -m venv --system-site-packages .venv`; falta confirmar que abra.
+- **Primer intento del cliente en su equipo (2026-10-14 23:47):** `afm-gui` falló con `No module named 'gi'`: su `python3` del PATH es 3.12 y `python3-gi` de Debian 13 es para 3.13. Con `/usr/bin/python3 -m venv --system-site-packages .venv` la ventana abrió y muestra la figura (2026-10-14 23:50).
 - **GTK4 no se pudo probar acá (2026-10-14 23:50):** en el entorno de desarrollo `import gi` falla con Python 3.13 (`python3-gi` está compilado para 3.12) y con 3.12 falta el typelib (`Namespace Gtk not available`; no hay `gir1.2-gtk-4.0`). `window.py` solo pasó `py_compile`. Hay `Xvfb` y EGL offscreen funciona (los tests del renderer y de `Controller.sync` dibujan de verdad). Riesgos a revisar al abrirla: `Gtk.GLArea` + `moderngl.create_context()` / `detect_framebuffer()`, `Gtk.FileDialog`/`Gtk.AlertDialog` (GTK ≥ 4.10), `GestureDrag` con botón 0.
 - **Decisión de arquitectura:** toda la lógica de la ventana vive en `Controller` (sin GTK) para poder probarla; `window.py` solo traduce eventos y dibuja. Se ve y se elige siempre sobre `session.work` (simetría en x = 0), que es el marco de los planos de miembro.
 - **La coronilla solo se puede marcar antes de definir simetría/miembros** (cambia la escala y rompería los planos ya creados); el controlador lo avisa.
