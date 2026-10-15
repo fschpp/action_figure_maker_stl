@@ -125,28 +125,15 @@ Una vez definida la simetría:
 Cada uno pide 3 puntos y crea un miembro con nombre propio: `brazo`, `pierna`, y si agregás más,
 `brazo 2`, `pierna 2`, etc. Es el plano **sobre el que se dibujará la silueta** del miembro.
 
-Para las figuras de ejemplo, ese plano es el **plano frontal** (el que separa frente de espalda; en el
-tutorial de Onshape se llama «corte al medio»). Los planos de brazo se dibujan en azul y los de
-pierna en verde.
+El plano es **el que definen tus 3 puntos**, sea cual sea su orientación: no se valida contra ninguna
+dirección. Lo normal es apoyarlos sobre una cara chata del STL (la del hombro, o la de «corte al
+medio» para la pierna), con vértices que no estén alineados. La vista es **ortográfica** (sin
+perspectiva), así que lo que se ve en pantalla no se agranda ni se achica según la distancia y las
+vistas Frente/Izquierda/Arriba se pueden usar para ubicar los puntos con precisión. Los planos de brazo
+se dibujan en azul y los de pierna en verde.
 
-**Cómo saber si quedó bien:** en la vista **Frente**, un plano frontal se ve **de cara**, como un
-rectángulo translúcido que cubre la figura. Si lo ves como una línea o una cinta fina, está **de
-canto** y no sirve para dibujar la silueta: borralo (tachito) y repetilo.
-
-**Cómo obtenerlo con 3 clics:**
-
-1. Poné la vista **Izquierda** (o Derecha). En esa vista el eje horizontal de la pantalla es la
-   profundidad de la figura.
-2. Hacé los 3 clics sobre la figura **en una misma línea vertical de la pantalla** (misma posición
-   horizontal) y a distintas alturas: por ejemplo el costado de la cabeza, el del torso y el de la
-   pierna. Los 3 puntos quedan a la misma profundidad y definen el plano frontal.
-3. Volvé a la vista **Frente** y comprobá que el plano se ve de cara.
-
-Si el programa responde «No sirve: los 3 puntos son colineales», cambiá uno de los clics a otra
-altura o a otra parte del costado.
-
-> Elegir puntos mirando la figura de frente (como en la primera prueba) da planos de canto: es el
-> error más común.
+Si el programa responde «No sirve: los 3 puntos son colineales», cambiá uno de los clics a un vértice
+que no esté sobre la recta de los otros dos.
 
 ### 7.1 Dibujar la silueta del miembro
 
@@ -240,7 +227,6 @@ la figura para ver mejor el lado en el que se trabaja. Es solo una ayuda visual.
 | «No sirve: …» al elegir 3 puntos | Puntos alineados (no hacen un plano) o, en la simetría, plano no vertical |
 | Al dibujar la silueta el clic no agrega vértices («El plano se ve de canto…») | La cámara mira el plano de canto: usá la vista Frente o girá hasta verlo de cara |
 | «…la silueta se cruza consigo mismo… no se guardó» | Mové o borrá el vértice que hace el cruce; mientras no sea válido, el proyecto conserva la silueta anterior |
-| El plano de brazo/pierna se ve como una línea fina en la vista Frente | Está de canto: los puntos se eligieron mirando de frente. Rehacerlo desde la vista Izquierda (ver §7) |
 | La coronilla no se deja marcar | Ya hay simetría o miembros; quitalos primero |
 | La figura se ve de espaldas en «Frente» | Cambiar «Frente hacia» a −Y (borra los planos) |
 

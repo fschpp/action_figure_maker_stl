@@ -18,8 +18,11 @@ import trimesh
 
 from .. import meshio, pipeline as P, solids as S
 from ..limbs import LimbSpec, check_limb_plane
+
 from ..planes import Plane
 from ..project import Project
+
+ARM_SLAB_MM = 12 * 1.653      # losa del brazo: 12 mm del tutorial a la escala final (plan §5.1)
 from ..trims import Trim
 
 FLIP_Z = np.array([[-1, 0, 0, 0], [0, -1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]], float)
@@ -120,13 +123,20 @@ class Session:
     def limb(self, name: str) -> LimbSpec | None:
         return next((l for l in self.project.limbs if l.name == name), None)
 
-    def add_limb(self, name: str, kind: str, plane: Plane, thickness: float = 100.0, auto: bool = True) -> LimbSpec:
+    def add_limb(self, name: str, kind: str, plane: Plane, thickness: float | None = None, auto: bool = True,
+                 extrude: str | None = None) -> LimbSpec:
+        """Por defecto el brazo usa una losa «outward» de ARM_SLAB_MM (12 mm del tutorial × 1,653 de
+        reescala) y la pierna un prisma simétrico de 100 mm (cubre toda la circunferencia de la cadera)."""
+        if extrude is None:
+            extrude = "outward" if kind == "arm" else "symmetric"
+        if thickness is None:
+            thickness = ARM_SLAB_MM if extrude == "outward" else 100.0
         if kind not in ("arm", "leg"):
             raise ValueError("kind debe ser 'arm' o 'leg'")
         if self.limb(name):
             raise ValueError(f"Ya existe un miembro llamado {name!r}")
         check_limb_plane(plane)
-        spec = LimbSpec(name, kind, plane, np.zeros((0, 3)), thickness, auto=auto)
+        spec = LimbSpec(name, kind, plane, np.zeros((0, 3)), thickness, auto=auto, extrude=extrude)
         self.project.limbs.append(spec)
         self.outcome = None
         return spec
