@@ -17,7 +17,7 @@ import numpy as np
 import trimesh
 
 from .. import meshio, pipeline as P, solids as S
-from ..limbs import LimbSpec
+from ..limbs import LimbSpec, check_limb_plane
 from ..planes import Plane
 from ..project import Project
 from ..trims import Trim
@@ -125,6 +125,7 @@ class Session:
             raise ValueError("kind debe ser 'arm' o 'leg'")
         if self.limb(name):
             raise ValueError(f"Ya existe un miembro llamado {name!r}")
+        check_limb_plane(plane)
         spec = LimbSpec(name, kind, plane, np.zeros((0, 3)), thickness, auto=auto)
         self.project.limbs.append(spec)
         self.outcome = None

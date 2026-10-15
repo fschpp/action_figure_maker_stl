@@ -422,10 +422,10 @@ class Controller:
         name = self.unique_name(kind)
         try:
             plane = Session.plane_from_points(pts, name)
+            self.session.add_limb(name, kind, plane)      # rechaza planos de canto
         except ValueError as e:
             self._changed(f"No sirve: {e}. Elegí 3 puntos de nuevo.")
             return
-        self.session.add_limb(name, kind, plane)
         self.mode, self.pending_kind = Mode.VIEW, None
         self._changed(f"Plano «{name}» agregado. Falta dibujar su silueta.")
 

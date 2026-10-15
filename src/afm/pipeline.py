@@ -9,7 +9,7 @@ import numpy as np
 import trimesh
 
 from . import solids as S
-from .limbs import LimbSpec, ContactFace, separate_limb
+from .limbs import LimbSpec, ContactFace, check_limb_plane, separate_limb
 from .params import Params
 from .pins import mushroom_pin
 from .planes import Plane
@@ -75,6 +75,8 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
     """Construye las piezas. `body` debe estar normalizado y con el plano de simetría en x = 0."""
     say = progress or (lambda *_: None)
     trims = trims or []
+    for spec in limbs:
+        check_limb_plane(spec.plane)       # falla rápido: un plano de canto da piezas inservibles
     half = body.trim_by_plane((1.0, 0.0, 0.0), 0.0)          # lado de trabajo (+X)
     torso_half = half
     built: dict[str, dict] = {}
@@ -142,8 +144,7 @@ def _decimate_keeping_clearance(pieces: dict, p: Params, tol: float = 0.02) -> S
 # ------------------------------------------------------------------ validación
 def _nonmanifold_edges(mf: S.Manifold) -> int:
     """Aristas con != 2 caras tras soldar vértices coincidentes (lo que ve un slicer al leer el STL)."""
-    tm = S.to_trimesh(mf)
-    tm.merge_vertices()
+    tm = S.to_printable_trimesh(mf)      # la misma malla que se escribe en el STL
     _, counts = np.unique(tm.edges_sorted, axis=0, return_counts=True)
     return int((counts != 2).sum())
 
@@ -221,7 +222,7 @@ def export(res: BuildResult, outdir: str, name: str = "figura", orient: bool = F
                                "base_mm2": round(o.base_area, 2), "angulo_max": max_angle}
     meshes = []
     for part, mf in res.pieces.items():
-        tm = S.to_trimesh(mf)
+        tm = S.to_printable_trimesh(mf)
         if T is not None:
             tm.apply_transform(T)
         tm.export(os.path.join(outdir, "piezas", f"{name}_{part}.stl"))

@@ -37,6 +37,26 @@ def to_trimesh(mf: Manifold) -> trimesh.Trimesh:
     )
 
 
+def to_printable_trimesh(mf: Manifold, tol: float = 1e-3) -> trimesh.Trimesh:
+    """Malla lista para escribir a STL: lo que un slicer ve al soldar vértices por posición.
+
+    manifold3d puede dejar vértices duplicados en una misma posición y triángulos de área cero
+    (colapsados sobre una arista). Al escribir el STL y soldar por posición, esos triángulos quedan
+    con un índice repetido y generan aristas con más de 2 caras («non-manifold edge» en el slicer).
+    Acá se simplifica con una tolerancia muy por debajo de la resolución de impresión (`tol`, mm),
+    se sueldan los vértices coincidentes y se descartan las caras con un índice repetido.
+    No se borran las caras de área cero «colineales»: sostienen la topología (borrarlas abre agujeros).
+    """
+    tm = to_trimesh(mf.simplify(tol) if tol and tol > 0 else mf)
+    tm.merge_vertices()
+    f = tm.faces
+    keep = (f[:, 0] != f[:, 1]) & (f[:, 1] != f[:, 2]) & (f[:, 0] != f[:, 2])
+    if not keep.all():
+        tm.update_faces(keep)
+        tm.remove_unreferenced_vertices()
+    return tm
+
+
 def union(*parts: Manifold) -> Manifold:
     return Manifold.batch_boolean(list(parts), m3.OpType.Add)
 

@@ -10,6 +10,19 @@ from . import solids as S
 from .planes import Plane
 
 
+def check_limb_plane(plane: Plane, min_frontal: float = 0.5) -> None:
+    """El plano de la silueta de un brazo/pierna tiene que ser **frontal** (normal ≈ ±Y, el frente de
+    la figura mira a +Y). Un plano de canto (normal ≈ ±X, el costado) extruye la silueta a lo ancho de
+    todo el cuerpo: el «brazo» se lleva el torso y las piezas se interpenetran (error más común, ver
+    docs/tutorial_gui.md §7). Lanza ValueError si |n·Y| < `min_frontal`."""
+    ny = abs(float(np.asarray(plane.normal, float)[1]))
+    if ny < min_frontal:
+        raise ValueError(
+            f"el plano «{plane.name or 'sin nombre'}» está de canto (|n·Y| = {ny:.2f}): la silueta de un "
+            "brazo/pierna se dibuja sobre un plano frontal (normal ≈ ±Y). Elegí los 3 puntos desde la "
+            "vista Izquierda/Derecha, en una misma línea vertical (docs/tutorial_gui.md §7)")
+
+
 @dataclass
 class LimbSpec:
     """Definición de un miembro del lado de trabajo (izquierdo, +X)."""
