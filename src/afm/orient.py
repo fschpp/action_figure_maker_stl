@@ -15,16 +15,24 @@ class OrientResult:
     label: str
 
 
-def overhang_area(mesh: trimesh.Trimesh, max_angle: float = 45.0, floor_tol: float = 0.05) -> float:
-    """Área de caras que miran hacia abajo más allá de `max_angle` (medido desde la vertical),
-    sin contar las que apoyan en la cama (z ≈ mínimo)."""
+def overhang_mask(mesh: trimesh.Trimesh, max_angle: float = 45.0, floor_tol: float = 0.05) -> np.ndarray:
+    """Máscara booleana por cara: True si la cara es voladizo.
+
+    `max_angle` es el ángulo tolerado de la pared **respecto de la vertical**: una pared vertical es
+    0° (se imprime sin soporte) y un techo horizontal es 90° (el peor caso). Una cara mirando hacia
+    abajo con normal n forma con la vertical un ángulo φ tal que -n_z = sen φ; es voladizo si
+    φ > max_angle. Las caras apoyadas en la cama (z ≈ mínimo) no cuentan.
+    """
     n = mesh.face_normals
     zmin = mesh.bounds[0][2]
-    down = -n[:, 2] > np.cos(np.radians(max_angle))   # cos(angulo desde -Z) mayor que el límite
-    steep = (-n[:, 2] > 0) & ~down
-    # caras a ras de la cama no son voladizo
+    steep = -n[:, 2] > np.sin(np.radians(max_angle))
     on_bed = mesh.triangles[:, :, 2].max(axis=1) < zmin + floor_tol
-    return float(mesh.area_faces[steep & ~on_bed].sum())
+    return steep & ~on_bed
+
+
+def overhang_area(mesh: trimesh.Trimesh, max_angle: float = 45.0, floor_tol: float = 0.05) -> float:
+    """Área (mm²) de las caras voladizas (ver `overhang_mask`)."""
+    return float(mesh.area_faces[overhang_mask(mesh, max_angle, floor_tol)].sum())
 
 
 def base_area(mesh: trimesh.Trimesh, tol: float = 0.05) -> float:

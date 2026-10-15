@@ -1,22 +1,25 @@
 # Progreso del desarrollo
 
 ## Current Focus
-Fase 2 (visor y planos): la ventana GTK4 **abre y dibuja la figura** en el equipo del cliente (Debian 13, GTK 4.18; captura con Güemes, 2026-10-14 23:50). Falta que el cliente pruebe orbitar/zoom, los clics de 3 puntos, los planos y guardar; después, dibujar siluetas de miembros dentro de la GUI.
-_Última actualización: 2026-10-14 23:58 (America/Argentina/Buenos_Aires), rama `main`. 58 tests pasan._
+Fase 2 (visor y planos): ya se puede **dibujar la silueta de cada miembro sobre su plano** (clics sobre el plano, contorno de la figura como guía, mover/insertar/borrar vértices) y ver los **voladizos** en rojo; falta que el cliente lo pruebe en GTK real (nada de esto se pudo abrir con GTK acá). Después: botón «Generar» y propuesta automática de siluetas.
+_Última actualización: 2026-10-15 00:39 (America/Argentina/Buenos_Aires), rama `main`. 78 tests pasan, 4 omitidos (sin OpenGL/EGL en el entorno de desarrollo)._
 
 ## Todo List
 ### [ ] Todo
-- [ ] Abrir `afm-gui` con GTK4 real y corregir lo que falle (ver Blockers)
-- [ ] GUI: editor de polígono de silueta por miembro (hoy `Session.silhouette` calcula el contorno pero no hay edición) y botón «Generar»
-- [ ] GUI: mostrar voladizos (`orient`) en la vista previa
+- [ ] Abrir `afm-gui` con GTK4 real y corregir lo que falle (ver Blockers); **probar en especial** el modo «dibujar silueta» (clic, elegir/mover vértice, insertar en borde, Intro/Retroceso/Supr) y la casilla de voladizos
+- [ ] GUI: botón «Generar» (llamar `Session.build`/`export`, mostrar validación y exportar piezas)
+- [ ] GUI: voladizos sobre las piezas ya cortadas / en la pose sentada (hoy es una referencia sobre la figura entera)
 - [ ] Propuesta automática de siluetas (§8.3 / §8.5)
 - [ ] Detectar y quitar automáticamente las láminas finas/rebabas típicas de Hunyuan3D (hoy son `Trim` manuales por figura) — el cliente pidió **no hacerlo por ahora**
 - [ ] GUI Fases 3–5 (un lado + espejado en vivo, límite de cadera/sentada/recortes/probetas, empaquetado)
 ### [/] In Progress
-- [/] GUI Fase 2: `controller.py` + `window.py` + `app.py` con tests del controlador; la ventana abre y muestra la figura en el equipo del cliente; falta probar la interacción (clics, planos, guardar/abrir proyecto)
+- [/] GUI Fase 2: `controller.py` + `window.py` + `app.py` con tests del controlador; la ventana abre y muestra la figura en el equipo del cliente; falta probar la interacción (clics, planos, siluetas, voladizos, guardar/abrir proyecto)
 - [/] Validar el cociente R/3 del pasador de cadera: Güemes y Belgrano no tienen pieza hecha a mano; falta una referencia real
 - [/] Belgrano: primera pasada válida; revisar con el cliente el corte de cadera bajo el abrigo (z 38–48) y el del hombro (x = 11)
 ### [x] Done
+- [x] **Editor de siluetas en la GUI (2026-10-15):** `afm.gui.polygon_editor` (`PolygonDraft`, `ray_plane_uv`; lógica pura, 7 tests) + modo `Mode.POLYGON` en `Controller` (`start_polygon`, `close_polygon`, `clear_polygon`, `use_outline_as_base`, `guide_outline`; guardado en el proyecto al instante si el polígono es válido) + ventana (lápiz por miembro en la lista de planos, panel «Silueta del miembro», Intro/Retroceso/Supr). 11 tests del controlador con clics reales proyectados por la cámara + 1 de `sync` con escena falsa. Documentado en `docs/tutorial_gui.md` §7.1
+- [x] **Voladizos en la GUI (2026-10-15):** casilla «Mostrar voladizos de impresión (rojo)» y ángulo máximo; `Controller.overhang_faces` usa `best_orientation` sobre la figura entera y pinta las caras voladizas (la malla se parte en `figura` + `voladizos`, sin z-fighting)
+- [x] **Corregido `orient.overhang_area` (estaba invertido):** contaba pendientes suaves y no los techos horizontales. Nuevo `orient.overhang_mask`; tests de regresión (T con techo, conos de pared suave/empinada, `max_angle`)
 - [x] `afm.gui.controller.Controller` (sin GTK): modos coronilla / plano de simetría / plano de miembro con 3 clics, deshacer y cancelar, lista de planos (mostrar/ocultar/quitar), «un solo lado», frente +Y/−Y, abrir/guardar proyecto y volcado a `SceneRenderer`; 13 tests (`tests/test_gui_controller.py`)
 - [x] `afm.gui.window` (GTK4: `Gtk.GLArea` + moderngl, barra lateral, arrastre = orbitar, Mayús/botón medio = desplazar, rueda = zoom, clic corto = elegir punto) y `afm.gui.app` (entrada `afm-gui`, mensaje claro si falta GTK); 2 tests (`tests/test_gui_app.py`)
 - [x] `orient` en la exportación por CLI: ya estaba (`afm build --orient --max-angle`); lo pendiente era solo la vista en la GUI
@@ -27,6 +30,10 @@ _Última actualización: 2026-10-14 23:58 (America/Argentina/Buenos_Aires), rama
 - [x] Güemes con `auto=True`: pieza válida, torso 1 componente, holguras 0,474–0,476 mm (manual: 0,476–0,477)
 
 ## Latest Blockers/Discoveries
+- **Bug de `orient` corregido (2026-10-15):** `overhang_area` marcaba como voladizo `-n_z <= cos(ángulo)` (pendientes suaves) y dejaba fuera los techos horizontales. Un cono con la pared a 26,6° de la vertical daba ~700 mm² de voladizo y un techo horizontal 0. Ahora es `-n_z > sen(ángulo)` (ángulo de la pared respecto de la vertical, igual que `--max-angle`). **Consecuencia:** `afm build --orient` puede elegir otra orientación que antes y el `voladizo_mm2` del informe cambia; las exportaciones hechas antes del arreglo con `--orient` conviene regenerarlas.
+- **Edición de silueta (2026-10-15):** los clics caen en el plano del miembro (intersección rayo-plano), no en la malla; si el plano se ve de canto desde la cámara no se agrega nada y se avisa. Los cambios sobre un polígono cerrado se guardan al instante; un polígono que se cruza o no tiene área **no** se guarda (el proyecto conserva la silueta anterior). Esc descarta solo el borrador abierto, no lo ya guardado.
+- **GTK4/OpenGL no verificable acá (2026-10-15):** `window.py` solo pasó `py_compile`, y los tests de `sync` con OpenGL se omiten en este entorno (no hay EGL); la lógica de `sync` de siluetas se prueba con una escena falsa.
+- **Push a GitHub no disponible desde este entorno (2026-10-15):** `git push` falla (`could not read Username`): no hay credenciales. Los commits están hechos en el clon local; hay que empujarlos desde una máquina con acceso.
 - **Primer intento del cliente en su equipo (2026-10-14 23:47):** `afm-gui` falló con `No module named 'gi'`: su `python3` del PATH es 3.12 y `python3-gi` de Debian 13 es para 3.13. Con `/usr/bin/python3 -m venv --system-site-packages .venv` la ventana abrió y muestra la figura (2026-10-14 23:50).
 - **GTK4 no se pudo probar acá (2026-10-14 23:50):** en el entorno de desarrollo `import gi` falla con Python 3.13 (`python3-gi` está compilado para 3.12) y con 3.12 falta el typelib (`Namespace Gtk not available`; no hay `gir1.2-gtk-4.0`). `window.py` solo pasó `py_compile`. Hay `Xvfb` y EGL offscreen funciona (los tests del renderer y de `Controller.sync` dibujan de verdad). Riesgos a revisar al abrirla: `Gtk.GLArea` + `moderngl.create_context()` / `detect_framebuffer()`, `Gtk.FileDialog`/`Gtk.AlertDialog` (GTK ≥ 4.10), `GestureDrag` con botón 0.
 - **Decisión de arquitectura:** toda la lógica de la ventana vive en `Controller` (sin GTK) para poder probarla; `window.py` solo traduce eventos y dibuja. Se ve y se elige siempre sobre `session.work` (simetría en x = 0), que es el marco de los planos de miembro.

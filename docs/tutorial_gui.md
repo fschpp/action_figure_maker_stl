@@ -148,6 +148,34 @@ altura o a otra parte del costado.
 > Elegir puntos mirando la figura de frente (como en la primera prueba) da planos de canto: es el
 > error más común.
 
+### 7.1 Dibujar la silueta del miembro
+
+La silueta es el polígono que separa el brazo o la pierna del resto del cuerpo. Se dibuja **sobre el
+plano del miembro**, así que primero ponete en la vista **Frente** (el plano se tiene que ver de cara).
+
+1. En **Planos**, apretá el lápiz (**Dibujar / editar la silueta**) del miembro. Aparece, en gris, el
+   **contorno de la figura proyectado sobre ese plano** (solo el lado de trabajo, x ≥ 0): es la guía para
+   calcar encima.
+2. **Clic = vértice.** El clic no busca la malla: cae sobre el plano del miembro. Poné los vértices
+   rodeando el miembro, **del lado del torso por donde querés que se corte** (ahí quedará la cara de
+   contacto del pasador).
+3. **Cerrar:** clic sobre el primer vértice, **Intro** o **Cerrar polígono**. Hacen falta al menos 3.
+   Retroceso deshace el último vértice mientras dibujás.
+4. Ya cerrado, cada cambio **se guarda en el proyecto al instante**:
+   * clic cerca de un vértice lo **elige** (se ve en rojo) y el **siguiente clic en el plano lo mueve**;
+     un clic en el mismo vértice lo suelta;
+   * clic sobre un **borde** agrega un vértice ahí;
+   * con un vértice elegido, **Retroceso** (o Supr) lo borra (mínimo 3).
+5. **Empezar desde el contorno de la figura** carga el contorno exterior más grande como polígono base
+   (simplificado a ~0,6 mm) para que lo recortes moviendo y borrando vértices.
+   **Vaciar y redibujar** lo borra. **Esc** o **Terminar edición** sale del modo.
+
+Si el polígono **se cruza consigo mismo** (un «moño») o queda sin área, el Estado lo avisa y **no se
+guarda** hasta que lo corrijas. Si el plano se ve de canto desde la vista actual, el clic no agrega
+nada y el Estado te pide girar la cámara. Las siluetas ya guardadas se dibujan en amarillo; el ojo de la
+lista de planos las muestra u oculta junto con su plano. «Pendiente» deja de listar al miembro cuando
+tiene su silueta.
+
 ## 8. Lista de planos
 
 Debajo de los botones aparece la lista de planos creados: **Simetría** y uno por cada miembro.
@@ -193,20 +221,23 @@ la figura para ver mejor el lado en el que se trabaja. Es solo una ayuda visual.
 | Error de OpenGL al abrir | Hace falta OpenGL 3.3 o superior: revisá el driver de video y `libgl1` |
 | «El clic no tocó la figura» | El clic cayó en el fondo; apuntá sobre la malla |
 | «No sirve: …» al elegir 3 puntos | Puntos alineados (no hacen un plano) o, en la simetría, plano no vertical |
+| Al dibujar la silueta el clic no agrega vértices («El plano se ve de canto…») | La cámara mira el plano de canto: usá la vista Frente o girá hasta verlo de cara |
+| «…la silueta se cruza consigo mismo… no se guardó» | Mové o borrá el vértice que hace el cruce; mientras no sea válido, el proyecto conserva la silueta anterior |
 | El plano de brazo/pierna se ve como una línea fina en la vista Frente | Está de canto: los puntos se eligieron mirando de frente. Rehacerlo desde la vista Izquierda (ver §7) |
 | La coronilla no se deja marcar | Ya hay simetría o miembros; quitalos primero |
 | La figura se ve de espaldas en «Frente» | Cambiar «Frente hacia» a −Y (borra los planos) |
 
 ## Lo que falta en la interfaz
 
-Esta versión de la ventana **define planos y guarda el proyecto**, pero todavía no:
+Esta versión de la ventana **define planos, dibuja las siluetas de los miembros y guarda el proyecto**
+(también puede mostrar los **voladizos** de impresión en rojo sobre la figura entera, con la casilla de la
+barra lateral). Todavía no:
 
-* **dibuja la silueta** de cada miembro (el polígono que recorta brazo o pierna);
 * tiene el botón **Generar** ni exporta las piezas;
-* muestra los **voladizos** de impresión ni la pose sentada en vivo.
+* propone las siluetas automáticamente (hoy se calcan a mano; el contorno de la figura sirve de base);
+* muestra los voladizos sobre las piezas ya cortadas ni la pose sentada en vivo.
 
-Mientras tanto, la silueta se escribe a mano en el proyecto (campo `polygon` de cada miembro: puntos
-`[x, y, z]` sobre su plano, ver `examples/*.py`) y la figura se genera con la línea de comandos:
+Mientras tanto, la figura se genera con la línea de comandos a partir del proyecto guardado:
 
 ```bash
 afm build figura.stl figura.proyecto --out out/figura --orient
