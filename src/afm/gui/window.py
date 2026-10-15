@@ -18,7 +18,7 @@ from .render import SceneRenderer  # noqa: E402
 
 DRAG_THRESHOLD_PX = 4.0
 _MODE_TITLES = {Mode.VIEW: "", Mode.CROWN: "  ·  marcando coronilla", Mode.SYMMETRY: "  ·  plano de simetría",
-                Mode.LIMB_PLANE: "  ·  plano de un miembro"}
+                Mode.LIMB_PLANE: "  ·  plano de un miembro", Mode.POLYGON: "  ·  dibujando silueta"}
 
 
 def _section(title: str) -> Gtk.Label:
@@ -106,6 +106,16 @@ class MainWindow(Gtk.ApplicationWindow):
         self.chk_side = Gtk.CheckButton(label="Trabajar un solo lado (oculta x < 0)")
         self.chk_side.connect("toggled", lambda b: None if self._updating else self.ctrl.set_one_side(b.get_active()))
         box.append(self.chk_side)
+        self.chk_over = Gtk.CheckButton(label="Mostrar voladizos de impresión (rojo)")
+        self.chk_over.connect("toggled", lambda b: None if self._updating else self.ctrl.set_show_overhangs(b.get_active()))
+        box.append(self.chk_over)
+        row = Gtk.Box(spacing=6)
+        row.append(Gtk.Label(label="Ángulo máximo desde la vertical (°)"))
+        self.spin_over = Gtk.SpinButton.new_with_range(10, 80, 5)
+        self.spin_over.set_value(self.ctrl.overhang_angle)
+        self.spin_over.connect("value-changed", lambda b: None if self._updating else self.ctrl.set_overhang_angle(b.get_value()))
+        row.append(self.spin_over)
+        box.append(row)
 
         box.append(_section("Planos"))
         self.btn_sym = self._button("Plano de simetría (3 puntos)", lambda *_: self.ctrl.start_symmetry())
@@ -121,6 +131,20 @@ class MainWindow(Gtk.ApplicationWindow):
         self.planes_box = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
         self.planes_box.add_css_class("boxed-list")
         box.append(self.planes_box)
+
+        box.append(_section("Silueta del miembro"))
+        hint2 = Gtk.Label(label="Elegí «Dibujar silueta» (lápiz) en un plano de la lista. Clic = vértice sobre el plano; "
+                                "cerrá con un clic en el primero o con Intro. Ya cerrado: clic en un vértice y luego "
+                                "clic para moverlo; clic sobre un borde agrega uno; Retroceso borra el elegido.",
+                          xalign=0, wrap=True)
+        hint2.add_css_class("dim-label")
+        box.append(hint2)
+        self.btn_close_poly = self._button("Cerrar polígono (Intro)", lambda *_: self.ctrl.close_polygon())
+        self.btn_outline = self._button("Empezar desde el contorno de la figura", lambda *_: self.ctrl.use_outline_as_base())
+        self.btn_clear_poly = self._button("Vaciar y redibujar", lambda *_: self.ctrl.clear_polygon())
+        self.btn_end_poly = self._button("Terminar edición de silueta (Esc)", lambda *_: self.ctrl.cancel())
+        for b in (self.btn_close_poly, self.btn_outline, self.btn_clear_poly, self.btn_end_poly):
+            box.append(b)
 
         box.append(_section("Vista"))
         views = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=3, column_spacing=4,
@@ -157,19 +181,25 @@ class MainWindow(Gtk.ApplicationWindow):
         try:
             self.lbl_status.set_text(ctrl.message)
             probs = ctrl.problems()
-            self.lbl_problems.set_text("Pendiente: " + "; ".join(probs) if probs else "Listo para dibujar siluetas.")
+            self.lbl_problems.set_text("Pendiente: " + "; ".join(probs) if probs else "Siluetas completas.")
             title = "Action Figure Maker"
             if ctrl.session.stl_path:
                 title += " — " + os.path.basename(ctrl.session.stl_path)
             self.set_title(title + _MODE_TITLES[ctrl.mode])
             loaded = ctrl.loaded
-            for b in (self.btn_crown, self.btn_sym, self.btn_sym_auto, self.btn_save, self.dd_front, self.chk_side):
+            for b in (self.btn_crown, self.btn_sym, self.btn_sym_auto, self.btn_save, self.dd_front, self.chk_side,
+                      self.chk_over, self.spin_over):
                 b.set_sensitive(loaded)
             has_sym = ctrl.session.project.symmetry is not None
             self.btn_arm.set_sensitive(loaded and has_sym)
             self.btn_leg.set_sensitive(loaded and has_sym)
             self.chk_side.set_sensitive(loaded and has_sym)
             self.chk_side.set_active(ctrl.one_side)
+            self.chk_over.set_active(ctrl.show_overhangs)
+            editing = ctrl.mode == Mode.POLYGON
+            for b in (self.btn_close_poly, self.btn_outline, self.btn_clear_poly, self.btn_end_poly):
+                b.set_sensitive(editing)
+            self.spin_over.set_value(ctrl.overhang_angle)
             self.dd_front.set_selected(0 if ctrl.session.project.front == "+Y" else 1)
             self._rebuild_plane_list()
         finally:
@@ -188,6 +218,11 @@ class MainWindow(Gtk.ApplicationWindow):
             row.append(vis)
             lab = Gtk.Label(label=e.label, xalign=0, hexpand=True)
             row.append(lab)
+            if e.kind in ("arm", "leg"):
+                ed = Gtk.Button(icon_name="document-edit-symbolic", tooltip_text="Dibujar / editar la silueta")
+                ed.add_css_class("flat")
+                ed.connect("clicked", lambda _b, pid=e.id: self.ctrl.start_polygon(pid))
+                row.append(ed)
             rm = Gtk.Button(icon_name="edit-delete-symbolic", tooltip_text="Quitar plano")
             rm.add_css_class("flat")
             rm.connect("clicked", lambda _b, pid=e.id: self.ctrl.remove_plane(pid))
@@ -261,8 +296,11 @@ class MainWindow(Gtk.ApplicationWindow):
         if keyval == Gdk.KEY_Escape:
             self.ctrl.cancel()
             return True
-        if keyval == Gdk.KEY_BackSpace:
+        if keyval in (Gdk.KEY_BackSpace, Gdk.KEY_Delete):
             self.ctrl.undo_point()
+            return True
+        if keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter) and self.ctrl.mode == Mode.POLYGON:
+            self.ctrl.close_polygon()
             return True
         return False
 
