@@ -327,6 +327,20 @@ class Controller:
         d.pts, d.closed, d.selected = [p.copy() for p in ring], True, None
         self._commit_polygon("Contorno de la figura usado como base; recortalo moviendo/borrando vértices")
 
+    def propose_silhouette(self, crotch_z: float | None = None) -> None:
+        """Reemplaza el borrador por la silueta que propone el programa para el miembro en edición."""
+        d = self.draft
+        if self.mode != Mode.POLYGON or d is None or self.edit_limb is None:
+            return
+        try:
+            poly = self.session.propose_silhouette(self.edit_limb, crotch_z)
+        except (ValueError, KeyError) as e:
+            self._changed(str(e), scene=False)
+            return
+        self.draft = PolygonDraft.from_world(d.plane, poly)
+        self._changed("Silueta propuesta: revisala y corregí los vértices que haga falta (en piernas con abrigo o "
+                      "faldón largo suele convenir subir la cadera).")
+
     # ------------------------------------------------------------- voladizos
     def overhang_faces(self) -> tuple[np.ndarray, OrientResult] | None:
         """Máscara de caras voladizas de ``session.work`` y la orientación de impresión usada.

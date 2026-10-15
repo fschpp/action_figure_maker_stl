@@ -157,6 +157,14 @@ plano del miembro**, así que primero ponete en la vista **Frente** (el plano se
    (simplificado a ~0,6 mm) para que lo recortes moviendo y borrando vértices.
    **Vaciar y redibujar** lo borra. **Esc** o **Terminar edición** sale del modo.
 
+6. **Proponer silueta automática** reemplaza el borrador por la que calcula el programa a partir de cortes
+   horizontales de la figura: la mano hasta el hombro para un brazo; la columna de la pierna hasta la
+   entrepierna más un trozo de cadera (x > 7 mm, 10 mm hacia arriba) para una pierna. Es un **punto de
+   partida**: revisala y mové los vértices que haga falta. Avisa si el miembro no queda separado del tronco
+   en ningún tramo (entonces hay que dibujarla a mano) o si el plano se ve de canto respecto del frente.
+   **Con abrigo o faldón largo** (Belgrano, Azurduy) la pierna propuesta arranca en el borde de la prenda,
+   unos 8 mm más abajo que la cadera real: subí los vértices de la cadera a mano.
+
 Si el polígono **se cruza consigo mismo** (un «moño») o queda sin área, el Estado lo avisa y **no se
 guarda** hasta que lo corrijas. Si el plano se ve de canto desde la vista actual, el clic no agrega
 nada y el Estado te pide girar la cámara. Las siluetas ya guardadas se dibujan en amarillo; el ojo de la
@@ -236,7 +244,7 @@ Esta versión de la ventana **define planos, dibuja las siluetas, genera la figu
 (también puede mostrar los **voladizos** de impresión en rojo sobre la figura entera, con la casilla de la
 barra lateral). Todavía no:
 
-* propone las siluetas automáticamente (hoy se calcan a mano; el contorno de la figura sirve de base);
+* acierta solo la altura de la cadera cuando hay abrigo o faldón largo (la silueta propuesta se corrige a mano);
 * muestra los voladizos sobre las piezas ya cortadas ni la pose sentada en vivo.
 
 La línea de comandos sigue disponible (útil para procesar sin ventana):

@@ -141,10 +141,11 @@ class MainWindow(Gtk.ApplicationWindow):
         hint2.add_css_class("dim-label")
         box.append(hint2)
         self.btn_close_poly = self._button("Cerrar polígono (Intro)", lambda *_: self.ctrl.close_polygon())
+        self.btn_propose = self._button("Proponer silueta automática", lambda *_: self.ctrl.propose_silhouette())
         self.btn_outline = self._button("Empezar desde el contorno de la figura", lambda *_: self.ctrl.use_outline_as_base())
         self.btn_clear_poly = self._button("Vaciar y redibujar", lambda *_: self.ctrl.clear_polygon())
         self.btn_end_poly = self._button("Terminar edición de silueta (Esc)", lambda *_: self.ctrl.cancel())
-        for b in (self.btn_close_poly, self.btn_outline, self.btn_clear_poly, self.btn_end_poly):
+        for b in (self.btn_close_poly, self.btn_propose, self.btn_outline, self.btn_clear_poly, self.btn_end_poly):
             box.append(b)
 
         box.append(_section("Generar"))
@@ -215,7 +216,7 @@ class MainWindow(Gtk.ApplicationWindow):
             self.btn_generate.set_sensitive(loaded and not ctrl.busy)
             self.btn_export.set_sensitive(ctrl.session.outcome is not None and not ctrl.busy)
             editing = ctrl.mode == Mode.POLYGON
-            for b in (self.btn_close_poly, self.btn_outline, self.btn_clear_poly, self.btn_end_poly):
+            for b in (self.btn_close_poly, self.btn_propose, self.btn_outline, self.btn_clear_poly, self.btn_end_poly):
                 b.set_sensitive(editing)
             self.spin_over.set_value(ctrl.overhang_angle)
             self.dd_front.set_selected(0 if ctrl.session.project.front == "+Y" else 1)
