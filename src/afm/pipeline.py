@@ -199,13 +199,34 @@ def validate(res: BuildResult, p: Params, limbs: list[LimbSpec], sit: bool = Tru
 
 
 # ----------------------------------------------------------------- exportación
-def export(res: BuildResult, outdir: str, name: str = "figura") -> dict:
+def print_orientation(res: BuildResult, max_angle: float = 45.0, extra_tilts=(0.0,)):
+    """Orientación de impresión del conjunto armado (§8.7). Todas las piezas comparten la misma
+    transformación para seguir en un único sistema de coordenadas."""
+    from .orient import best_orientation
+    asm = trimesh.util.concatenate([S.to_trimesh(mf) for mf in res.pieces.values()])
+    return best_orientation(asm, max_angle, extra_tilts)
+
+
+def export(res: BuildResult, outdir: str, name: str = "figura", orient: bool = False,
+           max_angle: float = 45.0, extra_tilts=(0.0,)) -> dict:
+    """Escribe el ensamblado y un STL por parte. Con `orient=True` aplica a todo la orientación
+    de impresión de menor voladizo y la informa."""
     os.makedirs(os.path.join(outdir, "piezas"), exist_ok=True)
+    T = None
+    info: dict = {}
+    if orient:
+        o = print_orientation(res, max_angle, extra_tilts)
+        T = o.rotation
+        info["orientacion"] = {"etiqueta": o.label, "voladizo_mm2": round(o.overhang_area, 2),
+                               "base_mm2": round(o.base_area, 2), "angulo_max": max_angle}
     meshes = []
     for part, mf in res.pieces.items():
         tm = S.to_trimesh(mf)
+        if T is not None:
+            tm.apply_transform(T)
         tm.export(os.path.join(outdir, "piezas", f"{name}_{part}.stl"))
         meshes.append(tm)
     asm = trimesh.util.concatenate(meshes)
     asm.export(os.path.join(outdir, f"{name}_ensamblada.stl"))
-    return {"ensamblada": f"{name}_ensamblada.stl", "piezas": sorted(res.pieces)}
+    info.update({"ensamblada": f"{name}_ensamblada.stl", "piezas": sorted(res.pieces)})
+    return info
