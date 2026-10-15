@@ -1,14 +1,15 @@
 # Progreso del desarrollo
 
 ## Current Focus
-Fase 2 (visor y planos) completa en código: planos, siluetas dibujables, voladizos y ahora **Generar / Exportar** desde la GUI; falta que el cliente la pruebe en GTK real (nada de la ventana se pudo abrir acá). Después: propuesta automática de siluetas (§8.3 / §8.5) y Fases 3–5.
-_Última actualización: 2026-10-15 00:51 (America/Argentina/Buenos_Aires), rama `main` (alineada con `origin/main` tras el PR #5 + los commits de esta tanda). 82 tests pasan, 4 omitidos (sin OpenGL/EGL en el entorno de desarrollo)._
+Fase 2 completa en código y **propuesta automática de siluetas (§8.3) hecha** (`afm.autosil`, botón «Proponer silueta automática» en el modo silueta). Falta que el cliente pruebe la GUI en GTK real (nada de la ventana se pudo abrir acá) y decidir qué sigue: altura de cadera con abrigo/faldón largo, o las Fases 3–5.
+_Última actualización: 2026-10-15 17:55 (America/Argentina/Buenos_Aires), rama `main` sobre `origin/main` (8273d91, PR #8). Tests rápidos: 88 pasan + 11 nuevos de `test_autosil.py`; 4 omitidos (sin OpenGL/EGL). Los de integración pesados (`test_guemes/belgrano/azurduy/mickey`) no se corrieron en esta tanda._
 
 ## Todo List
 ### [ ] Todo
 - [ ] Abrir `afm-gui` con GTK4 real y corregir lo que falle (ver Blockers); **probar en especial** el modo «dibujar silueta» (clic, elegir/mover vértice, insertar en borde, Intro/Retroceso/Supr), la casilla de voladizos y **Generar figura** (hilo + `GLib.idle_add`) / **Exportar piezas…** (`Gtk.FileDialog.select_folder`)
 - [ ] GUI: voladizos sobre las piezas ya cortadas / en la pose sentada (hoy es una referencia sobre la figura entera)
-- [ ] Propuesta automática de siluetas (§8.3 / §8.5)
+- [ ] Altura de cadera automática con abrigo/faldón largo (hoy `crotch_z` a mano; la GUI no tiene control para eso) y silueta de pierna de Mickey (cola/botas)
+- [ ] Probar en GTK real el botón «Proponer silueta automática» (reemplaza el borrador y guarda al instante)
 - [ ] Detectar y quitar automáticamente las láminas finas/rebabas típicas de Hunyuan3D (hoy son `Trim` manuales por figura) — el cliente pidió **no hacerlo por ahora**
 - [ ] GUI Fases 3–5 (un lado + espejado en vivo, límite de cadera/sentada/recortes/probetas, empaquetado)
 ### [/] In Progress
@@ -16,6 +17,7 @@ _Última actualización: 2026-10-15 00:51 (America/Argentina/Buenos_Aires), rama
 - [/] Validar el cociente R/3 del pasador de cadera: Güemes y Belgrano no tienen pieza hecha a mano; falta una referencia real
 - [/] Belgrano: primera pasada válida; revisar con el cliente el corte de cadera bajo el abrigo (z 38–48) y el del hombro (x = 11)
 ### [x] Done
+- [x] **Propuesta automática de siluetas (2026-10-15):** `afm.autosil` (`scan`, `propose_arm`, `propose_leg`, `lift_to_plane`) por cortes horizontales a 0,5 mm: componentes conectados por altura (recortados a x ≥ 0), brazo = lo separado del tronco (borde en el medio del hueco; en el hombro fundido sigue el borde del tronco + 0,5 mm), pierna = columna hasta la entrepierna + cadera (x > 7, +10 mm). `Session.propose_silhouette`, `Controller.propose_silhouette`, botón en la ventana; 11 tests (`tests/test_autosil.py`). **Contra las siluetas a mano** (diferencia simétrica de volumen de la pieza recortada): brazo Güemes 4,2 %, Belgrano 3,5 %, Azurduy 0,6 %, Mickey 5,3 %; pierna Güemes 1,3 %; Belgrano y Azurduy 0,0 % con `crotch_z` = 38 / 42 (sin él ~30 %). Tutorial §7.1
 - [x] **Generar y Exportar en la GUI (2026-10-15):** `Controller.begin_generate` (devuelve el trabajo pesado, apto para un hilo) / `report_progress` / `finish_generate` / `generate` (síncrono) / `export`, `validation_summary`, bandera `busy` (bloquea clics y la barra lateral); ventana: botón «Generar figura» (hilo + `GLib.idle_add`), casilla «Orientar las piezas…» y «Exportar piezas…». Cualquier edición posterior invalida `Session.outcome` y hay que regenerar. 4 tests nuevos (muñeca de prueba completa: generar → validar → exportar → editar invalida). Tutorial §7.2
 - [x] **Editor de siluetas en la GUI (2026-10-15):** `afm.gui.polygon_editor` (`PolygonDraft`, `ray_plane_uv`; lógica pura, 7 tests) + modo `Mode.POLYGON` en `Controller` (`start_polygon`, `close_polygon`, `clear_polygon`, `use_outline_as_base`, `guide_outline`; guardado en el proyecto al instante si el polígono es válido) + ventana (lápiz por miembro en la lista de planos, panel «Silueta del miembro», Intro/Retroceso/Supr). 11 tests del controlador con clics reales proyectados por la cámara + 1 de `sync` con escena falsa. Documentado en `docs/tutorial_gui.md` §7.1
 - [x] **Voladizos en la GUI (2026-10-15):** casilla «Mostrar voladizos de impresión (rojo)» y ángulo máximo; `Controller.overhang_faces` usa `best_orientation` sobre la figura entera y pinta las caras voladizas (la malla se parte en `figura` + `voladizos`, sin z-fighting)
@@ -30,6 +32,9 @@ _Última actualización: 2026-10-15 00:51 (America/Argentina/Buenos_Aires), rama
 - [x] Güemes con `auto=True`: pieza válida, torso 1 componente, holguras 0,474–0,476 mm (manual: 0,476–0,477)
 
 ## Latest Blockers/Discoveries
+- **Cadera con abrigo/faldón largo (2026-10-15):** la entrepierna detectada (primer corte donde el componente interno toca x = 0) es el borde de la prenda: Belgrano 30,5 mm contra 38 a mano, Azurduy 32 contra 42. Güemes (sin prenda larga) sale bien (47,5 contra 47). Con `crotch_z` el resultado coincide al 0,0 %. No hay forma automática de saber dónde termina la prenda y empiezan las piernas; hoy se corrige moviendo vértices. `hip_x` = 7 mm y `hip_up` = 10 mm salen de los tres personajes hechos a mano (los tres coinciden), no de una medida independiente.
+- **Pierna de Mickey con la propuesta (2026-10-15):** 27,8 % de diferencia de volumen contra la manual; la cola y las botas necesitan `Trim` propios, no es un defecto de la silueta.
+- **Push a GitHub:** sigue sin haber credenciales en este entorno; ver el mensaje de la tanda.
 - **Generar corre en un hilo (2026-10-15), sin verificar con GTK real:** `Session.build` usa manifold3d/trimesh en un hilo secundario mientras la UI queda bloqueada (`ctrl.busy`, `sidebar_box.set_sensitive(False)`); la vista GL sigue dibujando `session.work` sin cambios. Si manifold3d no libera el GIL la ventana puede congelarse igual: en ese caso pasar el trabajo a un proceso (`multiprocessing`) en vez de un hilo.
 - **Sin cambios del PR #5:** `origin/main` (2b2c475) ya trae las tres tandas anteriores (orient, voladizos, siluetas) con el mismo contenido que mis commits locales; el clon se alineó con `git reset --hard origin/main` y esta tanda va encima.
 - **Bug de `orient` corregido (2026-10-15):** `overhang_area` marcaba como voladizo `-n_z <= cos(ángulo)` (pendientes suaves) y dejaba fuera los techos horizontales. Un cono con la pared a 26,6° de la vertical daba ~700 mm² de voladizo y un techo horizontal 0. Ahora es `-n_z > sen(ángulo)` (ángulo de la pared respecto de la vertical, igual que `--max-angle`). **Consecuencia:** `afm build --orient` puede elegir otra orientación que antes y el `voladizo_mm2` del informe cambia; las exportaciones hechas antes del arreglo con `--orient` conviene regenerarlas.

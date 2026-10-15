@@ -151,6 +151,29 @@ class Session:
         spec.polygon = poly
         self.outcome = None
 
+    def propose_silhouette(self, name: str, crotch_z: float | None = None) -> np.ndarray:
+        """Propone la silueta del miembro ``name`` desde cortes horizontales de ``work`` (`afm.autosil`) y\n        la guarda en su plano. ``crotch_z`` (solo piernas) fuerza la altura de la entrepierna.\n        Falla con ValueError si no se encuentra el miembro en la malla o el plano está de canto."""
+        from .. import autosil
+
+        spec = self.limb(name)
+        if spec is None:
+            raise KeyError(name)
+        if self.work is None:
+            raise ValueError("Abrí un STL")
+        key = id(self.work)
+        if getattr(self, "_slices_key", None) != key:
+            self._slices, self._slices_key = autosil.scan(self.work), key
+        if spec.kind == "arm":
+            p2 = autosil.propose_arm(self.work, self._slices)
+        else:
+            p2 = autosil.propose_leg(self.work, self._slices, crotch_z=crotch_z)
+        if p2 is None:
+            raise ValueError("No se pudo proponer la silueta: no hay un tramo donde el miembro quede separado del "
+                             "tronco. Dibujala a mano.")
+        poly = autosil.lift_to_plane(p2, spec.plane)
+        self.set_limb_polygon(name, poly)
+        return poly
+
     def remove_limb(self, name: str) -> None:
         self.project.limbs = [l for l in self.project.limbs if l.name != name]
         self.project.trims = [t for t in self.project.trims if t.target != name]
