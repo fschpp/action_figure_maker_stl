@@ -10,17 +10,13 @@ from . import solids as S
 from .planes import Plane
 
 
-def check_limb_plane(plane: Plane, min_frontal: float = 0.5) -> None:
-    """El plano de la silueta de un brazo/pierna tiene que ser **frontal** (normal ≈ ±Y, el frente de
-    la figura mira a +Y). Un plano de canto (normal ≈ ±X, el costado) extruye la silueta a lo ancho de
-    todo el cuerpo: el «brazo» se lleva el torso y las piezas se interpenetran (error más común, ver
-    docs/tutorial_gui.md §7). Lanza ValueError si |n·Y| < `min_frontal`."""
-    ny = abs(float(np.asarray(plane.normal, float)[1]))
-    if ny < min_frontal:
-        raise ValueError(
-            f"el plano «{plane.name or 'sin nombre'}» está de canto (|n·Y| = {ny:.2f}): la silueta de un "
-            "brazo/pierna se dibuja sobre un plano frontal (normal ≈ ±Y). Elegí los 3 puntos desde la "
-            "vista Izquierda/Derecha, en una misma línea vertical (docs/tutorial_gui.md §7)")
+def check_limb_plane(plane: Plane, min_frontal: float = 0.0) -> None:
+    """Ya no se rechaza ninguna orientación: el plano de un brazo/pierna es el que definen los 3 puntos
+    no colineales que eligió quien diseñó el STL (p. ej. la cara chata del hombro, que puede tener
+    cualquier normal). La única condición es que los puntos no sean colineales, y eso lo valida
+    `Plane.from_points`. Se conserva la función (y `min_frontal` opcional) por compatibilidad."""
+    if min_frontal > 0 and abs(float(np.asarray(plane.normal, float)[1])) < min_frontal:
+        raise ValueError(f"el plano «{plane.name or 'sin nombre'}» está de canto (|n·Y| < {min_frontal})")
 
 
 @dataclass
@@ -31,7 +27,11 @@ class LimbSpec:
     kind: str                      # "arm" | "leg"
     plane: Plane                   # plano de la silueta
     polygon: np.ndarray            # Nx3, vértices sobre el plano (silueta que cubre el miembro)
-    thickness: float               # espesor de la extrusión simétrica sobre el plano
+    thickness: float               # espesor de la extrusión del prisma de la silueta
+    # "symmetric": el prisma se centra en el plano (piernas: «corte al medio», 25 mm simétrico).
+    # "outward": el prisma sale del plano hacia el lado de trabajo (+X), sin atravesar el torso
+    # (brazos: losa de 12 mm del tutorial, pasos 008-009, sobre la cara chata del hombro).
+    extrude: str = "symmetric"
     contact_axis: tuple = (1.0, 0.0, 0.0)   # eje (sin signo) en que está la cara de contacto
     pin_center: tuple | None = None         # centro del pasador (opcional; si no, centroide de la cara)
     sweep_deg: tuple | None = None          # (min, max) del barrido; por defecto según el tipo
@@ -48,6 +48,7 @@ class LimbSpec:
         return {
             "name": self.name, "kind": self.kind, "plane": self.plane.to_dict(),
             "polygon": np.asarray(self.polygon).tolist(), "thickness": self.thickness,
+            "extrude": self.extrude,
             "contact_axis": list(self.contact_axis),
             "pin_center": None if self.pin_center is None else list(self.pin_center),
             "sweep_deg": None if self.sweep_deg is None else list(self.sweep_deg),
@@ -63,6 +64,7 @@ class LimbSpec:
         return cls(
             name=d["name"], kind=d["kind"], plane=Plane.from_dict(d["plane"]),
             polygon=np.asarray(d["polygon"], float), thickness=d["thickness"],
+            extrude=d.get("extrude", "symmetric"),
             contact_axis=tuple(d.get("contact_axis", (1, 0, 0))),
             pin_center=None if d.get("pin_center") is None else tuple(d["pin_center"]),
             sweep_deg=None if d.get("sweep_deg") is None else tuple(d["sweep_deg"]),
@@ -113,9 +115,23 @@ def find_contact_face(limb: S.Manifold, axis_hint, ignore_x: float | None = 0.0,
     return ContactFace(center=c, outward=bs * ax, area=float(best_area), triangles=tm.triangles[best])
 
 
+def limb_prism(spec: LimbSpec) -> S.Manifold:
+    """Prisma de la silueta. En modo «outward» se orienta la normal hacia +X (lado de trabajo), así el
+    sentido en que se eligieron los 3 puntos no importa; para un plano sin componente X se usa su normal."""
+    if spec.extrude == "outward":
+        n = np.asarray(spec.plane.normal, float)
+        if n[0] < -1e-6:
+            n = -n
+        plane = Plane.from_normal(spec.plane.origin, n, spec.plane.name)
+        return S.prism_from_polygon(plane, spec.polygon, spec.thickness, symmetric=False)
+    if spec.extrude != "symmetric":
+        raise ValueError(f"extrude debe ser 'symmetric' o 'outward', no {spec.extrude!r}")
+    return S.prism_from_polygon(spec.plane, spec.polygon, spec.thickness, symmetric=True)
+
+
 def separate_limb(half: S.Manifold, spec: LimbSpec, burr: float) -> tuple[S.Manifold, ContactFace]:
     """Recorta el miembro de la mitad del cuerpo (intersección con el prisma de la silueta)."""
-    prism = S.prism_from_polygon(spec.plane, spec.polygon, spec.thickness, symmetric=True)
+    prism = limb_prism(spec)
     limb = S.largest_component(S.intersection(half, prism))
     face = find_contact_face(limb, spec.contact_axis)
     burr = spec.burr if spec.burr is not None else burr

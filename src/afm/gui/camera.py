@@ -30,6 +30,16 @@ def perspective(fov_y_deg: float, aspect: float, near: float, far: float) -> np.
     return m
 
 
+def orthographic(half_h: float, aspect: float, near: float, far: float) -> np.ndarray:
+    """Proyección ortográfica: el tamaño en pantalla no depende de la distancia a la cámara."""
+    m = np.eye(4)
+    m[0, 0] = 1.0 / (half_h * aspect)
+    m[1, 1] = 1.0 / half_h
+    m[2, 2] = -2.0 / (far - near)
+    m[2, 3] = -(far + near) / (far - near)
+    return m
+
+
 @dataclass
 class OrbitCamera:
     """`yaw` es el acimut (90° = mirando la figura de frente, desde +Y) y `pitch` la elevación."""
@@ -40,6 +50,7 @@ class OrbitCamera:
     pitch: float = 10.0
     fov: float = 35.0
     radius: float = 100.0          # radio de la escena (para near/far)
+    ortho: bool = True             # ortográfica por defecto: sin perspectiva no se deforma lo que se elige
 
     def eye(self) -> np.ndarray:
         y, p = np.radians(self.yaw), np.radians(self.pitch)
@@ -55,6 +66,9 @@ class OrbitCamera:
 
     def proj(self, aspect: float) -> np.ndarray:
         near, far = self.clip()
+        if self.ortho:
+            # misma altura visible que la perspectiva en el objetivo, así el zoom se siente igual
+            return orthographic(self.distance * np.tan(np.radians(self.fov) / 2), aspect, near, far)
         return perspective(self.fov, aspect, near, far)
 
     def mvp(self, aspect: float) -> np.ndarray:
@@ -97,7 +111,8 @@ class OrbitCamera:
         p_far = inv @ np.array([x, y, 1.0, 1.0])
         p_near, p_far = p_near[:3] / p_near[3], p_far[:3] / p_far[3]
         d = p_far - p_near
-        return self.eye(), d / np.linalg.norm(d)
+        # en ortográfica los rayos son paralelos y salen del plano cercano, no del ojo
+        return (p_near if self.ortho else self.eye()), d / np.linalg.norm(d)
 
     def project(self, pts, width: float, height: float) -> np.ndarray:
         """Puntos del mundo -> píxeles (x, y) y profundidad NDC (columna 3)."""

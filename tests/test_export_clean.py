@@ -39,16 +39,11 @@ def test_export_pieces_are_clean(tmp_path):
     assert all(v["aristas_no_variedad"] == 0 for v in val["pieces"].values())
 
 
-def test_side_plane_is_rejected_for_limbs():
-    side = Plane.from_normal((9.66, 0, 78), (-1, 0, 0), "brazo")       # de canto: normal ≈ -X
-    with pytest.raises(ValueError, match="de canto"):
-        check_limb_plane(side)
-    check_limb_plane(Plane.from_normal((0, 0, 0), (0, 1, 0), "frontal"))
-    check_limb_plane(Plane.from_normal((0, 0, 0), (0.2, -0.95, 0.1), "casi frontal"))
-
-
-def test_build_fails_fast_on_side_plane():
-    proj = demo_project()
-    proj.limbs[0].plane = Plane.from_normal((9.66, 0, 60), (-1, 0, 0), "brazo")
-    with pytest.raises(ValueError, match="de canto"):
-        P.build(S.to_manifold(make_doll()), proj.limbs, proj.params, proj.symmetry)
+def test_any_noncollinear_points_define_a_limb_plane():
+    # la cara chata del hombro puede tener cualquier normal (incluida ±X): no se rechaza
+    for n in [(-1, 0, 0), (0, 1, 0), (0.2, -0.95, 0.1)]:
+        check_limb_plane(Plane.from_normal((9.66, 0, 78), n, "brazo"))
+    p = Plane.from_points((0, 0, 0), (0, 10, 0), (0, 0, 10), "hombro")      # normal ±X
+    check_limb_plane(p)
+    with pytest.raises(ValueError, match="colineales"):
+        Plane.from_points((0, 0, 0), (1, 1, 1), (2, 2, 2))
