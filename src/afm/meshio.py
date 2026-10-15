@@ -23,21 +23,16 @@ class LoadReport:
     warnings: list[str] = field(default_factory=list)
 
 
-def repair(mesh: trimesh.Trimesh, report: LoadReport | None = None) -> trimesh.Trimesh:
-    """Repara lo básico; si sigue sin ser variedad, remalla por voxelización."""
-    report = report or LoadReport()
+def _clean(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
     mesh = mesh.copy()
-    mesh.merge_vertices()
-    before = mesh.copy()
     mesh.update_faces(mesh.nondegenerate_faces())
     mesh.update_faces(mesh.unique_faces())
     mesh.remove_unreferenced_vertices()
-    if before.is_watertight and not mesh.is_watertight:
-        # Hay STL estancos cuyos triángulos "degenerados" sostienen la topología (Belgrano: 3): limpiarlos
-        # abriría la malla y forzaría un remallado por voxelización innecesario. Se deja la malla tal cual.
-        mesh = before
-    report.was_watertight = mesh.is_watertight
-    # quitar componentes sueltos (p. ej. triángulos huérfanos)
+    return mesh
+
+
+def _drop_loose(mesh: trimesh.Trimesh, report: LoadReport) -> trimesh.Trimesh:
+    """Quita componentes sueltos (p. ej. triángulos huérfanos)."""
     parts = mesh.split(only_watertight=False)
     if len(parts) > 1:
         big = max(len(p.faces) for p in parts)
@@ -45,26 +40,56 @@ def repair(mesh: trimesh.Trimesh, report: LoadReport | None = None) -> trimesh.T
         report.removed_components = len(parts) - len(keep)
         mesh = trimesh.util.concatenate(keep)
         mesh.merge_vertices()
+    return mesh
+
+
+def _closed_manifold(mesh: trimesh.Trimesh) -> bool:
+    """¿Lo acepta manifold3d (tras cerrar agujeros chicos)? Modifica `mesh` in situ."""
     if not mesh.is_watertight:
         trimesh.repair.fix_inversion(mesh)
         trimesh.repair.fix_normals(mesh)
         trimesh.repair.fill_holes(mesh)
-        report.repaired = True
     try:
         S.to_manifold(mesh)
+        return True
     except S.MeshNotManifold:
-        pitch = max(mesh.extents.max() / 700.0, 1e-6)
-        vox = mesh.voxelized(pitch).fill()
-        mesh = vox.marching_cubes
-        mesh.apply_transform(vox.transform)
-        mesh = mesh.copy()
-        mesh.merge_vertices()
-        trimesh.repair.fix_normals(mesh)
-        report.remeshed = True
-        report.warnings.append(
-            f"La malla no era estanca ni reparable: se remalló por voxelización (paso {pitch:.4g})."
-        )
-        S.to_manifold(mesh)  # si falla acá, que explote con mensaje claro
+        return False
+
+
+def repair(mesh: trimesh.Trimesh, report: LoadReport | None = None) -> trimesh.Trimesh:
+    """Repara lo básico; si sigue sin ser variedad, remalla por voxelización.
+
+    Se prueban dos variantes y se queda la primera que acepta manifold3d: (1) limpiando triángulos
+    degenerados/duplicados, (2) sin limpiarlos. Hay STL (Belgrano, Azurduy) cuyos triángulos «degenerados»
+    sostienen la topología: limpiarlos abre la malla y llevaba a un remallado por voxelización
+    innecesario (más de un millón de triángulos).
+    """
+    report = report or LoadReport()
+    mesh = mesh.copy()
+    mesh.merge_vertices()
+    raw = mesh.copy()
+    cleaned = _clean(mesh)
+    report.was_watertight = cleaned.is_watertight or raw.is_watertight
+    for cand in (cleaned, raw):
+        cand = _drop_loose(cand, report)
+        was_wt = cand.is_watertight
+        if _closed_manifold(cand):
+            report.repaired = not was_wt
+            return cand
+    mesh = _drop_loose(cleaned, report)
+    pitch = max(mesh.extents.max() / 700.0, 1e-6)
+    vox = mesh.voxelized(pitch).fill()
+    mesh = vox.marching_cubes
+    mesh.apply_transform(vox.transform)
+    mesh = mesh.copy()
+    mesh.merge_vertices()
+    trimesh.repair.fix_normals(mesh)
+    report.repaired = True
+    report.remeshed = True
+    report.warnings.append(
+        f"La malla no era estanca ni reparable: se remalló por voxelización (paso {pitch:.4g})."
+    )
+    S.to_manifold(mesh)  # si falla acá, que explote con mensaje claro
     return mesh
 
 
