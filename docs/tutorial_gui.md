@@ -32,7 +32,7 @@ afm-gui figura.proyecto --stl nueva/ruta/figura.stl   # si el STL cambió de lug
 
 * **Barra superior:** abrir un STL, abrir un proyecto y guardar el proyecto.
 * **Visor 3D** (izquierda): la figura y los planos.
-* **Barra lateral** (derecha): todos los controles, en cuatro secciones: Figura, Planos, Vista y Estado.
+* **Barra lateral** (derecha): todos los controles, en secciones: Figura, Planos, Silueta del miembro, Pasador de brazo / cadera, Generar, Vista y Estado.
 * **Título de la ventana:** muestra el nombre del archivo y, mientras hay una selección en curso,
   qué se está haciendo (por ejemplo «plano de simetría»).
 
@@ -175,7 +175,38 @@ nada y el Estado te pide girar la cámara. Las siluetas ya guardadas se dibujan 
 lista de planos las muestra u oculta junto con su plano. «Pendiente» deja de listar al miembro cuando
 tiene su silueta.
 
-### 7.2 Generar y exportar
+### 7.2 Colocar el pasador (brazo y cadera)
+
+El pasador tipo hongo va sobre la **cara de corte** del miembro: la cara plana que queda donde la silueta lo
+separa del torso. Si no hacés nada, el programa lo centra solo (en el círculo más grande que entra en esa cara;
+en la pierna lo sube un tercio de ese radio hacia el torso). Cuando esa posición no te sirve, podés **elegirla
+vos sobre la propia cara**:
+
+1. El miembro tiene que tener su silueta. En la lista de **Planos**, apretá el marcador
+   (**Colocar el pasador sobre la cara de corte**) de ese miembro. Puede tardar unos segundos: se corta solo ese
+   miembro para encontrar la cara.
+2. La cámara se pone **de frente a la cara de corte** y se **recorta el torso** que la tapa (solo en pantalla).
+   La cara se ve en azul con su contorno en blanco, y se dibujan:
+   * el **círculo naranja**: el vástago del pasador (Ø de hombro o de cadera, según el miembro);
+   * el **círculo amarillo**: la cabeza del hongo, para que veas cuánto ocupa;
+   * el **punto rojo**: el centro actual; el **punto verde** aparece cuando ya moviste el pasador y marca dónde
+     lo habría puesto el programa.
+3. **Clic sobre la cara** = el pasador se mueve ahí. El clic cae sobre el plano de corte, no sobre la malla, y
+   solo se acepta si el centro queda **dentro de la cara**; si no, el Estado dice «No se movió».
+   Las **flechas** lo ajustan de a 0,1 mm (con **Mayús**, 1 mm), siempre vistas de frente.
+4. El Estado informa cada vez el **margen entre el vástago y el borde de la cara**: avisa si el vástago
+   **sobresale** de la cara o queda con menos de `min_wall` (1,2 mm) de pared.
+5. **Volver a la posición automática** descarta lo elegido. **Mirar la cara de frente** vuelve la cámara a su
+   lugar si orbitaste. **Esc** o **Terminar colocación del pasador** sale del modo y **conserva** lo elegido.
+
+Lo que elegís se guarda en el proyecto (`pin_center` del miembro) y se usa al **generar**. Un punto naranja
+marca en el visor los pasadores elegidos a mano. Cualquier cambio invalida el resultado: hay que generar de nuevo.
+Si después **cambiás la silueta**, la cara de corte puede moverse: volvé a abrir el modo y revisá el pasador.
+Al generar, el informe (`pin_margin_mm`) y la validación repiten el aviso si el vástago no entra en la cara.
+
+En la **pierna**, el recorte redondeado del extremo de cadera sigue siendo el automático; mover el pasador no lo cambia.
+
+### 7.3 Generar y exportar
 
 Con la simetría definida y cada miembro con su silueta, el Estado deja de listar pendientes y se puede:
 
@@ -239,6 +270,9 @@ la figura para ver mejor el lado en el que se trabaja. Es solo una ayuda visual.
 | «No sirve: …» al elegir 3 puntos | Puntos alineados (no hacen un plano) o, en la simetría, plano no vertical |
 | Al dibujar la silueta el clic no agrega vértices («El plano se ve de canto…») | La cámara mira el plano de canto: usá la vista Frente o girá hasta verlo de cara |
 | «…la silueta se cruza consigo mismo… no se guardó» | Mové o borrá el vértice que hace el cruce; mientras no sea válido, el proyecto conserva la silueta anterior |
+| «No se puede colocar el pasador de …: dibujá primero la silueta» | El miembro todavía no tiene silueta (§7.1), o la silueta no deja una cara de contacto plana |
+| «No se movió: el centro del pasador tiene que quedar dentro de la cara de contacto» | El clic cayó fuera de la cara azul; hacelo dentro de su contorno blanco |
+| El Estado dice que el vástago sobresale de la cara | La cara es más angosta que el vástago: movelo hacia la parte más ancha, achicá el vástago (`shoulder_pin` / `hip_pin` en los parámetros) o corré la silueta para que la cara quede más ancha |
 | La coronilla no se deja marcar | Ya hay simetría o miembros; quitalos primero |
 | La figura se ve de espaldas en «Frente» | Cambiar «Frente hacia» a −Y (borra los planos) |
 
@@ -248,6 +282,7 @@ Esta versión de la ventana **define planos, dibuja las siluetas, genera la figu
 (también puede mostrar los **voladizos** de impresión en rojo sobre la figura entera, con la casilla de la
 barra lateral). Todavía no:
 
+* ofrece un control gráfico para el diámetro del pasador ni para el recorte redondeado de la cadera (se cambian en los parámetros / `cap_*`);
 * acierta solo la altura de la cadera cuando hay abrigo o faldón largo (la silueta propuesta se corrige a mano);
 * muestra los voladizos sobre las piezas ya cortadas ni la pose sentada en vivo.
 

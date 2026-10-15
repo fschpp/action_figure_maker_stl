@@ -101,6 +101,21 @@ class OrbitCamera:
                  "derecha": (0.0, 0.0), "arriba": (90.0, 89.0), "iso": (60.0, 20.0)}
         self.yaw, self.pitch = views[name]
 
+    def look_along(self, normal, target=None, half_height: float | None = None) -> None:
+        """Pone la cámara del lado de `normal`, mirando hacia -normal: una cara con esa normal se ve de frente.
+
+        Con `target` la cámara apunta ahí; con `half_height` (mm) el zoom deja esa altura media visible.
+        """
+        n = np.asarray(normal, float)
+        n = n / np.linalg.norm(n)
+        self.yaw = float(np.degrees(np.arctan2(n[1], n[0]))) % 360.0
+        self.pitch = float(np.clip(np.degrees(np.arcsin(np.clip(n[2], -1.0, 1.0))), -89.0, 89.0))
+        if target is not None:
+            self.target = np.asarray(target, float).copy()
+        if half_height:
+            d = half_height / np.tan(np.radians(self.fov) / 2)
+            self.distance = float(np.clip(d, self.radius * 0.1, self.radius * 40))
+
     # --- proyección y rayos
     def ray(self, px: float, py: float, width: float, height: float) -> tuple[np.ndarray, np.ndarray]:
         """Rayo (origen, dirección unitaria) del píxel (px, py), con py creciendo hacia abajo."""

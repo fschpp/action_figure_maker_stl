@@ -129,8 +129,9 @@ def limb_prism(spec: LimbSpec) -> S.Manifold:
     return S.prism_from_polygon(spec.plane, spec.polygon, spec.thickness, symmetric=True)
 
 
-def separate_limb(half: S.Manifold, spec: LimbSpec, burr: float) -> tuple[S.Manifold, ContactFace]:
-    """Recorta el miembro de la mitad del cuerpo (intersección con el prisma de la silueta)."""
+def _cut_limb(half: S.Manifold, spec: LimbSpec, burr: float) -> tuple[S.Manifold, ContactFace]:
+    """Recorta el miembro con el prisma de la silueta, rebaja la rebaba y devuelve la cara de contacto
+    (con sus triángulos). Es la parte de `separate_limb` anterior a elegir el pasador y el extremo."""
     prism = limb_prism(spec)
     limb = S.largest_component(S.intersection(half, prism))
     face = find_contact_face(limb, spec.contact_axis)
@@ -140,11 +141,18 @@ def separate_limb(half: S.Manifold, spec: LimbSpec, burr: float) -> tuple[S.Mani
         limb = S.difference(limb, _footprint_slab(face, burr))
         limb = S.largest_component(limb)
         face = find_contact_face(limb, spec.contact_axis)
+    return limb, face
+
+
+def separate_limb(half: S.Manifold, spec: LimbSpec, burr: float) -> tuple[S.Manifold, ContactFace]:
+    """Recorta el miembro de la mitad del cuerpo (intersección con el prisma de la silueta)."""
+    limb, face = _cut_limb(half, spec, burr)
     if spec.auto:
         spec = propose_geometry(face, spec)
     if spec.pin_center is not None:
         pc = np.asarray(spec.pin_center, float)
-        face = ContactFace(pc - ((pc - face.center) @ face.outward) * face.outward, face.outward, face.area)
+        face = ContactFace(pc - ((pc - face.center) @ face.outward) * face.outward, face.outward, face.area,
+                           face.triangles)
     if spec.cap_radius:
         limb = S.largest_component(round_end(limb, face, spec))
     return limb, face
@@ -239,3 +247,70 @@ def propose_geometry(face: ContactFace, spec: LimbSpec) -> LimbSpec:
     elif spec.pin_center is None:
         changes["pin_center"] = tuple(float(x) for x in center)
     return dataclasses.replace(spec, **changes)
+
+
+# ------------------------------------------------------- colocación asistida del pasador (GUI)
+@dataclass
+class PinPreview:
+    """Cara de contacto (el plano de corte donde va el pasador) de un miembro, lista para mostrarla y
+    elegir sobre ella el centro del pasador. Se calcula sin construir la figura entera."""
+
+    face: ContactFace
+    plane: Plane                 # plano de la cara: origen = centro de la cara, normal = hacia el torso
+    shape: object                # huella de la cara (shapely) en coordenadas (u, v) de `plane`
+    default_center: np.ndarray   # dónde lo pondría el programa si no se indica `pin_center` (mundo)
+
+    def rings_world(self) -> list[np.ndarray]:
+        """Contornos de la huella (exteriores y agujeros) en coordenadas del mundo, para dibujarlos."""
+        geoms = list(self.shape.geoms) if hasattr(self.shape, "geoms") else [self.shape]
+        out = []
+        for g in geoms:
+            if g.is_empty or g.geom_type != "Polygon":
+                continue
+            out.append(self.plane.to_world(np.asarray(g.exterior.coords)))
+            out.extend(self.plane.to_world(np.asarray(h.coords)) for h in g.interiors)
+        return out
+
+    def project(self, point_world) -> np.ndarray:
+        """Punto del mundo -> coordenadas (u, v) sobre el plano de la cara (se proyecta a lo largo de la normal)."""
+        return self.plane.to_uv(np.asarray(point_world, float))[0]
+
+    def fit(self, uv, shaft_d: float) -> tuple[bool, float]:
+        """(el centro cae dentro de la cara, margen en mm entre el vástago y el borde de la cara).
+        Margen negativo: el vástago sobresale de la cara."""
+        return pin_fit(self.shape, uv, shaft_d)
+
+
+def pin_fit(shape, uv, shaft_d: float) -> tuple[bool, float]:
+    from shapely.geometry import Point
+
+    pt = Point(float(uv[0]), float(uv[1]))
+    inside = bool(shape.contains(pt))
+    d = float(shape.boundary.distance(pt))
+    return inside, (d if inside else -d) - shaft_d / 2
+
+
+def pin_margin(face: ContactFace, shaft_d: float) -> float | None:
+    """Margen (mm) entre el vástago y el borde de la cara de contacto; negativo = sobresale. None si la
+    cara no trae sus triángulos."""
+    if face.triangles is None:
+        return None
+    _plane, shape = _face_shape(face)
+    return pin_fit(shape, (0.0, 0.0), shaft_d)[1]
+
+
+def contact_preview(half: S.Manifold, spec: LimbSpec, burr: float) -> PinPreview:
+    """Cara de contacto de `spec` sobre la mitad de trabajo `half` y centro de pasador por defecto.
+
+    Repite los pasos de `separate_limb` hasta la cara (misma silueta, misma rebaba), de modo que el
+    plano que se muestra es el mismo donde después `pipeline.build` pone el pasador. El centro por
+    defecto es el que usaría el programa sin `pin_center`: el propuesto con `auto`, o el centroide.
+    """
+    _limb, face = _cut_limb(half, spec, burr)
+    default = face.center
+    if spec.auto:
+        prop = propose_geometry(face, dataclasses.replace(spec, pin_center=None))
+        if prop.pin_center is not None:
+            default = np.asarray(prop.pin_center, float)
+    plane, shape = _face_shape(face)
+    return PinPreview(face, plane, shape, np.asarray(default, float))

@@ -32,6 +32,7 @@ class Mode(Enum):
     SYMMETRY = "simetria"
     LIMB_PLANE = "plano_miembro"
     POLYGON = "silueta"
+    PIN = "pasador"
 
 
 @dataclass
@@ -43,6 +44,16 @@ class PlaneEntry:
     visible: bool = True
 
 
+NUDGE_MM = 0.1                  # paso de las flechas al ajustar el pasador (Mayús = 10 veces más)
+
+
+def circle_world(plane: Plane, center, radius: float, n: int = 48) -> np.ndarray:
+    """Circunferencia de `radius` mm centrada en `center`, sobre `plane` (Nx3, cerrada por el que dibuja)."""
+    a = np.linspace(0.0, 2 * np.pi, n, endpoint=False)
+    c = np.asarray(center, float)
+    return c + radius * (np.cos(a)[:, None] * plane.u + np.sin(a)[:, None] * plane.v)
+
+
 def validation_summary(val: dict, clearance: float) -> str:
     """Texto corto del resultado de `pipeline.validate` para la barra de estado."""
     if val["problems"]:
@@ -52,6 +63,8 @@ def validation_summary(val: dict, clearance: float) -> str:
         parts.append(f"holgura mínima {min(val['gaps'].values()):.3f} mm (objetivo {clearance:.3f})")
     if val["recorrido"]:
         parts.append("recorrido libre sin interferencias")
+    if val.get("avisos_pasador"):
+        parts.append("pasador: " + "; ".join(val["avisos_pasador"]))
     if val["avisos"]:
         parts.append(f"{len(val['avisos'])} aviso(s) de soldado (el slicer puede avisar de aristas no-variedad)")
     return "; ".join(parts) + "."
@@ -73,6 +86,8 @@ class Controller:
         self.overhang_angle = 45.0                   # grados desde la vertical (como `--max-angle`)
         self.draft: PolygonDraft | None = None      # polígono de silueta en edición (modo POLYGON)
         self.edit_limb: str | None = None
+        self.pin_limb: str | None = None            # miembro cuyo pasador se está colocando (modo PIN)
+        self.pin_prev = None                         # PinPreview de ese miembro (cara de contacto)
         self._guide_cache: tuple | None = None       # (work, bounds, plano) -> contornos de la figura en el plano
         self._overhang_cache: tuple | None = None    # (work, bounds, ángulo, máscara, OrientResult)
         self.scene_dirty = True
@@ -167,11 +182,13 @@ class Controller:
         self._changed(f"Plano del {_KIND_BASE[kind]}: elegí 3 puntos sobre la figura.")
 
     def cancel(self, quiet: bool = False) -> None:
-        editing = self.mode == Mode.POLYGON
+        was = self.mode
         self.mode, self.pending, self.pending_kind = Mode.VIEW, [], None
         self.draft, self.edit_limb = None, None
+        self.pin_limb, self.pin_prev = None, None
         if not quiet:
-            self._changed("Edición de silueta terminada." if editing else "Cancelado.")
+            self._changed("Edición de silueta terminada." if was == Mode.POLYGON
+                          else "Colocación del pasador terminada." if was == Mode.PIN else "Cancelado.")
 
     def undo_point(self) -> None:
         if self.mode == Mode.POLYGON and self.draft is not None:
@@ -341,6 +358,97 @@ class Controller:
         self._changed("Silueta propuesta: revisala y corregí los vértices que haga falta (en piernas con abrigo o "
                       "faldón largo suele convenir subir la cadera).")
 
+    # -------------------------------------------------------------- pasador
+    def start_pin(self, name: str) -> None:
+        """Entra al modo de colocación del pasador del miembro `name`.
+
+        Se calcula la cara de contacto (el plano de corte donde va el pasador) y la cámara se pone de frente
+        a ella con la parte del torso recortada; el clic elige el centro del pasador sobre esa cara.
+        """
+        if not self._need_loaded():
+            return
+        if self.session.limb(name) is None:
+            self._changed(f"No existe el plano «{name}».", scene=False)
+            return
+        self.cancel(quiet=True)
+        try:
+            prev = self.session.pin_preview(name)
+        except (ValueError, KeyError) as e:
+            self._changed(f"No se puede colocar el pasador de «{name}»: {e}.", scene=False)
+            return
+        self.mode, self.pin_limb, self.pin_prev = Mode.PIN, name, prev
+        face = prev.face
+        half = float(max(np.ptp(prev.plane.to_uv(r), axis=0).max() for r in prev.rings_world())) * 0.65 or 10.0
+        self.camera.look_along(face.outward, face.center, max(half, 8.0))
+        self.hidden.discard(name)
+        self._changed(f"Pasador de «{name}»: " + self._pin_status(name)
+                      + " Clic sobre la cara para moverlo; flechas lo ajustan 0,1 mm (Mayús: 1 mm); Esc termina.")
+
+    def _pin_center(self, name: str) -> np.ndarray:
+        """Centro del pasador que se usaría ahora: el indicado, o el que propone el programa."""
+        spec = self.session.limb(name)
+        if spec.pin_center is not None:
+            return np.asarray(spec.pin_center, float)
+        return self.pin_prev.default_center
+
+    def _pin_status(self, name: str) -> str:
+        prev = self.pin_prev
+        uv = prev.project(self._pin_center(name))
+        pin = self.session.pin_spec(name)
+        inside, margin = prev.fit(uv, pin.shaft_d)
+        user = self.session.limb(name).pin_center is not None
+        txt = ("posición elegida" if user else "posición automática") + f" (vástago Ø{pin.shaft_d:g}, cabeza Ø{pin.head_d:g} mm)."
+        if not inside:
+            return txt + " El centro queda fuera de la cara de contacto: elegí otro punto."
+        if margin < 0:
+            return txt + f" El vástago sobresale {-margin:.2f} mm del borde de la cara."
+        if margin < self.session.project.params.min_wall:
+            return txt + f" Margen al borde {margin:.2f} mm (menos de {self.session.project.params.min_wall:g} mm de pared)."
+        return txt + f" Margen al borde {margin:.2f} mm."
+
+    def _place_pin(self, uv, what: str = "Pasador movido") -> bool:
+        name = self.pin_limb
+        world = self.pin_prev.plane.to_world(np.asarray(uv, float)[None])[0]
+        try:
+            self.session.set_limb_pin(name, world)
+        except ValueError as e:
+            self._changed(f"No se movió: {e}.", scene=False)
+            return False
+        self._changed(f"{what}: " + self._pin_status(name))
+        return True
+
+    def _click_pin(self, px: float, py: float, width: float, height: float) -> None:
+        origin, direction = self.camera.ray(px, py, width, height)
+        uv = ray_plane_uv(self.pin_prev.plane, origin, direction)
+        if uv is None:
+            self._changed("La cara de contacto se ve de canto desde esta vista: usá «Mirar la cara de frente».",
+                          scene=False)
+            return
+        self._place_pin(uv)
+
+    def nudge_pin(self, du: float, dv: float, big: bool = False) -> None:
+        """Mueve el pasador `du`, `dv` pasos sobre la cara (u: derecha, v: arriba, vistos de frente)."""
+        if self.mode != Mode.PIN or self.pin_prev is None:
+            return
+        step = NUDGE_MM * (10.0 if big else 1.0)
+        uv = self.pin_prev.project(self._pin_center(self.pin_limb)) + np.array([du, dv], float) * step
+        self._place_pin(uv, "Pasador ajustado")
+
+    def reset_pin(self) -> None:
+        """Descarta la posición elegida y vuelve a la que propone el programa."""
+        if self.mode != Mode.PIN or self.pin_prev is None:
+            return
+        self.session.set_limb_pin(self.pin_limb, None)
+        self._changed("Pasador restablecido: " + self._pin_status(self.pin_limb))
+
+    def face_view(self) -> None:
+        """Vuelve a mirar de frente la cara de contacto (por si se orbitó la cámara)."""
+        if self.mode != Mode.PIN or self.pin_prev is None:
+            return
+        f = self.pin_prev.face
+        self.camera.look_along(f.outward, f.center)
+        self._changed(scene=False)
+
     # ------------------------------------------------------------- voladizos
     def overhang_faces(self) -> tuple[np.ndarray, OrientResult] | None:
         """Máscara de caras voladizas de ``session.work`` y la orientación de impresión usada.
@@ -387,6 +495,9 @@ class Controller:
             return None
         if self.mode == Mode.POLYGON and self.draft is not None:
             self._click_polygon(px, py, width, height)
+            return None
+        if self.mode == Mode.PIN and self.pin_prev is not None:
+            self._click_pin(px, py, width, height)
             return None
         if self.picker is None or self.mode == Mode.VIEW:
             return None
@@ -469,7 +580,7 @@ class Controller:
         self._changed()
 
     def remove_plane(self, plane_id: str) -> None:
-        if plane_id == SYMMETRY_ID or plane_id == self.edit_limb:
+        if plane_id == SYMMETRY_ID or plane_id in (self.edit_limb, self.pin_limb):
             self.cancel(quiet=True)
         if plane_id == SYMMETRY_ID:
             self.session.set_symmetry(None)
@@ -550,15 +661,17 @@ class Controller:
             scene.clear()
             return
         clip = 0.0 if (self.one_side and sess.project.symmetry is not None) else -1e9
+        cplane = self._pin_clip_plane()
+        extra = {} if cplane is None else {"clip_plane": cplane}      # solo en el modo PIN
         found = self.overhang_faces() if self.show_overhangs else None
         if found is not None and found[0].any():
             mask = found[0]
             verts, faces = sess.work.vertices, sess.work.faces
-            scene.set_mesh("figura", trimesh.Trimesh(verts, faces[~mask], process=False), clip_x=clip)
+            scene.set_mesh("figura", trimesh.Trimesh(verts, faces[~mask], process=False), clip_x=clip, **extra)
             scene.set_mesh("voladizos", trimesh.Trimesh(verts, faces[mask], process=False),
-                           color=(0.95, 0.25, 0.25, 1.0), clip_x=clip)
+                           color=(0.95, 0.25, 0.25, 1.0), clip_x=clip, **extra)
         else:
-            scene.set_mesh("figura", sess.work, clip_x=clip)
+            scene.set_mesh("figura", sess.work, clip_x=clip, **extra)
             scene.remove("voladizos")
         hs = self.plane_half_size
         palette = {"symmetry": (1.0, 0.55, 0.2, 0.18), "arm": (0.3, 0.6, 1.0, 0.22), "leg": (0.4, 0.85, 0.5, 0.22)}
@@ -579,6 +692,57 @@ class Controller:
             scene.remove("pendientes")
             scene.remove("pendientes:lineas")
         self._sync_polygons(scene)
+        self._sync_pins(scene)
+
+    def _pin_clip_plane(self):
+        """En el modo PIN se recorta lo que queda del lado del torso de la cara de contacto, para ver la cara."""
+        if self.mode != Mode.PIN or self.pin_prev is None:
+            return None
+        f = self.pin_prev.face
+        n = f.outward / np.linalg.norm(f.outward)
+        return (float(n[0]), float(n[1]), float(n[2]), float(n @ f.center) + 1e-3)
+
+    def _sync_pins(self, scene) -> None:
+        """Marcas de pasador: un punto por cada pasador elegido a mano y, en el modo PIN, la cara de contacto,
+        el vástago, la cabeza y el punto que propone el programa."""
+        wanted = set()
+        editing = self.pin_limb if self.mode == Mode.PIN and self.pin_prev is not None else None
+        for l in self.session.project.limbs:
+            if l.pin_center is None or l.name == editing:
+                continue
+            key = f"pasador:{l.name}"
+            wanted.add(key)
+            scene.set_points(key, np.asarray(l.pin_center, float)[None], (1.0, 0.55, 0.1, 1.0), 10.0)
+            scene.show(key, l.name not in self.hidden)
+        pin_keys = ("pasador:cara", "pasador:borde", "pasador:vastago", "pasador:cabeza", "pasador:centro",
+                    "pasador:auto")
+        if editing is None:
+            for key in [k for k in scene.items if k.startswith("pasador:") and k not in wanted]:
+                scene.remove(key)
+            return
+        for key in [k for k in scene.items if k.startswith("pasador:") and k not in wanted
+                    and k not in pin_keys]:
+            scene.remove(key)
+        prev, name = self.pin_prev, editing
+        pin = self.session.pin_spec(name)
+        c = self._pin_center(name)
+        face_mesh = trimesh.Trimesh(*self._face_mesh(prev), process=False)
+        scene.set_mesh("pasador:cara", face_mesh, color=(0.35, 0.65, 0.95, 1.0))
+        scene.set_lines("pasador:borde", prev.rings_world(), (1.0, 1.0, 1.0, 1.0), closed=True)
+        scene.set_lines("pasador:vastago", circle_world(prev.plane, c, pin.shaft_d / 2), (1.0, 0.55, 0.1, 1.0),
+                        closed=True)
+        scene.set_lines("pasador:cabeza", circle_world(prev.plane, c, pin.head_d / 2), (1.0, 0.85, 0.3, 1.0),
+                        closed=True)
+        scene.set_points("pasador:centro", c[None], (1.0, 0.25, 0.25, 1.0), 9.0)
+        if self.session.limb(name).pin_center is not None:
+            scene.set_points("pasador:auto", prev.default_center[None], (0.6, 0.9, 0.6, 1.0), 7.0)
+        else:
+            scene.remove("pasador:auto")
+
+    @staticmethod
+    def _face_mesh(prev):
+        t = np.asarray(prev.face.triangles, float)
+        return t.reshape(-1, 3), np.arange(len(t) * 3).reshape(-1, 3)
 
     def _sync_polygons(self, scene) -> None:
         editing = self.draft if self.mode == Mode.POLYGON else None
