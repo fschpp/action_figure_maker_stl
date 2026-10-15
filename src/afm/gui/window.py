@@ -6,6 +6,7 @@ traduce eventos de GTK (ratón, teclas, botones, diálogos) y dibuja con el cont
 from __future__ import annotations
 
 import os
+import threading
 
 import gi
 
@@ -146,6 +147,19 @@ class MainWindow(Gtk.ApplicationWindow):
         for b in (self.btn_close_poly, self.btn_outline, self.btn_clear_poly, self.btn_end_poly):
             box.append(b)
 
+        box.append(_section("Generar"))
+        self.btn_generate = self._button("Generar figura", lambda *_: self._on_generate())
+        self.btn_generate.add_css_class("suggested-action")
+        box.append(self.btn_generate)
+        self.chk_orient = Gtk.CheckButton(label="Orientar las piezas para imprimir al exportar", active=True)
+        box.append(self.chk_orient)
+        self.btn_export = self._button("Exportar piezas…", lambda *_: self._on_export())
+        box.append(self.btn_export)
+        hint3 = Gtk.Label(label="Generar puede tardar varios minutos. Si cambiás algo después, hay que generar de nuevo "
+                                "antes de exportar.", xalign=0, wrap=True)
+        hint3.add_css_class("dim-label")
+        box.append(hint3)
+
         box.append(_section("Vista"))
         views = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=3, column_spacing=4,
                             row_spacing=4)
@@ -163,6 +177,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self.lbl_problems.add_css_class("dim-label")
         box.append(self.lbl_problems)
 
+        self.sidebar_box = box
         scroller = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
         scroller.set_child(box)
         scroller.set_size_request(320, -1)
@@ -196,6 +211,9 @@ class MainWindow(Gtk.ApplicationWindow):
             self.chk_side.set_sensitive(loaded and has_sym)
             self.chk_side.set_active(ctrl.one_side)
             self.chk_over.set_active(ctrl.show_overhangs)
+            self.sidebar_box.set_sensitive(not ctrl.busy)
+            self.btn_generate.set_sensitive(loaded and not ctrl.busy)
+            self.btn_export.set_sensitive(ctrl.session.outcome is not None and not ctrl.busy)
             editing = ctrl.mode == Mode.POLYGON
             for b in (self.btn_close_poly, self.btn_outline, self.btn_clear_poly, self.btn_end_poly):
                 b.set_sensitive(editing)
@@ -351,6 +369,45 @@ class MainWindow(Gtk.ApplicationWindow):
                 self._error(e)
 
         dlg.open(self, None, finished)
+
+    def _on_generate(self) -> None:
+        """Corre la generación en un hilo (la interfaz sigue viva) y vuelve al hilo principal para informar."""
+        job = self.ctrl.begin_generate()
+        if job is None:
+            return
+
+        def work() -> None:
+            try:
+                outcome = job(lambda text: GLib.idle_add(self._progress_idle, text))
+            except Exception as e:          # noqa: BLE001 — se informa en el estado
+                GLib.idle_add(self._finish_idle, None, e)
+            else:
+                GLib.idle_add(self._finish_idle, outcome, None)
+
+        threading.Thread(target=work, daemon=True, name="afm-generate").start()
+
+    def _progress_idle(self, text: str) -> bool:
+        self.ctrl.report_progress(text)
+        return False                        # no repetir
+
+    def _finish_idle(self, outcome, error) -> bool:
+        self.ctrl.finish_generate(outcome, error)
+        return False
+
+    def _on_export(self) -> None:
+        dlg = Gtk.FileDialog(title="Carpeta donde exportar las piezas")
+
+        def finished(d, res):
+            try:
+                f = d.select_folder_finish(res)
+            except GLib.Error:
+                return
+            try:
+                self.ctrl.export(f.get_path(), orient=self.chk_orient.get_active())
+            except Exception as e:          # noqa: BLE001
+                self._error(e)
+
+        dlg.select_folder(self, None, finished)
 
     def _on_open_stl(self, *_):
         self._pick_file("Abrir STL", ["*.stl"], "Archivos STL", self.ctrl.open_stl)

@@ -1,13 +1,12 @@
 # Progreso del desarrollo
 
 ## Current Focus
-Fase 2 (visor y planos): ya se puede **dibujar la silueta de cada miembro sobre su plano** (clics sobre el plano, contorno de la figura como guía, mover/insertar/borrar vértices) y ver los **voladizos** en rojo; falta que el cliente lo pruebe en GTK real (nada de esto se pudo abrir con GTK acá). Después: botón «Generar» y propuesta automática de siluetas.
-_Última actualización: 2026-10-15 00:39 (America/Argentina/Buenos_Aires), rama `main`. 78 tests pasan, 4 omitidos (sin OpenGL/EGL en el entorno de desarrollo)._
+Fase 2 (visor y planos) completa en código: planos, siluetas dibujables, voladizos y ahora **Generar / Exportar** desde la GUI; falta que el cliente la pruebe en GTK real (nada de la ventana se pudo abrir acá). Después: propuesta automática de siluetas (§8.3 / §8.5) y Fases 3–5.
+_Última actualización: 2026-10-15 00:51 (America/Argentina/Buenos_Aires), rama `main` (alineada con `origin/main` tras el PR #5 + los commits de esta tanda). 82 tests pasan, 4 omitidos (sin OpenGL/EGL en el entorno de desarrollo)._
 
 ## Todo List
 ### [ ] Todo
-- [ ] Abrir `afm-gui` con GTK4 real y corregir lo que falle (ver Blockers); **probar en especial** el modo «dibujar silueta» (clic, elegir/mover vértice, insertar en borde, Intro/Retroceso/Supr) y la casilla de voladizos
-- [ ] GUI: botón «Generar» (llamar `Session.build`/`export`, mostrar validación y exportar piezas)
+- [ ] Abrir `afm-gui` con GTK4 real y corregir lo que falle (ver Blockers); **probar en especial** el modo «dibujar silueta» (clic, elegir/mover vértice, insertar en borde, Intro/Retroceso/Supr), la casilla de voladizos y **Generar figura** (hilo + `GLib.idle_add`) / **Exportar piezas…** (`Gtk.FileDialog.select_folder`)
 - [ ] GUI: voladizos sobre las piezas ya cortadas / en la pose sentada (hoy es una referencia sobre la figura entera)
 - [ ] Propuesta automática de siluetas (§8.3 / §8.5)
 - [ ] Detectar y quitar automáticamente las láminas finas/rebabas típicas de Hunyuan3D (hoy son `Trim` manuales por figura) — el cliente pidió **no hacerlo por ahora**
@@ -17,6 +16,7 @@ _Última actualización: 2026-10-15 00:39 (America/Argentina/Buenos_Aires), rama
 - [/] Validar el cociente R/3 del pasador de cadera: Güemes y Belgrano no tienen pieza hecha a mano; falta una referencia real
 - [/] Belgrano: primera pasada válida; revisar con el cliente el corte de cadera bajo el abrigo (z 38–48) y el del hombro (x = 11)
 ### [x] Done
+- [x] **Generar y Exportar en la GUI (2026-10-15):** `Controller.begin_generate` (devuelve el trabajo pesado, apto para un hilo) / `report_progress` / `finish_generate` / `generate` (síncrono) / `export`, `validation_summary`, bandera `busy` (bloquea clics y la barra lateral); ventana: botón «Generar figura» (hilo + `GLib.idle_add`), casilla «Orientar las piezas…» y «Exportar piezas…». Cualquier edición posterior invalida `Session.outcome` y hay que regenerar. 4 tests nuevos (muñeca de prueba completa: generar → validar → exportar → editar invalida). Tutorial §7.2
 - [x] **Editor de siluetas en la GUI (2026-10-15):** `afm.gui.polygon_editor` (`PolygonDraft`, `ray_plane_uv`; lógica pura, 7 tests) + modo `Mode.POLYGON` en `Controller` (`start_polygon`, `close_polygon`, `clear_polygon`, `use_outline_as_base`, `guide_outline`; guardado en el proyecto al instante si el polígono es válido) + ventana (lápiz por miembro en la lista de planos, panel «Silueta del miembro», Intro/Retroceso/Supr). 11 tests del controlador con clics reales proyectados por la cámara + 1 de `sync` con escena falsa. Documentado en `docs/tutorial_gui.md` §7.1
 - [x] **Voladizos en la GUI (2026-10-15):** casilla «Mostrar voladizos de impresión (rojo)» y ángulo máximo; `Controller.overhang_faces` usa `best_orientation` sobre la figura entera y pinta las caras voladizas (la malla se parte en `figura` + `voladizos`, sin z-fighting)
 - [x] **Corregido `orient.overhang_area` (estaba invertido):** contaba pendientes suaves y no los techos horizontales. Nuevo `orient.overhang_mask`; tests de regresión (T con techo, conos de pared suave/empinada, `max_angle`)
@@ -30,6 +30,8 @@ _Última actualización: 2026-10-15 00:39 (America/Argentina/Buenos_Aires), rama
 - [x] Güemes con `auto=True`: pieza válida, torso 1 componente, holguras 0,474–0,476 mm (manual: 0,476–0,477)
 
 ## Latest Blockers/Discoveries
+- **Generar corre en un hilo (2026-10-15), sin verificar con GTK real:** `Session.build` usa manifold3d/trimesh en un hilo secundario mientras la UI queda bloqueada (`ctrl.busy`, `sidebar_box.set_sensitive(False)`); la vista GL sigue dibujando `session.work` sin cambios. Si manifold3d no libera el GIL la ventana puede congelarse igual: en ese caso pasar el trabajo a un proceso (`multiprocessing`) en vez de un hilo.
+- **Sin cambios del PR #5:** `origin/main` (2b2c475) ya trae las tres tandas anteriores (orient, voladizos, siluetas) con el mismo contenido que mis commits locales; el clon se alineó con `git reset --hard origin/main` y esta tanda va encima.
 - **Bug de `orient` corregido (2026-10-15):** `overhang_area` marcaba como voladizo `-n_z <= cos(ángulo)` (pendientes suaves) y dejaba fuera los techos horizontales. Un cono con la pared a 26,6° de la vertical daba ~700 mm² de voladizo y un techo horizontal 0. Ahora es `-n_z > sen(ángulo)` (ángulo de la pared respecto de la vertical, igual que `--max-angle`). **Consecuencia:** `afm build --orient` puede elegir otra orientación que antes y el `voladizo_mm2` del informe cambia; las exportaciones hechas antes del arreglo con `--orient` conviene regenerarlas.
 - **Edición de silueta (2026-10-15):** los clics caen en el plano del miembro (intersección rayo-plano), no en la malla; si el plano se ve de canto desde la cámara no se agrega nada y se avisa. Los cambios sobre un polígono cerrado se guardan al instante; un polígono que se cruza o no tiene área **no** se guarda (el proyecto conserva la silueta anterior). Esc descarta solo el borrador abierto, no lo ya guardado.
 - **GTK4/OpenGL no verificable acá (2026-10-15):** `window.py` solo pasó `py_compile`, y los tests de `sync` con OpenGL se omiten en este entorno (no hay EGL); la lógica de `sync` de siluetas se prueba con una escena falsa.
