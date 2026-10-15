@@ -10,7 +10,7 @@ Proceso manual de referencia (Onshape): [`docs/tutorial_onshape.md`](docs/tutori
 
 ## Estado
 
-Ver [`docs/PROGRESS.md`](docs/PROGRESS.md).
+Ver [`PROGRESS.md`](PROGRESS.md).
 
 ## Instalación (desarrollo)
 

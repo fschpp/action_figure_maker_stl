@@ -1,24 +1,36 @@
 # Progreso del desarrollo
 
 ## Current Focus
-Fase 1 (repetibilidad): Güemes, Belgrano y Azurduy salen con `auto=True` en la primera pasada; falta validar R/3 contra una pierna hecha a mano y revisar con el cliente los cortes de cadera/hombro.
-_Última actualización: 2026-10-14 21:55 (America/Argentina/Buenos_Aires). 26 tests pasan._
+Fase 2 (visor y planos): la ventana GTK4 ya está escrita sobre un controlador probado, pero nunca se abrió con GTK real (falta `gir1.2-gtk-4.0` en el entorno de desarrollo). Lo siguiente es abrirla en el escritorio del cliente y, después, dibujar siluetas de miembros dentro de la GUI.
+_Última actualización: 2026-10-14 23:50 (America/Argentina/Buenos_Aires), rama `main`, base `2f54d96`; cambios de esta sesión sin commitear. 58 tests pasan._
 
 ## Todo List
 ### [ ] Todo
-- [ ] Detectar y quitar automáticamente las láminas finas/rebabas típicas de Hunyuan3D (hoy son `Trim` manuales por figura)
+- [ ] Abrir `afm-gui` con GTK4 real y corregir lo que falle (ver Blockers)
+- [ ] GUI: editor de polígono de silueta por miembro (hoy `Session.silhouette` calcula el contorno pero no hay edición) y botón «Generar»
+- [ ] GUI: mostrar voladizos (`orient`) en la vista previa
 - [ ] Propuesta automática de siluetas (§8.3 / §8.5)
-- [ ] Usar `orient` en la exportación (CLI) y mostrar voladizos en la GUI
-- [ ] GUI GTK4 + visor OpenGL (Fases 2–5)
+- [ ] Detectar y quitar automáticamente las láminas finas/rebabas típicas de Hunyuan3D (hoy son `Trim` manuales por figura) — el cliente pidió **no hacerlo por ahora**
+- [ ] GUI Fases 3–5 (un lado + espejado en vivo, límite de cadera/sentada/recortes/probetas, empaquetado)
 ### [/] In Progress
+- [/] GUI Fase 2: `controller.py` + `window.py` + `app.py` escritos y con tests del controlador; la ventana solo está compilada, no ejecutada
 - [/] Validar el cociente R/3 del pasador de cadera: Güemes y Belgrano no tienen pieza hecha a mano; falta una referencia real
 - [/] Belgrano: primera pasada válida; revisar con el cliente el corte de cadera bajo el abrigo (z 38–48) y el del hombro (x = 11)
 ### [x] Done
+- [x] `afm.gui.controller.Controller` (sin GTK): modos coronilla / plano de simetría / plano de miembro con 3 clics, deshacer y cancelar, lista de planos (mostrar/ocultar/quitar), «un solo lado», frente +Y/−Y, abrir/guardar proyecto y volcado a `SceneRenderer`; 13 tests (`tests/test_gui_controller.py`)
+- [x] `afm.gui.window` (GTK4: `Gtk.GLArea` + moderngl, barra lateral, arrastre = orbitar, Mayús/botón medio = desplazar, rueda = zoom, clic corto = elegir punto) y `afm.gui.app` (entrada `afm-gui`, mensaje claro si falta GTK); 2 tests (`tests/test_gui_app.py`)
+- [x] `orient` en la exportación por CLI: ya estaba (`afm build --orient --max-angle`); lo pendiente era solo la vista en la GUI
+- [x] `PROGRESS.md` movido a la raíz del repo (antes `docs/PROGRESS.md`); README y comentario de `limbs.py` actualizados
 - [x] Azurduy (`examples/azurduy.py`, `tests/test_azurduy.py`): válido, torso 1 componente, holguras 0,475 mm, 10 892 triángulos de entrada (sin voxelizar); 3 recortes de láminas de suelas
 - [x] Belgrano (`examples/belgrano.py`, test `tests/test_belgrano.py`): válido, torso 1 componente, holguras 0,477 (brazos) / 0,483 (piernas) mm, sin remallado
 - [x] Güemes con `auto=True`: pieza válida, torso 1 componente, holguras 0,474–0,476 mm (manual: 0,476–0,477)
 
 ## Latest Blockers/Discoveries
+- **GTK4 no se pudo probar acá (2026-10-14 23:50):** en el entorno de desarrollo `import gi` falla con Python 3.13 (`python3-gi` está compilado para 3.12) y con 3.12 falta el typelib (`Namespace Gtk not available`; no hay `gir1.2-gtk-4.0`). `window.py` solo pasó `py_compile`. Hay `Xvfb` y EGL offscreen funciona (los tests del renderer y de `Controller.sync` dibujan de verdad). Riesgos a revisar al abrirla: `Gtk.GLArea` + `moderngl.create_context()` / `detect_framebuffer()`, `Gtk.FileDialog`/`Gtk.AlertDialog` (GTK ≥ 4.10), `GestureDrag` con botón 0.
+- **Decisión de arquitectura:** toda la lógica de la ventana vive en `Controller` (sin GTK) para poder probarla; `window.py` solo traduce eventos y dibuja. Se ve y se elige siempre sobre `session.work` (simetría en x = 0), que es el marco de los planos de miembro.
+- **La coronilla solo se puede marcar antes de definir simetría/miembros** (cambia la escala y rompería los planos ya creados); el controlador lo avisa.
+- **Cambiar «Frente hacia» borra simetría y miembros** (comportamiento heredado de `Session.set_front`).
+- **Cargar un STL grande bloquea la ventana** (se hace en el hilo de la interfaz); aceptable por ahora, mejorar si molesta.
 - **Azurduy no necesita voxelizar:** tiene solo 4 aristas abiertas y `fill_holes` alcanza. Fallaba porque `repair` borraba antes 2 triángulos «degenerados» que sostienen la topología
   (la voxelización daba 1,15 M de triángulos). `meshio.repair` ahora prueba (1) con limpieza y (2) sin limpieza, y solo voxeliza si ninguna sirve.
 - **Azurduy trae láminas de ~0,4 mm (z 0,6–1,1)** que salen de las suelas hasta x = 14,9 / y = −11,9 (la bota real: x 4,1–10,8, y −8,7..7,0). Se recortan con `Trim` (cajas) en `examples/azurduy.py`. **Confirmado por el cliente:** son rebabas del proceso de generación de la malla (Hunyuan3D, 3d.hunyuan.tencent.com/studio/creation/concept), no una base intencional. Como las figuras salen de ahí, es probable que se repita en otras.
@@ -37,7 +49,7 @@ _Última actualización: 2026-10-14 21:55 (America/Argentina/Buenos_Aires). 26 t
 
 ---
 
-_Plan de referencia: `PLAN_herramienta_stl_articulable.md`_
+_Plan de referencia: `docs/PLAN_herramienta_stl_articulable.md`_
 
 ## Hecho
 - [x] Estructura del repo, documentación del plan y tutorial de Onshape (`docs/`).

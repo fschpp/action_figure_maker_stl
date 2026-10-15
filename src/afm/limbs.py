@@ -185,7 +185,7 @@ def propose_geometry(face: ContactFace, spec: LimbSpec) -> LimbSpec:
     (radio R) y el pasador se sube R/3 hacia el torso, como en el proceso manual (tutorial 027-034).
     El cociente 1/3 está calibrado con una sola figura (Mickey: 2,49 mm / R 7,40): revisar con Güemes y Belgrano.
     Lo que el usuario ya indicó en `spec` no se pisa. Medido contra Mickey: centro del círculo a 0,02 mm
-    del cliente en el eje lateral y radio 3 % menor (7,40 vs 7,6); ver docs/PROGRESS.md.
+    del cliente en el eje lateral y radio 3 % menor (7,40 vs 7,6); ver PROGRESS.md.
     """
     from shapely.ops import polylabel
 
