@@ -2,7 +2,7 @@
 
 ## Current Focus
 Fase 2 (visor y planos): la ventana GTK4 ya está escrita sobre un controlador probado, pero nunca se abrió con GTK real (falta `gir1.2-gtk-4.0` en el entorno de desarrollo). Lo siguiente es abrirla en el escritorio del cliente y, después, dibujar siluetas de miembros dentro de la GUI.
-_Última actualización: 2026-10-14 23:50 (America/Argentina/Buenos_Aires), rama `main`, base `2f54d96`; cambios de esta sesión sin commitear. 58 tests pasan._
+_Última actualización: 2026-10-14 23:55 (America/Argentina/Buenos_Aires), rama `main`. 58 tests pasan._
 
 ## Todo List
 ### [ ] Todo
@@ -20,12 +20,14 @@ _Última actualización: 2026-10-14 23:50 (America/Argentina/Buenos_Aires), rama
 - [x] `afm.gui.controller.Controller` (sin GTK): modos coronilla / plano de simetría / plano de miembro con 3 clics, deshacer y cancelar, lista de planos (mostrar/ocultar/quitar), «un solo lado», frente +Y/−Y, abrir/guardar proyecto y volcado a `SceneRenderer`; 13 tests (`tests/test_gui_controller.py`)
 - [x] `afm.gui.window` (GTK4: `Gtk.GLArea` + moderngl, barra lateral, arrastre = orbitar, Mayús/botón medio = desplazar, rueda = zoom, clic corto = elegir punto) y `afm.gui.app` (entrada `afm-gui`, mensaje claro si falta GTK); 2 tests (`tests/test_gui_app.py`)
 - [x] `orient` en la exportación por CLI: ya estaba (`afm build --orient --max-angle`); lo pendiente era solo la vista en la GUI
+- [x] `docs/tutorial_gui.md`: tutorial de uso de la interfaz (escrito desde el código; la ventana aún no se vio con GTK real)
 - [x] `PROGRESS.md` movido a la raíz del repo (antes `docs/PROGRESS.md`); README y comentario de `limbs.py` actualizados
 - [x] Azurduy (`examples/azurduy.py`, `tests/test_azurduy.py`): válido, torso 1 componente, holguras 0,475 mm, 10 892 triángulos de entrada (sin voxelizar); 3 recortes de láminas de suelas
 - [x] Belgrano (`examples/belgrano.py`, test `tests/test_belgrano.py`): válido, torso 1 componente, holguras 0,477 (brazos) / 0,483 (piernas) mm, sin remallado
 - [x] Güemes con `auto=True`: pieza válida, torso 1 componente, holguras 0,474–0,476 mm (manual: 0,476–0,477)
 
 ## Latest Blockers/Discoveries
+- **Primer intento del cliente en su equipo (2026-10-14 23:47):** `afm-gui` falló con `No module named 'gi'`: su `python3` del PATH es 3.12 y `python3-gi` de Debian 13 es para 3.13. Solución indicada: crear el venv con `/usr/bin/python3 -m venv --system-site-packages .venv`; falta confirmar que abra.
 - **GTK4 no se pudo probar acá (2026-10-14 23:50):** en el entorno de desarrollo `import gi` falla con Python 3.13 (`python3-gi` está compilado para 3.12) y con 3.12 falta el typelib (`Namespace Gtk not available`; no hay `gir1.2-gtk-4.0`). `window.py` solo pasó `py_compile`. Hay `Xvfb` y EGL offscreen funciona (los tests del renderer y de `Controller.sync` dibujan de verdad). Riesgos a revisar al abrirla: `Gtk.GLArea` + `moderngl.create_context()` / `detect_framebuffer()`, `Gtk.FileDialog`/`Gtk.AlertDialog` (GTK ≥ 4.10), `GestureDrag` con botón 0.
 - **Decisión de arquitectura:** toda la lógica de la ventana vive en `Controller` (sin GTK) para poder probarla; `window.py` solo traduce eventos y dibuja. Se ve y se elige siempre sobre `session.work` (simetría en x = 0), que es el marco de los planos de miembro.
 - **La coronilla solo se puede marcar antes de definir simetría/miembros** (cambia la escala y rompería los planos ya creados); el controlador lo avisa.

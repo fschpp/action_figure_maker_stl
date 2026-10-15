@@ -19,6 +19,14 @@ pip install -e ".[dev]"
 pytest
 ```
 
+## Interfaz gráfica
+
+```bash
+afm-gui [figura.stl | proyecto.proyecto]
+```
+
+Guía de uso: [`docs/tutorial_gui.md`](docs/tutorial_gui.md).
+
 ## Uso (motor, sin interfaz)
 
 ```bash
