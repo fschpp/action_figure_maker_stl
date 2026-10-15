@@ -31,11 +31,14 @@ _MESH_FS = """
 #version 330
 uniform vec4 u_color;
 uniform float u_clip_x;
+uniform vec3 u_clip_n;      // plano de recorte genérico: se descarta lo que cumple dot(n, p) > d
+uniform float u_clip_d;
 in vec3 v_nrm;
 in vec3 v_pos;
 out vec4 f_color;
 void main() {
     if (v_pos.x < u_clip_x) discard;
+    if (dot(u_clip_n, v_pos) > u_clip_d) discard;
     vec3 n = normalize(v_nrm);
     if (!gl_FrontFacing) n = -n;
     float key = max(dot(n, normalize(vec3(0.35, 0.45, 0.85))), 0.0);
@@ -81,6 +84,7 @@ class Item:
     size: float = 8.0
     visible: bool = True
     clip_x: float = -1e9
+    clip_plane: tuple | None = None   # (nx, ny, nz, d): se descarta lo que cumple dot(n, p) > d
     bias: float = 0.0
 
 
@@ -125,13 +129,14 @@ class SceneRenderer:
             if o is not None:
                 o.release()
 
-    def set_mesh(self, name: str, mesh: trimesh.Trimesh | None, color=(0.78, 0.80, 0.84, 1.0), clip_x: float = -1e9):
+    def set_mesh(self, name: str, mesh: trimesh.Trimesh | None, color=(0.78, 0.80, 0.84, 1.0), clip_x: float = -1e9,
+                 clip_plane=None):
         if mesh is None or len(mesh.faces) == 0:
             return self.remove(name)
         data = _flat_vertices(mesh)
         vbo = self.ctx.buffer(data.tobytes())
         vao = self.ctx.vertex_array(self.mesh_prog, [(vbo, "3f 3f", "in_pos", "in_nrm")])
-        return self._put(name, Item("mesh", vao, vbo, len(data), color, clip_x=clip_x))
+        return self._put(name, Item("mesh", vao, vbo, len(data), color, clip_x=clip_x, clip_plane=clip_plane))
 
     def set_lines(self, name: str, polylines, color=(1.0, 0.8, 0.2, 1.0), closed: bool = False):
         """`polylines`: lista de arreglos Nx3 (o un único Nx3)."""
@@ -209,6 +214,9 @@ class SceneRenderer:
             self.mesh_prog["u_view_rot"].write(view_rot.T.tobytes())
             self.mesh_prog["u_color"].value = it.color
             self.mesh_prog["u_clip_x"].value = it.clip_x
+            cp = it.clip_plane if it.clip_plane is not None else (0.0, 0.0, 0.0, 1e9)
+            self.mesh_prog["u_clip_n"].value = tuple(float(x) for x in cp[:3])
+            self.mesh_prog["u_clip_d"].value = float(cp[3])
             it.vao.render(mgl.TRIANGLES, vertices=it.count)
         ctx.enable(mgl.BLEND)
         ctx.blend_func = mgl.SRC_ALPHA, mgl.ONE_MINUS_SRC_ALPHA

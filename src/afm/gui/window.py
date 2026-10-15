@@ -18,8 +18,11 @@ from .controller import Controller, Mode  # noqa: E402
 from .render import SceneRenderer  # noqa: E402
 
 DRAG_THRESHOLD_PX = 4.0
+# flechas -> (derecha, arriba) sobre la cara de contacto vista de frente
+_ARROWS = {Gdk.KEY_Left: (-1, 0), Gdk.KEY_Right: (1, 0), Gdk.KEY_Up: (0, 1), Gdk.KEY_Down: (0, -1)}
 _MODE_TITLES = {Mode.VIEW: "", Mode.CROWN: "  ·  marcando coronilla", Mode.SYMMETRY: "  ·  plano de simetría",
-                Mode.LIMB_PLANE: "  ·  plano de un miembro", Mode.POLYGON: "  ·  dibujando silueta"}
+                Mode.LIMB_PLANE: "  ·  plano de un miembro", Mode.POLYGON: "  ·  dibujando silueta",
+                Mode.PIN: "  ·  colocando pasador"}
 
 
 def _section(title: str) -> Gtk.Label:
@@ -148,6 +151,20 @@ class MainWindow(Gtk.ApplicationWindow):
         for b in (self.btn_close_poly, self.btn_propose, self.btn_outline, self.btn_clear_poly, self.btn_end_poly):
             box.append(b)
 
+        box.append(_section("Pasador de brazo / cadera"))
+        hint_pin = Gtk.Label(label="Elegí «Colocar el pasador» (marcador) en un miembro de la lista de planos. Se muestra la cara de "
+                                   "corte de frente, con el torso recortado: el círculo naranja es el vástago y el amarillo la "
+                                   "cabeza del hongo; el punto verde es dónde lo pondría el programa. Clic sobre la cara = "
+                                   "mover el pasador; flechas = ajustar 0,1 mm (Mayús: 1 mm). Si no lo tocás, se usa la "
+                                   "posición automática.", xalign=0, wrap=True)
+        hint_pin.add_css_class("dim-label")
+        box.append(hint_pin)
+        self.btn_pin_reset = self._button("Volver a la posición automática", lambda *_: self.ctrl.reset_pin())
+        self.btn_pin_face = self._button("Mirar la cara de frente", lambda *_: self._pin_face_view())
+        self.btn_pin_end = self._button("Terminar colocación del pasador (Esc)", lambda *_: self.ctrl.cancel())
+        for b in (self.btn_pin_reset, self.btn_pin_face, self.btn_pin_end):
+            box.append(b)
+
         box.append(_section("Generar"))
         self.btn_generate = self._button("Generar figura", lambda *_: self._on_generate())
         self.btn_generate.add_css_class("suggested-action")
@@ -218,6 +235,9 @@ class MainWindow(Gtk.ApplicationWindow):
             editing = ctrl.mode == Mode.POLYGON
             for b in (self.btn_close_poly, self.btn_propose, self.btn_outline, self.btn_clear_poly, self.btn_end_poly):
                 b.set_sensitive(editing)
+            placing = ctrl.mode == Mode.PIN
+            for b in (self.btn_pin_reset, self.btn_pin_face, self.btn_pin_end):
+                b.set_sensitive(placing)
             self.spin_over.set_value(ctrl.overhang_angle)
             self.dd_front.set_selected(0 if ctrl.session.project.front == "+Y" else 1)
             self._rebuild_plane_list()
@@ -242,6 +262,11 @@ class MainWindow(Gtk.ApplicationWindow):
                 ed.add_css_class("flat")
                 ed.connect("clicked", lambda _b, pid=e.id: self.ctrl.start_polygon(pid))
                 row.append(ed)
+                pn = Gtk.Button(icon_name="find-location-symbolic",
+                                tooltip_text="Colocar el pasador sobre la cara de corte")
+                pn.add_css_class("flat")
+                pn.connect("clicked", lambda _b, pid=e.id: self.ctrl.start_pin(pid))
+                row.append(pn)
             rm = Gtk.Button(icon_name="edit-delete-symbolic", tooltip_text="Quitar plano")
             rm.add_css_class("flat")
             rm.connect("clicked", lambda _b, pid=e.id: self.ctrl.remove_plane(pid))
@@ -311,7 +336,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self.gl.queue_render()
         return True
 
-    def _on_key(self, _c, keyval: int, _code: int, _state) -> bool:
+    def _on_key(self, _c, keyval: int, _code: int, state) -> bool:
         if keyval == Gdk.KEY_Escape:
             self.ctrl.cancel()
             return True
@@ -321,11 +346,19 @@ class MainWindow(Gtk.ApplicationWindow):
         if keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter) and self.ctrl.mode == Mode.POLYGON:
             self.ctrl.close_polygon()
             return True
+        if self.ctrl.mode == Mode.PIN and keyval in _ARROWS:
+            du, dv = _ARROWS[keyval]
+            self.ctrl.nudge_pin(du, dv, big=bool(state & Gdk.ModifierType.SHIFT_MASK))
+            return True
         return False
 
     # ------------------------------------------------------------------ acciones
     def _set_view(self, name: str) -> None:
         self.ctrl.camera.set_view(name)
+        self.gl.queue_render()
+
+    def _pin_face_view(self) -> None:
+        self.ctrl.face_view()
         self.gl.queue_render()
 
     def _frame(self) -> None:

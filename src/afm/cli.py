@@ -75,7 +75,7 @@ def main(argv=None) -> int:
     print("Validación:", "OK" if val["ok"] else "CON PROBLEMAS")
     for pr in val["problems"]:
         print(" -", pr)
-    for av in val.get("avisos", []):
+    for av in val.get("avisos", []) + val.get("avisos_pasador", []):
         print(" AVISO:", av)
     print("Holguras mínimas (mm):", val["gaps"])
     ori = info["archivos"].get("orientacion")

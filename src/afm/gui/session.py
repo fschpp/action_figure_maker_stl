@@ -17,7 +17,8 @@ import numpy as np
 import trimesh
 
 from .. import meshio, pipeline as P, solids as S
-from ..limbs import LimbSpec, check_limb_plane
+from ..limbs import LimbSpec, PinPreview, check_limb_plane, contact_preview
+from ..params import PinSpec
 
 from ..planes import Plane
 from ..project import Project
@@ -173,6 +174,63 @@ class Session:
         poly = autosil.outline_on_plane(self.work, p2, spec.plane)
         self.set_limb_polygon(name, poly)
         return poly
+
+    # ----------------------------------------------------------------- pasador
+    def pin_spec(self, name: str) -> PinSpec:
+        """Medidas del pasador del miembro (hombro para los brazos, cadera para las piernas)."""
+        spec = self.limb(name)
+        if spec is None:
+            raise KeyError(name)
+        p = self.project.params
+        return p.hip_pin if spec.kind == "leg" else p.shoulder_pin
+
+    def pin_preview(self, name: str) -> PinPreview:
+        """Cara de contacto (plano de corte) del miembro y centro por defecto del pasador.
+
+        Corta solo ese miembro de la mitad de trabajo (no construye la figura), con la silueta y la rebaba
+        actuales. Se guarda en caché mientras no cambien la malla, la silueta ni los parámetros.
+        Falla con ValueError si falta la silueta o la silueta no deja una cara de contacto plana.
+        """
+        spec = self.limb(name)
+        if spec is None:
+            raise KeyError(name)
+        if self.work is None:
+            raise ValueError("Abrí un STL")
+        if self.project.symmetry is None:
+            raise ValueError("Falta el plano de simetría")
+        if len(spec.polygon) < 3:
+            raise ValueError(f"{name}: dibujá primero la silueta (mínimo 3 puntos)")
+        burr = self.project.params.burr
+        key = (id(self.work), np.asarray(spec.polygon).tobytes(), spec.plane.origin.tobytes(),
+               spec.plane.normal.tobytes(), spec.thickness, spec.extrude, tuple(spec.contact_axis), spec.burr,
+               burr, spec.auto, tuple(spec.cap_dir))
+        cache = getattr(self, "_pin_cache", None)
+        if cache is not None and cache[0] == key:
+            return cache[1]
+        hkey = id(self.work)
+        if getattr(self, "_half_key", None) != hkey:
+            self._half = S.to_manifold(self.work).trim_by_plane((1.0, 0.0, 0.0), 0.0)
+            self._half_key = hkey
+        prev = contact_preview(self._half, spec, burr)
+        self._pin_cache = (key, prev)
+        return prev
+
+    def set_limb_pin(self, name: str, point_world) -> None:
+        """Fija el centro del pasador de `name` en `point_world` (se proyecta sobre el plano de la cara de
+        contacto). Falla con ValueError si el centro cae fuera de la cara. `None` vuelve al automático."""
+        spec = self.limb(name)
+        if spec is None:
+            raise KeyError(name)
+        if point_world is None:
+            spec.pin_center = None
+        else:
+            prev = self.pin_preview(name)
+            uv = prev.project(point_world)
+            inside, _margin = prev.fit(uv, self.pin_spec(name).shaft_d)
+            if not inside:
+                raise ValueError("el centro del pasador tiene que quedar dentro de la cara de contacto")
+            spec.pin_center = tuple(float(x) for x in prev.plane.to_world(uv[None])[0])
+        self.outcome = None
 
     def remove_limb(self, name: str) -> None:
         self.project.limbs = [l for l in self.project.limbs if l.name != name]

@@ -9,7 +9,7 @@ import numpy as np
 import trimesh
 
 from . import solids as S
-from .limbs import LimbSpec, ContactFace, check_limb_plane, separate_limb
+from .limbs import LimbSpec, ContactFace, check_limb_plane, pin_margin, separate_limb
 from .params import Params
 from .pins import mushroom_pin
 from .planes import Plane
@@ -96,7 +96,8 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
         sweep = S.union(*[S.rotate_about_axis(grown, face.center, axis, a) for a in angles])
         torso_half = S.difference(torso_half, sweep)
         built[spec.name] = {"limb": limb, "face": face, "axis": axis, "spec": spec,
-                            "angles": [float(a) for a in angles]}
+                            "angles": [float(a) for a in angles],
+                            "pin_margin": pin_margin(face, _pin_spec(spec, p).shaft_d)}
     torso_half = apply_trims(torso_half, trims, "torso")
     torso_half = S.drop_small_components(torso_half, 0.02)
 
@@ -115,6 +116,8 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
             "pin_center": b["face"].center.tolist(), "pin_dir": b["face"].outward.tolist(),
             "contact_area": b["face"].area, "sweep": [b["angles"][0], b["angles"][-1]],
         }
+        if b["pin_margin"] is not None:
+            report["limbs"][name]["pin_margin_mm"] = round(float(b["pin_margin"]), 3)
     pieces["torso"] = S.union(torso_half, S.mirror_x(torso_half))
     if p.decimate > 0:
         say("Reduciendo triángulos…")
@@ -151,8 +154,15 @@ def _nonmanifold_edges(mf: S.Manifold) -> int:
 
 def validate(res: BuildResult, p: Params, limbs: list[LimbSpec], sit: bool = True,
              sweep_check_step: float = 2.5) -> dict:
-    out: dict = {"ok": True, "problems": [], "avisos": [], "pieces": {}, "gaps": {}}
+    out: dict = {"ok": True, "problems": [], "avisos": [], "avisos_pasador": [], "pieces": {}, "gaps": {}}
     torso = res.pieces["torso"]
+    for name, info in res.report.get("limbs", {}).items():
+        m = info.get("pin_margin_mm")
+        if m is not None and m < 0:
+            out["avisos_pasador"].append(f"{name}: el vástago del pasador sobresale {-m:.2f} mm de la cara de contacto")
+        elif m is not None and m < p.min_wall:
+            out["avisos_pasador"].append(f"{name}: el vástago queda a {m:.2f} mm del borde de la cara "
+                                         f"(< {p.min_wall:.1f} mm de pared)")
     for name, mf in res.pieces.items():
         comps = len(mf.decompose())
         wt = mf.status() == S.m3.Error.NoError
