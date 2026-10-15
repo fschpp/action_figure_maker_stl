@@ -1,22 +1,28 @@
 # Progreso del desarrollo
 
 ## Current Focus
-Fase 1 (repetibilidad): validar la propuesta automática de pasador/recorte (`auto=True`) con Güemes y seguir con Belgrano y Azurduy.
-_Última actualización: 2026-10-14 21:10 (America/Argentina/Buenos_Aires). Repo en `e43db74`, 23 tests pasan._
+Fase 1 (repetibilidad): Güemes y Belgrano salen con `auto=True`; falta Azurduy (no estanca) y validar R/3 contra una pierna hecha a mano.
+_Última actualización: 2026-10-14 21:35 (America/Argentina/Buenos_Aires). 24 tests pasan._
 
 ## Todo List
 ### [ ] Todo
-- [ ] Belgrano: STL propio, siluetas y prueba con `auto=True` (sin STL en `examples/` todavía)
 - [ ] Azurduy (no estanca): probar remallado por voxelización
 - [ ] Propuesta automática de siluetas (§8.3 / §8.5)
 - [ ] Usar `orient` en la exportación (CLI) y mostrar voladizos en la GUI
 - [ ] GUI GTK4 + visor OpenGL (Fases 2–5)
 ### [/] In Progress
-- [/] Validar el cociente R/3 del pasador de cadera con una segunda figura (Güemes hecho, falta una referencia real)
+- [/] Validar el cociente R/3 del pasador de cadera: Güemes y Belgrano no tienen pieza hecha a mano; falta una referencia real
+- [/] Belgrano: primera pasada válida; revisar con el cliente el corte de cadera bajo el abrigo (z 38–48) y el del hombro (x = 11)
 ### [x] Done
+- [x] Belgrano (`examples/belgrano.py`, test `tests/test_belgrano.py`): válido, torso 1 componente, holguras 0,477 (brazos) / 0,483 (piernas) mm, sin remallado
 - [x] Güemes con `auto=True`: pieza válida, torso 1 componente, holguras 0,474–0,476 mm (manual: 0,476–0,477)
 
 ## Latest Blockers/Discoveries
+- **`crown_z` va en unidades del ARCHIVO, no en mm** (Belgrano mide 1,16 de alto: con `crown_z=100` no se escalaba y todo fallaba en cascada). Documentado en `examples/belgrano.py`.
+- **Corregido en `meshio.load_figure`:** (1) se escala a mm antes de reparar (las tolerancias de `repair` son absolutas); (2) `repair` ya no borra triángulos
+  «degenerados» si eso abre una malla que era estanca (Belgrano tiene 3 que sostienen la topología; antes se remallaba por voxelización, paso 0,14 mm, y la cavidad no terminaba en 10 min).
+- **Belgrano, geometría automática:** pasador de brazo (11,66; −0,87; 72,75), contacto 104 mm²; pasador de pierna (7,66; −1,54; 44,67), contacto 142 mm².
+  Siluetas a ojo desde cortes horizontales: brazo suelto del abrigo bajo z≈55 y fundido con el torso entre z 66 y 80 (corte vertical en x = 11); abrigo hasta z≈38 pasa a la pierna.
 - **Güemes `auto=True` vs manual (2026-10-14):** brazo casi idéntico (mediana 0,13 mm, p95 0,27, máx 0,51; volumen 2311 vs 2311).
   Pierna distinta a propósito: auto agrega el recorte cilíndrico de cadera (R ≈ 6,8 mm) que el ajuste manual de Güemes no tenía
   (mediana 1,14 mm, p95 2,16, máx 5,43; volumen 4368 vs 4321) y sube el pasador de z 52,5 a 54,3.

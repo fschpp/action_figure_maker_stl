@@ -28,9 +28,14 @@ def repair(mesh: trimesh.Trimesh, report: LoadReport | None = None) -> trimesh.T
     report = report or LoadReport()
     mesh = mesh.copy()
     mesh.merge_vertices()
+    before = mesh.copy()
     mesh.update_faces(mesh.nondegenerate_faces())
     mesh.update_faces(mesh.unique_faces())
     mesh.remove_unreferenced_vertices()
+    if before.is_watertight and not mesh.is_watertight:
+        # Hay STL estancos cuyos triángulos "degenerados" sostienen la topología (Belgrano: 3): limpiarlos
+        # abriría la malla y forzaría un remallado por voxelización innecesario. Se deja la malla tal cual.
+        mesh = before
     report.was_watertight = mesh.is_watertight
     # quitar componentes sueltos (p. ej. triángulos huérfanos)
     parts = mesh.split(only_watertight=False)
@@ -114,8 +119,16 @@ def load_figure(path: str, ref_height: float = 100.0, crown_z: float | None = No
     report = LoadReport()
     mesh = trimesh.load(path, force="mesh")
     mesh = orient_z_up(mesh)
+    # Las tolerancias de la reparación son absolutas: se escala a mm ANTES de reparar, para que un STL
+    # en otras unidades (p. ej. Belgrano, ~1,16 de alto) no pierda triángulos finos y termine remallado.
+    top = mesh.bounds[1, 2] if crown_z is None else crown_z
+    pre = ref_height / (top - mesh.bounds[0, 2]) if top > mesh.bounds[0, 2] else 1.0
+    mesh = mesh.copy()
+    mesh.apply_scale(pre)
     mesh = repair(mesh, report)
-    mesh = normalize(mesh, ref_height, crown_z, report)
+    mesh = normalize(mesh, ref_height, None if crown_z is None else crown_z * pre, report)
+    report.original_height = float(report.original_height / pre)   # en unidades del archivo
+    report.scale = float(report.scale * pre)
     return mesh, report
 
 
