@@ -437,3 +437,57 @@ def test_sync_polygon_items_without_opengl(arm):
     arm.remove_plane("brazo")
     arm.sync(sc)
     assert "silueta:brazo" not in sc.items
+
+
+# ----------------------------------------------------------------- generar / exportar
+def _fill_demo_limbs(c):
+    from afm.project import demo_project
+    c.auto_symmetry()
+    for l in demo_project().limbs:
+        c.session.add_limb(l.name, l.kind, l.plane, l.thickness, auto=False)
+        c.session.set_limb_polygon(l.name, l.polygon)
+
+
+def test_generate_refuses_while_problems_pending(ctrl):
+    assert ctrl.begin_generate() is None and "Todavía no se puede generar" in ctrl.message
+    assert not ctrl.busy
+    assert ctrl.export("/tmp/no_importa") is None and "Primero generá" in ctrl.message
+
+
+def test_generate_export_and_invalidation(ctrl, tmp_path):
+    _fill_demo_limbs(ctrl)
+    steps = []
+    out = ctrl.generate(progress=steps.append)
+    assert out is not None and out.validation["ok"], out and out.validation["problems"]
+    assert not ctrl.busy and steps and "Figura generada y válida" in ctrl.message
+    assert "holgura mínima" in ctrl.message
+    info = ctrl.export(str(tmp_path / "salida"), orient=True)
+    assert info and any((tmp_path / "salida").glob("*_ensamblada.stl"))
+    assert any((tmp_path / "salida" / "piezas").glob("*_torso.stl"))
+    assert "Exportado en" in ctrl.message and "Orientación" in ctrl.message
+    # editar una silueta invalida el resultado: hay que volver a generar antes de exportar
+    spec = ctrl.session.limb("brazo")
+    ctrl.session.set_limb_polygon("brazo", spec.polygon)
+    assert ctrl.session.outcome is None
+    assert ctrl.export(str(tmp_path / "otra")) is None and "Primero generá" in ctrl.message
+
+
+def test_busy_blocks_clicks_and_progress_is_reported(arm):
+    arm.start_polygon("brazo")
+    arm.busy = True
+    _click_uv(arm, (5, 5))
+    assert arm.draft.pts == []
+    arm.report_progress("cavidades")
+    assert "Generando… cavidades" in arm.message
+    arm.finish_generate(error=RuntimeError("boom"))
+    assert not arm.busy and "Falló la generación: boom" in arm.message
+
+
+def test_validation_summary_formats_problems_and_ok():
+    from afm.gui.controller import validation_summary
+    bad = {"problems": ["brazo: interpenetra el torso"], "gaps": {}, "recorrido": {}, "avisos": [], "pieces": {}}
+    assert "tiene problemas" in validation_summary(bad, 0.5) and "interpenetra" in validation_summary(bad, 0.5)
+    ok = {"problems": [], "gaps": {"brazo": 0.476, "pierna": 0.48}, "recorrido": {"pierna": 0.0},
+          "avisos": ["x"], "pieces": {"torso": {}, "brazo": {}, "pierna": {}}}
+    txt = validation_summary(ok, 0.5)
+    assert "3 piezas" in txt and "0.476" in txt and "recorrido" in txt and "1 aviso" in txt

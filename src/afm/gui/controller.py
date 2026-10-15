@@ -43,6 +43,20 @@ class PlaneEntry:
     visible: bool = True
 
 
+def validation_summary(val: dict, clearance: float) -> str:
+    """Texto corto del resultado de `pipeline.validate` para la barra de estado."""
+    if val["problems"]:
+        return "La figura se generó pero tiene problemas: " + "; ".join(val["problems"])
+    parts = [f"Figura generada y válida: {len(val['pieces'])} piezas"]
+    if val["gaps"]:
+        parts.append(f"holgura mínima {min(val['gaps'].values()):.3f} mm (objetivo {clearance:.3f})")
+    if val["recorrido"]:
+        parts.append("recorrido libre sin interferencias")
+    if val["avisos"]:
+        parts.append(f"{len(val['avisos'])} aviso(s) de soldado (el slicer puede avisar de aristas no-variedad)")
+    return "; ".join(parts) + "."
+
+
 class Controller:
     def __init__(self, session: Session | None = None):
         self.session = session or Session()
@@ -54,6 +68,7 @@ class Controller:
         self.message = "Abrí un STL para empezar."
         self.one_side = False                        # trabajar un solo lado (oculta x < 0)
         self.hidden: set[str] = set()                # ids de planos ocultos
+        self.busy = False                            # generando la figura (la ventana bloquea la edición)
         self.show_overhangs = False                  # pintar de rojo los voladizos de impresión
         self.overhang_angle = 45.0                   # grados desde la vertical (como `--max-angle`)
         self.draft: PolygonDraft | None = None      # polígono de silueta en edición (modo POLYGON)
@@ -354,6 +369,8 @@ class Controller:
     # ----------------------------------------------------------------- clics
     def click(self, px: float, py: float, width: float, height: float) -> PickResult | None:
         """Clic sobre el visor (píxeles, y hacia abajo). Devuelve el punto elegido si hubo impacto."""
+        if self.busy:
+            return None
         if self.mode == Mode.POLYGON and self.draft is not None:
             self._click_polygon(px, py, width, height)
             return None
@@ -453,6 +470,63 @@ class Controller:
 
     def problems(self) -> list[str]:
         return self.session.problems()
+
+    # ---------------------------------------------------------------- generar
+    def begin_generate(self):
+        """Valida que se pueda generar y devuelve el trabajo pesado: ``job(progress=None) -> BuildOutcome``.
+
+        El trabajo no toca el estado del controlador, así que la ventana puede correrlo en un hilo; al
+        terminar hay que llamar `finish_generate` desde el hilo de la interfaz. Devuelve None (y deja el
+        motivo en `message`) si no se puede generar.
+        """
+        if self.busy:
+            return None
+        probs = self.session.problems()
+        if probs:
+            self._changed("Todavía no se puede generar: " + "; ".join(probs) + ".", scene=False)
+            return None
+        self.cancel(quiet=True)
+        self.busy = True
+        self._changed("Generando la figura… puede tardar varios minutos.", scene=False)
+        return lambda progress=None: self.session.build(progress)
+
+    def report_progress(self, text: str) -> None:
+        self._changed(f"Generando… {text}", scene=False)
+
+    def finish_generate(self, outcome=None, error: Exception | None = None) -> None:
+        self.busy = False
+        if error is not None:
+            self._changed(f"Falló la generación: {error}", scene=False)
+        else:
+            self._changed(validation_summary(outcome.validation, self.session.project.params.clearance),
+                          scene=False)
+
+    def generate(self, progress=None):
+        """Genera sin hilos (pruebas y uso programático). Devuelve el `BuildOutcome` o None."""
+        job = self.begin_generate()
+        if job is None:
+            return None
+        try:
+            outcome = job(progress)
+        except Exception as e:                      # noqa: BLE001 — se informa en el estado
+            self.finish_generate(error=e)
+            return None
+        self.finish_generate(outcome)
+        return outcome
+
+    def export(self, outdir: str, orient: bool = True) -> dict | None:
+        """Escribe las piezas, el ensamblado, el informe y el proyecto en `outdir`."""
+        if self.session.outcome is None:
+            self._changed("Primero generá la figura (los cambios posteriores invalidan el resultado).", scene=False)
+            return None
+        info = self.session.export(outdir, orient=orient, max_angle=self.overhang_angle)
+        files = info["archivos"]
+        msg = f"Exportado en {outdir}: ensamblada + {len(files['piezas'])} piezas."
+        ori = files.get("orientacion")
+        if ori:
+            msg += f" Orientación: {ori['etiqueta']}, voladizo {ori['voladizo_mm2']} mm²."
+        self._changed(msg, scene=False)
+        return info
 
     # ---------------------------------------------------------------- escena
     def sync(self, scene) -> None:

@@ -176,6 +176,23 @@ nada y el Estado te pide girar la cámara. Las siluetas ya guardadas se dibujan 
 lista de planos las muestra u oculta junto con su plano. «Pendiente» deja de listar al miembro cuando
 tiene su silueta.
 
+### 7.2 Generar y exportar
+
+Con la simetría definida y cada miembro con su silueta, el Estado deja de listar pendientes y se puede:
+
+1. **Generar figura:** construye torso, brazos y piernas (cavidades, pasadores, barrido de cadera,
+   espejado) y valida el resultado. **Tarda** (de decenas de segundos a varios minutos según la figura); la
+   ventana sigue viva, el progreso aparece en el Estado y la barra lateral queda bloqueada hasta terminar.
+2. Al terminar, el Estado resume la validación: piezas, **holgura mínima** contra el objetivo, recorrido
+   libre de la cadera y avisos del soldado. Si hay **problemas** (interpenetración, holgura corta,
+   interferencia en el giro) los lista.
+3. **Exportar piezas…:** elegís una carpeta y se escriben `*_ensamblada.stl`, un STL por pieza en
+   `piezas/`, el informe `*_informe.json` y el proyecto. Con la casilla **Orientar las piezas para
+   imprimir** todas comparten la orientación de menor voladizo (ángulo de la casilla de voladizos).
+
+Cualquier cambio posterior (una silueta, un plano, la simetría) **invalida el resultado**: hay que
+generar de nuevo antes de exportar.
+
 ## 8. Lista de planos
 
 Debajo de los botones aparece la lista de planos creados: **Simetría** y uno por cada miembro.
@@ -229,15 +246,14 @@ la figura para ver mejor el lado en el que se trabaja. Es solo una ayuda visual.
 
 ## Lo que falta en la interfaz
 
-Esta versión de la ventana **define planos, dibuja las siluetas de los miembros y guarda el proyecto**
+Esta versión de la ventana **define planos, dibuja las siluetas, genera la figura, exporta las piezas y guarda el proyecto**
 (también puede mostrar los **voladizos** de impresión en rojo sobre la figura entera, con la casilla de la
 barra lateral). Todavía no:
 
-* tiene el botón **Generar** ni exporta las piezas;
 * propone las siluetas automáticamente (hoy se calcan a mano; el contorno de la figura sirve de base);
 * muestra los voladizos sobre las piezas ya cortadas ni la pose sentada en vivo.
 
-Mientras tanto, la figura se genera con la línea de comandos a partir del proyecto guardado:
+La línea de comandos sigue disponible (útil para procesar sin ventana):
 
 ```bash
 afm build figura.stl figura.proyecto --out out/figura --orient
