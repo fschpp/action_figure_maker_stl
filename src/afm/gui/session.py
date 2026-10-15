@@ -170,7 +170,7 @@ class Session:
         if p2 is None:
             raise ValueError("No se pudo proponer la silueta: no hay un tramo donde el miembro quede separado del "
                              "tronco. Dibujala a mano.")
-        poly = autosil.lift_to_plane(p2, spec.plane)
+        poly = autosil.outline_on_plane(self.work, p2, spec.plane)
         self.set_limb_polygon(name, poly)
         return poly
 

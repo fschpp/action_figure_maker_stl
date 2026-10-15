@@ -76,15 +76,38 @@ def test_propose_leg_uses_crotch_and_hip_chunk(fig):
     assert Polygon(q).bounds[3] == pytest.approx(40.0, abs=0.6)
 
 
-def test_lift_to_plane_and_edge_on_plane():
-    xz = np.array([[1.0, 2.0], [3.0, 2.0], [3.0, 5.0]])
-    fp = Plane.from_normal((0, 4.0, 0), (0, 1, 0))
-    assert np.allclose(autosil.lift_to_plane(xz, fp)[:, 1], 4.0)
-    tilt = Plane.from_normal((0, 4.0, 0), (0, 1, 1))              # inclinado: los puntos caen sobre el plano
-    q = autosil.lift_to_plane(xz, tilt)
-    assert np.allclose((q - tilt.origin) @ tilt.normal, 0.0, atol=1e-9)
-    with pytest.raises(ValueError):
-        autosil.lift_to_plane(xz, Plane.from_normal((0, 0, 0), (1, 0, 0)))   # de canto
+def test_outline_on_plane_lateral_shoulder_plane(fig):
+    """Plano lateral en la cara del hombro (normal ≈ X): el contorno se ve de costado (y–z) y cubre el brazo."""
+    poly_xz = autosil.propose_arm(fig)
+    lat = Plane.from_points(np.array([12.0, 0, 60]), np.array([12.0, 10, 60]), np.array([12.0, 0, 75]), "hombro")
+    out = autosil.outline_on_plane(fig, poly_xz, lat)
+    assert np.allclose((out - lat.origin) @ lat.normal, 0.0, atol=1e-9)       # está sobre el plano
+    from shapely.geometry import Polygon
+    uv = Polygon(lat.to_uv(out))
+    assert uv.is_valid and uv.area > 100
+    zs = out[:, 2]
+    assert 38.5 < zs.min() < 41.0 and 76.0 < zs.max() < 78.0                   # de la mano al hombro
+    ys = out[:, 1]
+    assert ys.min() < -9.0 and ys.max() > 9.0                                  # abarca la profundidad (y ±10)
+
+
+def test_outline_on_frontal_plane_matches_region(fig):
+    fp = Plane.from_normal((0, 0.0, 0), (0, 1, 0))
+    out = autosil.outline_on_plane(fig, autosil.propose_leg(fig), fp)
+    assert np.allclose(out[:, 1], 0.0, atol=1e-9)
+    assert out[:, 2].max() == pytest.approx(50.0, abs=1.0) and out[:, 0].min() < 1.0
+
+
+def test_lateral_plane_limb_separates_arm_with_outward_slab(fig):
+    """Flujo real: plano lateral + losa «outward» → el brazo sale sin llevarse el tronco."""
+    from afm.gui.session import ARM_SLAB_MM
+    lat = Plane.from_points(np.array([12.0, 0, 60]), np.array([12.0, 10, 60]), np.array([12.0, 0, 75]), "hombro")
+    poly = autosil.outline_on_plane(fig, autosil.propose_arm(fig), lat)
+    spec = LimbSpec("brazo", "arm", lat, poly, ARM_SLAB_MM, extrude="outward")
+    arm = S.largest_component(S.intersection(S.to_manifold(fig), L.limb_prism(spec)))
+    b = S.to_trimesh(arm).bounds
+    assert b[0, 0] >= 11.9 and b[1, 0] <= 18.1 and b[0, 2] < 41 and b[1, 2] > 75   # solo x ≥ 12, de mano a hombro
+    assert arm.volume() > 0.9 * 4 * 20 * 36                                         # brazo (4×20×36) casi entero
 
 
 def _session(fig, tmp_path):
@@ -138,26 +161,31 @@ def _example(name):
     return m
 
 
-def _xor_pct(body, lm, poly_xz):
-    auto = LimbSpec(lm.name, lm.kind, lm.plane, autosil.lift_to_plane(poly_xz, lm.plane), lm.thickness,
-                    extrude=lm.extrude)
-    a = S.largest_component(S.intersection(body, L.limb_prism(auto)))
-    b = S.largest_component(S.intersection(body, L.limb_prism(lm)))
+def _xor_pct(body, a, b):
     vi = S.intersection(a, b).volume()
     return (a.volume() + b.volume() - 2 * vi) / b.volume() * 100
 
 
-@pytest.mark.parametrize("name,stl,crotch,arm_tol,leg_tol", [
-    ("guemes", "guemes_segmentado_lq_fixed_resized.stl", None, 8.0, 3.0),
-    ("belgrano", "belgrano_lq_segmentado.stl", 38.0, 8.0, 2.0),
-    ("azurduy", "azurduy_lq_segmentado.stl", 42.0, 8.0, 2.0),
+@pytest.mark.parametrize("name,stl,arm_x,crotch,arm_tol,leg_tol", [
+    ("guemes", "guemes_segmentado_lq_fixed_resized.stl", 12.0, None, 1.0, 6.0),
+    ("belgrano", "belgrano_lq_segmentado.stl", 11.0, 38.0, 1.0, 6.0),
+    ("azurduy", "azurduy_lq_segmentado.stl", 9.0, 42.0, 1.0, 6.0),
 ])
-def test_matches_hand_drawn_silhouettes(name, stl, crotch, arm_tol, leg_tol):
+def test_matches_hand_drawn_silhouettes(name, stl, arm_x, crotch, arm_tol, leg_tol):
+    """Brazo: plano lateral en la cara del hombro + losa «outward» (como en la GUI). Pierna: plano frontal."""
+    from afm.gui.session import ARM_SLAB_MM
     m = _example(name)
     s = Session(m.proj)
     s.load(os.path.join(EX, stl), m.proj.crown_z)
     sl = autosil.scan(s.work)
     body = S.to_manifold(s.work)
     arm, leg = m.proj.limbs
-    assert _xor_pct(body, arm, autosil.propose_arm(s.work, sl)) < arm_tol
-    assert _xor_pct(body, leg, autosil.propose_leg(s.work, sl, crotch_z=crotch)) < leg_tol
+    lat = Plane.from_points(np.array([arm_x, 0, 60.0]), np.array([arm_x, 10, 60.0]), np.array([arm_x, 0, 75.0]))
+    a_auto = LimbSpec("brazo", "arm", lat, autosil.outline_on_plane(s.work, autosil.propose_arm(s.work, sl), lat),
+                      ARM_SLAB_MM, extrude="outward")
+    l_auto = LimbSpec("pierna", "leg", leg.plane,
+                      autosil.outline_on_plane(s.work, autosil.propose_leg(s.work, sl, crotch_z=crotch), leg.plane), 100.0)
+    for auto, ref, tol in ((a_auto, arm, arm_tol), (l_auto, leg, leg_tol)):
+        a = S.largest_component(S.intersection(body, L.limb_prism(auto)))
+        b = S.largest_component(S.intersection(body, L.limb_prism(ref)))
+        assert _xor_pct(body, a, b) < tol, (name, ref.name)

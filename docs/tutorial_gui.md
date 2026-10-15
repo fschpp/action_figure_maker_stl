@@ -158,10 +158,14 @@ plano del miembro**, así que primero ponete en la vista **Frente** (el plano se
    **Vaciar y redibujar** lo borra. **Esc** o **Terminar edición** sale del modo.
 
 6. **Proponer silueta automática** reemplaza el borrador por la que calcula el programa a partir de cortes
-   horizontales de la figura: la mano hasta el hombro para un brazo; la columna de la pierna hasta la
-   entrepierna más un trozo de cadera (x > 7 mm, 10 mm hacia arriba) para una pierna. Es un **punto de
-   partida**: revisala y mové los vértices que haga falta. Avisa si el miembro no queda separado del tronco
-   en ningún tramo (entonces hay que dibujarla a mano) o si el plano se ve de canto respecto del frente.
+   horizontales de la figura. Funciona con **el plano que hayas elegido**, sea cual sea su orientación: el
+   programa decide qué parte del cuerpo es el miembro y la proyecta sobre tu plano a lo largo de su normal.
+   Con el plano lateral del hombro (normal ≈ X) el brazo queda dibujado **visto de costado**, de la mano
+   al hombro; con el plano «corte al medio» la pierna queda vista de frente: columna hasta la entrepierna
+   más un trozo de cadera (x > 7 mm, 10 mm hacia arriba). Es un **punto de partida**: revisala y mové los
+   vértices que haga falta. Avisa si el miembro no queda separado del tronco en ningún tramo (entonces hay
+   que dibujarla a mano). **Dónde queda el corte del brazo lo decide la posición de tu plano** (la losa sale
+   hacia +X desde él); el programa no lo mueve.
    **Con abrigo o faldón largo** (Belgrano, Azurduy) la pierna propuesta arranca en el borde de la prenda,
    unos 8 mm más abajo que la cadera real: subí los vértices de la cadera a mano.
 

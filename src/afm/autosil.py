@@ -4,18 +4,21 @@ Se trabaja sobre la malla del lado de trabajo (x >= 0, frente hacia +Y, Z arriba
 horizontales**: en cada altura se separan los componentes conectados del corte (recortado a x >= 0).
 Brazos y piernas son los componentes que quedan separados del tronco; donde un brazo se funde con el
 torso (hombro) el borde se extrapola desde el tramo separado más cercano. La silueta propuesta es un
-polígono en el plano frontal (x, z) que se puede subir a cualquier plano de miembro no de canto
-(`lift_to_plane`) y que después se corrige con el editor de polígonos.
+polígono en el plano frontal (x, z) que delimita la región del miembro; `outline_on_plane` la proyecta
+sobre el plano de miembro que haya elegido quien usa la herramienta (cualquier orientación). El resultado
+es un punto de partida que se corrige después con el editor de polígonos.
 
 Las constantes de la cadera (`hip_x`, `hip_up`) salen de los tres personajes ya hechos a mano
 (Güemes, Belgrano, Azurduy: cara de contacto en x = 7 mm y recorte 10 mm por encima de la entrepierna,
 con la figura normalizada a 100 mm pies→coronilla).
 
-Validación (volumen de la pieza recortada, diferencia simétrica contra la silueta hecha a mano): brazo de
-Güemes 4,2 %, Belgrano 3,5 %, Azurduy 0,6 %, Mickey 5,3 %; pierna de Güemes 1,3 %. En Belgrano y Azurduy
-(abrigo / faldón largo) la entrepierna detectada es el borde de la prenda y la pierna da ~30 % de diferencia;
-con `crotch_z` (38 y 42) coincide al 0,0 %. La pierna de Mickey (27,8 %) no se corrigió: la cola y las botas
-hacen que haya recortes propios del personaje (`Trim`). `propose_arm` devuelve None si no hay ningún tramo
+Validación (volumen de la pieza recortada, diferencia simétrica contra la silueta hecha a mano): con el
+brazo sobre un plano **lateral** en la cara del hombro (normal ≈ X, losa «outward» de ARM_SLAB_MM) da 0,0 %
+(Güemes), 0,0 % (Belgrano) y 0,1 % (Azurduy); la pierna sobre el plano frontal «corte al medio» da 2,9 %,
+3,4 % y 3,2 % (en Belgrano y Azurduy con `crotch_z` = 38 y 42; sin él ~30 %: con abrigo o faldón largo la
+entrepierna detectada es el borde de la prenda). El análisis es siempre frontal (x–z); `outline_on_plane` lo
+lleva al plano elegido. La pierna de Mickey (27,8 %) no se corrigió: la cola y las botas piden recortes propios
+(`Trim`). `propose_arm` devuelve None si no hay ningún tramo
 donde el brazo quede separado del tronco.
 """
 from __future__ import annotations
@@ -176,16 +179,31 @@ def propose_leg(mesh, slices: list[Slice] | None = None, hip_x: float = 7.0, hip
     return np.asarray(poly.simplify(0.25).exterior.coords)[:-1]
 
 
-def lift_to_plane(poly_xz: np.ndarray, plane: Plane, min_ny: float = 0.2) -> np.ndarray:
-    """Sube un polígono (x, z) a un plano de miembro: cada punto se lleva al plano siguiendo el eje Y.
+def outline_on_plane(mesh, poly_xz: np.ndarray, plane: Plane, grow: float = 0.4, tol: float = 0.25) -> np.ndarray:
+    """Silueta (Nx3, sobre ``plane``) de la región del cuerpo que delimita ``poly_xz`` (polígono en x–z).
 
-    Un plano casi de canto (|n·Y| < ``min_ny``) no se puede usar: se avisa con ValueError.
+    La región es la parte de ``mesh`` que cae dentro de ``poly_xz`` (intersección exacta con el prisma del
+    polígono a lo largo de Y, sin importar la profundidad). Se proyectan sobre el plano **a lo largo de su normal**, así que sirve cualquier
+    orientación: un plano lateral en el hombro (normal ≈ X, el caso del brazo) da el contorno visto de
+    costado, y uno frontal («corte al medio») el contorno visto de frente. El contorno se agranda ``grow``
+    mm para cubrir del todo y se rellenan los huecos.
     """
-    n = np.asarray(plane.normal, float)
-    o = np.asarray(plane.origin, float)
-    if abs(n[1]) < min_ny:
-        raise ValueError("El plano está de canto respecto del frente: no se puede proponer la silueta; "
-                         "elegí un plano frontal o dibujala a mano.")
-    x, z = poly_xz[:, 0], poly_xz[:, 1]
-    y = o[1] - (n[0] * (x - o[0]) + n[2] * (z - o[2])) / n[1]
-    return np.column_stack([x, y, z])
+    import shapely
+    from shapely.ops import unary_union
+
+    from . import solids as S
+
+    front = Plane.from_normal((0, 0, 0), (0, 1, 0))
+    pts3 = np.column_stack([poly_xz[:, 0], np.zeros(len(poly_xz)), poly_xz[:, 1]])
+    region = S.intersection(S.to_manifold(mesh), S.prism_from_polygon(front, pts3, 1e3, symmetric=True))
+    tris = S.to_trimesh(region).triangles
+    if len(tris) == 0:
+        raise ValueError("La región propuesta no contiene triángulos de la figura.")
+    uv = ((tris.reshape(-1, 3) - plane.origin) @ np.stack([plane.u, plane.v], axis=1)).reshape(-1, 3, 2)
+    a, b = uv[:, 1] - uv[:, 0], uv[:, 2] - uv[:, 0]
+    uv = uv[0.5 * np.abs(a[:, 0] * b[:, 1] - a[:, 1] * b[:, 0]) > 1e-9]
+    shape = unary_union(list(shapely.polygons(uv))).buffer(grow)
+    geoms = list(shape.geoms) if hasattr(shape, "geoms") else [shape]
+    big = max(geoms, key=lambda g: g.area)
+    ring = np.asarray(Polygon(big.exterior).simplify(tol).exterior.coords)[:-1]
+    return plane.to_world(ring)
