@@ -22,7 +22,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-gui = ["PyGObject", "moderngl", "pycairo"]
+gui = ["PyGObject", "moderngl", "pycairo", "pillow"]
 dev = ["pytest"]
 
 [project.scripts]
