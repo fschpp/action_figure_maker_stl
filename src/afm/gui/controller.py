@@ -15,9 +15,11 @@ from enum import Enum
 import numpy as np
 import trimesh
 
+from .. import solids as S
 from ..limbs import silhouette_on_plane
 from ..orient import OrientResult, best_orientation, overhang_mask
 from ..planes import Plane
+from ..trims import Trim
 from .camera import OrbitCamera
 from .picking import Picker, PickResult
 from .polygon_editor import EDGE_PX, VERTEX_PX, PolygonDraft, ray_plane_uv
@@ -34,6 +36,24 @@ class Mode(Enum):
     LIMB_PLANE = "plano_miembro"
     POLYGON = "silueta"
     PIN = "pasador"
+    TRIM_PICK = "recorte_clic"      # un clic sobre la figura pone el centro de un recorte esfera / caja / cilindro
+
+
+TRIM_SHAPES = ("polygon", "sphere", "box", "cylinder")
+TRIM_SHAPE_LABELS = {"polygon": "polígono", "sphere": "esfera", "box": "caja", "cylinder": "cilindro"}
+TRIM_OP_LABELS = {"subtract": "restar", "union": "unir"}
+SYMMETRY_PLANE_NAME = "simetría"
+POSE_TOL_MM3 = 1e-4              # misma tolerancia de interferencia que `pipeline.validate`
+
+
+def mirrored_mesh(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
+    """Reflexión en x (plano de simetría en x = 0) con el orden de los triángulos invertido, como el Mirror de Onshape."""
+    return trimesh.Trimesh(np.asarray(mesh.vertices) * np.array([-1.0, 1.0, 1.0]), np.asarray(mesh.faces)[:, ::-1],
+                           process=False)
+
+
+def mirrored_points(pts) -> np.ndarray:
+    return np.asarray(pts, float) * np.array([-1.0, 1.0, 1.0])
 
 
 @dataclass
@@ -45,7 +65,8 @@ class PlaneEntry:
     visible: bool = True
 
 
-NUDGE_MM = 0.1                  # paso de las flechas al ajustar el pasador (Mayús = 10 veces más)
+_MIRROR_COLOR = (0.70, 0.78, 0.92, 1.0)      # el espejo se ve con un tinte azul para no confundirlo con el lado real
+NUDGE_MM = 0.1                 # paso de las flechas al ajustar el pasador (Mayús = 10 veces más)
 
 
 def circle_world(plane: Plane, center, radius: float, n: int = 48) -> np.ndarray:
@@ -107,6 +128,13 @@ class Controller:
         self.edit_cross = False                     # el polígono en edición es el 2.º corte (frente) del miembro
         self.pin_limb: str | None = None            # miembro cuyo pasador se está colocando (modo PIN)
         self.pin_prev = None                         # PinPreview de ese miembro (cara de contacto)
+        self.mirror_live = False                     # con «un solo lado»: mostrar el espejo del lado de trabajo en vivo
+        self.pose_view = False                       # vista previa de la figura generada con las piernas en la pose sentada
+        self.pose_angle: float | None = None         # ángulo de cadera de la vista previa (None = el de la pose sentada)
+        self.pose_report: dict | None = None         # resultado de `pose_check` para ese ángulo
+        self._pose_cache: tuple | None = None        # (outcome, ángulo, {pieza: sólido}) de la pose mostrada
+        self.trim_cfg: dict | None = None            # recorte en edición: target / op / distance / symmetric / shape / size
+        self.edit_trim: int | None = None            # índice en project.trims del polígono de recorte en edición
         self._guide_cache: tuple | None = None       # (work, bounds, plano) -> contornos de la figura en el plano
         self._overhang_cache: tuple | None = None    # (work, bounds, ángulo, máscara, OrientResult)
         self.scene_dirty = True
@@ -205,8 +233,11 @@ class Controller:
         self.mode, self.pending, self.pending_kind = Mode.VIEW, [], None
         self.draft, self.edit_limb, self.edit_cross = None, None, False
         self.pin_limb, self.pin_prev = None, None
+        was_trim = self.trim_cfg is not None
+        self.trim_cfg, self.edit_trim = None, None
         if not quiet:
-            self._changed("Edición de silueta terminada." if was == Mode.POLYGON
+            self._changed("Edición del recorte terminada." if was_trim
+                          else "Edición de silueta terminada." if was == Mode.POLYGON
                           else "Colocación del pasador terminada." if was == Mode.PIN else "Cancelado.")
 
     def undo_point(self) -> None:
@@ -236,6 +267,8 @@ class Controller:
 
     def set_one_side(self, on: bool) -> None:
         self.one_side = bool(on)
+        if not self.one_side:
+            self.mirror_live = False            # el espejo ocupa el lado que se oculta al trabajar un solo lado
         self._changed()
 
     # ----------------------------------------------------- parámetros y perfiles de línea
@@ -437,6 +470,8 @@ class Controller:
         d = self.draft
         if d is None or not d.closed:
             return False
+        if self.trim_cfg is not None:
+            return self._commit_trim(what)
         err = d.validity_error()
         if err:
             self._changed(f"{what}, pero la silueta {err}: corregila (no se guardó en el proyecto).")
@@ -507,7 +542,10 @@ class Controller:
     def propose_silhouette(self, crotch_z: float | None = None) -> None:
         """Reemplaza el borrador por la silueta que propone el programa para el miembro en edición."""
         d = self.draft
-        if self.mode != Mode.POLYGON or d is None or self.edit_limb is None:
+        if self.mode != Mode.POLYGON or d is None:
+            return
+        if self.edit_limb is None:
+            self._changed("La propuesta automática es para la silueta de un miembro, no para un recorte.", scene=False)
             return
         try:
             poly = self.session.propose_silhouette(self.edit_limb, crotch_z, cross=self.edit_cross)
@@ -622,6 +660,301 @@ class Controller:
         self.camera.look_along(f.outward, f.center)
         self._changed(scene=False)
 
+    # --------------------------------------------------------- espejado en vivo
+    def mirror_active(self) -> bool:
+        """El espejo se dibuja cuando se trabaja un solo lado, hay plano de simetría y no se está en la vista de pose."""
+        return bool(self.mirror_live and self.one_side and self.loaded and self.session.project.symmetry is not None
+                    and not self.pose_active())
+
+    def set_mirror_live(self, on: bool) -> None:
+        """Muestra, en el lado oculto (x < 0), el espejo en vivo del lado de trabajo (x > 0): la figura, las siluetas
+        (también la que se está dibujando), los recortes y los pasadores elegidos. Es lo que va a salir en la figura
+        generada, que se arma con un solo lado y su espejo. Al activarlo se pasa a trabajar un solo lado."""
+        if on and (not self._need_loaded() or self.session.project.symmetry is None):
+            if self.loaded:
+                self._changed("Primero definí el plano de simetría: el espejo se hace respecto de él.", scene=False)
+            self.mirror_live = False
+            return
+        self.mirror_live = bool(on)
+        if self.mirror_live:
+            self.one_side = True
+        self._changed("Espejo en vivo: lo que hacés en el lado +X se ve reflejado en el otro." if self.mirror_live
+                      else "Espejo en vivo desactivado.")
+
+    # ----------------------------------------------- pose sentada (vista previa y colisiones)
+    def pose_active(self) -> bool:
+        return self.pose_view and self.session.outcome is not None
+
+    def pose_limit(self) -> float | None:
+        """Mayor ángulo de cadera tallado en el torso entre las piernas generadas (límite de giro), o None."""
+        out = self.session.outcome
+        if out is None:
+            return None
+        limits = [a1 for (_limb, _c, _ax, (a0, a1)) in out.result.motion.values() if a1 > a0]
+        return max(limits) if limits else None
+
+    def _pose_angle(self) -> float:
+        return float(self.session.project.params.sit_angle if self.pose_angle is None else self.pose_angle)
+
+    def _posed_pieces(self, angle: float) -> dict:
+        """Miembros de la figura generada con las piernas giradas `angle` grados (izquierdos y sus espejos)."""
+        out = self.session.outcome
+        c = self._pose_cache
+        if c is not None and c[0] is out and abs(c[1] - angle) < 1e-9:
+            return c[2]
+        pieces = {}
+        for name, (limb0, center, axis, (a0, a1)) in out.result.motion.items():
+            limb = S.rotate_about_axis(limb0, center, axis, angle) if a1 > a0 else limb0
+            pieces[f"{name}_izq"] = limb
+            pieces[f"{name}_der"] = S.mirror_x(limb)
+        self._pose_cache = (out, angle, pieces)
+        return pieces
+
+    def pose_check(self, angle: float | None = None) -> dict | None:
+        """Interferencias de la figura generada con las piernas giradas `angle` grados (None = el de la vista previa).
+
+        Devuelve ``{"angle", "limit", "torso": {pieza: mm³}, "pairs": {(a, b): mm³}, "ok"}``; solo figuran las
+        interferencias mayores que la tolerancia de `pipeline.validate`. None si todavía no se generó la figura."""
+        out = self.session.outcome
+        if out is None:
+            return None
+        angle = self._pose_angle() if angle is None else float(angle)
+        pieces = self._posed_pieces(angle)
+        torso = out.result.pieces["torso"]
+        hits = {n: float((m ^ torso).volume()) for n, m in pieces.items()}
+        names = list(pieces)
+        pairs = {}
+        for i, a in enumerate(names):
+            for b in names[i + 1:]:
+                v = float((pieces[a] ^ pieces[b]).volume())
+                if v > POSE_TOL_MM3:
+                    pairs[(a, b)] = round(v, 5)
+        torso_hits = {n: round(v, 5) for n, v in hits.items() if v > POSE_TOL_MM3}
+        return {"angle": angle, "limit": self.pose_limit(), "torso": torso_hits, "pairs": pairs,
+                "ok": not torso_hits and not pairs}
+
+    @staticmethod
+    def pose_message(r: dict) -> str:
+        if r["ok"]:
+            txt = f"Pose a {r['angle']:.0f}°: sin colisiones"
+        else:
+            parts = []
+            if r["torso"]:
+                parts.append("choca con el torso: " + ", ".join(f"{n} ({v:.2f} mm³)" for n, v in r["torso"].items()))
+            if r["pairs"]:
+                parts.append("se cruzan " + ", ".join(f"{a} con {b} ({v:.2f} mm³)" for (a, b), v in r["pairs"].items()))
+            txt = f"Pose a {r['angle']:.0f}°: " + "; ".join(parts)
+        if r["limit"] is not None and r["angle"] > r["limit"] + 1e-6:
+            txt += f" (pasa del límite de cadera tallado en el torso, {r['limit']:.0f}°)"
+        return txt + "."
+
+    def _pose_update(self) -> None:
+        self.pose_report = self.pose_check()
+        self._changed(self.pose_message(self.pose_report))
+
+    def set_pose_view(self, on: bool) -> None:
+        """Vista previa de la figura generada (torso + miembros + espejos) con las piernas en el ángulo de la pose
+        sentada; las piezas que interfieren se pintan de rojo. Hace falta haber generado la figura."""
+        if not on:
+            was = self.pose_view
+            self.pose_view, self.pose_report = False, None
+            self._changed("Vista previa de la pose terminada." if was else None)
+            return
+        if self.session.outcome is None:
+            self.pose_view = False
+            self._changed("Primero generá la figura: la vista previa de la pose usa las piezas generadas.", scene=False)
+            return
+        self.cancel(quiet=True)
+        self.pose_view = True
+        self.pose_angle = float(self.session.project.params.sit_angle)
+        self._pose_update()
+
+    def set_pose_angle(self, angle: float) -> None:
+        """Cambia el ángulo de cadera de la vista previa (0° = de pie, 90° = sentada)."""
+        self.pose_angle = float(np.clip(angle, 0.0, 180.0))
+        if self.pose_active():
+            self._pose_update()
+
+    # ------------------------------------------------------- recortes manuales (plan §8.8)
+    def trim_targets(self) -> list[str]:
+        return ["torso"] + [l.name for l in self.session.project.limbs]
+
+    @staticmethod
+    def _trim_plane() -> Plane:
+        return Plane.from_normal((0.0, 0.0, 0.0), (1.0, 0.0, 0.0), SYMMETRY_PLANE_NAME)
+
+    def trim_entries(self) -> list[dict]:
+        out = []
+        for i, t in enumerate(self.session.project.trims):
+            out.append({"index": i, "target": t.target, "shape": t.shape, "op": t.op,
+                        "label": f"{i + 1}. {TRIM_OP_LABELS.get(t.op, t.op).capitalize()} {TRIM_SHAPE_LABELS.get(t.shape, t.shape)}"
+                                 f" en «{t.target}»"})
+        return out
+
+    def _check_trim_args(self, target: str, op: str, length: float) -> str | None:
+        """Motivo por el que los datos de un recorte no sirven, o None."""
+        if self.session.project.symmetry is None:
+            return "Primero definí el plano de simetría: los recortes se hacen sobre el lado de trabajo"
+        if target not in self.trim_targets():
+            return f"No existe la pieza «{target}» (usá «torso» o el nombre de un miembro)"
+        if op not in TRIM_OP_LABELS:
+            return "La operación debe ser «subtract» (restar) o «union» (unir)"
+        if not (0.1 <= float(length) <= 500.0):
+            return "La distancia de extrusión tiene que estar entre 0,1 y 500 mm"
+        return None
+
+    def start_trim(self, target: str = "torso", op: str = "subtract", distance: float = 25.0,
+                   symmetric: bool = True, index: int | None = None) -> None:
+        """Dibuja un recorte de polígono sobre el plano de simetría (se mira de costado): polígono → extrusión →
+        restar / unir sobre `target` ("torso" o un miembro). Con `index` se edita el polígono de un recorte existente.
+        Se aplica al lado de trabajo antes del espejado, así que sale igual en ambos lados."""
+        if not self._need_loaded():
+            return
+        trims = self.session.project.trims
+        if index is not None:
+            if not (0 <= index < len(trims)):
+                self._changed(f"No existe el recorte {index + 1}.", scene=False)
+                return
+            t = trims[index]
+            if t.shape != "polygon":
+                self._changed("Solo los recortes de polígono se editan con vértices; quitalo y colocá otro.", scene=False)
+                return
+            target, op, distance, symmetric = t.target, t.op, t.distance, t.symmetric
+            plane, poly = t.plane, np.asarray(t.polygon, float)
+        else:
+            plane, poly = self._trim_plane(), np.zeros((0, 3))
+        err = self._check_trim_args(target, op, distance)
+        if err:
+            self._changed(err + ".", scene=False)
+            return
+        self.cancel(quiet=True)
+        self.trim_cfg = {"target": target, "op": op, "distance": float(distance), "symmetric": bool(symmetric)}
+        self.edit_trim = index
+        self.draft = PolygonDraft.from_world(plane, poly) if len(poly) >= 3 else PolygonDraft(plane)
+        self.mode = Mode.POLYGON
+        self.camera.look_along(plane.normal, target=self.session.work.bounds.mean(axis=0))
+        what = f"{TRIM_OP_LABELS[op]} en «{target}»"
+        self._changed(f"Recorte ({what}): " + (
+            "clic en un vértice para elegirlo y otro clic para moverlo; clic sobre un borde agrega uno; Retroceso borra."
+            if len(poly) >= 3 else
+            "hacé clic para poner vértices sobre el plano de simetría (vista de costado); cerrá con un clic en el "
+            "primero o con Intro. Se extruye " + ("hacia ambos lados" if symmetric else "hacia +X") + f" {distance:g} mm."))
+
+    def _commit_trim(self, what: str) -> bool:
+        d, cfg = self.draft, self.trim_cfg
+        err = d.validity_error()
+        if err:
+            self._changed(f"{what}, pero el polígono {err}: corregilo (no se guardó el recorte).")
+            return False
+        world = d.world()
+        trims = self.session.project.trims
+        if self.edit_trim is None:
+            self.session.add_trim(Trim(cfg["target"], d.plane, world, cfg["distance"], cfg["symmetric"], cfg["op"]))
+            self.edit_trim = len(trims) - 1
+            self._changed(f"{what}. Recorte {self.edit_trim + 1} guardado: {TRIM_OP_LABELS[cfg['op']]} en «{cfg['target']}».")
+        else:
+            trims[self.edit_trim].polygon = world
+            self.session.outcome = None
+            self._changed(f"{what}. Recorte {self.edit_trim + 1} actualizado.")
+        return True
+
+    def add_trim_primitive(self, target: str, shape: str, center, size, op: str = "subtract",
+                           length: float = 25.0) -> int | None:
+        """Agrega un recorte de forma predefinida centrado en `center` (marco ``work``): esfera de radio `size`, caja
+        de arista `size` (o de 3 aristas x, y, z) o cilindro de radio `size` con el eje en X y `length` de largo.
+        Devuelve su índice, o None (con el motivo en `message`) si no sirve."""
+        if shape not in ("sphere", "box", "cylinder"):
+            self._changed("Forma desconocida: usá esfera, caja o cilindro (o «Dibujar recorte» para un polígono).",
+                          scene=False)
+            return None
+        err = self._check_trim_args(target, op, length)
+        if err is None and not np.all(np.asarray(size, float) > 0):
+            err = "El tamaño tiene que ser positivo"
+        if err:
+            self._changed(err + ".", scene=False)
+            return None
+        c, plane = np.asarray(center, float), self._trim_plane()
+        if shape == "sphere":
+            pts = c + float(size) * np.array([[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]], float)
+        elif shape == "cylinder":
+            pts = circle_world(plane, c, float(size), 16)
+        else:
+            half = np.broadcast_to(np.asarray(size, float), (3,)) / 2.0
+            pts = np.array([c - half, c + half])
+        self.session.add_trim(Trim(target, plane, pts, float(length), True, op, shape))
+        idx = len(self.session.project.trims) - 1
+        self._changed(f"Recorte {idx + 1} agregado: {TRIM_OP_LABELS[op]} {TRIM_SHAPE_LABELS[shape]} en «{target}».")
+        return idx
+
+    def start_trim_pick(self, target: str, shape: str, size, op: str = "subtract", length: float = 25.0) -> None:
+        """Un clic sobre la figura pone el centro de un recorte esfera / caja / cilindro (después se puede quitar o
+        cambiar de operación en la lista)."""
+        if not self._need_loaded():
+            return
+        if shape not in ("sphere", "box", "cylinder"):
+            self._changed("Elegí esfera, caja o cilindro.", scene=False)
+            return
+        err = self._check_trim_args(target, op, length)
+        if err:
+            self._changed(err + ".", scene=False)
+            return
+        self.cancel(quiet=True)
+        self.mode = Mode.TRIM_PICK
+        self.trim_cfg = {"target": target, "op": op, "distance": float(length), "symmetric": True,
+                         "shape": shape, "size": size}
+        self._changed(f"Recorte {TRIM_SHAPE_LABELS[shape]} en «{target}»: hacé clic en la figura donde va el centro "
+                      "(en el lado +X); Esc cancela.")
+
+    def _finish_trim_pick(self, hit: PickResult) -> None:
+        cfg = self.trim_cfg
+        center = np.asarray(hit.point, float).copy()
+        center[0] = abs(center[0])        # el lado de trabajo es +X: lo que se elige del otro lado se espeja
+        idx = self.add_trim_primitive(cfg["target"], cfg["shape"], center, cfg["size"], cfg["op"], cfg["distance"])
+        if idx is not None:
+            self.cancel(quiet=True)
+            self._changed(self.message + " Generá de nuevo para ver el resultado.")
+
+    def remove_trim(self, index: int) -> None:
+        if not (0 <= index < len(self.session.project.trims)):
+            self._changed(f"No existe el recorte {index + 1}.", scene=False)
+            return
+        if self.trim_cfg is not None:
+            self.cancel(quiet=True)
+        self.session.remove_trim(index)
+        self._changed(f"Recorte {index + 1} quitado. Generá de nuevo.")
+
+    def set_trim_op(self, index: int, op: str) -> None:
+        trims = self.session.project.trims
+        if not (0 <= index < len(trims)) or op not in TRIM_OP_LABELS:
+            self._changed("Recorte u operación inválidos.", scene=False)
+            return
+        if trims[index].op != op:
+            trims[index].op = op
+            self.session.outcome = None
+        self._changed(f"Recorte {index + 1}: {TRIM_OP_LABELS[op]}. Generá de nuevo.")
+
+    @staticmethod
+    def trim_wires(t: Trim) -> list[np.ndarray]:
+        """Líneas (Nx3) que muestran un recorte en el visor: el polígono, tres círculos (esfera), dos círculos
+        (cilindro) o las aristas de la caja."""
+        pts = np.asarray(t.polygon, float)
+        if t.shape == "polygon" or len(pts) == 0:
+            return [pts]
+        c = pts.mean(axis=0)
+        if t.shape == "sphere":
+            r = float(np.linalg.norm(pts - c, axis=1).max())
+            a = np.linspace(0.0, 2 * np.pi, 48, endpoint=False)
+            e = np.eye(3)
+            return [c + r * (np.cos(a)[:, None] * e[i] + np.sin(a)[:, None] * e[j]) for i, j in ((0, 1), (0, 2), (1, 2))]
+        if t.shape == "cylinder":
+            r = float(np.linalg.norm(pts - c, axis=1).max())
+            n = t.plane.normal * t.distance / 2.0
+            return [circle_world(t.plane, c - n, r), circle_world(t.plane, c + n, r)]
+        lo, hi = pts.min(axis=0), pts.max(axis=0)
+        corners = np.array([[x, y, z] for x in (lo[0], hi[0]) for y in (lo[1], hi[1]) for z in (lo[2], hi[2])])
+        return [np.array([corners[i], corners[j]]) for i in range(8) for j in range(i + 1, 8)
+                if bin(i ^ j).count("1") == 1]
+
     # ------------------------------------------------------------- voladizos
     def overhang_faces(self) -> tuple[np.ndarray, OrientResult] | None:
         """Máscara de caras voladizas de ``session.work`` y la orientación de impresión usada.
@@ -680,6 +1013,8 @@ class Controller:
             return None
         if self.mode == Mode.CROWN:
             self._finish_crown(hit)
+        elif self.mode == Mode.TRIM_PICK:
+            self._finish_trim_pick(hit)
         else:
             self.pending.append(hit.point.copy())
             if len(self.pending) < 3:
@@ -772,7 +1107,8 @@ class Controller:
         self._changed()
 
     def remove_plane(self, plane_id: str) -> None:
-        if plane_id == SYMMETRY_ID or plane_id in (self.edit_limb, self.pin_limb):
+        if (plane_id == SYMMETRY_ID or plane_id in (self.edit_limb, self.pin_limb)
+                or (self.trim_cfg is not None and self.trim_cfg["target"] == plane_id)):
             self.cancel(quiet=True)
         if plane_id == SYMMETRY_ID:
             self.session.set_symmetry(None)
@@ -812,6 +1148,7 @@ class Controller:
 
     def finish_generate(self, outcome=None, error: Exception | None = None) -> None:
         self.busy = False
+        self.pose_view, self.pose_report = False, None      # la figura nueva reemplaza a la de la vista previa
         if error is not None:
             self._changed(f"Falló la generación: {error}", scene=False)
         else:
@@ -852,19 +1189,28 @@ class Controller:
         if sess.work is None:
             scene.clear()
             return
+        if self.pose_active():
+            self._sync_pose(scene)
+            return
+        for key in [k for k in scene.items if k.startswith("pose:")]:
+            scene.remove(key)
         clip = 0.0 if (self.one_side and sess.project.symmetry is not None) else -1e9
         cplane = self._pin_clip_plane()
         extra = {} if cplane is None else {"clip_plane": cplane}      # solo en el modo PIN
         found = self.overhang_faces() if self.show_overhangs else None
+        drawn = []                                                   # (nombre, malla, color) para dibujar su espejo
         if found is not None and found[0].any():
             mask = found[0]
             verts, faces = sess.work.vertices, sess.work.faces
-            scene.set_mesh("figura", trimesh.Trimesh(verts, faces[~mask], process=False), clip_x=clip, **extra)
-            scene.set_mesh("voladizos", trimesh.Trimesh(verts, faces[mask], process=False),
-                           color=(0.95, 0.25, 0.25, 1.0), clip_x=clip, **extra)
+            ok_mesh = trimesh.Trimesh(verts, faces[~mask], process=False)
+            over_mesh = trimesh.Trimesh(verts, faces[mask], process=False)
+            scene.set_mesh("figura", ok_mesh, clip_x=clip, **extra)
+            scene.set_mesh("voladizos", over_mesh, color=(0.95, 0.25, 0.25, 1.0), clip_x=clip, **extra)
+            drawn = [("figura", ok_mesh, _MIRROR_COLOR), ("voladizos", over_mesh, (0.95, 0.45, 0.45, 1.0))]
         else:
             scene.set_mesh("figura", sess.work, clip_x=clip, **extra)
             scene.remove("voladizos")
+            drawn = [("figura", sess.work, _MIRROR_COLOR)]
         hs = self.plane_half_size
         palette = {"symmetry": (1.0, 0.55, 0.2, 0.18), "arm": (0.3, 0.6, 1.0, 0.22), "leg": (0.4, 0.85, 0.5, 0.22)}
         wanted = set()
@@ -885,6 +1231,78 @@ class Controller:
             scene.remove("pendientes:lineas")
         self._sync_polygons(scene)
         self._sync_pins(scene)
+        self._sync_trims(scene)
+        self._sync_mirror(scene, drawn, cplane)
+
+    def _sync_pose(self, scene) -> None:
+        """Vista previa de la pose: torso generado + miembros girados al ángulo elegido (rojo = interfiere)."""
+        scene.clear()
+        out = self.session.outcome
+        if self.pose_report is None:
+            self.pose_report = self.pose_check()
+        rep = self.pose_report
+        bad = set(rep["torso"]) | {n for pair in rep["pairs"] for n in pair}
+        scene.set_mesh("pose:torso", S.to_trimesh(out.result.pieces["torso"]), color=(0.62, 0.68, 0.78, 1.0))
+        for name, mf in self._posed_pieces(rep["angle"]).items():
+            scene.set_mesh(f"pose:{name}", S.to_trimesh(mf),
+                           color=(0.95, 0.28, 0.28, 1.0) if name in bad else (0.85, 0.80, 0.68, 1.0))
+
+    def _sync_trims(self, scene) -> None:
+        """Recortes manuales: rojo = restar, verde = unir. El que se está dibujando lo muestra el editor de polígonos."""
+        wanted = set()
+        editing = self.edit_trim if self.mode == Mode.POLYGON else None
+        for i, t in enumerate(self.session.project.trims):
+            if i == editing:
+                continue
+            key = f"recorte:{i}"
+            wanted.add(key)
+            scene.set_lines(key, self.trim_wires(t), (0.95, 0.3, 0.3, 1.0) if t.op == "subtract" else (0.35, 0.85, 0.4, 1.0),
+                            closed=True)
+            scene.show(key, t.target not in self.hidden)
+        for key in [k for k in scene.items if k.startswith("recorte:") and k not in wanted]:
+            scene.remove(key)
+
+    def _sync_mirror(self, scene, drawn, cplane) -> None:
+        """Espejo en vivo (x → −x) del lado de trabajo: figura, siluetas (también la que se está dibujando), recortes
+        y pasadores elegidos. Con los marcadores en x > 0 el espejo ocupa el lado oculto (x < 0)."""
+        if not self.mirror_active() or cplane is not None:
+            for key in [k for k in scene.items if k.startswith("espejo:")]:
+                scene.remove(key)
+            return
+        wanted = set()
+        for name, mesh, color in drawn:
+            key = f"espejo:{name}"
+            wanted.add(key)
+            scene.set_mesh(key, mirrored_mesh(mesh), color=color, clip_plane=(1.0, 0.0, 0.0, 0.0))
+        editing = self.draft if self.mode == Mode.POLYGON else None
+        for l in self.session.project.limbs:
+            hidden = l.name in self.hidden
+            for key, poly, color in ((f"espejo:silueta:{l.name}", l.polygon, (1.0, 0.8, 0.2, 1.0)),
+                                     (f"espejo:silueta2:{l.name}", None if l.cross is None else l.cross.polygon,
+                                      (0.3, 0.85, 1.0, 1.0))):
+                being_edited = editing is not None and l.name == self.edit_limb and self.edit_cross == ("silueta2" in key)
+                if being_edited or poly is None or len(poly) < 3:
+                    continue
+                wanted.add(key)
+                scene.set_lines(key, mirrored_points(poly), color, closed=True)
+                scene.show(key, not hidden)
+            if l.pin_center is not None:
+                key = f"espejo:pasador:{l.name}"
+                wanted.add(key)
+                scene.set_points(key, mirrored_points(np.asarray(l.pin_center, float)[None]), (1.0, 0.55, 0.1, 1.0), 10.0)
+                scene.show(key, not hidden)
+        for i, t in enumerate(self.session.project.trims):
+            if i == (self.edit_trim if editing is not None else None):
+                continue
+            key = f"espejo:recorte:{i}"
+            wanted.add(key)
+            scene.set_lines(key, [mirrored_points(w) for w in self.trim_wires(t)],
+                            (0.95, 0.3, 0.3, 1.0) if t.op == "subtract" else (0.35, 0.85, 0.4, 1.0), closed=True)
+        if editing is not None and editing.pts:
+            wanted.add("espejo:poligono")
+            scene.set_lines("espejo:poligono", mirrored_points(editing.world()), (1.0, 0.8, 0.2, 1.0), closed=editing.closed)
+        for key in [k for k in scene.items if k.startswith("espejo:") and k not in wanted]:
+            scene.remove(key)
 
     def _pin_clip_plane(self):
         """En el modo PIN se recorta lo que queda del lado del torso de la cara de contacto, para ver la cara."""

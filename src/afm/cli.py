@@ -7,7 +7,7 @@ import logging
 import os
 import sys
 
-from . import meshio, pipeline as P, solids as S
+from . import __version__, meshio, pipeline as P, solids as S
 from .project import Project, demo_project
 from .testfigure import make_doll
 
@@ -34,6 +34,7 @@ def run(stl_path: str, project: Project, outdir: str, name: str, progress=print,
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="afm", description=__doc__)
+    ap.add_argument("--version", action="version", version=f"afm {__version__}")
     sub = ap.add_subparsers(dest="cmd", required=True)
     d = sub.add_parser("demo", help="figura sintética de ejemplo")
     d.add_argument("--out", default="out/demo")

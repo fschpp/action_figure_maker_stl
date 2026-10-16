@@ -278,6 +278,25 @@ Con la simetría definida y cada miembro con su silueta, el Estado deja de lista
 Cualquier cambio posterior (una silueta, un plano, la simetría) **invalida el resultado**: hay que
 generar de nuevo antes de exportar.
 
+### 7.4 Recortes manuales
+
+Para los ajustes propios de cada figura (la «esfera panza» de Mickey, una cola, un faldón que estorba) hay **una sola herramienta**, la misma para todos los casos: una forma → extrusión → **restar** o **unir** sobre una pieza. En la barra lateral, sección **Recortes manuales**:
+
+1. Elegí la **Pieza** (el torso o un miembro), la **Forma** y la **Operación** (restar / unir).
+2. **Polígono:** «Dibujar polígono / colocar con clic» pasa a la vista de costado sobre el **plano de simetría**; clic = vértice, cerrá con un clic en el primero o con Intro (igual que una silueta, §7.1: clic en un vértice y otro clic lo mueve, clic sobre un borde agrega uno, Retroceso borra). **Extrusión (mm)** es el espesor: el polígono se extruye hacia ambos lados del plano.
+3. **Esfera, caja o cilindro:** elegí el **Radio / arista** y hacé clic en la figura donde va el centro (el clic del lado −X se pasa al +X). La esfera y el cilindro usan ese radio (el cilindro tiene el eje en X y el largo de la **Extrusión**); la caja es un cubo de esa arista.
+4. El recorte aparece en la lista (rojo = restar, verde = unir, también dibujado en el visor): el lápiz edita los vértices de un polígono, la flecha cambia entre restar y unir, el tachito lo quita.
+
+Los recortes se aplican al **lado de trabajo (+X)** antes del espejado, así que salen iguales en los dos lados, y se guardan en el `.proyecto`. Cambiar o quitar uno invalida la figura generada. Ojo: un recorte **tiene que llegar a la superficie** de la pieza; si queda totalmente adentro deja un hueco cerrado y el programa lo descarta (no hay ningún efecto). Para ver el resultado hay que **Generar** de nuevo.
+
+### 7.5 Pose sentada en vivo (y colisiones)
+
+Después de **Generar**, la casilla **Ver la figura generada en la pose de cadera** (sección «Espejo y pose sentada») reemplaza el visor por las piezas armadas: el torso con sus cavidades y los cuatro miembros (los de la derecha son el espejo de los de la izquierda). El **Ángulo de cadera** gira las piernas sobre el eje del pasador: 0° = de pie, 90° = sentada (arranca en el ángulo de la pose sentada de los parámetros).
+
+* Las piezas que **chocan con el torso o entre sí** a ese ángulo se pintan de **rojo** y el Estado dice cuáles y por cuántos mm³.
+* El Estado avisa cuando el ángulo pasa del **límite de cadera** tallado en el torso (ángulo de la pose sentada + margen): más allá de ahí es normal que la pierna choque; si choca *antes* de ese límite, hay un problema de silueta o de pasador.
+* Cualquier edición invalida la figura generada y la vista previa se cierra; generá de nuevo para volver a verla.
+
 ## 8. Lista de planos
 
 Debajo de los botones aparece la lista de planos creados: **Simetría** y uno por cada miembro.
@@ -286,10 +305,16 @@ Debajo de los botones aparece la lista de planos creados: **Simetría** y uno po
 * El **tachito** lo quita. Quitar la **Simetría** quita también todos los miembros, porque dependen
   de ella.
 
-## 9. Trabajar un solo lado
+## 9. Trabajar un solo lado y espejo en vivo
 
 Con la simetría definida, **Trabajar un solo lado (oculta x < 0)** esconde la mitad izquierda de
 la figura para ver mejor el lado en el que se trabaja. Es solo una ayuda visual.
+
+**Espejo en vivo** (sección «Espejo y pose sentada») muestra en ese lado oculto el reflejo de lo que
+hacés en el lado +X, con un tinte azul para distinguirlo: la figura, las siluetas y el 2.º corte (también
+el polígono mientras lo dibujás), los pasadores elegidos y los recortes. Es lo que va a salir al generar,
+que construye un solo lado y lo espeja. Al activarlo se pasa a trabajar un solo lado; si volvés a ver
+los dos lados se apaga. Durante la colocación del pasador no se dibuja (el plano de recorte ocupa ese lugar).
 
 ## 10. Guardar y reabrir
 
@@ -328,18 +353,22 @@ la figura para ver mejor el lado en el que se trabaja. Es solo una ayuda visual.
 | «No se puede colocar el pasador de …: dibujá primero la silueta» | El miembro todavía no tiene silueta (§7.1), o la silueta no deja una cara de contacto plana |
 | «No se movió: el vástago no toca la cara de contacto…» | El clic cayó a más de un diámetro del borde de la cara azul; acercalo (si el centro queda apenas fuera, se acepta y el Estado lo anota) |
 | El Estado dice que el vástago sobresale de la cara | La cara es más angosta que el vástago: movelo hacia la parte más ancha, achicá el vástago (`shoulder_pin` / `hip_pin` en los parámetros) o corré la silueta para que la cara quede más ancha |
+| «…el polígono se cruza consigo mismo: corregilo (no se guardó el recorte)» | Igual que con las siluetas: mové o borrá el vértice que hace el cruce |
+| Un recorte no cambia nada al generar | Quedó totalmente dentro de la pieza (hueco cerrado, se descarta): llevalo hasta la superficie, o revisá que la pieza elegida sea la que lo contiene |
+| La pose sentada no se puede ver | Primero hay que generar la figura; si se edita algo después hay que generar de nuevo |
 | La coronilla no se deja marcar | Ya hay simetría o miembros; quitalos primero |
 | La figura se ve de espaldas en «Frente» | Cambiar «Frente hacia» a −Y (borra los planos) |
 
 ## Lo que falta en la interfaz
 
-Esta versión de la ventana **define planos, dibuja las siluetas, genera la figura, exporta las piezas y guarda el proyecto**
-(también puede mostrar los **voladizos** de impresión en rojo sobre la figura entera, con la casilla de la
-barra lateral). Todavía no:
+Esta versión de la ventana **define planos, dibuja las siluetas, coloca los pasadores, hace recortes manuales, genera la figura,
+la muestra en la pose de cadera con sus colisiones, exporta las piezas y guarda el proyecto** (también puede mostrar los
+**voladizos** de impresión en rojo sobre la figura entera, con la casilla de la barra lateral). Todavía no:
 
-* ofrece un control gráfico para el diámetro del pasador ni para el recorte redondeado de la cadera (se cambian en los parámetros / `cap_*`);
+* ofrece un control gráfico para el recorte redondeado de la cadera (se cambia con `cap_*` en el proyecto);
 * acierta solo la altura de la cadera cuando hay abrigo o faldón largo (la silueta propuesta se corrige a mano);
-* muestra los voladizos sobre las piezas ya cortadas ni la pose sentada en vivo.
+* muestra los voladizos sobre las piezas ya cortadas, ni la pose sentada **sin** haber generado antes;
+* detecta solo las láminas finas / rebabas de la malla (se quitan con un recorte).
 
 La línea de comandos sigue disponible (útil para procesar sin ventana):
 
@@ -347,4 +376,4 @@ La línea de comandos sigue disponible (útil para procesar sin ventana):
 afm build figura.stl figura.proyecto --out out/figura --orient
 ```
 
-El orden previsto para lo que sigue está en [`PROGRESS.md`](../PROGRESS.md).
+Instalación y resumen de una página: [`manual_corto.md`](manual_corto.md). El orden previsto para lo que sigue está en [`PROGRESS.md`](../PROGRESS.md).

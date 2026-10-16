@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "action-figure-maker-stl"
-version = "0.1.0"
+version = "0.2.0"
 description = "Convierte un STL de una pieza en una figura articulable (print-in-place) estilo Kenner"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -24,10 +24,14 @@ dependencies = [
 [project.optional-dependencies]
 gui = ["PyGObject", "moderngl", "pycairo", "pillow"]
 dev = ["pytest"]
+all = ["PyGObject", "moderngl", "pycairo", "pillow", "pytest"]
 
 [project.scripts]
 afm = "afm.cli:main"
 afm-gui = "afm.gui.app:main"
+
+[project.urls]
+Repository = "https://github.com/fschpp/action_figure_maker_stl"
 
 [tool.setuptools.packages.find]
 where = ["src"]
