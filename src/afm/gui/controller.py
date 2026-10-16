@@ -71,6 +71,23 @@ def validation_summary(val: dict, clearance: float) -> str:
     return "; ".join(parts) + "."
 
 
+# Parámetros editables en la GUI: (clave con punto, etiqueta, mínimo, máximo, paso, decimales)
+PARAM_FIELDS = (
+    ("clearance", "Holgura miembro–cavidad (mm)", 0.1, 1.5, 0.05, 2),
+    ("burr", "Rebaba a rebajar en la cara (mm)", 0.0, 3.0, 0.05, 2),
+    ("sit_angle", "Ángulo de pose sentada (°)", 0.0, 180.0, 5.0, 0),
+    ("hip_margin", "Margen del límite de cadera (°)", 0.0, 30.0, 1.0, 0),
+    ("shoulder_pin.shaft_d", "Hombro: Ø vástago (mm)", 2.0, 12.0, 0.1, 1),
+    ("shoulder_pin.shaft_len", "Hombro: largo vástago (mm)", 0.5, 15.0, 0.1, 1),
+    ("shoulder_pin.head_d", "Hombro: Ø cabeza (mm)", 3.0, 16.0, 0.1, 1),
+    ("shoulder_pin.head_h", "Hombro: alto cabeza (mm)", 0.5, 8.0, 0.05, 2),
+    ("hip_pin.shaft_d", "Cadera: Ø vástago (mm)", 2.0, 12.0, 0.1, 1),
+    ("hip_pin.shaft_len", "Cadera: largo vástago (mm)", 0.5, 15.0, 0.1, 1),
+    ("hip_pin.head_d", "Cadera: Ø cabeza (mm)", 3.0, 16.0, 0.1, 1),
+    ("hip_pin.head_h", "Cadera: alto cabeza (mm)", 0.5, 8.0, 0.05, 2),
+)
+
+
 class Controller:
     def __init__(self, session: Session | None = None):
         self.session = session or Session()
@@ -220,6 +237,98 @@ class Controller:
     def set_one_side(self, on: bool) -> None:
         self.one_side = bool(on)
         self._changed()
+
+    # ----------------------------------------------------- parámetros y perfiles de línea
+    def get_param(self, key: str) -> float:
+        obj = self.session.project.params
+        *path, last = key.split(".")
+        for k in path:
+            obj = getattr(obj, k)
+        return float(getattr(obj, last))
+
+    def set_param(self, key: str, value: float) -> bool:
+        """Cambia un parámetro de `PARAM_FIELDS` (p. ej. «hip_pin.shaft_len»). Cualquier cambio invalida la figura
+        generada. Devuelve False (y deja el motivo en `message`) si la clave o el valor no valen."""
+        spec = next((f for f in PARAM_FIELDS if f[0] == key), None)
+        if spec is None:
+            self._changed(f"Parámetro desconocido: {key}.", scene=False)
+            return False
+        _k, label, lo, hi, _step, _dig = spec
+        value = float(value)
+        if not (lo - 1e-9 <= value <= hi + 1e-9):
+            self._changed(f"{label}: {value:g} está fuera de rango ({lo:g}–{hi:g}).", scene=False)
+            return False
+        if abs(self.get_param(key) - value) < 1e-12:
+            return True
+        obj = self.session.project.params
+        *path, last = key.split(".")
+        for k in path:
+            obj = getattr(obj, k)
+        setattr(obj, last, value)
+        self.session.outcome = None
+        self._changed(f"{label}: {value:g}. Hay que generar de nuevo.", scene=False)
+        return True
+
+    def profile_names(self, directory: str | None = None) -> list[str]:
+        from .. import profile
+        return profile.list_profiles(directory)
+
+    def save_profile(self, name: str, directory: str | None = None) -> str | None:
+        """Guarda los parámetros actuales como perfil de línea (se reusan en la próxima figura)."""
+        from .. import profile
+        try:
+            path = profile.save_profile(name, self.session.project.params, directory)
+        except ValueError as e:
+            self._changed(f"No se guardó el perfil: {e}.", scene=False)
+            return None
+        self._changed(f"Perfil «{name}» guardado en {path}.", scene=False)
+        return path
+
+    def load_profile(self, name: str, directory: str | None = None) -> bool:
+        """Carga un perfil de línea: reemplaza los parámetros del proyecto (siluetas y planos no se tocan)."""
+        from .. import profile
+        try:
+            params = profile.load_profile(name, directory)
+        except (OSError, ValueError, TypeError) as e:
+            self._changed(f"No se pudo cargar el perfil «{name}»: {e}.", scene=False)
+            return False
+        self.session.project.params = params
+        self.session.outcome = None
+        self._changed(f"Perfil «{name}» cargado (holgura {params.clearance:g} mm). Hay que generar de nuevo.",
+                      scene=False)
+        return True
+
+    def export_probes(self, outdir: str, which: str = "hip", clearances=None, shaft_deltas=None) -> dict | None:
+        """Escribe la placa de probetas (`probetas.stl` + `probetas.txt`) con los parámetros actuales.
+        `which`: pasador de «hip» (cadera) o «shoulder» (hombro) a variar."""
+        import os
+        from .. import probes, solids as S
+        p = self.session.project.params
+        base = p.hip_pin if which == "hip" else p.shoulder_pin
+        kw = {}
+        if clearances is not None:
+            kw["clearances"] = clearances
+        if shaft_deltas is not None:
+            kw["shaft_deltas"] = shaft_deltas
+        cells = probes.probe_cells(p, base=base, **kw)
+        os.makedirs(outdir, exist_ok=True)
+        stl = os.path.join(outdir, "probetas.stl")
+        S.to_trimesh(probes.build_probe(p, cells)).export(stl)
+        txt = os.path.join(outdir, "probetas.txt")
+        with open(txt, "w") as f:
+            f.write(probes.labels_text(cells) + "\n")
+        self._changed(f"Probetas ({len(cells)} articulaciones, pasador de {'cadera' if which == 'hip' else 'hombro'}) "
+                      f"en {outdir}. Imprimilas, cargá en «Parámetros» la combinación elegida y guardala en el perfil.",
+                      scene=False)
+        return {"stl": stl, "tabla": txt, "celdas": len(cells)}
+
+    def apply_probe_result(self, clearance: float, shaft_d: float, which: str = "both") -> None:
+        """Guarda en los parámetros la combinación holgura / Ø de vástago elegida con las probetas."""
+        from .. import profile
+        self.session.project.params = profile.apply_probe_result(self.session.project.params, clearance, shaft_d, which)
+        self.session.outcome = None
+        self._changed(f"Probetas: holgura {clearance:g} mm y vástago Ø{shaft_d:g} mm. Hay que generar de nuevo.",
+                      scene=False)
 
     # ------------------------------------------------------------ siluetas
     def start_polygon(self, name: str, cross: bool = False) -> None:

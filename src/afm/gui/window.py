@@ -14,7 +14,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
 from gi.repository import Gdk, Gio, GLib, Gtk  # noqa: E402
 
-from .controller import Controller, Mode  # noqa: E402
+from .controller import PARAM_FIELDS, Controller, Mode  # noqa: E402
 from .render import SceneRenderer  # noqa: E402
 
 DRAG_THRESHOLD_PX = 4.0
@@ -177,6 +177,39 @@ class MainWindow(Gtk.ApplicationWindow):
         for b in (self.btn_pin_reset, self.btn_pin_face, self.btn_pin_end):
             box.append(b)
 
+        box.append(_section("Parámetros"))
+        self.param_spins: dict[str, Gtk.SpinButton] = {}
+        for key, label, lo, hi, step, digits in PARAM_FIELDS:
+            row = Gtk.Box(spacing=6)
+            lbl = Gtk.Label(label=label, xalign=0, hexpand=True)
+            row.append(lbl)
+            spin = Gtk.SpinButton.new_with_range(lo, hi, step)
+            spin.set_digits(digits)
+            spin.set_value(self.ctrl.get_param(key))
+            spin.connect("value-changed", lambda b, k=key: None if self._updating else self.ctrl.set_param(k, b.get_value()))
+            row.append(spin)
+            box.append(row)
+            self.param_spins[key] = spin
+        box.append(_section("Perfil de línea"))
+        hint_prof = Gtk.Label(label="Un perfil guarda estos parámetros para reusarlos en la próxima figura de la línea.",
+                              xalign=0, wrap=True)
+        hint_prof.add_css_class("dim-label")
+        box.append(hint_prof)
+        row = Gtk.Box(spacing=6)
+        self.dd_profile = Gtk.DropDown.new_from_strings(self.ctrl.profile_names() or ["(sin perfiles)"])
+        self.dd_profile.set_hexpand(True)
+        row.append(self.dd_profile)
+        row.append(self._button("Cargar", lambda *_: self._on_load_profile()))
+        box.append(row)
+        row = Gtk.Box(spacing=6)
+        self.ent_profile = Gtk.Entry(placeholder_text="Nombre del perfil", hexpand=True)
+        row.append(self.ent_profile)
+        row.append(self._button("Guardar", lambda *_: self._on_save_profile()))
+        box.append(row)
+        self.dd_probe = Gtk.DropDown.new_from_strings(["Pasador de cadera", "Pasador de hombro"])
+        box.append(self.dd_probe)
+        box.append(self._button("Generar probetas de articulación…", lambda *_: self._on_probes()))
+
         box.append(_section("Generar"))
         self.btn_generate = self._button("Generar figura", lambda *_: self._on_generate())
         self.btn_generate.add_css_class("suggested-action")
@@ -225,6 +258,9 @@ class MainWindow(Gtk.ApplicationWindow):
         self._updating = True
         try:
             self.lbl_status.set_text(ctrl.message)
+            for key, spin in self.param_spins.items():
+                if abs(spin.get_value() - ctrl.get_param(key)) > 1e-9:
+                    spin.set_value(ctrl.get_param(key))
             probs = ctrl.problems()
             self.lbl_problems.set_text("Pendiente: " + "; ".join(probs) if probs else "Siluetas completas.")
             title = "Action Figure Maker"
@@ -473,6 +509,41 @@ class MainWindow(Gtk.ApplicationWindow):
                 return
             try:
                 self.ctrl.export(f.get_path(), orient=self.chk_orient.get_active())
+            except Exception as e:          # noqa: BLE001
+                self._error(e)
+
+        dlg.select_folder(self, None, finished)
+
+    def _on_load_profile(self) -> None:
+        names = self.ctrl.profile_names()
+        if not names:
+            return
+        if self.ctrl.load_profile(names[self.dd_profile.get_selected()]):
+            self._updating = True
+            try:
+                for key, spin in self.param_spins.items():
+                    spin.set_value(self.ctrl.get_param(key))
+            finally:
+                self._updating = False
+
+    def _on_save_profile(self) -> None:
+        name = self.ent_profile.get_text().strip()
+        if self.ctrl.save_profile(name):
+            names = self.ctrl.profile_names()
+            self.dd_profile.set_model(Gtk.StringList.new(names))
+            self.dd_profile.set_selected(names.index(name) if name in names else 0)
+
+    def _on_probes(self) -> None:
+        dlg = Gtk.FileDialog(title="Carpeta donde guardar las probetas")
+        which = "hip" if self.dd_probe.get_selected() == 0 else "shoulder"
+
+        def finished(d, res):
+            try:
+                f = d.select_folder_finish(res)
+            except GLib.Error:
+                return
+            try:
+                self.ctrl.export_probes(f.get_path(), which=which)
             except Exception as e:          # noqa: BLE001
                 self._error(e)
 
