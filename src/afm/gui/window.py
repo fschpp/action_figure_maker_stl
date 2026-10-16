@@ -126,8 +126,17 @@ class MainWindow(Gtk.ApplicationWindow):
         self.btn_sym_auto = self._button("Simetría automática (x = 0)", lambda *_: self.ctrl.auto_symmetry())
         self.btn_arm = self._button("Agregar plano de brazo (3 puntos)", lambda *_: self.ctrl.start_limb_plane("arm"))
         self.btn_leg = self._button("Agregar plano de pierna (3 puntos)", lambda *_: self.ctrl.start_limb_plane("leg"))
-        for b in (self.btn_sym, self.btn_sym_auto, self.btn_arm, self.btn_leg):
+        self.btn_arm_sym = self._button("Agregar brazo sobre el plano de simetría", lambda *_: self.ctrl.add_limb_on_symmetry("arm"))
+        self.btn_leg_sym = self._button("Agregar pierna sobre el plano de simetría", lambda *_: self.ctrl.add_limb_on_symmetry("leg"))
+        for b in (self.btn_sym, self.btn_sym_auto, self.btn_arm, self.btn_leg, self.btn_arm_sym, self.btn_leg_sym):
             box.append(b)
+        row = Gtk.Box(spacing=6)
+        row.append(Gtk.Label(label="Corte a (mm del plano de simetría)"))
+        self.spin_cut = Gtk.SpinButton.new_with_range(0.5, 200.0, 0.5)
+        self.spin_cut.set_digits(2)
+        self.spin_cut.connect("value-changed", self._on_cut_offset)
+        row.append(self.spin_cut)
+        box.append(row)
         hint = Gtk.Label(label="Durante la selección: Retroceso deshace el último punto, Esc cancela.",
                          xalign=0, wrap=True)
         hint.add_css_class("dim-label")
@@ -226,6 +235,12 @@ class MainWindow(Gtk.ApplicationWindow):
             has_sym = ctrl.session.project.symmetry is not None
             self.btn_arm.set_sensitive(loaded and has_sym)
             self.btn_leg.set_sensitive(loaded and has_sym)
+            self.btn_arm_sym.set_sensitive(loaded and has_sym)
+            self.btn_leg_sym.set_sensitive(loaded and has_sym)
+            off_limb = ctrl.offset_limb() if loaded else None
+            self.spin_cut.set_sensitive(off_limb is not None)
+            if off_limb is not None:
+                self.spin_cut.set_value(ctrl.session.limb_offset(off_limb))
             self.chk_side.set_sensitive(loaded and has_sym)
             self.chk_side.set_active(ctrl.one_side)
             self.chk_over.set_active(ctrl.show_overhangs)
@@ -244,6 +259,13 @@ class MainWindow(Gtk.ApplicationWindow):
         finally:
             self._updating = False
         self.gl.queue_render()
+
+    def _on_cut_offset(self, spin) -> None:
+        if self._updating:
+            return
+        name = self.ctrl.offset_limb()
+        if name is not None and abs(spin.get_value() - (self.ctrl.session.limb_offset(name) or 0.0)) > 1e-9:
+            self.ctrl.set_limb_offset(name, spin.get_value())
 
     def _rebuild_plane_list(self) -> None:
         while (child := self.planes_box.get_first_child()) is not None:

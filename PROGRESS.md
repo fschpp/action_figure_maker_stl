@@ -146,3 +146,11 @@ y `Session.fix_limb_extrude` corrige proyectos viejos al abrir el modo pasador. 
 pasadores enfrentados se cruzarían en el plano de simetría.
 Güemes con el proyecto corregido: con `hip_pin` 2,2 + 1,65 mm y `sweep_step` 2,5° la validación da **OK** (holguras >= 0,475 mm).
 Con el pasador de cadera por defecto (6,6 mm) las piernas se interpenetran 2,6 mm en la pelvis; con paso 5° queda 0,2 mm³ de interferencia en el giro.
+
+## Silueta sobre el plano de simetría con corte desplazado — 2026-10-15
+`LimbSpec.cut_offset` (mm hacia +X respecto del plano de la silueta; `limbs.effective_cut_offset`): el prisma «outward» sale del plano desplazado.
+Piernas sobre el plano de simetría: 7 mm por defecto (`DEFAULT_LEG_CUT_X`, el `hip_x` de autosil); brazos: hay que indicarlo.
+GUI: botones «Agregar brazo/pierna sobre el plano de simetría» y control «Corte a (mm…)»; `Session.add_limb_on_symmetry / set_limb_offset / limb_offset`.
+Con la cara a x = 7,66 mm (476 mm²) los pasadores de cadera por defecto (6,6 mm) ya no se cruzan. Güemes: validación **OK** con `hip_pin` por defecto y
+`sweep_step` 2,5° (holguras >= 0,476 mm); con 5° queda 0,098 mm³ de interferencia en el giro. Quedan 1 arista no-variedad por pierna (aviso del slicer).
+No existe una «cara interna del muslo» detectable en Güemes (el borde interno va de x = 5,7 mm en el pie a 0 en la cadera): por eso el valor es calibrado, no medido.

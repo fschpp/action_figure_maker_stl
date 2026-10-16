@@ -17,7 +17,7 @@ import numpy as np
 import trimesh
 
 from .. import meshio, pipeline as P, solids as S
-from ..limbs import LimbSpec, PinPreview, check_limb_plane, contact_preview, plane_is_lateral
+from ..limbs import LimbSpec, PinPreview, check_limb_plane, contact_preview, effective_cut_offset, plane_is_lateral, plane_on_symmetry
 from ..params import PinSpec
 
 from ..planes import Plane
@@ -144,6 +144,40 @@ class Session:
         self.outcome = None
         return spec
 
+    def add_limb_on_symmetry(self, name: str, kind: str, auto: bool = True) -> LimbSpec:
+        """Miembro cuya silueta se dibuja sobre el plano de simetría (siempre disponible, vista lateral limpia).
+        El corte real va desplazado (`cut_offset`; por defecto 7 mm en las piernas)."""
+        sym = self.project.symmetry
+        if sym is None:
+            raise ValueError("Falta el plano de simetría")
+        plane = Plane.from_normal(sym.origin, sym.normal, name)
+        return self.add_limb(name, kind, plane, auto=auto, extrude="outward")
+
+    def limb_offset(self, name: str) -> float | None:
+        """Desplazamiento efectivo del corte de `name`, o None si su plano no es el de simetría."""
+        spec = self.limb(name)
+        if spec is None:
+            raise KeyError(name)
+        if not plane_on_symmetry(spec.plane, spec.contact_axis):
+            return None
+        try:
+            return effective_cut_offset(spec)
+        except ValueError:
+            return 0.0
+
+    def set_limb_offset(self, name: str, mm: float) -> None:
+        spec = self.limb(name)
+        if spec is None:
+            raise KeyError(name)
+        mm = float(mm)
+        if not np.isfinite(mm) or not (0.5 <= mm <= 200.0):
+            raise ValueError("el desplazamiento del corte tiene que estar entre 0,5 y 200 mm")
+        if not plane_on_symmetry(spec.plane, spec.contact_axis):
+            raise ValueError(f"«{name}» no está sobre el plano de simetría: el desplazamiento no aplica")
+        spec.cut_offset = mm
+        spec.pin_center = None          # la cara de contacto se movió
+        self.outcome = None
+
     def fix_limb_extrude(self, name: str) -> bool:
         """Si el plano de `name` está de costado pero la extrusión es simétrica (proyectos guardados antes
         de este cambio), pasa a «outward» y descarta el pasador elegido (estaba sobre una cara que no era la
@@ -218,7 +252,7 @@ class Session:
             raise ValueError(f"{name}: dibujá primero la silueta (mínimo 3 puntos)")
         burr = self.project.params.burr
         key = (id(self.work), np.asarray(spec.polygon).tobytes(), spec.plane.origin.tobytes(),
-               spec.plane.normal.tobytes(), spec.thickness, spec.extrude, tuple(spec.contact_axis), spec.burr,
+               spec.plane.normal.tobytes(), spec.thickness, spec.extrude, spec.cut_offset, tuple(spec.contact_axis), spec.burr,
                burr, spec.auto, tuple(spec.cap_dir))
         cache = getattr(self, "_pin_cache", None)
         if cache is not None and cache[0] == key:

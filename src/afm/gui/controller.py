@@ -562,6 +562,45 @@ class Controller:
         self.mode, self.pending_kind = Mode.VIEW, None
         self._changed(f"Plano «{name}» agregado. Falta dibujar su silueta.")
 
+    def add_limb_on_symmetry(self, kind: str) -> None:
+        """Agrega un miembro cuya silueta se dibuja sobre el plano de simetría (sin elegir 3 puntos)."""
+        if not self._need_loaded():
+            return
+        if kind not in _KIND_BASE:
+            raise ValueError(kind)
+        if self.session.project.symmetry is None:
+            self._changed("Primero definí el plano de simetría.", scene=False)
+            return
+        self.cancel(quiet=True)
+        name = self.unique_name(kind)
+        try:
+            self.session.add_limb_on_symmetry(name, kind)
+        except ValueError as e:
+            self._changed(f"No se pudo agregar: {e}.", scene=False)
+            return
+        off = self.session.limb_offset(name)
+        self._changed(f"«{name}» agregado sobre el plano de simetría. Dibujá su silueta; el corte va "
+                      + (f"{off:g} mm hacia afuera (ajustable)." if kind == "leg" else "desplazado: indicá cuánto."))
+
+    def offset_limb(self) -> str | None:
+        """Miembro activo cuyo desplazamiento de corte se puede editar (el del pasador o el de la silueta)."""
+        for name in (self.pin_limb, self.edit_limb):
+            if name is not None and self.session.limb_offset(name) is not None:
+                return name
+        sym = [l.name for l in self.session.project.limbs if self.session.limb_offset(l.name) is not None]
+        return sym[0] if len(sym) == 1 else None
+
+    def set_limb_offset(self, name: str, mm: float) -> None:
+        try:
+            self.session.set_limb_offset(name, mm)
+        except ValueError as e:
+            self._changed(f"{e}.", scene=False)
+            return
+        if self.mode == Mode.PIN and self.pin_limb == name:
+            self.start_pin(name)             # la cara de contacto se movió: recalcular y volver a mirarla
+            return
+        self._changed(f"Corte de «{name}» a {mm:g} mm del plano de simetría. Revisá el pasador.")
+
     def unique_name(self, kind: str) -> str:
         base = _KIND_BASE[kind]
         names = {l.name for l in self.session.project.limbs}
