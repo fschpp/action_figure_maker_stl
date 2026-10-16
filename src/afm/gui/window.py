@@ -144,7 +144,9 @@ class MainWindow(Gtk.ApplicationWindow):
         box.append(self.planes_box)
 
         box.append(_section("Silueta del miembro"))
-        hint2 = Gtk.Label(label="Elegí «Dibujar silueta» (lápiz) en un plano de la lista. Clic = vértice sobre el plano; "
+        hint2 = Gtk.Label(label="Elegí «Dibujar silueta» (lápiz) en un plano de la lista; «2.º» dibuja el segundo corte, de "
+                                "frente (el miembro es lo que queda dentro de las dos siluetas: p. ej. en una pierna, la "
+                                "columna del muslo + el escalón de la cadera). Clic = vértice sobre el plano; "
                                 "cerrá con un clic en el primero o con Intro. Ya cerrado: clic en un vértice y luego "
                                 "clic para moverlo; clic sobre un borde agrega uno; Retroceso borra el elegido.",
                           xalign=0, wrap=True)
@@ -153,9 +155,12 @@ class MainWindow(Gtk.ApplicationWindow):
         self.btn_close_poly = self._button("Cerrar polígono (Intro)", lambda *_: self.ctrl.close_polygon())
         self.btn_propose = self._button("Proponer silueta automática", lambda *_: self.ctrl.propose_silhouette())
         self.btn_outline = self._button("Empezar desde el contorno de la figura", lambda *_: self.ctrl.use_outline_as_base())
+        self.btn_raise = self._button("Subir el borde superior (2.º corte) hasta la otra silueta",
+                                      lambda *_: self.ctrl.raise_top())
         self.btn_clear_poly = self._button("Vaciar y redibujar", lambda *_: self.ctrl.clear_polygon())
         self.btn_end_poly = self._button("Terminar edición de silueta (Esc)", lambda *_: self.ctrl.cancel())
-        for b in (self.btn_close_poly, self.btn_propose, self.btn_outline, self.btn_clear_poly, self.btn_end_poly):
+        for b in (self.btn_close_poly, self.btn_propose, self.btn_outline, self.btn_raise, self.btn_clear_poly,
+                  self.btn_end_poly):
             box.append(b)
 
         box.append(_section("Pasador de brazo / cadera"))
@@ -246,6 +251,7 @@ class MainWindow(Gtk.ApplicationWindow):
             editing = ctrl.mode == Mode.POLYGON
             for b in (self.btn_close_poly, self.btn_propose, self.btn_outline, self.btn_clear_poly, self.btn_end_poly):
                 b.set_sensitive(editing)
+            self.btn_raise.set_sensitive(editing and ctrl.edit_cross)
             placing = ctrl.mode == Mode.PIN
             for b in (self.btn_pin_reset, self.btn_pin_face, self.btn_pin_end):
                 b.set_sensitive(placing)
@@ -280,6 +286,17 @@ class MainWindow(Gtk.ApplicationWindow):
                 ed.add_css_class("flat")
                 ed.connect("clicked", lambda _b, pid=e.id: self.ctrl.start_polygon(pid))
                 row.append(ed)
+                cr = Gtk.Button(label="2.º", tooltip_text="Dibujar / editar el 2.º corte (silueta sobre el plano "
+                                "perpendicular, normalmente de frente). El miembro es lo que queda dentro de las "
+                                "dos siluetas")
+                cr.add_css_class("flat")
+                cr.connect("clicked", lambda _b, pid=e.id: self.ctrl.start_polygon(pid, cross=True))
+                row.append(cr)
+                if self.ctrl.session.limb(e.id) is not None and self.ctrl.session.limb(e.id).cross is not None:
+                    cx = Gtk.Button(icon_name="list-remove-symbolic", tooltip_text="Quitar el 2.º corte")
+                    cx.add_css_class("flat")
+                    cx.connect("clicked", lambda _b, pid=e.id: self.ctrl.remove_cross(pid))
+                    row.append(cx)
                 pn = Gtk.Button(icon_name="find-location-symbolic",
                                 tooltip_text="Colocar el pasador sobre la cara de corte")
                 pn.add_css_class("flat")
