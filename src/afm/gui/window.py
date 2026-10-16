@@ -126,9 +126,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self.btn_sym_auto = self._button("Simetría automática (x = 0)", lambda *_: self.ctrl.auto_symmetry())
         self.btn_arm = self._button("Agregar plano de brazo (3 puntos)", lambda *_: self.ctrl.start_limb_plane("arm"))
         self.btn_leg = self._button("Agregar plano de pierna (3 puntos)", lambda *_: self.ctrl.start_limb_plane("leg"))
-        self.btn_arm_sym = self._button("Agregar brazo sobre el plano de simetría", lambda *_: self.ctrl.add_limb_on_symmetry("arm"))
-        self.btn_leg_sym = self._button("Agregar pierna sobre el plano de simetría", lambda *_: self.ctrl.add_limb_on_symmetry("leg"))
-        for b in (self.btn_sym, self.btn_sym_auto, self.btn_arm, self.btn_leg, self.btn_arm_sym, self.btn_leg_sym):
+        for b in (self.btn_sym, self.btn_sym_auto, self.btn_arm, self.btn_leg):
             box.append(b)
         row = Gtk.Box(spacing=6)
         row.append(Gtk.Label(label="Corte a (mm del plano de simetría)"))
@@ -235,8 +233,6 @@ class MainWindow(Gtk.ApplicationWindow):
             has_sym = ctrl.session.project.symmetry is not None
             self.btn_arm.set_sensitive(loaded and has_sym)
             self.btn_leg.set_sensitive(loaded and has_sym)
-            self.btn_arm_sym.set_sensitive(loaded and has_sym)
-            self.btn_leg_sym.set_sensitive(loaded and has_sym)
             off_limb = ctrl.offset_limb() if loaded else None
             self.spin_cut.set_sensitive(off_limb is not None)
             if off_limb is not None:

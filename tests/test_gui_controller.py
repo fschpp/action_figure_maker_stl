@@ -401,10 +401,10 @@ class _FakeScene:
         self.items[name] = ("quad", plane)
         self.items[name + ":borde"] = ("lines", None)
 
-    def set_lines(self, name, pl, color=None, closed=False):
+    def set_lines(self, name, pl, color=None, closed=False, on_top=False):
         self.items[name] = ("lines", pl)
 
-    def set_points(self, name, pts, color=None, size=10.0):
+    def set_points(self, name, pts, color=None, size=10.0, on_top=False):
         self.items[name] = ("points", np.asarray(pts))
 
     def show(self, name, visible):

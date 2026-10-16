@@ -15,6 +15,7 @@ from enum import Enum
 import numpy as np
 import trimesh
 
+from ..limbs import silhouette_on_plane
 from ..orient import OrientResult, best_orientation, overhang_mask
 from ..planes import Plane
 from .camera import OrbitCamera
@@ -384,8 +385,8 @@ class Controller:
         self.hidden.discard(name)
         note = (f"«{name}» tiene el plano de costado: ahora se extruye hacia afuera (el plano es la cara de corte) "
                 "y se descartó el pasador anterior. ") if fixed else ""
-        self._changed(note + f"Pasador de «{name}»: " + self._pin_status(name)
-                      + " Clic sobre la cara para moverlo; flechas lo ajustan 0,1 mm (Mayús: 1 mm); Esc termina.")
+        self._changed(note + f"Pasador de «{name}»: " + self._pin_status(name) + self._reach_warning(name)
+                      + " Clic = mover; flechas 0,1 mm (Mayús 1 mm); Esc termina.")
 
     def _pin_center(self, name: str) -> np.ndarray:
         """Centro del pasador que se usaría ahora: el indicado, o el que propone el programa."""
@@ -394,25 +395,30 @@ class Controller:
             return np.asarray(spec.pin_center, float)
         return self.pin_prev.default_center
 
+    def _reach_warning(self, name: str) -> str:
+        """Aviso (una sola vez, al entrar al modo): la cara está tan cerca de la simetría que el pasador cruzaría
+        al del espejo. No depende de dónde se ponga el pasador sobre la cara, así que no se repite en cada clic."""
+        reach = self.session.pin_reach_margin(name)
+        if reach is None or reach >= 0:
+            return ""
+        return f" Aviso: cruza con el del otro lado por {-reach:.1f} mm (acortá shaft_len / head_h o usá un plano más afuera)."
+
     def _pin_status(self, name: str) -> str:
+        """Una línea corta: qué posición se usa y el margen al borde. Es informativa: no impide elegir ningún punto
+        (salvo que el vástago no toque la cara, ver `Session.set_limb_pin`)."""
         prev = self.pin_prev
         uv = prev.project(self._pin_center(name))
         pin = self.session.pin_spec(name)
         inside, margin = prev.fit(uv, pin.shaft_d)
         user = self.session.limb(name).pin_center is not None
-        txt = ("posición elegida" if user else "posición automática") + f" (vástago Ø{pin.shaft_d:g}, cabeza Ø{pin.head_d:g} mm)."
-        reach = self.session.pin_reach_margin(name)
-        if reach is not None and reach < 0:
-            txt += (f" ATENCIÓN: el pasador ({pin.shaft_len + pin.head_h:g} mm) no entra: la cara está muy cerca del plano de "
-                    f"simetría y se cruzaría con el del otro lado por {-reach:.1f} mm. Acortá el pasador (shaft_len / head_h) "
-                    "o elegí un plano más hacia afuera.")
+        txt = "posición elegida" if user else "posición automática"
         if not inside:
-            return txt + " El centro queda fuera de la cara de contacto: elegí otro punto."
+            return txt + f"; centro fuera de la cara (vástago Ø{pin.shaft_d:g} apoya {max(margin + pin.shaft_d / 2, 0):.1f} mm)."
         if margin < 0:
-            return txt + f" El vástago sobresale {-margin:.2f} mm del borde de la cara."
+            return txt + f"; el vástago sobresale {-margin:.1f} mm del borde."
         if margin < self.session.project.params.min_wall:
-            return txt + f" Margen al borde {margin:.2f} mm (menos de {self.session.project.params.min_wall:g} mm de pared)."
-        return txt + f" Margen al borde {margin:.2f} mm."
+            return txt + f"; margen al borde {margin:.1f} mm (< {self.session.project.params.min_wall:g})."
+        return txt + f"; margen al borde {margin:.1f} mm."
 
     def _place_pin(self, uv, what: str = "Pasador movido") -> bool:
         name = self.pin_limb
@@ -561,26 +567,6 @@ class Controller:
             return
         self.mode, self.pending_kind = Mode.VIEW, None
         self._changed(f"Plano «{name}» agregado. Falta dibujar su silueta.")
-
-    def add_limb_on_symmetry(self, kind: str) -> None:
-        """Agrega un miembro cuya silueta se dibuja sobre el plano de simetría (sin elegir 3 puntos)."""
-        if not self._need_loaded():
-            return
-        if kind not in _KIND_BASE:
-            raise ValueError(kind)
-        if self.session.project.symmetry is None:
-            self._changed("Primero definí el plano de simetría.", scene=False)
-            return
-        self.cancel(quiet=True)
-        name = self.unique_name(kind)
-        try:
-            self.session.add_limb_on_symmetry(name, kind)
-        except ValueError as e:
-            self._changed(f"No se pudo agregar: {e}.", scene=False)
-            return
-        off = self.session.limb_offset(name)
-        self._changed(f"«{name}» agregado sobre el plano de simetría. Dibujá su silueta; el corte va "
-                      + (f"{off:g} mm hacia afuera (ajustable)." if kind == "leg" else "desplazado: indicá cuánto."))
 
     def offset_limb(self) -> str | None:
         """Miembro activo cuyo desplazamiento de corte se puede editar (el del pasador o el de la silueta)."""
@@ -761,8 +747,8 @@ class Controller:
             wanted.add(key)
             scene.set_points(key, np.asarray(l.pin_center, float)[None], (1.0, 0.55, 0.1, 1.0), 10.0)
             scene.show(key, l.name not in self.hidden)
-        pin_keys = ("pasador:cara", "pasador:borde", "pasador:vastago", "pasador:cabeza", "pasador:centro",
-                    "pasador:auto")
+        pin_keys = ("pasador:cara", "pasador:borde", "pasador:silueta", "pasador:vastago", "pasador:cabeza",
+                    "pasador:centro", "pasador:auto")
         if editing is None:
             for key in [k for k in scene.items if k.startswith("pasador:") and k not in wanted]:
                 scene.remove(key)
@@ -775,14 +761,19 @@ class Controller:
         c = self._pin_center(name)
         face_mesh = trimesh.Trimesh(*self._face_mesh(prev), process=False)
         scene.set_mesh("pasador:cara", face_mesh, color=(0.35, 0.65, 0.95, 1.0))
-        scene.set_lines("pasador:borde", prev.rings_world(), (1.0, 1.0, 1.0, 1.0), closed=True)
+        scene.set_lines("pasador:borde", prev.rings_world(), (1.0, 1.0, 1.0, 1.0), closed=True, on_top=True)
+        # Plano de trabajo del pasador (interno, no figura en la lista de planos): paralelo al de simetría y puesto en
+        # el corte del miembro. La silueta ya dibujada se proyecta sobre él como referencia (en un plano de costado
+        # es el contorno entero; en uno frontal, su sombra: la altura que cubre).
+        scene.set_lines("pasador:silueta", silhouette_on_plane(self.session.limb(name), prev.plane),
+                        (1.0, 0.8, 0.2, 1.0), closed=True, on_top=True)
         scene.set_lines("pasador:vastago", circle_world(prev.plane, c, pin.shaft_d / 2), (1.0, 0.55, 0.1, 1.0),
-                        closed=True)
+                        closed=True, on_top=True)
         scene.set_lines("pasador:cabeza", circle_world(prev.plane, c, pin.head_d / 2), (1.0, 0.85, 0.3, 1.0),
-                        closed=True)
-        scene.set_points("pasador:centro", c[None], (1.0, 0.25, 0.25, 1.0), 9.0)
+                        closed=True, on_top=True)
+        scene.set_points("pasador:centro", c[None], (1.0, 0.25, 0.25, 1.0), 9.0, on_top=True)
         if self.session.limb(name).pin_center is not None:
-            scene.set_points("pasador:auto", prev.default_center[None], (0.6, 0.9, 0.6, 1.0), 7.0)
+            scene.set_points("pasador:auto", prev.default_center[None], (0.6, 0.9, 0.6, 1.0), 7.0, on_top=True)
         else:
             scene.remove("pasador:auto")
 

@@ -55,7 +55,7 @@ def test_start_shows_contact_face_and_faces_camera_to_it(ctrl):
     d = ctrl.camera.eye() - ctrl.camera.target
     assert d @ face.outward / np.linalg.norm(d) > 0.999
     assert np.allclose(ctrl.camera.target, face.center)
-    assert "posición automática" in ctrl.message
+    assert "posición automática" in ctrl.message and len(ctrl.message) < 250
 
 
 def test_click_places_pin_on_the_face_plane(ctrl):
@@ -73,13 +73,35 @@ def test_click_places_pin_on_the_face_plane(ctrl):
     assert "posición elegida" in ctrl.message
 
 
-def test_click_outside_the_face_is_refused(ctrl):
+def test_click_far_from_the_face_is_refused_because_the_pin_would_float(ctrl):
     _with_polygon(ctrl, "brazo")
     ctrl.start_pin("brazo")
     prev = ctrl.pin_prev
     outside = prev.plane.to_world((prev.project(prev.face.center) + np.array([30.0, 0.0]))[None])[0]
     ctrl.click(*_px(ctrl, outside), W, H)
-    assert ctrl.session.limb("brazo").pin_center is None and "No se movió" in ctrl.message
+    assert ctrl.session.limb("brazo").pin_center is None and "suelto" in ctrl.message
+
+
+def test_center_just_outside_the_face_is_allowed_with_a_short_note(ctrl):
+    _with_polygon(ctrl, "pierna")
+    ctrl.start_pin("pierna")
+    prev = ctrl.pin_prev
+    shaft = ctrl.session.pin_spec("pierna").shaft_d
+    # un punto algo fuera del borde de la cara, pero con el vástago todavía apoyado
+    from shapely.geometry import Point
+    b = prev.shape.boundary
+    p = b.interpolate(0.5, normalized=True)
+    c = np.array([p.x, p.y])
+    for d in np.linspace(0.05, 5.0, 100):
+        for sgn in (1, -1):
+            for ax in ([1.0, 0.0], [-1.0, 0.0], [0.0, 1.0], [0.0, -1.0]):
+                q = c + sgn * d * np.array(ax)
+                if not prev.shape.contains(Point(*q)) and prev.fit(q, shaft)[1] > -shaft:
+                    ctrl._place_pin(q)
+                    assert ctrl.session.limb("pierna").pin_center is not None
+                    assert "fuera de la cara" in ctrl.message and len(ctrl.message) < 160
+                    return
+    pytest.skip("la cara no deja un punto fuera con el vástago apoyado")
 
 
 def test_nudge_reset_and_finish(ctrl):
@@ -177,10 +199,10 @@ class _Scene:
     def set_plane(self, name, plane, hs, center=None, color=None):
         self.items[name] = ("quad", plane)
 
-    def set_lines(self, name, pl, color=None, closed=False):
+    def set_lines(self, name, pl, color=None, closed=False, on_top=False):
         self.items[name] = ("lines", pl)
 
-    def set_points(self, name, pts, color=None, size=10.0):
+    def set_points(self, name, pts, color=None, size=10.0, on_top=False):
         self.items[name] = ("points", np.asarray(pts))
 
     def show(self, name, visible):
@@ -270,13 +292,24 @@ def test_pin_status_warns_when_pins_would_cross_at_the_symmetry_plane(ctrl):
     ctrl.session.set_limb_polygon("pierna lateral", _box_on_plane(spec.plane))
     ctrl.start_pin("pierna lateral")
     # la cara está a ~5,7 mm del plano de simetría; el pasador de cadera mide 6,6 mm
-    assert ctrl.session.pin_reach_margin("pierna lateral") < 0 and "ATENCIÓN" in ctrl.message
+    assert ctrl.session.pin_reach_margin("pierna lateral") < 0 and "Aviso: cruza" in ctrl.message
+    # el aviso es una sola vez: al mover el pasador el estado no lo repite
+    ctrl.nudge_pin(0, 0)
+    assert "cruza" not in ctrl.message
 
 
 # ------------------------------------------- silueta sobre el plano de simetría + desplazamiento del corte
 # (el fixture `ctrl` ya trae «brazo» y «pierna» sobre planos frontales; los nuevos se llaman «brazo 2» y «pierna 2»)
 def _sym_box(ctrl, z0, z1):
     return ctrl.session.project.symmetry.to_world(np.array([[-40, z0], [40, z0], [40, z1], [-40, z1]], float))
+
+
+def _add_sym_limb(ctrl, name, kind):
+    """Miembro con el plano sobre x = 0 (3 puntos sobre la simetría), extruido hacia afuera; ya no hay botón."""
+    from afm.planes import Plane
+    sym = ctrl.session.project.symmetry
+    return ctrl.session.add_limb(name, kind, Plane.from_normal(sym.origin, sym.normal, name), auto=True,
+                                 extrude="outward")
 
 
 def _arm_z():
@@ -286,8 +319,8 @@ def _arm_z():
 
 def test_limb_on_symmetry_plane_needs_offset_for_arms_and_defaults_for_legs(ctrl):
     from afm.limbs import DEFAULT_LEG_CUT_X, effective_cut_offset
-    arm = ctrl.session.add_limb_on_symmetry("brazo 2", "arm")
-    leg = ctrl.session.add_limb_on_symmetry("pierna 2", "leg")
+    arm = _add_sym_limb(ctrl, "brazo 2", "arm")
+    leg = _add_sym_limb(ctrl, "pierna 2", "leg")
     assert arm.extrude == "outward" and leg.extrude == "outward"
     assert effective_cut_offset(leg) == DEFAULT_LEG_CUT_X
     with pytest.raises(ValueError, match="desplazamiento"):
@@ -298,7 +331,7 @@ def test_limb_on_symmetry_plane_needs_offset_for_arms_and_defaults_for_legs(ctrl
 
 def test_cut_offset_moves_the_contact_face(ctrl):
     z0, z1 = _arm_z()
-    ctrl.add_limb_on_symmetry("arm")
+    _add_sym_limb(ctrl, "brazo 2", "arm")
     ctrl.session.set_limb_polygon("brazo 2", _sym_box(ctrl, z0, z1))
     ctrl.session.set_limb_offset("brazo 2", 15.0)
     ctrl.start_pin("brazo 2")
@@ -310,7 +343,7 @@ def test_cut_offset_moves_the_contact_face(ctrl):
 
 
 def test_set_limb_offset_validates(ctrl):
-    ctrl.add_limb_on_symmetry("leg")
+    _add_sym_limb(ctrl, "pierna 2", "leg")
     with pytest.raises(ValueError):
         ctrl.session.set_limb_offset("pierna 2", 0.0)
     with pytest.raises(ValueError):
@@ -320,9 +353,51 @@ def test_set_limb_offset_validates(ctrl):
 
 
 def test_cut_offset_roundtrips_in_project(ctrl, tmp_path):
-    ctrl.add_limb_on_symmetry("leg")
+    _add_sym_limb(ctrl, "pierna 2", "leg")
     ctrl.session.set_limb_offset("pierna 2", 9.5)
     path = tmp_path / "p.proyecto"
     ctrl.session.project.save(str(path))
     from afm.project import Project
     assert any(l.cut_offset == 9.5 for l in Project.load(str(path)).limbs)
+
+
+# ------------------------------------------- plano de trabajo interno + silueta de referencia
+def test_pin_mode_creates_no_extra_planes_or_limbs(ctrl):
+    _with_polygon(ctrl, "pierna")
+    before = [(l.name, l.plane.origin.tolist(), l.plane.normal.tolist()) for l in ctrl.session.project.limbs]
+    sym = ctrl.session.project.symmetry
+    ctrl.start_pin("pierna")
+    assert ctrl.mode == Mode.PIN
+    ctrl.cancel()
+    after = [(l.name, l.plane.origin.tolist(), l.plane.normal.tolist()) for l in ctrl.session.project.limbs]
+    assert after == before and ctrl.session.project.symmetry is sym
+    assert not hasattr(ctrl, "add_limb_on_symmetry")
+
+
+def test_pin_plane_is_parallel_to_symmetry_and_at_the_cut(ctrl):
+    _with_polygon(ctrl, "pierna")
+    ctrl.start_pin("pierna")
+    plane = ctrl.pin_prev.plane
+    assert abs(abs(plane.normal @ ctrl.session.project.symmetry.normal) - 1) < 1e-6
+    assert abs(plane.signed_distance(ctrl.pin_prev.face.center)[0]) < 1e-9
+
+
+def test_pin_mode_draws_the_existing_silhouette_on_the_pin_plane(ctrl):
+    from afm.limbs import silhouette_on_plane
+    _with_polygon(ctrl, "pierna")
+    spec = ctrl.session.limb("pierna")
+    ctrl.start_pin("pierna")
+    rings = silhouette_on_plane(spec, ctrl.pin_prev.plane)
+    assert len(rings) == 1 and rings[0].shape == (len(spec.polygon), 3)
+    assert np.allclose(ctrl.pin_prev.plane.signed_distance(rings[0]), 0, atol=1e-9)
+    # el contorno conserva y, z de la silueta (se proyecta a lo largo de X)
+    pts = np.asarray(spec.polygon, float)
+    assert np.allclose(rings[0][:, 2], pts[:, 2]) and np.allclose(rings[0][:, 1], pts[:, 1])
+
+
+def test_silhouette_reference_is_empty_without_polygon(ctrl):
+    from afm.limbs import silhouette_on_plane
+    _with_polygon(ctrl, "brazo")
+    ctrl.start_pin("brazo")
+    spec = ctrl.session.limb("pierna")                  # sin silueta todavía
+    assert silhouette_on_plane(spec, ctrl.pin_prev.plane) == []

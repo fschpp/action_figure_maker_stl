@@ -86,6 +86,7 @@ class Item:
     clip_x: float = -1e9
     clip_plane: tuple | None = None   # (nx, ny, nz, d): se descarta lo que cumple dot(n, p) > d
     bias: float = 0.0
+    on_top: bool = False              # se dibuja sin prueba de profundidad (marcadores que no deben quedar tapados)
 
 
 def _flat_vertices(mesh: trimesh.Trimesh) -> np.ndarray:
@@ -138,7 +139,8 @@ class SceneRenderer:
         vao = self.ctx.vertex_array(self.mesh_prog, [(vbo, "3f 3f", "in_pos", "in_nrm")])
         return self._put(name, Item("mesh", vao, vbo, len(data), color, clip_x=clip_x, clip_plane=clip_plane))
 
-    def set_lines(self, name: str, polylines, color=(1.0, 0.8, 0.2, 1.0), closed: bool = False):
+    def set_lines(self, name: str, polylines, color=(1.0, 0.8, 0.2, 1.0), closed: bool = False,
+                  on_top: bool = False):
         """`polylines`: lista de arreglos Nx3 (o un único Nx3)."""
         if isinstance(polylines, np.ndarray) and polylines.ndim == 2:
             polylines = [polylines]
@@ -156,15 +158,15 @@ class SceneRenderer:
         data = np.concatenate(segs).astype("f4")
         vbo = self.ctx.buffer(data.tobytes())
         vao = self.ctx.vertex_array(self.flat_prog, [(vbo, "3f", "in_pos")])
-        return self._put(name, Item("lines", vao, vbo, len(data), color, bias=2e-4))
+        return self._put(name, Item("lines", vao, vbo, len(data), color, bias=2e-4, on_top=on_top))
 
-    def set_points(self, name: str, pts, color=(1.0, 0.3, 0.3, 1.0), size: float = 10.0):
+    def set_points(self, name: str, pts, color=(1.0, 0.3, 0.3, 1.0), size: float = 10.0, on_top: bool = False):
         pts = np.asarray(pts, np.float32).reshape(-1, 3)
         if len(pts) == 0:
             return self.remove(name)
         vbo = self.ctx.buffer(pts.astype("f4").tobytes())
         vao = self.ctx.vertex_array(self.flat_prog, [(vbo, "3f", "in_pos")])
-        return self._put(name, Item("points", vao, vbo, len(pts), color, size=size, bias=1.5e-3))
+        return self._put(name, Item("points", vao, vbo, len(pts), color, size=size, bias=1.5e-3, on_top=on_top))
 
     def set_plane(self, name: str, plane: Plane | None, half_size: float, center=None, color=(0.3, 0.6, 1.0, 0.22)):
         if plane is None:
@@ -225,13 +227,17 @@ class SceneRenderer:
             if it.kind == "quad" and it.visible:
                 self._flat(it, mvp, mgl.TRIANGLES)
         ctx.depth_mask = True
-        for it in self.items.values():
-            if not it.visible:
-                continue
-            if it.kind == "lines":
-                self._flat(it, mvp, mgl.LINES)
-            elif it.kind == "points":
-                self._flat(it, mvp, mgl.POINTS, round_=True)
+        for on_top in (False, True):
+            if on_top:
+                ctx.disable(mgl.DEPTH_TEST)
+            for it in self.items.values():
+                if not it.visible or it.on_top != on_top:
+                    continue
+                if it.kind == "lines":
+                    self._flat(it, mvp, mgl.LINES)
+                elif it.kind == "points":
+                    self._flat(it, mvp, mgl.POINTS, round_=True)
+        ctx.enable(mgl.DEPTH_TEST)
         ctx.disable(mgl.BLEND)
 
     def _flat(self, it: Item, mvp, mode, round_: bool = False) -> None:

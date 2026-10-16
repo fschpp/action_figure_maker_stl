@@ -1,0 +1,147 @@
+{
+  "version": 1,
+  "params": {
+    "ref_height": 100.0,
+    "clearance": 0.5,
+    "burr": 0.66,
+    "shoulder_pin": {
+      "shaft_d": 4.1,
+      "shaft_len": 2.5,
+      "head_d": 6.6,
+      "head_h": 1.65
+    },
+    "hip_pin": {
+      "shaft_d": 5.0,
+      "shaft_len": 4.1,
+      "head_d": 6.6,
+      "head_h": 2.5
+    },
+    "sit_angle": 90.0,
+    "hip_margin": 5.0,
+    "sweep_step": 5.0,
+    "min_wall": 1.2,
+    "min_pin_d": 3.0,
+    "nozzle": 0.4
+  },
+  "symmetry": {
+    "name": "simetr\u00eda",
+    "origin": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "normal": [
+      1.0,
+      0.0,
+      0.0
+    ]
+  },
+  "crown_z": 100.0,
+  "front": "-Y",
+  "limbs": [
+    {
+      "name": "brazo",
+      "kind": "arm",
+      "plane": {
+        "name": "corte al medio",
+        "origin": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "normal": [
+          0.0,
+          1.0,
+          0.0
+        ]
+      },
+      "polygon": [
+        [
+          12.0,
+          0.0,
+          44.0
+        ],
+        [
+          32.0,
+          0.0,
+          44.0
+        ],
+        [
+          32.0,
+          0.0,
+          95.0
+        ],
+        [
+          12.0,
+          0.0,
+          95.0
+        ]
+      ],
+      "thickness": 40.0,
+      "contact_axis": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "pin_center": null,
+      "sweep_deg": null
+    },
+    {
+      "name": "pierna",
+      "kind": "leg",
+      "plane": {
+        "name": "corte al medio",
+        "origin": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "normal": [
+          0.0,
+          1.0,
+          0.0
+        ]
+      },
+      "polygon": [
+        [
+          0.0,
+          0.0,
+          -1.0
+        ],
+        [
+          18.0,
+          0.0,
+          -1.0
+        ],
+        [
+          18.0,
+          0.0,
+          58.0
+        ],
+        [
+          7.0,
+          0.0,
+          58.0
+        ],
+        [
+          7.0,
+          0.0,
+          47.0
+        ],
+        [
+          0.0,
+          0.0,
+          47.0
+        ]
+      ],
+      "thickness": 40.0,
+      "contact_axis": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "pin_center": null,
+      "sweep_deg": null
+    }
+  ]
+}

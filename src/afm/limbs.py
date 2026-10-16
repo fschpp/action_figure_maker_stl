@@ -319,6 +319,18 @@ class PinPreview:
         return pin_fit(self.shape, uv, shaft_d)
 
 
+def silhouette_on_plane(spec: LimbSpec, plane: Plane) -> list[np.ndarray]:
+    """Silueta del miembro proyectada a lo largo de la normal de `plane` (el plano de trabajo del pasador,
+    paralelo al de simetría). Devuelve una lista de contornos Nx3 en el mundo, vacía si aún no hay silueta.
+
+    Si el plano de la silueta es de costado se obtiene su contorno completo; si es frontal (u oblicuo),
+    su proyección: el tramo que cubre sobre el plano de trabajo."""
+    poly = np.asarray(spec.polygon, float)
+    if poly.ndim != 2 or len(poly) < 3:
+        return []
+    return [plane.to_world(plane.to_uv(poly))]
+
+
 def pin_fit(shape, uv, shaft_d: float) -> tuple[bool, float]:
     from shapely.geometry import Point
 
