@@ -42,6 +42,25 @@ def plane_on_symmetry(plane: Plane, contact_axis=(1.0, 0.0, 0.0), tol: float = 0
 CROSS_THICKNESS_MM = 200.0
 
 
+CROSS_CEILING_MARGIN_MM = 2.0
+CROSS_CEILING_BAND = 0.10      # fracción de la altura del polígono que cuenta como «techo»
+
+
+def raise_ceiling(poly: np.ndarray, top: float | None, band: float = CROSS_CEILING_BAND) -> np.ndarray:
+    """Lleva a la cota `top` (si es más alta) todos los vértices del techo del polígono: los que están dentro del
+    `band` superior de su altura (no solo los más altos, el techo suele ser irregular). El escalón de la cadera,
+    mucho más abajo, no se toca."""
+    poly = np.array(poly, float)
+    if top is None or len(poly) < 3:
+        return poly
+    z = poly[:, 2]
+    zmax, zmin = z.max(), z.min()
+    if top <= zmax + 1e-9:
+        return poly
+    poly[z >= zmax - max(0.35, band * (zmax - zmin)), 2] = top
+    return poly
+
+
 @dataclass
 class LimbCut:
     """Segundo corte de un miembro: polígono sobre otro plano (normalmente el frontal, perpendicular al de
@@ -56,8 +75,10 @@ class LimbCut:
         poly = np.asarray(self.polygon, float)
         return poly.ndim == 2 and len(poly) >= 3
 
-    def prism(self) -> S.Manifold:
-        return S.prism_from_polygon(self.plane, self.polygon, self.thickness, symmetric=True)
+    def prism(self, open_to: float | None = None) -> S.Manifold:
+        """Prisma del corte; con `open_to` el techo del polígono se sube hasta esa cota (ver `raise_ceiling`)."""
+        poly = raise_ceiling(self.polygon, open_to) if open_to is not None else self.polygon
+        return S.prism_from_polygon(self.plane, poly, self.thickness, symmetric=True)
 
     def to_dict(self) -> dict:
         return {"plane": self.plane.to_dict(), "polygon": np.asarray(self.polygon).tolist(),
@@ -193,23 +214,38 @@ def limb_prism(spec: LimbSpec) -> S.Manifold:
     el prisma de éste."""
     prism = _main_prism(spec)
     if spec.cross is not None and spec.cross.valid():
-        prism = S.intersection(prism, spec.cross.prism())
+        open_to = None
+        if spec.kind == "leg" and len(spec.polygon) >= 3:
+            # El 2.º corte de una pierna solo saca la columna del muslo y la rebaba: la altura la marca la silueta
+            # de costado, así que su techo no puede quedar por debajo (limitaba la cara de contacto y el pasador).
+            open_to = float(np.asarray(spec.polygon, float)[:, 2].max()) + CROSS_CEILING_MARGIN_MM
+        prism = S.intersection(prism, spec.cross.prism(open_to))
     return prism
+
+
+def _leg_cross_spans_body(spec: LimbSpec) -> bool:
+    """Pierna con plano de costado y 2.º corte de frente: la cara de la cadera la define el escalón del polígono de
+    frente, y el principal tiene que atravesar el cuerpo. Con «outward» (proyectos guardados con el error anterior de
+    `fix_limb_extrude`) la columna del muslo, a x menor que el plano, se quedaba en el torso."""
+    c = spec.cross
+    return (spec.kind == "leg" and c is not None and c.valid() and plane_is_lateral(spec.plane, spec.contact_axis)
+            and not plane_is_lateral(c.plane, spec.contact_axis))
 
 
 def _main_prism(spec: LimbSpec) -> S.Manifold:
     """Prisma de la silueta principal. En modo «outward» se orienta la normal hacia +X (lado de trabajo), así el
     sentido en que se eligieron los 3 puntos no importa; para un plano sin componente X se usa su normal."""
-    if spec.extrude == "outward":
+    if spec.extrude == "outward" and not _leg_cross_spans_body(spec):
         n = np.asarray(spec.plane.normal, float)
         if n[0] < -1e-6:
             n = -n
         n = n / np.linalg.norm(n)
         plane = Plane.from_normal(np.asarray(spec.plane.origin, float) + n * effective_cut_offset(spec), n, spec.plane.name)
         return S.prism_from_polygon(plane, spec.polygon, spec.thickness, symmetric=False)
-    if spec.extrude != "symmetric":
+    if spec.extrude not in ("symmetric", "outward"):
         raise ValueError(f"extrude debe ser 'symmetric' o 'outward', no {spec.extrude!r}")
-    return S.prism_from_polygon(spec.plane, spec.polygon, spec.thickness, symmetric=True)
+    return S.prism_from_polygon(spec.plane, spec.polygon, max(spec.thickness, CROSS_THICKNESS_MM) if spec.extrude == "outward" else spec.thickness,
+                                symmetric=True)
 
 
 def _cut_limb(half: S.Manifold, spec: LimbSpec, burr: float) -> tuple[S.Manifold, ContactFace]:

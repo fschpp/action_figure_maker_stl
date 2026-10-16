@@ -188,6 +188,9 @@ class Session:
         spec = self.limb(name)
         if spec is None:
             raise KeyError(name)
+        if spec.kind == "leg" and spec.cross is not None and spec.cross.valid() \
+                and not plane_is_lateral(spec.cross.plane, spec.contact_axis):
+            return False        # pierna con 2.º corte de frente: el principal DEBE atravesar el cuerpo (ver set_limb_cross)
         if spec.extrude == "symmetric" and plane_is_lateral(spec.plane, spec.contact_axis):
             spec.extrude = "outward"
             spec.pin_center = None

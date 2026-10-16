@@ -48,7 +48,10 @@ def test_cross_roundtrip_and_old_projects_load():
 def test_prism_is_intersection_of_both(half):
     spec = _leg_side_plus_front()
     both = S.intersection(half, limb_prism(spec))
-    only_front = S.intersection(half, limb_prism(_leg_front_only()))
+    from afm.limbs import raise_ceiling
+    # el techo del 2.º corte de una pierna sube hasta la silueta de costado (z = 60) + margen: no limita la altura
+    front = raise_ceiling(LEG_FRONT, 60.0)
+    only_front = S.intersection(half, limb_prism(LimbSpec("pierna", "leg", FRONT, front, 100.0)))
     assert both.volume() == pytest.approx(only_front.volume(), rel=1e-4)      # el de costado es generoso: no recorta
     narrow = S.intersection(half, limb_prism(_leg_side_plus_front(-3.0, 3.0)))
     assert 0 < narrow.volume() < 0.8 * only_front.volume()                    # el de costado sí limita en Y
@@ -168,3 +171,46 @@ def test_controller_raise_top_button(ctrl):
     ctrl.raise_top()
     assert np.asarray(s.limb("pierna").cross.polygon)[:, 2].max() == pytest.approx(60.0)
     assert ctrl.draft.world()[:, 2].max() == pytest.approx(60.0)
+
+
+def test_leg_cross_ceiling_does_not_limit_contact_face_height(half):
+    """El 2.º corte de una pierna solo saca la columna/rebaba: su techo irregular (aquí 40–42) no debe bajar la
+    cara de contacto por debajo de la silueta de costado (aquí z = 60)."""
+    from afm.limbs import raise_ceiling
+
+    ragged = np.array([[x, 0, z] for x, z in [(0, -1), (17, -1), (17, 34), (14, 34), (14, 40.5), (9, 41.2),
+                                              (5, 42), (0, 41)]], float)
+    spec = LimbSpec("pierna", "leg", SIDE, _side_poly(-30, 30), CROSS_THICKNESS_MM, extrude="symmetric",
+                    cross=LimbCut(FRONT, ragged))
+    out = raise_ceiling(ragged, 62.0)
+    assert out[:, 2].max() == 62.0 and np.allclose(out[:4], ragged[:4])           # la base y el escalón no se tocan
+    assert (out[[4, 5, 6], 2] == 62.0).all()                                      # todo el techo irregular sube
+    assert np.allclose(raise_ceiling(ragged, 10.0), ragged)                       # nunca baja
+    leg = S.intersection(half, limb_prism(spec))
+    closed = LimbSpec("pierna", "arm", SIDE, _side_poly(-30, 30), CROSS_THICKNESS_MM, extrude="symmetric",
+                      cross=LimbCut(FRONT, ragged))                              # un brazo conserva su techo
+    arm = S.intersection(half, limb_prism(closed))
+    assert leg.bounding_box()[5] > arm.bounding_box()[5] + 1.0
+
+
+def test_fix_limb_extrude_keeps_symmetric_leg_with_cross():
+    """Al entrar al modo pasador, una pierna con 2.º corte de frente no debe volver a «outward» (dejaba la columna
+    del muslo en el torso y descartaba el pasador)."""
+    s = Session()
+    leg = _leg_side_plus_front()
+    leg.pin_center = (5.0, 0.0, 45.0)
+    s.project.limbs.append(leg)
+    assert s.fix_limb_extrude("pierna") is False
+    assert leg.extrude == "symmetric" and leg.pin_center == (5.0, 0.0, 45.0)
+    leg.cross = None                                    # sin 2.º corte sí se corrige, como antes
+    assert s.fix_limb_extrude("pierna") is True and leg.extrude == "outward"
+
+
+def test_outward_leg_with_front_cross_is_treated_as_symmetric(half):
+    """Proyectos guardados con extrude='outward' + 2.º corte de frente dan lo mismo que con 'symmetric'."""
+    import dataclasses
+    a = _leg_side_plus_front()
+    b = dataclasses.replace(a, extrude="outward")
+    va = S.intersection(half, limb_prism(a)).volume()
+    vb = S.intersection(half, limb_prism(b)).volume()
+    assert vb == pytest.approx(va, rel=1e-6)
