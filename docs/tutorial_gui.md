@@ -255,6 +255,12 @@ vuelve a calcular la cara. Ese plano no puede ser el de simetría con desplazami
 caras a ±5,28 mm, pasadores de 6,6 mm). Al entrar al modo, el Estado agrega «Aviso: cruza con el del otro lado por X mm» (una sola vez: no depende de dónde pongas el pasador sobre la cara). Se arregla acortando el pasador
 (`shaft_len` / `head_h` de `hip_pin`: 2,2 + 1,65 mm alcanzan) o eligiendo un plano más hacia afuera.
 
+### 7.2b Parámetros, perfil de línea y probetas
+En la barra lateral, antes de «Generar», está la sección **Parámetros**: holgura miembro–cavidad, rebaba, ángulo de pose sentada y margen del límite de cadera, y las medidas de los pasadores de hombro y de cadera (Ø y largo del vástago, Ø y alto de la cabeza). Cualquier cambio invalida la figura generada: hay que **Generar** de nuevo.
+
+- **Perfil de línea:** escribí un nombre y **Guardar** para dejar estos parámetros en `~/.config/afm/perfiles/`; en la próxima figura elegí el perfil y **Cargar**. Las siluetas y los planos no se tocan.
+- **Probetas:** elegí el pasador (cadera u hombro) y **Generar probetas de articulación…**; se escribe `probetas.stl` (una placa con varias articulaciones, cada una con otra holgura y otro Ø de vástago) y `probetas.txt` con la tabla en el orden de la grilla. Imprimilas con tu impresora, elegí la de menor fricción que sostenga la pose, cargá esos valores en Parámetros y guardalos en el perfil.
+
 ### 7.3 Generar y exportar
 
 Con la simetría definida y cada miembro con su silueta, el Estado deja de listar pendientes y se puede:
