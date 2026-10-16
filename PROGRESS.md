@@ -2,7 +2,7 @@
 
 ## Current Focus
 **GUI Fases 3–5 completas en el motor y la lógica (tanda 2):** espejado en vivo, vista previa de la pose sentada con colisiones, herramienta de recorte manual (`trims`) y empaquetado + manual corto. Falta que el cliente lo pruebe en GTK real (ver Todo): la ventana solo pasó `py_compile` + `pyflakes`. Antes quedó pendiente probar el botón «2.º» (2.º corte) y regenerar Güemes/Belgrano/Azurduy con 2 cortes.
-_Última actualización: 2026-10-16 03:25 (America/Argentina/Buenos_Aires), rama `main` sobre `origin/main` (87faa3d, PR #16) + cambios locales sin commitear. Suite completa: 171 pasan, 5 omitidos (sin OpenGL/EGL)._
+_Última actualización: 2026-10-16 03:25 (America/Argentina/Buenos_Aires), rama `GUI-Fases-3-5-2-espejo-pose-recortes-empaquetado` (0a38ca3) sobre `origin/main` (87faa3d, PR #16), pusheada, sin PR abierto. Suite completa: 171 pasan, 5 omitidos (sin OpenGL/EGL)._
 
 ## Todo List
 ### [ ] Todo
