@@ -1,0 +1,96 @@
+{
+  "carga": {
+    "original_height": 100.0,
+    "scale": 1.0,
+    "removed_components": 0,
+    "was_watertight": true,
+    "repaired": false,
+    "remeshed": false,
+    "warnings": []
+  },
+  "construccion": {
+    "limbs": {
+      "brazo": {
+        "pin_center": [
+          12.659999847412113,
+          -2.7973385749835935,
+          84.44132335247052
+        ],
+        "pin_dir": [
+          -1.0,
+          -0.0,
+          -0.0
+        ],
+        "contact_area": 146.75849673156364,
+        "sweep": [
+          0.0,
+          0.0
+        ]
+      },
+      "pierna": {
+        "pin_center": [
+          7.659999847412111,
+          -1.265138822850172,
+          52.47790123820212
+        ],
+        "pin_dir": [
+          -1.0,
+          -0.0,
+          -0.0
+        ],
+        "contact_area": 146.2991191497067,
+        "sweep": [
+          0.0,
+          95.0
+        ]
+      }
+    }
+  },
+  "validacion": {
+    "ok": true,
+    "problems": [],
+    "pieces": {
+      "brazo_izq": {
+        "componentes": 1,
+        "variedad_ok": true,
+        "volumen": 2311.4854477756803
+      },
+      "brazo_der": {
+        "componentes": 1,
+        "variedad_ok": true,
+        "volumen": 2311.4854477756803
+      },
+      "pierna_izq": {
+        "componentes": 1,
+        "variedad_ok": true,
+        "volumen": 4367.727901142359
+      },
+      "pierna_der": {
+        "componentes": 1,
+        "variedad_ok": true,
+        "volumen": 4367.727901142359
+      },
+      "torso": {
+        "componentes": 1,
+        "variedad_ok": true,
+        "volumen": 14565.24222339837
+      }
+    },
+    "gaps": {
+      "brazo_izq": 0.4772,
+      "brazo_der": 0.4772,
+      "pierna_izq": 0.4772,
+      "pierna_der": 0.4772
+    }
+  },
+  "archivos": {
+    "ensamblada": "guemes_ensamblada.stl",
+    "piezas": [
+      "brazo_der",
+      "brazo_izq",
+      "pierna_der",
+      "pierna_izq",
+      "torso"
+    ]
+  }
+}
