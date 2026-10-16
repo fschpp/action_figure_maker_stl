@@ -17,7 +17,7 @@ import numpy as np
 import trimesh
 
 from .. import meshio, pipeline as P, solids as S
-from ..limbs import LimbSpec, PinPreview, check_limb_plane, contact_preview, effective_cut_offset, plane_is_lateral, plane_on_symmetry
+from ..limbs import CROSS_THICKNESS_MM, LimbCut, LimbSpec, PinPreview, check_limb_plane, contact_preview, effective_cut_offset, plane_is_lateral, plane_on_symmetry
 from ..params import PinSpec
 
 from ..planes import Plane
@@ -27,6 +27,18 @@ ARM_SLAB_MM = 12 * 1.653      # losa del brazo: 12 mm del tutorial a la escala f
 from ..trims import Trim
 
 FLIP_Z = np.array([[-1, 0, 0, 0], [0, -1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]], float)
+
+
+def _raise_top(poly: np.ndarray, top: float | None, tol: float = 0.35) -> np.ndarray:
+    """Lleva a la cota `top` (si es más alta) los vértices que forman el borde superior del polígono."""
+    if top is None:
+        return poly
+    poly = np.array(poly, float)
+    zmax = poly[:, 2].max()
+    if top <= zmax + 1e-6:
+        return poly
+    poly[poly[:, 2] >= zmax - tol, 2] = top
+    return poly
 
 
 @dataclass
@@ -193,8 +205,80 @@ class Session:
         spec.polygon = poly
         self.outcome = None
 
-    def propose_silhouette(self, name: str, crotch_z: float | None = None) -> np.ndarray:
-        """Propone la silueta del miembro ``name`` desde cortes horizontales de ``work`` (`afm.autosil`) y\n        la guarda en su plano. ``crotch_z`` (solo piernas) fuerza la altura de la entrepierna.\n        Falla con ValueError si no se encuentra el miembro en la malla o el plano está de canto."""
+    # ------------------------------------------------- segundo corte (de frente / de costado)
+    def cross_plane(self, name: str) -> Plane:
+        """Plano donde se dibuja el segundo corte de `name`: el que ya tiene, o el perpendicular al principal.
+        Si el principal es de costado (el habitual, 3 puntos en el hombro/cadera) es el plano frontal, el que
+        divide la figura en atrás/adelante; si el principal es frontal, el segundo es de costado."""
+        spec = self.limb(name)
+        if spec is None:
+            raise KeyError(name)
+        if spec.cross is not None:
+            return spec.cross.plane
+        c = self.work.bounds.mean(axis=0) if self.work is not None else np.zeros(3)
+        if plane_is_lateral(spec.plane, spec.contact_axis):
+            return Plane.from_normal((0.0, c[1], 0.0), (0.0, 1.0, 0.0), "frente")
+        return Plane.from_normal((0.0, c[1], c[2]), (1.0, 0.0, 0.0), "costado")
+
+    def set_limb_cross(self, name: str, polygon_world) -> None:
+        """Guarda el polígono del segundo corte de `name` (sobre `cross_plane`). El miembro pasa a ser lo que
+        queda dentro de los dos prismas. En una pierna con plano de costado, la cara de la cadera la define
+        el borde del polígono de frente (escalón columna + cadera) y no el plano de costado: el principal pasa
+        a atravesar todo el cuerpo, si no la columna del muslo (x menor que el plano) se quedaría en el torso."""
+        spec = self.limb(name)
+        if spec is None:
+            raise KeyError(name)
+        poly = np.asarray(polygon_world, float)
+        if poly.ndim != 2 or poly.shape[1] != 3:
+            raise ValueError("El polígono debe ser Nx3")
+        spec.cross = LimbCut(self.cross_plane(name), poly)
+        if (spec.kind == "leg" and spec.extrude == "outward" and plane_is_lateral(spec.plane, spec.contact_axis)
+                and not plane_is_lateral(spec.cross.plane, spec.contact_axis)):
+            spec.extrude, spec.thickness, spec.pin_center = "symmetric", CROSS_THICKNESS_MM, None
+        self.outcome = None
+
+    @staticmethod
+    def _other_top(spec: LimbSpec, cross: bool) -> float | None:
+        """Cota z más alta de la otra silueta del miembro (la de costado si `cross`, la del 2.º corte si no)."""
+        other = (spec.polygon if cross else None if spec.cross is None else spec.cross.polygon)
+        other = np.asarray(other if other is not None else [], float)
+        return float(other[:, 2].max()) if other.ndim == 2 and len(other) >= 3 else None
+
+    def raise_cross_top(self, name: str) -> float | None:
+        """Sube el borde superior del 2.º corte hasta el de la silueta principal y devuelve la nueva cota
+        (None si no hay nada que subir). Así el escalón de la cadera no limita la altura de la cara de
+        contacto, y con ella la del hueco y la del pasador: el recorte de frente solo debe sacar la columna
+        del muslo y la rebaba, la altura la marca la silueta de costado."""
+        spec = self.limb(name)
+        if spec is None:
+            raise KeyError(name)
+        if spec.cross is None or not spec.cross.valid():
+            return None
+        top = self._other_top(spec, cross=True)
+        if top is None:
+            return None
+        new = _raise_top(np.asarray(spec.cross.polygon, float), top)
+        if np.allclose(new, spec.cross.polygon):
+            return None
+        spec.cross = LimbCut(spec.cross.plane, new, spec.cross.thickness)
+        self.outcome = None
+        return top
+
+    def clear_limb_cross(self, name: str) -> bool:
+        """Quita el segundo corte. Devuelve True si había uno."""
+        spec = self.limb(name)
+        if spec is None:
+            raise KeyError(name)
+        if spec.cross is None:
+            return False
+        spec.cross = None
+        if spec.kind == "leg" and spec.extrude == "symmetric" and plane_is_lateral(spec.plane, spec.contact_axis):
+            spec.extrude, spec.thickness, spec.pin_center = "outward", ARM_SLAB_MM, None   # como `add_limb`
+        self.outcome = None
+        return True
+
+    def _proposal(self, name: str, crotch_z: float | None):
+        """Región (x–z, polígono Nx2) que propone `autosil` para el miembro."""
         from .. import autosil
 
         spec = self.limb(name)
@@ -212,8 +296,34 @@ class Session:
         if p2 is None:
             raise ValueError("No se pudo proponer la silueta: no hay un tramo donde el miembro quede separado del "
                              "tronco. Dibujala a mano.")
-        poly = autosil.outline_on_plane(self.work, p2, spec.plane)
-        self.set_limb_polygon(name, poly)
+        return p2
+
+    def propose_silhouette(self, name: str, crotch_z: float | None = None, cross: bool = False) -> np.ndarray:
+        """Propone la silueta del miembro ``name`` desde cortes horizontales de ``work`` (`afm.autosil`) y la
+        guarda en su plano (o, con ``cross``, en el del segundo corte). ``crotch_z`` (solo piernas) fuerza la
+        altura de la entrepierna. Falla con ValueError si no se encuentra el miembro en la malla.
+
+        La propuesta es una región de frente (x–z). En el plano frontal se usa tal cual (con su escalón de
+        cadera); en cualquier otro se proyecta el contorno del cuerpo dentro de la región (`outline_on_plane`)."""
+        from .. import autosil
+
+        spec = self.limb(name)
+        if spec is None:
+            raise KeyError(name)
+        p2 = self._proposal(name, crotch_z)
+        plane = self.cross_plane(name) if cross else spec.plane
+        if abs(float(plane.normal[1])) > 0.999:             # frontal: la región de frente es la silueta
+            poly = np.array([[x, plane.origin[1], z] for x, z in p2], float)
+            if cross and spec.kind == "leg":
+                # El escalón de cadera no debe limitar la altura de la cara de contacto: sube hasta el borde
+                # superior de la silueta de costado (que es la que manda), igual que `raise_cross_top`.
+                poly = _raise_top(poly, self._other_top(spec, cross=True))
+        else:
+            poly = autosil.outline_on_plane(self.work, p2, plane)
+        if cross:
+            self.set_limb_cross(name, poly)
+        else:
+            self.set_limb_polygon(name, poly)
         return poly
 
     # ----------------------------------------------------------------- pasador
@@ -243,7 +353,9 @@ class Session:
             raise ValueError(f"{name}: dibujá primero la silueta (mínimo 3 puntos)")
         burr = self.project.params.burr
         key = (id(self.work), np.asarray(spec.polygon).tobytes(), spec.plane.origin.tobytes(),
-               spec.plane.normal.tobytes(), spec.thickness, spec.extrude, spec.cut_offset, tuple(spec.contact_axis), spec.burr,
+               spec.plane.normal.tobytes(), spec.thickness,
+               None if spec.cross is None else (np.asarray(spec.cross.polygon).tobytes(), spec.cross.plane.origin.tobytes(),
+                                                spec.cross.plane.normal.tobytes(), spec.cross.thickness), spec.extrude, spec.cut_offset, tuple(spec.contact_axis), spec.burr,
                burr, spec.auto, tuple(spec.cap_dir))
         cache = getattr(self, "_pin_cache", None)
         if cache is not None and cache[0] == key:

@@ -38,6 +38,37 @@ def plane_on_symmetry(plane: Plane, contact_axis=(1.0, 0.0, 0.0), tol: float = 0
     return plane_is_lateral(plane, contact_axis) and abs(float(np.asarray(plane.origin, float)[0])) <= tol
 
 
+# Espesor por defecto del segundo corte: simétrico respecto de su plano, cubre todo el cuerpo en esa dimensión.
+CROSS_THICKNESS_MM = 200.0
+
+
+@dataclass
+class LimbCut:
+    """Segundo corte de un miembro: polígono sobre otro plano (normalmente el frontal, perpendicular al de
+    costado), extruido simétrico a través de todo el cuerpo. El miembro es la intersección de los dos prismas
+    con la figura, como en Onshape: un recorte de costado + uno de frente (tutorial, pasos 007–011)."""
+
+    plane: Plane
+    polygon: np.ndarray            # Nx3 sobre `plane`
+    thickness: float = CROSS_THICKNESS_MM
+
+    def valid(self) -> bool:
+        poly = np.asarray(self.polygon, float)
+        return poly.ndim == 2 and len(poly) >= 3
+
+    def prism(self) -> S.Manifold:
+        return S.prism_from_polygon(self.plane, self.polygon, self.thickness, symmetric=True)
+
+    def to_dict(self) -> dict:
+        return {"plane": self.plane.to_dict(), "polygon": np.asarray(self.polygon).tolist(),
+                "thickness": self.thickness}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "LimbCut":
+        return cls(Plane.from_dict(d["plane"]), np.asarray(d["polygon"], float),
+                   d.get("thickness", CROSS_THICKNESS_MM))
+
+
 @dataclass
 class LimbSpec:
     """Definición de un miembro del lado de trabajo (izquierdo, +X)."""
@@ -66,6 +97,9 @@ class LimbSpec:
     cap_radius: float | None = None         # radio del cilindro (mm); None = sin recorte
     cap_center: tuple | None = None         # un punto del eje del cilindro
     cap_dir: tuple = (0.0, 0.0, -1.0)       # dirección del miembro, del torso hacia la punta
+    # Segundo corte (opcional) sobre otro plano, p. ej. la silueta de frente cuando la principal es de costado.
+    # El miembro es lo que queda dentro de los dos prismas; sin él todo funciona como antes.
+    cross: LimbCut | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -81,6 +115,7 @@ class LimbSpec:
             "cap_radius": self.cap_radius,
             "cap_center": None if self.cap_center is None else list(self.cap_center),
             "cap_dir": list(self.cap_dir),
+            "cross": None if self.cross is None else self.cross.to_dict(),
         }
 
     @classmethod
@@ -98,6 +133,7 @@ class LimbSpec:
             cap_radius=d.get("cap_radius"),
             cap_center=None if d.get("cap_center") is None else tuple(d["cap_center"]),
             cap_dir=tuple(d.get("cap_dir", (0.0, 0.0, -1.0))),
+            cross=None if d.get("cross") is None else LimbCut.from_dict(d["cross"]),
         )
 
 
@@ -153,7 +189,16 @@ def effective_cut_offset(spec: LimbSpec) -> float:
 
 
 def limb_prism(spec: LimbSpec) -> S.Manifold:
-    """Prisma de la silueta. En modo «outward» se orienta la normal hacia +X (lado de trabajo), así el
+    """Herramienta de corte del miembro: el prisma de su silueta y, si hay segundo corte, la intersección con
+    el prisma de éste."""
+    prism = _main_prism(spec)
+    if spec.cross is not None and spec.cross.valid():
+        prism = S.intersection(prism, spec.cross.prism())
+    return prism
+
+
+def _main_prism(spec: LimbSpec) -> S.Manifold:
+    """Prisma de la silueta principal. En modo «outward» se orienta la normal hacia +X (lado de trabajo), así el
     sentido en que se eligieron los 3 puntos no importa; para un plano sin componente X se usa su normal."""
     if spec.extrude == "outward":
         n = np.asarray(spec.plane.normal, float)

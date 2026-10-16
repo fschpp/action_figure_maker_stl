@@ -175,6 +175,33 @@ nada y el Estado te pide girar la cámara. Las siluetas ya guardadas se dibujan 
 lista de planos las muestra u oculta junto con su plano. «Pendiente» deja de listar al miembro cuando
 tiene su silueta.
 
+### 7.1b El 2.º corte (frente + costado)
+
+Con **un solo plano** el miembro no siempre queda bien cortado. Es lo mismo que en el tutorial de Onshape: el brazo
+de Mickey necesita **dos** recortes (el plano de costado del hombro y, sobre su cara, un sketch de frente que deja
+afuera el torso), y la pierna necesita su silueta de frente. Si con el plano de costado de la pierna ves que **parte
+del muslo queda pegado al torso** (el torso arranca mucho más abajo que la cadera, el pasador sobresale, las dos
+piernas se pisan en x = 0), te falta el 2.º corte.
+
+1. En la lista de planos, el botón **«2.º»** del miembro abre el dibujo de su segundo corte. La cámara se pone de
+   frente al plano **frontal** (el que divide la figura en atrás/adelante, perpendicular al plano del miembro). Si el
+   plano del miembro ya fuera frontal, el 2.º corte sería de costado.
+2. Se dibuja igual que la silueta (clic, cerrar, mover vértices, **Proponer silueta automática**). Lo que
+   dibujes es **lo que cubre al miembro visto de frente**:
+   * **pierna**: la columna del muslo desde la simetría (x = 0) hasta el pie, más el **escalón de la cadera**
+     (el borde vertical del escalón, a x ≈ 7 mm, es la cara donde va el pasador);
+   * **brazo**: el brazo con la mano y un pedacito del hombro; lo que queda del torso se deja afuera.
+3. El miembro es **lo que queda dentro de las dos siluetas** (la de costado/del plano y la de frente). El contorno
+   del 2.º corte se ve en **cian**; el de la silueta del plano, en amarillo. El botón **−** al lado de «2.º» lo quita.
+4. **La altura de la cadera no la limita el 2.º corte.** Su borde superior (el techo del escalón) fija hasta dónde
+   llega la cara de contacto y, con ella, la altura del hueco y del pasador: si queda más bajo que la silueta
+   de costado, el pasador no puede subir. Con el 2.º corte abierto, **«Subir el borde superior hasta la otra
+   silueta»** lleva ese borde a la altura máxima de la silueta de costado (la propuesta automática ya lo hace);
+   desde ahí la altura la marca la silueta de costado, y también podés mover a mano los dos vértices del techo.
+5. En una **pierna** con plano de costado, al guardar el 2.º corte el programa deja de limitar la silueta de costado
+   a «hacia afuera desde el plano» y la hace atravesar todo el cuerpo: la cara de la cadera la fija el escalón de
+   frente. En un **brazo** no cambia nada: el plano de costado sigue marcando dónde se separa del torso.
+
 ### 7.2 Colocar el pasador (brazo y cadera)
 
 El pasador tipo hongo va sobre la **cara de corte** del miembro: la cara plana que queda donde la silueta lo
