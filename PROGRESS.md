@@ -135,3 +135,14 @@ Quedan manuales: el borde interno del pie y los recortes de la cola (dependen de
 - Un solo plano de silueta por miembro; la cara de contacto debe quedar plana y perpendicular a X.
 - La cabeza queda unida al torso (fuera de alcance v1).
 - Los brazos no tienen barrido (solo la cadera lleva límite de giro).
+
+
+## Pasador de cadera en plano de costado (Güemes) — 2026-10-15
+Causa del asistente «con el concepto erróneo»: la pierna de Güemes tenía el plano en x = 4,62 (cara interna del muslo) con extrusión
+**simétrica**; el plano atravesaba la pierna, la cara de contacto encontrada era un parche suelto de 3,5 mm² y el asistente la mostraba.
+Ahora un plano de costado (`limbs.plane_is_lateral`) es la cara de corte: extrusión «outward» por defecto (`Session.add_limb`),
+y `Session.fix_limb_extrude` corrige proyectos viejos al abrir el modo pasador. La cara de la pierna pasa a 335 mm² en x = 5,28.
+`pin_preview` falla con un mensaje claro si la cara es menor que el vástago. `Session.pin_reach_margin` avisa en el Estado cuando los
+pasadores enfrentados se cruzarían en el plano de simetría.
+Güemes con el proyecto corregido: con `hip_pin` 2,2 + 1,65 mm y `sweep_step` 2,5° la validación da **OK** (holguras >= 0,475 mm).
+Con el pasador de cadera por defecto (6,6 mm) las piernas se interpenetran 2,6 mm en la pelvis; con paso 5° queda 0,2 mm³ de interferencia en el giro.

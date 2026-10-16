@@ -17,7 +17,7 @@ import numpy as np
 import trimesh
 
 from .. import meshio, pipeline as P, solids as S
-from ..limbs import LimbSpec, PinPreview, check_limb_plane, contact_preview
+from ..limbs import LimbSpec, PinPreview, check_limb_plane, contact_preview, plane_is_lateral
 from ..params import PinSpec
 
 from ..planes import Plane
@@ -127,9 +127,11 @@ class Session:
     def add_limb(self, name: str, kind: str, plane: Plane, thickness: float | None = None, auto: bool = True,
                  extrude: str | None = None) -> LimbSpec:
         """Por defecto el brazo usa una losa «outward» de ARM_SLAB_MM (12 mm del tutorial × 1,653 de
-        reescala) y la pierna un prisma simétrico de 100 mm (cubre toda la circunferencia de la cadera)."""
+        reescala) y la pierna un prisma simétrico de 100 mm (cubre toda la circunferencia de la cadera).
+        Un plano de costado (normal ∥ X) es él mismo la cara de contacto: ahí la extrusión es siempre
+        «outward», también en las piernas (un prisma simétrico atravesaría el miembro)."""
         if extrude is None:
-            extrude = "outward" if kind == "arm" else "symmetric"
+            extrude = "outward" if (kind == "arm" or plane_is_lateral(plane)) else "symmetric"
         if thickness is None:
             thickness = ARM_SLAB_MM if extrude == "outward" else 100.0
         if kind not in ("arm", "leg"):
@@ -141,6 +143,20 @@ class Session:
         self.project.limbs.append(spec)
         self.outcome = None
         return spec
+
+    def fix_limb_extrude(self, name: str) -> bool:
+        """Si el plano de `name` está de costado pero la extrusión es simétrica (proyectos guardados antes
+        de este cambio), pasa a «outward» y descarta el pasador elegido (estaba sobre una cara que no era la
+        de corte). Devuelve True si cambió algo."""
+        spec = self.limb(name)
+        if spec is None:
+            raise KeyError(name)
+        if spec.extrude == "symmetric" and plane_is_lateral(spec.plane, spec.contact_axis):
+            spec.extrude = "outward"
+            spec.pin_center = None
+            self.outcome = None
+            return True
+        return False
 
     def set_limb_polygon(self, name: str, polygon_world) -> None:
         spec = self.limb(name)
@@ -212,8 +228,30 @@ class Session:
             self._half = S.to_manifold(self.work).trim_by_plane((1.0, 0.0, 0.0), 0.0)
             self._half_key = hkey
         prev = contact_preview(self._half, spec, burr)
+        shaft = self.pin_spec(name).shaft_d
+        if prev.face.area < np.pi * (shaft / 2) ** 2:
+            raise ValueError(
+                f"la cara de contacto encontrada es muy chica ({prev.face.area:.1f} mm², menos que el vástago de "
+                f"Ø{shaft:g}): no es la cara de corte. Apoyá el plano en la cara chata donde el miembro se separa del "
+                "torso (la extrusión es «hacia afuera» si el plano está de costado), o revisá la silueta")
         self._pin_cache = (key, prev)
         return prev
+
+    def pin_reach_margin(self, name: str) -> float | None:
+        """Holgura (mm) entre la punta del pasador y el plano de simetría, descontando la holgura de la cavidad
+        y media pared mínima. Negativa: el pasador (o su cavidad) se cruza con el del lado opuesto, que es el
+        espejo. Solo aplica si la cara de contacto es paralela al plano de simetría (pasadores enfrentados)."""
+        sym = self.project.symmetry
+        spec = self.limb(name)
+        if sym is None or spec is None or self.work is None:
+            return None
+        prev = self.pin_preview(name)
+        n = np.asarray(sym.normal, float) / np.linalg.norm(np.asarray(sym.normal, float))
+        if abs(float(prev.face.outward @ n)) < 0.99:
+            return None
+        pin, prm = self.pin_spec(name), self.project.params
+        dist = abs(float((prev.face.center - np.asarray(sym.origin, float)) @ n))
+        return dist - (pin.shaft_len + pin.head_h) - prm.clearance - prm.min_wall / 2
 
     def set_limb_pin(self, name: str, point_world) -> None:
         """Fija el centro del pasador de `name` en `point_world` (se proyecta sobre el plano de la cara de

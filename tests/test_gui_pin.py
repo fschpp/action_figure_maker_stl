@@ -228,3 +228,46 @@ def test_clip_plane_discards_geometry_when_rendered(ctrl):
     ctrl.start_pin("brazo")
     ctrl.sync(off.scene)
     assert off.render(ctrl.camera).shape == (400, 320, 4)
+
+
+# ---------------------------------------------------- plano de costado = cara de corte (Güemes)
+def _lateral_leg(c):
+    from afm.planes import Plane
+    return Plane.from_normal((5.0, 0, 0), (-1, 0, 0), "costado")
+
+
+def test_lateral_plane_defaults_to_outward_even_for_legs(ctrl):
+    pl = _lateral_leg(ctrl)
+    spec = ctrl.session.add_limb("pierna lateral", "leg", pl)
+    assert spec.extrude == "outward"
+    frontal = ctrl.session.add_limb("pierna frontal", "leg", demo_project().limbs[1].plane)
+    assert frontal.extrude == "symmetric"
+
+
+def test_fix_limb_extrude_repairs_old_projects(ctrl):
+    spec = ctrl.session.add_limb("pierna lateral", "leg", _lateral_leg(ctrl), extrude="symmetric")
+    spec.pin_center = (1.0, 2.0, 3.0)
+    assert ctrl.session.fix_limb_extrude("pierna lateral") is True
+    assert spec.extrude == "outward" and spec.pin_center is None
+    assert ctrl.session.fix_limb_extrude("pierna lateral") is False          # idempotente
+    assert ctrl.session.fix_limb_extrude("pierna") is False                  # frontal: no se toca
+
+
+def test_start_pin_on_old_lateral_symmetric_limb_uses_the_plane_as_contact_face(ctrl):
+    spec = ctrl.session.add_limb("pierna lateral", "leg", _lateral_leg(ctrl), extrude="symmetric")
+    ctrl.session.set_limb_polygon("pierna lateral", _box_on_plane(spec.plane))
+    ctrl.start_pin("pierna lateral")
+    assert ctrl.mode == Mode.PIN and "hacia afuera" in ctrl.message
+    assert spec.extrude == "outward"
+
+
+def _box_on_plane(plane, half=40.0, z0=-1.0, z1=40.0):
+    return plane.to_world(np.array([[-half, z0], [half, z0], [half, z1], [-half, z1]], float))
+
+
+def test_pin_status_warns_when_pins_would_cross_at_the_symmetry_plane(ctrl):
+    spec = ctrl.session.add_limb("pierna lateral", "leg", _lateral_leg(ctrl))
+    ctrl.session.set_limb_polygon("pierna lateral", _box_on_plane(spec.plane))
+    ctrl.start_pin("pierna lateral")
+    # la cara está a ~5,7 mm del plano de simetría; el pasador de cadera mide 6,6 mm
+    assert ctrl.session.pin_reach_margin("pierna lateral") < 0 and "ATENCIÓN" in ctrl.message

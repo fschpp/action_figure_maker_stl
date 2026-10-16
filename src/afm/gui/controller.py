@@ -371,6 +371,7 @@ class Controller:
             self._changed(f"No existe el plano «{name}».", scene=False)
             return
         self.cancel(quiet=True)
+        fixed = self.session.fix_limb_extrude(name)
         try:
             prev = self.session.pin_preview(name)
         except (ValueError, KeyError) as e:
@@ -381,7 +382,9 @@ class Controller:
         half = float(max(np.ptp(prev.plane.to_uv(r), axis=0).max() for r in prev.rings_world())) * 0.65 or 10.0
         self.camera.look_along(face.outward, face.center, max(half, 8.0))
         self.hidden.discard(name)
-        self._changed(f"Pasador de «{name}»: " + self._pin_status(name)
+        note = (f"«{name}» tiene el plano de costado: ahora se extruye hacia afuera (el plano es la cara de corte) "
+                "y se descartó el pasador anterior. ") if fixed else ""
+        self._changed(note + f"Pasador de «{name}»: " + self._pin_status(name)
                       + " Clic sobre la cara para moverlo; flechas lo ajustan 0,1 mm (Mayús: 1 mm); Esc termina.")
 
     def _pin_center(self, name: str) -> np.ndarray:
@@ -398,6 +401,11 @@ class Controller:
         inside, margin = prev.fit(uv, pin.shaft_d)
         user = self.session.limb(name).pin_center is not None
         txt = ("posición elegida" if user else "posición automática") + f" (vástago Ø{pin.shaft_d:g}, cabeza Ø{pin.head_d:g} mm)."
+        reach = self.session.pin_reach_margin(name)
+        if reach is not None and reach < 0:
+            txt += (f" ATENCIÓN: el pasador ({pin.shaft_len + pin.head_h:g} mm) no entra: la cara está muy cerca del plano de "
+                    f"simetría y se cruzaría con el del otro lado por {-reach:.1f} mm. Acortá el pasador (shaft_len / head_h) "
+                    "o elegí un plano más hacia afuera.")
         if not inside:
             return txt + " El centro queda fuera de la cara de contacto: elegí otro punto."
         if margin < 0:

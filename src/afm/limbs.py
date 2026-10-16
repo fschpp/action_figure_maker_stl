@@ -19,6 +19,15 @@ def check_limb_plane(plane: Plane, min_frontal: float = 0.0) -> None:
         raise ValueError(f"el plano «{plane.name or 'sin nombre'}» está de canto (|n·Y| < {min_frontal})")
 
 
+def plane_is_lateral(plane: Plane, contact_axis=(1.0, 0.0, 0.0), min_dot: float = 0.85) -> bool:
+    """El plano está de costado: su normal es (casi) paralela al eje del pasador. Un plano así es él mismo la
+    cara de contacto (separa el miembro del torso), y la silueta tiene que extruirse hacia afuera: con un
+    prisma simétrico el plano atravesaría el miembro y no quedaría ninguna cara de contacto."""
+    ax = np.asarray(contact_axis, float)
+    n = np.asarray(plane.normal, float)
+    return abs(float(n @ ax)) / (np.linalg.norm(n) * np.linalg.norm(ax)) >= min_dot
+
+
 @dataclass
 class LimbSpec:
     """Definición de un miembro del lado de trabajo (izquierdo, +X)."""

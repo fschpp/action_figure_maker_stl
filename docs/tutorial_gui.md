@@ -206,6 +206,16 @@ Al generar, el informe (`pin_margin_mm`) y la validación repiten el aviso si el
 
 En la **pierna**, el recorte redondeado del extremo de cadera sigue siendo el automático; mover el pasador no lo cambia.
 
+**Plano de costado = cara de corte.** Si apoyás el plano de un miembro en una cara chata de costado (normal paralela a X, por
+ejemplo la cara interna del muslo o la del hombro), ese plano es él mismo la cara donde va el pasador, y la silueta se extruye
+**hacia afuera** (también en las piernas). Con una extrusión simétrica el plano atravesaría la pierna y la «cara de contacto» saldría
+chica y equivocada: el asistente avisa si la cara es menor que el vástago. Los proyectos guardados con ese defecto se corrigen solos al
+abrir el modo pasador (y se descarta el pasador elegido sobre la cara equivocada).
+
+**Alcance del pasador.** Si la cara está muy cerca del plano de simetría, el pasador de un lado y el del espejo se cruzan (Güemes:
+caras a ±5,28 mm, pasadores de 6,6 mm). El Estado muestra «ATENCIÓN…» con cuánto se cruzan. Se arregla acortando el pasador
+(`shaft_len` / `head_h` de `hip_pin`: 2,2 + 1,65 mm alcanzan) o eligiendo un plano más hacia afuera.
+
 ### 7.3 Generar y exportar
 
 Con la simetría definida y cada miembro con su silueta, el Estado deja de listar pendientes y se puede:
