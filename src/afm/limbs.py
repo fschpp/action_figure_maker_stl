@@ -19,6 +19,25 @@ def check_limb_plane(plane: Plane, min_frontal: float = 0.0) -> None:
         raise ValueError(f"el plano «{plane.name or 'sin nombre'}» está de canto (|n·Y| < {min_frontal})")
 
 
+def plane_is_lateral(plane: Plane, contact_axis=(1.0, 0.0, 0.0), min_dot: float = 0.85) -> bool:
+    """El plano está de costado: su normal es (casi) paralela al eje del pasador. Un plano así es él mismo la
+    cara de contacto (separa el miembro del torso), y la silueta tiene que extruirse hacia afuera: con un
+    prisma simétrico el plano atravesaría el miembro y no quedaría ninguna cara de contacto."""
+    ax = np.asarray(contact_axis, float)
+    n = np.asarray(plane.normal, float)
+    return abs(float(n @ ax)) / (np.linalg.norm(n) * np.linalg.norm(ax)) >= min_dot
+
+
+# Desplazamiento por defecto del corte de la pierna cuando su silueta se dibuja sobre el plano de simetría:
+# cara de contacto a x = 7 mm con la figura normalizada a 100 mm (calibrado con Güemes, Belgrano y Azurduy; ver autosil).
+DEFAULT_LEG_CUT_X = 7.0
+
+
+def plane_on_symmetry(plane: Plane, contact_axis=(1.0, 0.0, 0.0), tol: float = 0.5) -> bool:
+    """El plano es (casi) el de simetría x = 0: de costado y pasando por el origen."""
+    return plane_is_lateral(plane, contact_axis) and abs(float(np.asarray(plane.origin, float)[0])) <= tol
+
+
 @dataclass
 class LimbSpec:
     """Definición de un miembro del lado de trabajo (izquierdo, +X)."""
@@ -38,6 +57,10 @@ class LimbSpec:
     # Extremo redondeado (tutorial pasos 027-028): el extremo del miembro del lado del torso se
     # recorta a un cilindro de eje paralelo al pasador. Solo se toca lo que queda más allá de
     # `cap_center` en la dirección opuesta a `cap_dir` (hacia el torso); el resto del miembro no cambia.
+    # Desplazamiento (mm, hacia el lado de trabajo +X) del plano de corte respecto del plano donde se dibujó la
+    # silueta. Permite dibujar siempre sobre el plano de simetría y cortar más afuera. None = 7 mm en las
+    # piernas sobre el plano de simetría (DEFAULT_LEG_CUT_X) y 0 en el resto.
+    cut_offset: float | None = None
     auto: bool = False                      # proponer pin_center / cap_* desde la cara de contacto (si no se indican)
     burr: float | None = None               # rebaba a rebajar en la cara de contacto; None = el de Params
     cap_radius: float | None = None         # radio del cilindro (mm); None = sin recorte
@@ -52,6 +75,7 @@ class LimbSpec:
             "contact_axis": list(self.contact_axis),
             "pin_center": None if self.pin_center is None else list(self.pin_center),
             "sweep_deg": None if self.sweep_deg is None else list(self.sweep_deg),
+            "cut_offset": self.cut_offset,
             "auto": self.auto,
             "burr": self.burr,
             "cap_radius": self.cap_radius,
@@ -68,6 +92,7 @@ class LimbSpec:
             contact_axis=tuple(d.get("contact_axis", (1, 0, 0))),
             pin_center=None if d.get("pin_center") is None else tuple(d["pin_center"]),
             sweep_deg=None if d.get("sweep_deg") is None else tuple(d["sweep_deg"]),
+            cut_offset=d.get("cut_offset"),
             auto=d.get("auto", False),
             burr=d.get("burr"),
             cap_radius=d.get("cap_radius"),
@@ -115,6 +140,18 @@ def find_contact_face(limb: S.Manifold, axis_hint, ignore_x: float | None = 0.0,
     return ContactFace(center=c, outward=bs * ax, area=float(best_area), triangles=tm.triangles[best])
 
 
+def effective_cut_offset(spec: LimbSpec) -> float:
+    """Desplazamiento del corte respecto del plano de la silueta (mm). Ver `LimbSpec.cut_offset`."""
+    if spec.cut_offset is not None:
+        return float(spec.cut_offset)
+    if spec.kind == "leg" and plane_on_symmetry(spec.plane, spec.contact_axis):
+        return DEFAULT_LEG_CUT_X
+    if plane_on_symmetry(spec.plane, spec.contact_axis):
+        raise ValueError(f"«{spec.name}»: la silueta está sobre el plano de simetría; indicá el desplazamiento del corte "
+                         "(la cara donde el miembro se separa del torso no está en x = 0)")
+    return 0.0
+
+
 def limb_prism(spec: LimbSpec) -> S.Manifold:
     """Prisma de la silueta. En modo «outward» se orienta la normal hacia +X (lado de trabajo), así el
     sentido en que se eligieron los 3 puntos no importa; para un plano sin componente X se usa su normal."""
@@ -122,7 +159,8 @@ def limb_prism(spec: LimbSpec) -> S.Manifold:
         n = np.asarray(spec.plane.normal, float)
         if n[0] < -1e-6:
             n = -n
-        plane = Plane.from_normal(spec.plane.origin, n, spec.plane.name)
+        n = n / np.linalg.norm(n)
+        plane = Plane.from_normal(np.asarray(spec.plane.origin, float) + n * effective_cut_offset(spec), n, spec.plane.name)
         return S.prism_from_polygon(plane, spec.polygon, spec.thickness, symmetric=False)
     if spec.extrude != "symmetric":
         raise ValueError(f"extrude debe ser 'symmetric' o 'outward', no {spec.extrude!r}")

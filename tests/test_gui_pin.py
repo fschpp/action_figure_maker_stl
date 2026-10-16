@@ -228,3 +228,101 @@ def test_clip_plane_discards_geometry_when_rendered(ctrl):
     ctrl.start_pin("brazo")
     ctrl.sync(off.scene)
     assert off.render(ctrl.camera).shape == (400, 320, 4)
+
+
+# ---------------------------------------------------- plano de costado = cara de corte (Güemes)
+def _lateral_leg(c):
+    from afm.planes import Plane
+    return Plane.from_normal((5.0, 0, 0), (-1, 0, 0), "costado")
+
+
+def test_lateral_plane_defaults_to_outward_even_for_legs(ctrl):
+    pl = _lateral_leg(ctrl)
+    spec = ctrl.session.add_limb("pierna lateral", "leg", pl)
+    assert spec.extrude == "outward"
+    frontal = ctrl.session.add_limb("pierna frontal", "leg", demo_project().limbs[1].plane)
+    assert frontal.extrude == "symmetric"
+
+
+def test_fix_limb_extrude_repairs_old_projects(ctrl):
+    spec = ctrl.session.add_limb("pierna lateral", "leg", _lateral_leg(ctrl), extrude="symmetric")
+    spec.pin_center = (1.0, 2.0, 3.0)
+    assert ctrl.session.fix_limb_extrude("pierna lateral") is True
+    assert spec.extrude == "outward" and spec.pin_center is None
+    assert ctrl.session.fix_limb_extrude("pierna lateral") is False          # idempotente
+    assert ctrl.session.fix_limb_extrude("pierna") is False                  # frontal: no se toca
+
+
+def test_start_pin_on_old_lateral_symmetric_limb_uses_the_plane_as_contact_face(ctrl):
+    spec = ctrl.session.add_limb("pierna lateral", "leg", _lateral_leg(ctrl), extrude="symmetric")
+    ctrl.session.set_limb_polygon("pierna lateral", _box_on_plane(spec.plane))
+    ctrl.start_pin("pierna lateral")
+    assert ctrl.mode == Mode.PIN and "hacia afuera" in ctrl.message
+    assert spec.extrude == "outward"
+
+
+def _box_on_plane(plane, half=40.0, z0=-1.0, z1=40.0):
+    return plane.to_world(np.array([[-half, z0], [half, z0], [half, z1], [-half, z1]], float))
+
+
+def test_pin_status_warns_when_pins_would_cross_at_the_symmetry_plane(ctrl):
+    spec = ctrl.session.add_limb("pierna lateral", "leg", _lateral_leg(ctrl))
+    ctrl.session.set_limb_polygon("pierna lateral", _box_on_plane(spec.plane))
+    ctrl.start_pin("pierna lateral")
+    # la cara está a ~5,7 mm del plano de simetría; el pasador de cadera mide 6,6 mm
+    assert ctrl.session.pin_reach_margin("pierna lateral") < 0 and "ATENCIÓN" in ctrl.message
+
+
+# ------------------------------------------- silueta sobre el plano de simetría + desplazamiento del corte
+# (el fixture `ctrl` ya trae «brazo» y «pierna» sobre planos frontales; los nuevos se llaman «brazo 2» y «pierna 2»)
+def _sym_box(ctrl, z0, z1):
+    return ctrl.session.project.symmetry.to_world(np.array([[-40, z0], [40, z0], [40, z1], [-40, z1]], float))
+
+
+def _arm_z():
+    p = np.asarray(demo_project().limbs[0].polygon)
+    return p[:, 2].min(), p[:, 2].max()
+
+
+def test_limb_on_symmetry_plane_needs_offset_for_arms_and_defaults_for_legs(ctrl):
+    from afm.limbs import DEFAULT_LEG_CUT_X, effective_cut_offset
+    arm = ctrl.session.add_limb_on_symmetry("brazo 2", "arm")
+    leg = ctrl.session.add_limb_on_symmetry("pierna 2", "leg")
+    assert arm.extrude == "outward" and leg.extrude == "outward"
+    assert effective_cut_offset(leg) == DEFAULT_LEG_CUT_X
+    with pytest.raises(ValueError, match="desplazamiento"):
+        effective_cut_offset(arm)
+    assert ctrl.session.limb_offset("pierna 2") == DEFAULT_LEG_CUT_X
+    assert ctrl.session.limb_offset("pierna") is None          # plano frontal: no aplica
+
+
+def test_cut_offset_moves_the_contact_face(ctrl):
+    z0, z1 = _arm_z()
+    ctrl.add_limb_on_symmetry("arm")
+    ctrl.session.set_limb_polygon("brazo 2", _sym_box(ctrl, z0, z1))
+    ctrl.session.set_limb_offset("brazo 2", 15.0)
+    ctrl.start_pin("brazo 2")
+    assert ctrl.mode == Mode.PIN and ctrl.offset_limb() == "brazo 2"
+    assert abs(ctrl.pin_prev.face.center[0] - (15.0 + 0.66)) < 0.05
+    ctrl.set_limb_offset("brazo 2", 16.0)                      # en el modo pasador recalcula la cara
+    assert ctrl.mode == Mode.PIN and abs(ctrl.pin_prev.face.center[0] - (16.0 + 0.66)) < 0.05
+    assert ctrl.session.limb("brazo 2").pin_center is None
+
+
+def test_set_limb_offset_validates(ctrl):
+    ctrl.add_limb_on_symmetry("leg")
+    with pytest.raises(ValueError):
+        ctrl.session.set_limb_offset("pierna 2", 0.0)
+    with pytest.raises(ValueError):
+        ctrl.session.set_limb_offset("brazo", 5.0)             # plano frontal: no aplica
+    ctrl.set_limb_offset("brazo", 5.0)                         # el controlador no lanza: informa
+    assert "no está sobre el plano de simetría" in ctrl.message
+
+
+def test_cut_offset_roundtrips_in_project(ctrl, tmp_path):
+    ctrl.add_limb_on_symmetry("leg")
+    ctrl.session.set_limb_offset("pierna 2", 9.5)
+    path = tmp_path / "p.proyecto"
+    ctrl.session.project.save(str(path))
+    from afm.project import Project
+    assert any(l.cut_offset == 9.5 for l in Project.load(str(path)).limbs)
