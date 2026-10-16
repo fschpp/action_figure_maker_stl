@@ -212,13 +212,17 @@ ejemplo la cara interna del muslo o la del hombro), ese plano es él mismo la ca
 chica y equivocada: el asistente avisa si la cara es menor que el vástago. Los proyectos guardados con ese defecto se corrigen solos al
 abrir el modo pasador (y se descarta el pasador elegido sobre la cara equivocada).
 
-**Silueta sobre el plano de simetría.** Para no elegir 3 puntos, en **Planos** podés usar **Agregar brazo / pierna sobre el plano de simetría**:
-la silueta se dibuja siempre sobre x = 0 (vista lateral limpia) y el **corte real va desplazado hacia afuera**. El control **Corte a (mm del
-plano de simetría)** fija ese desplazamiento para el miembro activo (el del pasador o el de la silueta; si hay uno solo sobre la simetría, ese).
-En la **pierna** el valor por defecto es **7 mm** (calibrado con Güemes, Belgrano y Azurduy con la figura a 100 mm); en el **brazo** no hay valor
-por defecto: hay que indicarlo (la cara del hombro de Güemes está a ≈ 9,7 mm). Cambiar el desplazamiento mueve la cara de contacto, así que
-descarta el pasador elegido y, si estás en el modo pasador, vuelve a calcular la cara. El plano de la silueta no puede ser el de simetría con
-desplazamiento 0: esa cara es el corte de la mitad y no sirve de cara de contacto.
+**Plano de trabajo del pasador.** Al entrar al modo pasador de un miembro que ya existe (de brazo o de pierna) el programa arma
+internamente un plano **paralelo al de simetría**, puesto en el corte de ese miembro (la cara de contacto), y la cámara lo mira de frente.
+No aparece en la lista de planos ni agrega ningún miembro: es solo la vista de trabajo. Sobre él se dibuja, en amarillo, la **silueta que
+ya dibujaste** como referencia: si su plano es de costado se ve el contorno entero; si es frontal, se ve su proyección (el tramo de altura
+que cubre). El clic y las flechas fijan el pasador sobre ese plano.
+
+**Corte desplazado.** Si el plano de un miembro está sobre el de simetría (x = 0), el corte real va desplazado hacia afuera; el control
+**Corte a (mm del plano de simetría)** fija ese desplazamiento para el miembro activo. En la **pierna** el valor por defecto es **7 mm**
+(calibrado con Güemes, Belgrano y Azurduy con la figura a 100 mm); en el **brazo** hay que indicarlo (la cara del hombro de Güemes está
+a ≈ 9,7 mm). Cambiar el desplazamiento mueve la cara de contacto, así que descarta el pasador elegido y, si estás en el modo pasador,
+vuelve a calcular la cara. Ese plano no puede ser el de simetría con desplazamiento 0: esa cara es el corte de la mitad.
 
 **Alcance del pasador.** Si la cara está muy cerca del plano de simetría, el pasador de un lado y el del espejo se cruzan (Güemes:
 caras a ±5,28 mm, pasadores de 6,6 mm). El Estado muestra «ATENCIÓN…» con cuánto se cruzan. Se arregla acortando el pasador

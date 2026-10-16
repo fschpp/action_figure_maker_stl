@@ -144,15 +144,6 @@ class Session:
         self.outcome = None
         return spec
 
-    def add_limb_on_symmetry(self, name: str, kind: str, auto: bool = True) -> LimbSpec:
-        """Miembro cuya silueta se dibuja sobre el plano de simetría (siempre disponible, vista lateral limpia).
-        El corte real va desplazado (`cut_offset`; por defecto 7 mm en las piernas)."""
-        sym = self.project.symmetry
-        if sym is None:
-            raise ValueError("Falta el plano de simetría")
-        plane = Plane.from_normal(sym.origin, sym.normal, name)
-        return self.add_limb(name, kind, plane, auto=auto, extrude="outward")
-
     def limb_offset(self, name: str) -> float | None:
         """Desplazamiento efectivo del corte de `name`, o None si su plano no es el de simetría."""
         spec = self.limb(name)

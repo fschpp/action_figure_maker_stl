@@ -279,6 +279,14 @@ def _sym_box(ctrl, z0, z1):
     return ctrl.session.project.symmetry.to_world(np.array([[-40, z0], [40, z0], [40, z1], [-40, z1]], float))
 
 
+def _add_sym_limb(ctrl, name, kind):
+    """Miembro con el plano sobre x = 0 (3 puntos sobre la simetría), extruido hacia afuera; ya no hay botón."""
+    from afm.planes import Plane
+    sym = ctrl.session.project.symmetry
+    return ctrl.session.add_limb(name, kind, Plane.from_normal(sym.origin, sym.normal, name), auto=True,
+                                 extrude="outward")
+
+
 def _arm_z():
     p = np.asarray(demo_project().limbs[0].polygon)
     return p[:, 2].min(), p[:, 2].max()
@@ -286,8 +294,8 @@ def _arm_z():
 
 def test_limb_on_symmetry_plane_needs_offset_for_arms_and_defaults_for_legs(ctrl):
     from afm.limbs import DEFAULT_LEG_CUT_X, effective_cut_offset
-    arm = ctrl.session.add_limb_on_symmetry("brazo 2", "arm")
-    leg = ctrl.session.add_limb_on_symmetry("pierna 2", "leg")
+    arm = _add_sym_limb(ctrl, "brazo 2", "arm")
+    leg = _add_sym_limb(ctrl, "pierna 2", "leg")
     assert arm.extrude == "outward" and leg.extrude == "outward"
     assert effective_cut_offset(leg) == DEFAULT_LEG_CUT_X
     with pytest.raises(ValueError, match="desplazamiento"):
@@ -298,7 +306,7 @@ def test_limb_on_symmetry_plane_needs_offset_for_arms_and_defaults_for_legs(ctrl
 
 def test_cut_offset_moves_the_contact_face(ctrl):
     z0, z1 = _arm_z()
-    ctrl.add_limb_on_symmetry("arm")
+    _add_sym_limb(ctrl, "brazo 2", "arm")
     ctrl.session.set_limb_polygon("brazo 2", _sym_box(ctrl, z0, z1))
     ctrl.session.set_limb_offset("brazo 2", 15.0)
     ctrl.start_pin("brazo 2")
@@ -310,7 +318,7 @@ def test_cut_offset_moves_the_contact_face(ctrl):
 
 
 def test_set_limb_offset_validates(ctrl):
-    ctrl.add_limb_on_symmetry("leg")
+    _add_sym_limb(ctrl, "pierna 2", "leg")
     with pytest.raises(ValueError):
         ctrl.session.set_limb_offset("pierna 2", 0.0)
     with pytest.raises(ValueError):
@@ -320,9 +328,51 @@ def test_set_limb_offset_validates(ctrl):
 
 
 def test_cut_offset_roundtrips_in_project(ctrl, tmp_path):
-    ctrl.add_limb_on_symmetry("leg")
+    _add_sym_limb(ctrl, "pierna 2", "leg")
     ctrl.session.set_limb_offset("pierna 2", 9.5)
     path = tmp_path / "p.proyecto"
     ctrl.session.project.save(str(path))
     from afm.project import Project
     assert any(l.cut_offset == 9.5 for l in Project.load(str(path)).limbs)
+
+
+# ------------------------------------------- plano de trabajo interno + silueta de referencia
+def test_pin_mode_creates_no_extra_planes_or_limbs(ctrl):
+    _with_polygon(ctrl, "pierna")
+    before = [(l.name, l.plane.origin.tolist(), l.plane.normal.tolist()) for l in ctrl.session.project.limbs]
+    sym = ctrl.session.project.symmetry
+    ctrl.start_pin("pierna")
+    assert ctrl.mode == Mode.PIN
+    ctrl.cancel()
+    after = [(l.name, l.plane.origin.tolist(), l.plane.normal.tolist()) for l in ctrl.session.project.limbs]
+    assert after == before and ctrl.session.project.symmetry is sym
+    assert not hasattr(ctrl, "add_limb_on_symmetry")
+
+
+def test_pin_plane_is_parallel_to_symmetry_and_at_the_cut(ctrl):
+    _with_polygon(ctrl, "pierna")
+    ctrl.start_pin("pierna")
+    plane = ctrl.pin_prev.plane
+    assert abs(abs(plane.normal @ ctrl.session.project.symmetry.normal) - 1) < 1e-6
+    assert abs(plane.signed_distance(ctrl.pin_prev.face.center)[0]) < 1e-9
+
+
+def test_pin_mode_draws_the_existing_silhouette_on_the_pin_plane(ctrl):
+    from afm.limbs import silhouette_on_plane
+    _with_polygon(ctrl, "pierna")
+    spec = ctrl.session.limb("pierna")
+    ctrl.start_pin("pierna")
+    rings = silhouette_on_plane(spec, ctrl.pin_prev.plane)
+    assert len(rings) == 1 and rings[0].shape == (len(spec.polygon), 3)
+    assert np.allclose(ctrl.pin_prev.plane.signed_distance(rings[0]), 0, atol=1e-9)
+    # el contorno conserva y, z de la silueta (se proyecta a lo largo de X)
+    pts = np.asarray(spec.polygon, float)
+    assert np.allclose(rings[0][:, 2], pts[:, 2]) and np.allclose(rings[0][:, 1], pts[:, 1])
+
+
+def test_silhouette_reference_is_empty_without_polygon(ctrl):
+    from afm.limbs import silhouette_on_plane
+    _with_polygon(ctrl, "brazo")
+    ctrl.start_pin("brazo")
+    spec = ctrl.session.limb("pierna")                  # sin silueta todavía
+    assert silhouette_on_plane(spec, ctrl.pin_prev.plane) == []

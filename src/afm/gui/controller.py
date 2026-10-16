@@ -15,6 +15,7 @@ from enum import Enum
 import numpy as np
 import trimesh
 
+from ..limbs import silhouette_on_plane
 from ..orient import OrientResult, best_orientation, overhang_mask
 from ..planes import Plane
 from .camera import OrbitCamera
@@ -562,26 +563,6 @@ class Controller:
         self.mode, self.pending_kind = Mode.VIEW, None
         self._changed(f"Plano «{name}» agregado. Falta dibujar su silueta.")
 
-    def add_limb_on_symmetry(self, kind: str) -> None:
-        """Agrega un miembro cuya silueta se dibuja sobre el plano de simetría (sin elegir 3 puntos)."""
-        if not self._need_loaded():
-            return
-        if kind not in _KIND_BASE:
-            raise ValueError(kind)
-        if self.session.project.symmetry is None:
-            self._changed("Primero definí el plano de simetría.", scene=False)
-            return
-        self.cancel(quiet=True)
-        name = self.unique_name(kind)
-        try:
-            self.session.add_limb_on_symmetry(name, kind)
-        except ValueError as e:
-            self._changed(f"No se pudo agregar: {e}.", scene=False)
-            return
-        off = self.session.limb_offset(name)
-        self._changed(f"«{name}» agregado sobre el plano de simetría. Dibujá su silueta; el corte va "
-                      + (f"{off:g} mm hacia afuera (ajustable)." if kind == "leg" else "desplazado: indicá cuánto."))
-
     def offset_limb(self) -> str | None:
         """Miembro activo cuyo desplazamiento de corte se puede editar (el del pasador o el de la silueta)."""
         for name in (self.pin_limb, self.edit_limb):
@@ -761,8 +742,8 @@ class Controller:
             wanted.add(key)
             scene.set_points(key, np.asarray(l.pin_center, float)[None], (1.0, 0.55, 0.1, 1.0), 10.0)
             scene.show(key, l.name not in self.hidden)
-        pin_keys = ("pasador:cara", "pasador:borde", "pasador:vastago", "pasador:cabeza", "pasador:centro",
-                    "pasador:auto")
+        pin_keys = ("pasador:cara", "pasador:borde", "pasador:silueta", "pasador:vastago", "pasador:cabeza",
+                    "pasador:centro", "pasador:auto")
         if editing is None:
             for key in [k for k in scene.items if k.startswith("pasador:") and k not in wanted]:
                 scene.remove(key)
@@ -776,6 +757,11 @@ class Controller:
         face_mesh = trimesh.Trimesh(*self._face_mesh(prev), process=False)
         scene.set_mesh("pasador:cara", face_mesh, color=(0.35, 0.65, 0.95, 1.0))
         scene.set_lines("pasador:borde", prev.rings_world(), (1.0, 1.0, 1.0, 1.0), closed=True)
+        # Plano de trabajo del pasador (interno, no figura en la lista de planos): paralelo al de simetría y puesto en
+        # el corte del miembro. La silueta ya dibujada se proyecta sobre él como referencia (en un plano de costado
+        # es el contorno entero; en uno frontal, su sombra: la altura que cubre).
+        scene.set_lines("pasador:silueta", silhouette_on_plane(self.session.limb(name), prev.plane),
+                        (1.0, 0.8, 0.2, 1.0), closed=True)
         scene.set_lines("pasador:vastago", circle_world(prev.plane, c, pin.shaft_d / 2), (1.0, 0.55, 0.1, 1.0),
                         closed=True)
         scene.set_lines("pasador:cabeza", circle_world(prev.plane, c, pin.head_d / 2), (1.0, 0.85, 0.3, 1.0),
