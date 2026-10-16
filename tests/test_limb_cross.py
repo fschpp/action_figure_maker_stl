@@ -191,3 +191,16 @@ def test_leg_cross_ceiling_does_not_limit_contact_face_height(half):
                       cross=LimbCut(FRONT, ragged))                              # un brazo conserva su techo
     arm = S.intersection(half, limb_prism(closed))
     assert leg.bounding_box()[5] > arm.bounding_box()[5] + 1.0
+
+
+def test_fix_limb_extrude_keeps_symmetric_leg_with_cross():
+    """Al entrar al modo pasador, una pierna con 2.º corte de frente no debe volver a «outward» (dejaba la columna
+    del muslo en el torso y descartaba el pasador)."""
+    s = Session()
+    leg = _leg_side_plus_front()
+    leg.pin_center = (5.0, 0.0, 45.0)
+    s.project.limbs.append(leg)
+    assert s.fix_limb_extrude("pierna") is False
+    assert leg.extrude == "symmetric" and leg.pin_center == (5.0, 0.0, 45.0)
+    leg.cross = None                                    # sin 2.º corte sí se corrige, como antes
+    assert s.fix_limb_extrude("pierna") is True and leg.extrude == "outward"
