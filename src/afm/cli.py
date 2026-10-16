@@ -45,6 +45,11 @@ def main(argv=None) -> int:
     b.add_argument("--out", default="out/figura")
     b.add_argument("--name", default=None)
     b.add_argument("--orient", action="store_true", help="exportar en la orientación de impresión de menor voladizo")
+    b.add_argument("--cabeza", default=None, metavar="STL",
+                   help="usar esta cabeza en lugar de la original (el proyecto debe tener el plano del cuello)")
+    b.add_argument("--cabeza-giro", type=float, default=None, metavar="GRADOS", help="girar la cabeza importada sobre su eje vertical")
+    b.add_argument("--cabeza-arriba", default=None, choices=("+Z", "-Z", "+Y", "-Y", "+X", "-X"),
+                   help="eje de la cabeza importada que apunta hacia arriba (por defecto +Z)")
     b.add_argument("--max-angle", type=float, default=45.0, help="ángulo de voladizo tolerado (grados desde la vertical)")
     pr = sub.add_parser("probe", help="generar placa de probetas de articulación (§8.11)")
     pr.add_argument("--out", default="out/probetas")
@@ -70,8 +75,16 @@ def main(argv=None) -> int:
         info = run(stl, demo_project(), args.out, "muneco", orient=args.orient)
     else:
         name = args.name or os.path.splitext(os.path.basename(args.stl))[0]
-        info = run(args.stl, Project.load(args.proyecto), args.out, name, orient=args.orient,
-                   max_angle=args.max_angle)
+        project = Project.load(args.proyecto)
+        if args.cabeza or args.cabeza_giro is not None or args.cabeza_arriba:
+            if project.head is None:
+                ap.error("el proyecto no tiene cabeza (plano del cuello): --cabeza necesita definirla primero")
+            import dataclasses
+            project.head = dataclasses.replace(
+                project.head, replacement_path=args.cabeza or project.head.replacement_path,
+                replacement_yaw=project.head.replacement_yaw if args.cabeza_giro is None else args.cabeza_giro,
+                replacement_up=args.cabeza_arriba or project.head.replacement_up)
+        info = run(args.stl, project, args.out, name, orient=args.orient, max_angle=args.max_angle)
     val = info["validacion"]
     print("Validación:", "OK" if val["ok"] else "CON PROBLEMAS")
     for pr in val["problems"]:

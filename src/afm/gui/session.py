@@ -9,6 +9,7 @@ Marcos de coordenadas (igual que el CLI, ver `afm.cli.run`):
 """
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 from dataclasses import dataclass
@@ -17,7 +18,7 @@ import numpy as np
 import trimesh
 
 from .. import meshio, pipeline as P, solids as S
-from ..head import HeadSpec, neck_plane
+from ..head import HeadSpec, neck_plane, split_head
 from ..limbs import CROSS_THICKNESS_MM, LimbCut, LimbSpec, PinPreview, check_limb_plane, contact_preview, effective_cut_offset, plane_is_lateral, plane_on_symmetry
 from ..params import PinSpec
 
@@ -421,11 +422,38 @@ class Session:
     def set_head(self, plane: Plane) -> HeadSpec:
         """Define (o reemplaza) la cabeza articulada con el plano del cuello (3 puntos). Rechaza un plano casi
         vertical o girado de costado; el pasador se propone solo (círculo inscrito de la cara del cuello)."""
-        spec = HeadSpec(plane)
+        old = self.project.head
+        spec = HeadSpec(plane) if old is None else dataclasses.replace(old, plane=plane, pin_center=None)
         neck_plane(spec)                      # valida
         self.project.head = spec
         self.outcome = None
         return spec
+
+    def set_head_replacement(self, path: str, yaw: float = 0.0, up: str = "+Z") -> dict:
+        """Usa otra cabeza (STL) en lugar de la original. Se descarta la original, no se simetriza nada y la nueva se
+        escala (uniforme) para que su base iguale la del cuello. Valida ajustándola ya sobre el cuerpo actual y
+        devuelve los datos del ajuste (escala, coincidencia de base, alto…). Si falla no cambia nada."""
+        head = self.project.head
+        if head is None:
+            raise ValueError("Primero definí el plano del cuello (la cabeza que se reemplaza)")
+        if self.work is None:
+            raise ValueError("Abrí un STL")
+        path = os.path.abspath(path)
+        if not os.path.isfile(path):
+            raise ValueError(f"No existe el archivo «{path}»")
+        spec = dataclasses.replace(head, replacement_path=path, replacement_yaw=float(yaw), replacement_up=up)
+        info = split_head(S.to_manifold(self.work), spec, self.project.params).replacement
+        self.project.head = spec
+        self.outcome = None
+        return info
+
+    def clear_head_replacement(self) -> bool:
+        head = self.project.head
+        if head is None or head.replacement_path is None:
+            return False
+        self.project.head = dataclasses.replace(head, replacement_path=None, replacement_yaw=0.0, replacement_up="+Z")
+        self.outcome = None
+        return True
 
     def remove_head(self) -> None:
         self.project.head = None

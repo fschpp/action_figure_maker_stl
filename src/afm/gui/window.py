@@ -129,7 +129,10 @@ class MainWindow(Gtk.ApplicationWindow):
         self.btn_arm = self._button("Agregar plano de brazo (3 puntos)", lambda *_: self.ctrl.start_limb_plane("arm"))
         self.btn_leg = self._button("Agregar plano de pierna (3 puntos)", lambda *_: self.ctrl.start_limb_plane("leg"))
         self.btn_neck = self._button("Agregar plano del cuello / cabeza (3 puntos)", lambda *_: self.ctrl.start_neck_plane())
-        for b in (self.btn_sym, self.btn_sym_auto, self.btn_arm, self.btn_leg, self.btn_neck):
+        self.btn_head_stl = self._button("Cabeza de reemplazo (STL)…", self._on_head_replacement)
+        self.btn_head_orig = self._button("Volver a la cabeza original", lambda *_: self.ctrl.clear_head_replacement())
+        for b in (self.btn_sym, self.btn_sym_auto, self.btn_arm, self.btn_leg, self.btn_neck,
+                  self.btn_head_stl, self.btn_head_orig):
             box.append(b)
         row = Gtk.Box(spacing=6)
         row.append(Gtk.Label(label="Corte a (mm del plano de simetría)"))
@@ -338,6 +341,9 @@ class MainWindow(Gtk.ApplicationWindow):
             self.btn_arm.set_sensitive(loaded and has_sym)
             self.btn_leg.set_sensitive(loaded and has_sym)
             self.btn_neck.set_sensitive(loaded and has_sym)
+            head = ctrl.session.project.head
+            self.btn_head_stl.set_sensitive(loaded and head is not None)
+            self.btn_head_orig.set_sensitive(loaded and head is not None and head.replacement_path is not None)
             off_limb = ctrl.offset_limb() if loaded else None
             self.spin_cut.set_sensitive(off_limb is not None)
             if off_limb is not None:
@@ -664,6 +670,9 @@ class MainWindow(Gtk.ApplicationWindow):
                 self._error(e)
 
         dlg.select_folder(self, None, finished)
+
+    def _on_head_replacement(self, *_):
+        self._pick_file("Cabeza de reemplazo (STL)", ["*.stl"], "Archivos STL", self.ctrl.set_head_replacement)
 
     def _on_open_stl(self, *_):
         self._pick_file("Abrir STL", ["*.stl"], "Archivos STL", self.ctrl.open_stl)

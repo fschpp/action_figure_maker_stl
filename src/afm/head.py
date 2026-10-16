@@ -13,10 +13,17 @@ Convenciones (marco de trabajo: plano de simetría en x = 0, Z arriba):
   recortes manuales sobre la cabeza se trabaja la mitad de trabajo y se espeja. El pasador se agrega a la entera.
 * Entre la cara del corte y el torso queda `clearance` mm de aire; el pasador entra en una cavidad con
   la misma holgura (dilatación del pasador), igual que en los hombros.
+
+Cabeza de reemplazo (`HeadSpec.replacement_path`): se descarta la cabeza original y se pone otra malla (STL).
+La original solo sirve para medir la BASE (la cara del corte en el cuello). La nueva se escala UNIFORMEMENTE
+(sin deformarla) hasta que su base tenga el mismo área que la original, se apoya sobre el plano con el centroide
+de su base sobre el de la original y se usa tal cual: no se simetriza ni se espeja nada. El pasador se calcula
+sobre la base de la cabeza nueva.
 """
 from __future__ import annotations
 
 import dataclasses
+import logging
 from dataclasses import dataclass
 
 import numpy as np
@@ -27,7 +34,12 @@ from .params import Params
 from .pins import mushroom_pin
 from .planes import Plane
 
+log = logging.getLogger(__name__)
+
 HEAD_NAME = "cabeza"
+REPLACEMENT_UPS = ("+Z", "-Z", "+Y", "-Y", "+X", "-X")   # eje de la malla importada que apunta hacia arriba
+BASE_SLICE_FRAC = 0.03    # si la cabeza nueva no trae base plana, se corta a esta fracción de su alto
+MIN_BASE_IOU = 0.80       # por debajo, la base nueva se parece poco a la del cuello: aviso
 MIN_UP = 0.3          # |n·Z| mínimo del plano del cuello (un plano casi vertical no separa cabeza de cuerpo)
 MAX_SIDE = 0.5        # |n·X| máximo antes de simetrizar (el plano tiene que contener el eje izquierda-derecha)
 
@@ -43,17 +55,23 @@ class HeadSpec:
     name: str = HEAD_NAME
     pin_center: tuple | None = None       # centro del pasador (mundo); None = círculo inscrito mayor de la cara
     auto: bool = True
+    replacement_path: str | None = None   # STL de la cabeza de reemplazo; None = la cabeza original del modelo
+    replacement_yaw: float = 0.0          # giro (°) sobre el eje vertical de la cabeza importada (+ = antihorario)
+    replacement_up: str = "+Z"            # eje de la malla importada que apunta hacia arriba
 
     def to_dict(self) -> dict:
         return {"name": self.name, "plane": self.plane.to_dict(),
                 "pin_center": None if self.pin_center is None else list(self.pin_center),
-                "auto": self.auto}
+                "auto": self.auto, "replacement_path": self.replacement_path,
+                "replacement_yaw": self.replacement_yaw, "replacement_up": self.replacement_up}
 
     @classmethod
     def from_dict(cls, d: dict) -> "HeadSpec":
         return cls(plane=Plane.from_dict(d["plane"]), name=d.get("name", HEAD_NAME),
                    pin_center=None if d.get("pin_center") is None else tuple(d["pin_center"]),
-                   auto=d.get("auto", True))
+                   auto=d.get("auto", True), replacement_path=d.get("replacement_path"),
+                   replacement_yaw=float(d.get("replacement_yaw", 0.0)),
+                   replacement_up=d.get("replacement_up", "+Z"))
 
 
 @dataclass
@@ -61,7 +79,8 @@ class HeadSplit:
     head: S.Manifold             # cabeza entera, sin pasador
     body_half: S.Manifold        # mitad de trabajo (x >= 0) del cuerpo, ya con la holgura del cuello
     plane: Plane                 # plano del cuello simetrizado, normal hacia la cabeza
-    face: ContactFace            # cara del corte, normal hacia el cuerpo
+    face: ContactFace            # cara del corte (la de la cabeza que se usa), normal hacia el cuerpo
+    replacement: dict | None = None   # datos del ajuste de la cabeza de reemplazo (escala, coincidencia de base…)
 
 
 @dataclass
@@ -100,8 +119,23 @@ def _plane_faces(mf: S.Manifold, plane: Plane, tol: float = 1e-3) -> np.ndarray:
     return tri[(d < tol).all(axis=1)]
 
 
+def _face_from_head(head: S.Manifold, plane: Plane) -> ContactFace:
+    """Cara del corte de `head` sobre `plane` (normal hacia el cuerpo, centro = centroide con x = 0)."""
+    tri = _plane_faces(head, plane)
+    if len(tri) == 0:
+        raise ValueError("el plano del cuello no atraviesa el cuello (la cara del corte quedó vacía)")
+    cross = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+    area_f = 0.5 * np.linalg.norm(cross, axis=1)
+    centroid = (tri.mean(axis=1) * area_f[:, None]).sum(axis=0) / area_f.sum()
+    centroid[0] = 0.0
+    return ContactFace(center=centroid, outward=-plane.normal.copy(), area=float(area_f.sum()), triangles=tri)
+
+
 def split_head(body: S.Manifold, spec: HeadSpec, p: Params) -> HeadSplit:
-    """Corta el cuerpo entero por el plano del cuello. El cuerpo se baja `clearance` mm (holgura)."""
+    """Corta el cuerpo entero por el plano del cuello. El cuerpo se baja `clearance` mm (holgura).
+
+    Con `spec.replacement_path` la cabeza original se descarta y se devuelve la importada, ya escalada y
+    colocada sobre el plano (la original solo aporta la base a igualar)."""
     plane = neck_plane(spec)
     head = S.largest_component(S.intersection(body, S.halfspace(plane)))
     if head.is_empty() or head.volume() < 1.0:
@@ -110,15 +144,136 @@ def split_head(body: S.Manifold, spec: HeadSpec, p: Params) -> HeadSplit:
     body_half = S.intersection(body, S.halfspace(below)).trim_by_plane((1.0, 0.0, 0.0), 0.0)
     if body_half.is_empty():
         raise ValueError("el plano del cuello deja la figura sin cuerpo (¿está por debajo de los pies?)")
-    tri = _plane_faces(head, plane)
-    if len(tri) == 0:
-        raise ValueError("el plano del cuello no atraviesa el cuello (la cara del corte quedó vacía)")
-    cross = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
-    area_f = 0.5 * np.linalg.norm(cross, axis=1)
-    centroid = (tri.mean(axis=1) * area_f[:, None]).sum(axis=0) / area_f.sum()
-    centroid[0] = 0.0
-    face = ContactFace(center=centroid, outward=-plane.normal.copy(), area=float(area_f.sum()), triangles=tri)
-    return HeadSplit(head, body_half, plane, face)
+    face = _face_from_head(head, plane)
+    info = None
+    if spec.replacement_path:
+        head, info = fit_replacement(spec, plane, face)      # descarta la cabeza original
+        face = _face_from_head(head, plane)
+    return HeadSplit(head, body_half, plane, face, info)
+
+
+# ------------------------------------------------------------- cabeza de reemplazo
+_UP_ROTATIONS = {            # rotación que lleva el eje «arriba» de la malla importada a +Z
+    "+Z": np.eye(3),
+    "-Z": np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]], float),
+    "+Y": np.array([[1, 0, 0], [0, 0, -1], [0, 1, 0]], float),
+    "-Y": np.array([[1, 0, 0], [0, 0, 1], [0, -1, 0]], float),
+    "+X": np.array([[0, 0, 1], [0, 1, 0], [-1, 0, 0]], float),
+    "-X": np.array([[0, 0, -1], [0, 1, 0], [1, 0, 0]], float),
+}
+
+
+def load_replacement(path: str, up: str = "+Z", yaw_deg: float = 0.0):
+    """Carga y repara el STL de la cabeza importada y la deja con Z arriba (según `up`) y girada `yaw_deg`.
+
+    No se centra ni se escala (eso lo hace `fit_replacement`). Se pre-escala a ~30 mm solo para que las
+    tolerancias absolutas de la reparación sean razonables. Devuelve (malla, pre_escala): la malla ya
+    multiplicada por `pre_escala` respecto de las unidades del archivo."""
+    import trimesh
+
+    from . import meshio
+
+    if up not in _UP_ROTATIONS:
+        raise ValueError(f"replacement_up debe ser uno de {REPLACEMENT_UPS}, no {up!r}")
+    mesh = trimesh.load(path, force="mesh")
+    if len(mesh.faces) == 0:
+        raise ValueError(f"«{path}» no tiene triángulos")
+    mesh = mesh.copy()
+    ext = float(mesh.extents.max())
+    if ext <= 0:
+        raise ValueError(f"«{path}» tiene tamaño cero")
+    pre = 30.0 / ext
+    mesh.apply_scale(pre)
+    mesh = meshio.repair(mesh)
+    a = np.radians(yaw_deg)
+    Rz = np.array([[np.cos(a), -np.sin(a), 0], [np.sin(a), np.cos(a), 0], [0, 0, 1]])
+    T = np.eye(4)
+    T[:3, :3] = Rz @ _UP_ROTATIONS[up]
+    mesh = mesh.copy()
+    mesh.apply_transform(T)
+    return mesh, float(pre)
+
+
+def _section_shape(mf: S.Manifold, z: float):
+    """Sección horizontal de `mf` a la cota z como geometría shapely (relleno par-impar: respeta agujeros)."""
+    from functools import reduce
+
+    from shapely.geometry import Polygon
+
+    rings = [Polygon(r).buffer(0) for r in mf.slice(z).to_polygons() if len(r) >= 3]
+    if not rings:
+        return Polygon()
+    return reduce(lambda a, b: a.symmetric_difference(b), rings)
+
+
+def _flat_bottom_area(mesh, z0: float, tol: float) -> float:
+    """Área de las caras que miran hacia abajo y yacen sobre el plano z = z0 (base plana de la malla)."""
+    tri = mesh.triangles
+    flat = (mesh.face_normals[:, 2] < -0.999) & (np.abs(tri[:, :, 2] - z0).max(axis=1) < tol)
+    return float(mesh.area_faces[flat].sum())
+
+
+def fit_replacement(spec: HeadSpec, plane: Plane, face: ContactFace):
+    """Escala y coloca la cabeza importada sobre el plano del cuello.
+
+    Devuelve (cabeza como Manifold con su base sobre `plane`, info). Escala uniforme k tal que el área de su
+    base == área de `face`; el centroide de la base nueva va al de la original; la «cara» de la cabeza
+    importada mira hacia +v del plano (hacia adelante, +Y en un plano horizontal), como el frente de la figura.
+    No se espeja ni simetriza nada. Si la malla no trae base plana se corta una fracción baja de su alto
+    (`BASE_SLICE_FRAC`) para tener una cara plana donde apoyar y poner el pasador."""
+    mesh, pre = load_replacement(spec.replacement_path, spec.replacement_up, spec.replacement_yaw)
+    mf = S.to_manifold(mesh)
+    z0 = float(mesh.bounds[0, 2])
+    height = float(mesh.extents[2])
+    tol = 1e-3 * height
+    sec_f = _section_shape(mf, z0 + BASE_SLICE_FRAC * height)
+    flat_area = _flat_bottom_area(mesh, z0, tol)
+    if flat_area >= 0.85 * sec_f.area and flat_area > 0:
+        z_base, cut = z0, False                              # ya trae una base plana: se usa entera
+        base = _section_shape(mf, z0 + 2 * tol)
+    else:
+        z_base, cut = z0 + BASE_SLICE_FRAC * height, True
+        base = sec_f
+    if base.is_empty or base.area <= 1e-9:
+        raise ValueError("no se pudo medir la base de la cabeza importada (¿está vacía o al revés? probá otro «arriba»)")
+    orig = _face_shape_in(plane, face)
+    k = float(np.sqrt(orig.area / base.area))
+    c_new, c_old = np.array(base.centroid.coords[0]), np.array(orig.centroid.coords[0])
+    # local (malla) -> plano: centroide de la base al de la original, base sobre el plano, escala k
+    A = np.eye(4)
+    A[:3, :3] *= k
+    A[:3, 3] = [-c_new[0] * k + c_old[0], -c_new[1] * k + c_old[1], -z_base * k]
+    M = plane.matrix() @ A
+    placed = mf.transform(M[:3, :])
+    if cut:
+        placed = S.intersection(placed, S.halfspace(plane))   # quita lo que queda bajo la base
+    parts = placed.decompose()
+    placed = S.union(*[q for q in parts if q.volume() > 1e-3 * max(r.volume() for r in parts)]) \
+        if len(parts) > 1 else placed
+    if placed.is_empty() or placed.volume() < 1.0:
+        raise ValueError("la cabeza importada quedó vacía al apoyarla sobre el cuello")
+    from shapely import affinity
+    moved = affinity.translate(affinity.scale(base, k, k, origin=(0, 0)),
+                               c_old[0] - c_new[0] * k, c_old[1] - c_new[1] * k)
+    iou = float(moved.intersection(orig).area / max(moved.union(orig).area, 1e-12))
+    bounds = placed.bounding_box()
+    # "escala" es respecto de las unidades del archivo importado (k es respecto de la malla ya pre-escalada)
+    info = {"escala": k * pre, "base_igualada_mm2": float(orig.area), "coincidencia_base": iou,
+            "base_cortada": bool(cut), "alto_mm": float(height * k),
+            "volumen_mm3": float(placed.volume()), "bbox": [list(map(float, b)) for b in
+                                                           (bounds[:3], bounds[3:])]}
+    if iou < MIN_BASE_IOU:
+        log.warning("La base de la cabeza importada coincide solo %.0f %% con la del cuello", 100 * iou)
+    return placed, info
+
+
+def _face_shape_in(plane: Plane, face: ContactFace):
+    """Huella de `face` como geometría shapely en las coordenadas (u, v) de `plane` (la del cuello)."""
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+
+    polys = [Polygon(plane.to_uv(t)).buffer(0) for t in face.triangles]
+    return unary_union([q for q in polys if q.area > 1e-12])
 
 
 def propose_pin_center(face: ContactFace) -> np.ndarray:
@@ -141,7 +296,10 @@ def build_head(split: HeadSplit, spec: HeadSpec, p: Params, trims=None) -> HeadB
 
     mine = [t for t in (trims or []) if t.target == spec.name]
     whole = split.head
-    if mine:       # los recortes se dibujan en el lado de trabajo: se aplican a la mitad y se espeja
+    if mine and spec.replacement_path:   # cabeza importada: sin simetría, los recortes se aplican tal cual
+        from .trims import apply_trims as _apply
+        whole = _apply(whole, mine, spec.name)
+    elif mine:     # los recortes se dibujan en el lado de trabajo: se aplican a la mitad y se espeja
         half = apply_trims(whole.trim_by_plane((1.0, 0.0, 0.0), 0.0), mine, spec.name)
         whole = S.union(half, S.mirror_x(half))
     if spec.pin_center is not None:
