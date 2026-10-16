@@ -192,7 +192,7 @@ vos sobre la propia cara**:
    * el **punto rojo**: el centro actual; el **punto verde** aparece cuando ya moviste el pasador y marca dónde
      lo habría puesto el programa.
 3. **Clic sobre la cara** = el pasador se mueve ahí. El clic cae sobre el plano de corte, no sobre la malla, y
-   solo se acepta si el centro queda **dentro de la cara**; si no, el Estado dice «No se movió».
+   se puede elegir **cualquier punto**, incluso con el centro fuera de la cara (el Estado lo anota); solo se rechaza si el vástago ni roza la cara (quedaría suelto).
    Las **flechas** lo ajustan de a 0,1 mm (con **Mayús**, 1 mm), siempre vistas de frente.
 4. El Estado informa cada vez el **margen entre el vástago y el borde de la cara**: avisa si el vástago
    **sobresale** de la cara o queda con menos de `min_wall` (1,2 mm) de pared.
@@ -212,7 +212,7 @@ ejemplo la cara interna del muslo o la del hombro), ese plano es él mismo la ca
 chica y equivocada: el asistente avisa si la cara es menor que el vástago. Los proyectos guardados con ese defecto se corrigen solos al
 abrir el modo pasador (y se descarta el pasador elegido sobre la cara equivocada).
 
-**Plano de trabajo del pasador.** Al entrar al modo pasador de un miembro que ya existe (de brazo o de pierna) el programa arma
+**Plano de trabajo del pasador.** (Los marcadores —borde, silueta, vástago, cabeza y centro— se dibujan siempre por encima de la geometría, así no quedan tapados.) Al entrar al modo pasador de un miembro que ya existe (de brazo o de pierna) el programa arma
 internamente un plano **paralelo al de simetría**, puesto en el corte de ese miembro (la cara de contacto), y la cámara lo mira de frente.
 No aparece en la lista de planos ni agrega ningún miembro: es solo la vista de trabajo. Sobre él se dibuja, en amarillo, la **silueta que
 ya dibujaste** como referencia: si su plano es de costado se ve el contorno entero; si es frontal, se ve su proyección (el tramo de altura
@@ -225,7 +225,7 @@ a ≈ 9,7 mm). Cambiar el desplazamiento mueve la cara de contacto, así que des
 vuelve a calcular la cara. Ese plano no puede ser el de simetría con desplazamiento 0: esa cara es el corte de la mitad.
 
 **Alcance del pasador.** Si la cara está muy cerca del plano de simetría, el pasador de un lado y el del espejo se cruzan (Güemes:
-caras a ±5,28 mm, pasadores de 6,6 mm). El Estado muestra «ATENCIÓN…» con cuánto se cruzan. Se arregla acortando el pasador
+caras a ±5,28 mm, pasadores de 6,6 mm). Al entrar al modo, el Estado agrega «Aviso: cruza con el del otro lado por X mm» (una sola vez: no depende de dónde pongas el pasador sobre la cara). Se arregla acortando el pasador
 (`shaft_len` / `head_h` de `hip_pin`: 2,2 + 1,65 mm alcanzan) o eligiendo un plano más hacia afuera.
 
 ### 7.3 Generar y exportar
@@ -293,7 +293,7 @@ la figura para ver mejor el lado en el que se trabaja. Es solo una ayuda visual.
 | Al dibujar la silueta el clic no agrega vértices («El plano se ve de canto…») | La cámara mira el plano de canto: usá la vista Frente o girá hasta verlo de cara |
 | «…la silueta se cruza consigo mismo… no se guardó» | Mové o borrá el vértice que hace el cruce; mientras no sea válido, el proyecto conserva la silueta anterior |
 | «No se puede colocar el pasador de …: dibujá primero la silueta» | El miembro todavía no tiene silueta (§7.1), o la silueta no deja una cara de contacto plana |
-| «No se movió: el centro del pasador tiene que quedar dentro de la cara de contacto» | El clic cayó fuera de la cara azul; hacelo dentro de su contorno blanco |
+| «No se movió: el vástago no toca la cara de contacto…» | El clic cayó a más de un diámetro del borde de la cara azul; acercalo (si el centro queda apenas fuera, se acepta y el Estado lo anota) |
 | El Estado dice que el vástago sobresale de la cara | La cara es más angosta que el vástago: movelo hacia la parte más ancha, achicá el vástago (`shoulder_pin` / `hip_pin` en los parámetros) o corré la silueta para que la cara quede más ancha |
 | La coronilla no se deja marcar | Ya hay simetría o miembros; quitalos primero |
 | La figura se ve de espaldas en «Frente» | Cambiar «Frente hacia» a −Y (borra los planos) |

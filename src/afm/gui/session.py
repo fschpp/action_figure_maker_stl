@@ -280,7 +280,8 @@ class Session:
 
     def set_limb_pin(self, name: str, point_world) -> None:
         """Fija el centro del pasador de `name` en `point_world` (se proyecta sobre el plano de la cara de
-        contacto). Falla con ValueError si el centro cae fuera de la cara. `None` vuelve al automático."""
+        contacto). Se puede elegir cualquier punto: el centro puede quedar fuera de la cara (se avisa en el estado);
+        solo falla con ValueError si el vástago no toca la cara (quedaría suelto). `None` vuelve al automático."""
         spec = self.limb(name)
         if spec is None:
             raise KeyError(name)
@@ -289,9 +290,9 @@ class Session:
         else:
             prev = self.pin_preview(name)
             uv = prev.project(point_world)
-            inside, _margin = prev.fit(uv, self.pin_spec(name).shaft_d)
-            if not inside:
-                raise ValueError("el centro del pasador tiene que quedar dentro de la cara de contacto")
+            _inside, margin = prev.fit(uv, self.pin_spec(name).shaft_d)
+            if margin <= -self.pin_spec(name).shaft_d:        # centro a más de un diámetro del borde: ni lo roza
+                raise ValueError("el vástago no toca la cara de contacto: el pasador quedaría suelto")
             spec.pin_center = tuple(float(x) for x in prev.plane.to_world(uv[None])[0])
         self.outcome = None
 
