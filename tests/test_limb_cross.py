@@ -204,3 +204,13 @@ def test_fix_limb_extrude_keeps_symmetric_leg_with_cross():
     assert leg.extrude == "symmetric" and leg.pin_center == (5.0, 0.0, 45.0)
     leg.cross = None                                    # sin 2.º corte sí se corrige, como antes
     assert s.fix_limb_extrude("pierna") is True and leg.extrude == "outward"
+
+
+def test_outward_leg_with_front_cross_is_treated_as_symmetric(half):
+    """Proyectos guardados con extrude='outward' + 2.º corte de frente dan lo mismo que con 'symmetric'."""
+    import dataclasses
+    a = _leg_side_plus_front()
+    b = dataclasses.replace(a, extrude="outward")
+    va = S.intersection(half, limb_prism(a)).volume()
+    vb = S.intersection(half, limb_prism(b)).volume()
+    assert vb == pytest.approx(va, rel=1e-6)

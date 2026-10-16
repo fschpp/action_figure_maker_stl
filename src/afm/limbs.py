@@ -223,19 +223,29 @@ def limb_prism(spec: LimbSpec) -> S.Manifold:
     return prism
 
 
+def _leg_cross_spans_body(spec: LimbSpec) -> bool:
+    """Pierna con plano de costado y 2.º corte de frente: la cara de la cadera la define el escalón del polígono de
+    frente, y el principal tiene que atravesar el cuerpo. Con «outward» (proyectos guardados con el error anterior de
+    `fix_limb_extrude`) la columna del muslo, a x menor que el plano, se quedaba en el torso."""
+    c = spec.cross
+    return (spec.kind == "leg" and c is not None and c.valid() and plane_is_lateral(spec.plane, spec.contact_axis)
+            and not plane_is_lateral(c.plane, spec.contact_axis))
+
+
 def _main_prism(spec: LimbSpec) -> S.Manifold:
     """Prisma de la silueta principal. En modo «outward» se orienta la normal hacia +X (lado de trabajo), así el
     sentido en que se eligieron los 3 puntos no importa; para un plano sin componente X se usa su normal."""
-    if spec.extrude == "outward":
+    if spec.extrude == "outward" and not _leg_cross_spans_body(spec):
         n = np.asarray(spec.plane.normal, float)
         if n[0] < -1e-6:
             n = -n
         n = n / np.linalg.norm(n)
         plane = Plane.from_normal(np.asarray(spec.plane.origin, float) + n * effective_cut_offset(spec), n, spec.plane.name)
         return S.prism_from_polygon(plane, spec.polygon, spec.thickness, symmetric=False)
-    if spec.extrude != "symmetric":
+    if spec.extrude not in ("symmetric", "outward"):
         raise ValueError(f"extrude debe ser 'symmetric' o 'outward', no {spec.extrude!r}")
-    return S.prism_from_polygon(spec.plane, spec.polygon, spec.thickness, symmetric=True)
+    return S.prism_from_polygon(spec.plane, spec.polygon, max(spec.thickness, CROSS_THICKNESS_MM) if spec.extrude == "outward" else spec.thickness,
+                                symmetric=True)
 
 
 def _cut_limb(half: S.Manifold, spec: LimbSpec, burr: float) -> tuple[S.Manifold, ContactFace]:
