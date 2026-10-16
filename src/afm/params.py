@@ -20,6 +20,7 @@ class Params:
     burr: float = 0.66               # rebaba a rebajar en la cara de contacto
     shoulder_pin: PinSpec = field(default_factory=lambda: PinSpec(4.1, 2.5, 6.6, 1.65))
     hip_pin: PinSpec = field(default_factory=lambda: PinSpec(5.0, 4.1, 6.6, 2.5))
+    neck_pin: PinSpec = field(default_factory=lambda: PinSpec(4.1, 2.5, 6.6, 1.65))   # cabeza: misma tecnología que el hombro
     sit_angle: float = 90.0          # pose sentada (hacia adelante)
     hip_margin: float = 5.0          # recorte del límite de cadera hasta sit_angle + margen
     sweep_step: float = 5.0          # paso angular del volumen barrido
@@ -34,7 +35,7 @@ class Params:
     @classmethod
     def from_dict(cls, d: dict) -> "Params":
         d = dict(d)
-        for k in ("shoulder_pin", "hip_pin"):
+        for k in ("shoulder_pin", "hip_pin", "neck_pin"):
             if k in d and isinstance(d[k], dict):
                 d[k] = PinSpec(**d[k])
         return cls(**d)

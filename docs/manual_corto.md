@@ -21,7 +21,7 @@ Para desarrollo: `pip install -e ".[dev]"` y `pytest`.
 Abrí el programa (`afm-gui figura.stl`) y seguí la barra lateral de arriba hacia abajo:
 
 1. **Figura:** *Frente hacia* (que se vea de cara) y, si lleva sombrero u orejas, *Marcar coronilla*.
-2. **Planos:** *Simetría automática* (o 3 puntos sobre la línea central) y un plano de brazo y uno de pierna (3 puntos cada uno).
+2. **Planos:** *Simetría automática* (o 3 puntos sobre la línea central) y un plano de brazo y uno de pierna (3 puntos cada uno). Para la **cabeza articulada**: *Agregar plano del cuello / cabeza* (3 puntos: 2 en la nuca, a cada lado, y 1 bajo el mentón). Lo de arriba del plano es la cabeza: gira libre sobre un pasador tipo hongo en el cuello (mismos parámetros que el hombro: `neck_pin`). Para recortar la cabeza usá *Recortes manuales* con la pieza «cabeza».
 3. **Silueta de cada miembro** (lápiz en la lista de planos): *Proponer silueta automática* y corregir vértices. En las piernas, **2.º** para el corte de frente (columna del muslo + escalón de la cadera).
 4. **Pasador** (marcador en la lista): revisar dónde cae sobre la cara de corte; flechas = 0,1 mm.
 5. **Parámetros / perfil de línea:** cargar el perfil de la línea de figuras (holgura, pasadores, ángulo sentada). La primera vez, imprimir las **probetas** para elegir holgura y Ø de vástago.

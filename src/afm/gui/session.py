@@ -17,6 +17,7 @@ import numpy as np
 import trimesh
 
 from .. import meshio, pipeline as P, solids as S
+from ..head import HeadSpec, neck_plane
 from ..limbs import CROSS_THICKNESS_MM, LimbCut, LimbSpec, PinPreview, check_limb_plane, contact_preview, effective_cut_offset, plane_is_lateral, plane_on_symmetry
 from ..params import PinSpec
 
@@ -96,7 +97,7 @@ class Session:
             return
         self.project.front = front
         self.project.symmetry = None
-        self.project.limbs, self.project.trims = [], []
+        self.project.limbs, self.project.trims, self.project.head = [], [], None
         self.outcome = None
         self._rebuild_frames()
 
@@ -416,6 +417,21 @@ class Session:
         self.project.trims = [t for t in self.project.trims if t.target != name]
         self.outcome = None
 
+    # ----------------------------------------------------------------- cabeza
+    def set_head(self, plane: Plane) -> HeadSpec:
+        """Define (o reemplaza) la cabeza articulada con el plano del cuello (3 puntos). Rechaza un plano casi
+        vertical o girado de costado; el pasador se propone solo (círculo inscrito de la cara del cuello)."""
+        spec = HeadSpec(plane)
+        neck_plane(spec)                      # valida
+        self.project.head = spec
+        self.outcome = None
+        return spec
+
+    def remove_head(self) -> None:
+        self.project.head = None
+        self.project.trims = [t for t in self.project.trims if t.target != "cabeza"]
+        self.outcome = None
+
     def add_trim(self, trim: Trim) -> None:
         self.project.trims.append(trim)
         self.outcome = None
@@ -465,8 +481,8 @@ class Session:
             return out
         if self.project.symmetry is None:
             out.append("Falta el plano de simetría")
-        if not self.project.limbs:
-            out.append("Definí al menos un miembro (brazo o pierna)")
+        if not self.project.limbs and self.project.head is None:
+            out.append("Definí al menos un miembro (brazo o pierna) o la cabeza")
         for l in self.project.limbs:
             if len(l.polygon) < 3:
                 out.append(f"{l.name}: dibujá la silueta (mínimo 3 puntos)")
@@ -478,7 +494,7 @@ class Session:
             raise ValueError("; ".join(probs))
         body = S.to_manifold(self.work)
         res = P.build(body, self.project.limbs, self.project.params, self.project.symmetry,
-                      progress=progress, trims=self.project.trims)
+                      progress=progress, trims=self.project.trims, head=self.project.head)
         val = P.validate(res, self.project.params, self.project.limbs)
         self.outcome = BuildOutcome(res, val)
         return self.outcome
