@@ -14,7 +14,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
 from gi.repository import Gdk, Gio, GLib, Gtk  # noqa: E402
 
-from .controller import PARAM_FIELDS, Controller, Mode  # noqa: E402
+from .controller import PARAM_FIELDS, TRIM_OP_LABELS, TRIM_SHAPE_LABELS, TRIM_SHAPES, Controller, Mode  # noqa: E402
 from .render import SceneRenderer  # noqa: E402
 
 DRAG_THRESHOLD_PX = 4.0
@@ -22,7 +22,8 @@ DRAG_THRESHOLD_PX = 4.0
 _ARROWS = {Gdk.KEY_Left: (-1, 0), Gdk.KEY_Right: (1, 0), Gdk.KEY_Up: (0, 1), Gdk.KEY_Down: (0, -1)}
 _MODE_TITLES = {Mode.VIEW: "", Mode.CROWN: "  ·  marcando coronilla", Mode.SYMMETRY: "  ·  plano de simetría",
                 Mode.LIMB_PLANE: "  ·  plano de un miembro", Mode.POLYGON: "  ·  dibujando silueta",
-                Mode.PIN: "  ·  colocando pasador"}
+                Mode.PIN: "  ·  colocando pasador", Mode.TRIM_PICK: "  ·  colocando recorte"}
+_TRIM_OPS = ("subtract", "union")
 
 
 def _section(title: str) -> Gtk.Label:
@@ -40,6 +41,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self.mgl = None
         self.scene: SceneRenderer | None = None
         self._updating = False
+        self._trim_names: list[str] = []
         self._drag = {"button": 0, "last": (0.0, 0.0), "moved": False, "start": (0.0, 0.0), "pan": False}
 
         self.set_titlebar(self._build_header())
@@ -177,6 +179,65 @@ class MainWindow(Gtk.ApplicationWindow):
         for b in (self.btn_pin_reset, self.btn_pin_face, self.btn_pin_end):
             box.append(b)
 
+        box.append(_section("Espejo y pose sentada"))
+        self.chk_mirror = Gtk.CheckButton(label="Espejo en vivo (trabaja un solo lado)")
+        self.chk_mirror.connect("toggled", lambda b: None if self._updating else self.ctrl.set_mirror_live(b.get_active()))
+        box.append(self.chk_mirror)
+        hint_mirror = Gtk.Label(label="Muestra, en el lado oculto (x < 0), el reflejo de lo que hacés en el lado +X: la figura, "
+                                      "las siluetas (también la que estás dibujando), los pasadores y los recortes. Es lo que "
+                                      "sale al generar: un lado y su espejo.", xalign=0, wrap=True)
+        hint_mirror.add_css_class("dim-label")
+        box.append(hint_mirror)
+        self.chk_pose = Gtk.CheckButton(label="Ver la figura generada en la pose de cadera")
+        self.chk_pose.connect("toggled", lambda b: None if self._updating else self.ctrl.set_pose_view(b.get_active()))
+        box.append(self.chk_pose)
+        row = Gtk.Box(spacing=6)
+        row.append(Gtk.Label(label="Ángulo de cadera (°)", xalign=0, hexpand=True))
+        self.spin_pose = Gtk.SpinButton.new_with_range(0, 180, 5)
+        self.spin_pose.connect("value-changed", lambda b: None if self._updating else self.ctrl.set_pose_angle(b.get_value()))
+        row.append(self.spin_pose)
+        box.append(row)
+        hint_pose = Gtk.Label(label="Hace falta haber generado la figura. Las piernas giran sobre el pasador de cadera (0° = de "
+                                    "pie, 90° = sentada) y las piezas que chocan con el torso o entre sí se pintan de rojo; el "
+                                    "resultado, con el límite de cadera tallado, queda en el Estado.", xalign=0, wrap=True)
+        hint_pose.add_css_class("dim-label")
+        box.append(hint_pose)
+
+        box.append(_section("Recortes manuales"))
+        hint_trim = Gtk.Label(label="Para los ajustes propios de cada figura (p. ej. la «esfera panza»): se dibuja un polígono "
+                                    "sobre el plano de simetría (visto de costado) o se coloca una esfera / caja / cilindro con "
+                                    "un clic en la figura; se extruye y se resta o se une a una pieza. Se hace sobre el lado +X y "
+                                    "se espeja. Tiene que llegar a la superficie: un hueco cerrado por dentro se descarta.",
+                              xalign=0, wrap=True)
+        hint_trim.add_css_class("dim-label")
+        box.append(hint_trim)
+        for text, attr, items in (("Pieza", "dd_trim_target", ["torso"]),
+                                  ("Forma", "dd_trim_shape", [TRIM_SHAPE_LABELS[k].capitalize() for k in TRIM_SHAPES]),
+                                  ("Operación", "dd_trim_op", [TRIM_OP_LABELS[k].capitalize() for k in _TRIM_OPS])):
+            row = Gtk.Box(spacing=6)
+            row.append(Gtk.Label(label=text, xalign=0, hexpand=True))
+            dd = Gtk.DropDown.new_from_strings(items)
+            setattr(self, attr, dd)
+            row.append(dd)
+            box.append(row)
+        row = Gtk.Box(spacing=6)
+        row.append(Gtk.Label(label="Extrusión (mm)", xalign=0, hexpand=True))
+        self.spin_trim_len = Gtk.SpinButton.new_with_range(0.1, 500.0, 1.0)
+        self.spin_trim_len.set_value(25.0)
+        row.append(self.spin_trim_len)
+        box.append(row)
+        row = Gtk.Box(spacing=6)
+        row.append(Gtk.Label(label="Radio / arista de la forma (mm)", xalign=0, hexpand=True))
+        self.spin_trim_size = Gtk.SpinButton.new_with_range(0.5, 100.0, 0.5)
+        self.spin_trim_size.set_value(5.0)
+        row.append(self.spin_trim_size)
+        box.append(row)
+        self.btn_trim_add = self._button("Dibujar polígono / colocar con clic", lambda *_: self._on_trim_add())
+        box.append(self.btn_trim_add)
+        self.trims_box = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+        self.trims_box.add_css_class("boxed-list")
+        box.append(self.trims_box)
+
         box.append(_section("Parámetros"))
         self.param_spins: dict[str, Gtk.SpinButton] = {}
         for key, label, lo, hi, step, digits in PARAM_FIELDS:
@@ -266,7 +327,8 @@ class MainWindow(Gtk.ApplicationWindow):
             title = "Action Figure Maker"
             if ctrl.session.stl_path:
                 title += " — " + os.path.basename(ctrl.session.stl_path)
-            self.set_title(title + _MODE_TITLES[ctrl.mode])
+            mode_title = "  ·  dibujando recorte" if ctrl.mode == Mode.POLYGON and ctrl.trim_cfg else _MODE_TITLES[ctrl.mode]
+            self.set_title(title + mode_title)
             loaded = ctrl.loaded
             for b in (self.btn_crown, self.btn_sym, self.btn_sym_auto, self.btn_save, self.dd_front, self.chk_side,
                       self.chk_over, self.spin_over):
@@ -281,6 +343,13 @@ class MainWindow(Gtk.ApplicationWindow):
             self.chk_side.set_sensitive(loaded and has_sym)
             self.chk_side.set_active(ctrl.one_side)
             self.chk_over.set_active(ctrl.show_overhangs)
+            self.chk_mirror.set_sensitive(loaded and has_sym)
+            self.chk_mirror.set_active(ctrl.mirror_live)
+            self.chk_pose.set_sensitive(ctrl.session.outcome is not None)
+            self.chk_pose.set_active(ctrl.pose_active())
+            self.spin_pose.set_sensitive(ctrl.pose_active())
+            self.spin_pose.set_value(ctrl._pose_angle())
+            self.btn_trim_add.set_sensitive(loaded and has_sym)
             self.sidebar_box.set_sensitive(not ctrl.busy)
             self.btn_generate.set_sensitive(loaded and not ctrl.busy)
             self.btn_export.set_sensitive(ctrl.session.outcome is not None and not ctrl.busy)
@@ -294,9 +363,54 @@ class MainWindow(Gtk.ApplicationWindow):
             self.spin_over.set_value(ctrl.overhang_angle)
             self.dd_front.set_selected(0 if ctrl.session.project.front == "+Y" else 1)
             self._rebuild_plane_list()
+            self._rebuild_trim_ui()
         finally:
             self._updating = False
         self.gl.queue_render()
+
+    def _rebuild_trim_ui(self) -> None:
+        """Pieza elegible (torso + miembros) y lista de recortes con editar / cambiar operación / quitar."""
+        names = self.ctrl.trim_targets() if self.ctrl.loaded else ["torso"]
+        if names != self._trim_names:
+            keep = self._trim_names[self.dd_trim_target.get_selected()] if self.dd_trim_target.get_selected() < len(self._trim_names) else None
+            self._trim_names = names
+            self.dd_trim_target.set_model(Gtk.StringList.new([n.capitalize() for n in names]))
+            self.dd_trim_target.set_selected(names.index(keep) if keep in names else 0)
+        while (child := self.trims_box.get_first_child()) is not None:
+            self.trims_box.remove(child)
+        for e in self.ctrl.trim_entries():
+            row = Gtk.Box(spacing=6)
+            for side in ("start", "end", "top", "bottom"):
+                getattr(row, f"set_margin_{side}")(4)
+            row.append(Gtk.Label(label=e["label"], xalign=0, hexpand=True, wrap=True))
+            i = e["index"]
+            if e["shape"] == "polygon":
+                ed = Gtk.Button(icon_name="document-edit-symbolic", tooltip_text="Editar los vértices del polígono")
+                ed.add_css_class("flat")
+                ed.connect("clicked", lambda _b, k=i: self.ctrl.start_trim(index=k))
+                row.append(ed)
+            other = "union" if e["op"] == "subtract" else "subtract"
+            tg = Gtk.Button(label="→ " + TRIM_OP_LABELS[other], tooltip_text="Cambiar entre restar y unir")
+            tg.add_css_class("flat")
+            tg.connect("clicked", lambda _b, k=i, o=other: self.ctrl.set_trim_op(k, o))
+            row.append(tg)
+            rm = Gtk.Button(icon_name="edit-delete-symbolic", tooltip_text="Quitar el recorte")
+            rm.add_css_class("flat")
+            rm.connect("clicked", lambda _b, k=i: self.ctrl.remove_trim(k))
+            row.append(rm)
+            self.trims_box.append(row)
+
+    def _on_trim_add(self) -> None:
+        names = self.ctrl.trim_targets()
+        sel = self.dd_trim_target.get_selected()
+        target = names[sel] if sel < len(names) else "torso"
+        shape = TRIM_SHAPES[self.dd_trim_shape.get_selected()]
+        op = _TRIM_OPS[self.dd_trim_op.get_selected()]
+        length = self.spin_trim_len.get_value()
+        if shape == "polygon":
+            self.ctrl.start_trim(target, op, length)
+        else:
+            self.ctrl.start_trim_pick(target, shape, self.spin_trim_size.get_value(), op, length)
 
     def _on_cut_offset(self, spin) -> None:
         if self._updating:

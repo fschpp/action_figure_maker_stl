@@ -12,6 +12,17 @@ Proceso manual de referencia (Onshape): [`docs/tutorial_onshape.md`](docs/tutori
 
 Ver [`PROGRESS.md`](PROGRESS.md).
 
+## Instalación (uso)
+
+En Debian / Ubuntu y derivados, con GTK4 de apt:
+
+```bash
+sudo apt install python3-venv python3-gi python3-gi-cairo gir1.2-gtk-4.0 libgl1 libegl1
+./packaging/instalar.sh
+```
+
+Deja el programa en el menú y `afm-gui` / `afm` en `~/.local/bin`. Resumen de una página: [`docs/manual_corto.md`](docs/manual_corto.md).
+
 ## Instalación (desarrollo)
 
 ```bash
