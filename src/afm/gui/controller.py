@@ -16,6 +16,7 @@ import numpy as np
 import trimesh
 
 from .. import solids as S
+from ..head import HEAD_NAME
 from ..limbs import silhouette_on_plane
 from ..orient import OrientResult, best_orientation, overhang_mask
 from ..planes import Plane
@@ -34,6 +35,7 @@ class Mode(Enum):
     CROWN = "coronilla"
     SYMMETRY = "simetria"
     LIMB_PLANE = "plano_miembro"
+    NECK_PLANE = "plano_cuello"
     POLYGON = "silueta"
     PIN = "pasador"
     TRIM_PICK = "recorte_clic"      # un clic sobre la figura pone el centro de un recorte esfera / caja / cilindro
@@ -227,6 +229,17 @@ class Controller:
         self.cancel(quiet=True)
         self.mode, self.pending_kind = Mode.LIMB_PLANE, kind
         self._changed(f"Plano del {_KIND_BASE[kind]}: elegí 3 puntos sobre la figura.")
+
+    def start_neck_plane(self) -> None:
+        if not self._need_loaded():
+            return
+        if self.session.project.symmetry is None:
+            self._changed("Primero definí el plano de simetría.", scene=False)
+            return
+        self.cancel(quiet=True)
+        self.mode = Mode.NECK_PLANE
+        self._changed("Plano del cuello: elegí 3 puntos (2 en la nuca, a cada lado, y 1 bajo el mentón). "
+                      "Lo de arriba es la cabeza; el pasador va en el centro de la cara del corte.")
 
     def cancel(self, quiet: bool = False) -> None:
         was = self.mode
@@ -690,7 +703,8 @@ class Controller:
         out = self.session.outcome
         if out is None:
             return None
-        limits = [a1 for (_limb, _c, _ax, (a0, a1)) in out.result.motion.values() if a1 > a0]
+        limits = [a1 for n, (_limb, _c, _ax, (a0, a1)) in out.result.motion.items()
+                  if a1 > a0 and n != HEAD_NAME]
         return max(limits) if limits else None
 
     def _pose_angle(self) -> float:
@@ -704,6 +718,8 @@ class Controller:
             return c[2]
         pieces = {}
         for name, (limb0, center, axis, (a0, a1)) in out.result.motion.items():
+            if name == HEAD_NAME:
+                continue                 # la cabeza gira sobre el cuello, no participa de la pose sentada
             limb = S.rotate_about_axis(limb0, center, axis, angle) if a1 > a0 else limb0
             pieces[f"{name}_izq"] = limb
             pieces[f"{name}_der"] = S.mirror_x(limb)
@@ -777,7 +793,8 @@ class Controller:
 
     # ------------------------------------------------------- recortes manuales (plan §8.8)
     def trim_targets(self) -> list[str]:
-        return ["torso"] + [l.name for l in self.session.project.limbs]
+        return (["torso"] + [l.name for l in self.session.project.limbs]
+                + ([HEAD_NAME] if self.session.project.head is not None else []))
 
     @staticmethod
     def _trim_plane() -> Plane:
@@ -796,7 +813,7 @@ class Controller:
         if self.session.project.symmetry is None:
             return "Primero definí el plano de simetría: los recortes se hacen sobre el lado de trabajo"
         if target not in self.trim_targets():
-            return f"No existe la pieza «{target}» (usá «torso» o el nombre de un miembro)"
+            return f"No existe la pieza «{target}» (usá «torso», «cabeza» o el nombre de un miembro)"
         if op not in TRIM_OP_LABELS:
             return "La operación debe ser «subtract» (restar) o «union» (unir)"
         if not (0.1 <= float(length) <= 500.0):
@@ -1021,6 +1038,8 @@ class Controller:
                 self._changed(f"Punto {len(self.pending)}/3. Backspace deshace el último; Esc cancela.")
             elif self.mode == Mode.SYMMETRY:
                 self._finish_symmetry()
+            elif self.mode == Mode.NECK_PLANE:
+                self._finish_neck_plane()
             else:
                 self._finish_limb_plane()
         return hit
@@ -1048,6 +1067,16 @@ class Controller:
         self._rebuild_picker()
         self.mode = Mode.VIEW
         self._changed("Plano de simetría definido; la figura quedó centrada en él (x = 0).")
+
+    def _finish_neck_plane(self) -> None:
+        pts, self.pending = self.pending, []
+        try:
+            self.session.set_head(Session.plane_from_points(pts, HEAD_NAME))
+        except ValueError as e:
+            self._changed(f"No sirve: {e}. Elegí 3 puntos de nuevo.")
+            return
+        self.mode = Mode.VIEW
+        self._changed("Plano del cuello definido: la cabeza se separa y gira libre sobre un pasador en el cuello.")
 
     def _finish_limb_plane(self) -> None:
         pts, self.pending = self.pending, []
@@ -1100,6 +1129,9 @@ class Controller:
                                   SYMMETRY_ID not in self.hidden))
         for l in self.session.project.limbs:
             out.append(PlaneEntry(l.name, l.name.capitalize(), l.plane, l.kind, l.name not in self.hidden))
+        head = self.session.project.head
+        if head is not None:
+            out.append(PlaneEntry(HEAD_NAME, "Cabeza (cuello)", head.plane, "head", HEAD_NAME not in self.hidden))
         return out
 
     def toggle_plane(self, plane_id: str) -> None:
@@ -1113,11 +1145,15 @@ class Controller:
         if plane_id == SYMMETRY_ID:
             self.session.set_symmetry(None)
             self.session.project.limbs, self.session.project.trims = [], []
+            self.session.project.head = None
             self._rebuild_picker()
             self.hidden.clear()
             self._changed("Simetría quitada (también los miembros: dependen de ella).")
             return
-        self.session.remove_limb(plane_id)
+        if plane_id == HEAD_NAME:
+            self.session.remove_head()
+        else:
+            self.session.remove_limb(plane_id)
         self.hidden.discard(plane_id)
         self._changed(f"Plano «{plane_id}» quitado.")
 
@@ -1212,7 +1248,8 @@ class Controller:
             scene.remove("voladizos")
             drawn = [("figura", sess.work, _MIRROR_COLOR)]
         hs = self.plane_half_size
-        palette = {"symmetry": (1.0, 0.55, 0.2, 0.18), "arm": (0.3, 0.6, 1.0, 0.22), "leg": (0.4, 0.85, 0.5, 0.22)}
+        palette = {"symmetry": (1.0, 0.55, 0.2, 0.18), "arm": (0.3, 0.6, 1.0, 0.22), "leg": (0.4, 0.85, 0.5, 0.22),
+                   "head": (0.9, 0.5, 0.9, 0.22)}
         wanted = set()
         for e in self.plane_entries():
             key = f"plano:{e.id}"

@@ -9,6 +9,7 @@ import numpy as np
 import trimesh
 
 from . import solids as S
+from .head import HEAD_NAME, HeadSpec, build_head, split_head
 from .limbs import LimbSpec, ContactFace, check_limb_plane, pin_margin, separate_limb
 from .params import Params
 from .pins import mushroom_pin
@@ -71,13 +72,20 @@ def _rotation_axis(face: ContactFace) -> np.ndarray:
 
 
 def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None = None,
-          sit: bool = True, progress=None, trims: list[Trim] | None = None) -> BuildResult:
+          sit: bool = True, progress=None, trims: list[Trim] | None = None,
+          head: HeadSpec | None = None) -> BuildResult:
     """Construye las piezas. `body` debe estar normalizado y con el plano de simetría en x = 0."""
     say = progress or (lambda *_: None)
     trims = trims or []
     for spec in limbs:
         check_limb_plane(spec.plane)       # falla rápido: un plano de canto da piezas inservibles
     half = body.trim_by_plane((1.0, 0.0, 0.0), 0.0)          # lado de trabajo (+X)
+    head_build = None
+    if head is not None:
+        say("Separando la cabeza…")
+        split = split_head(body, head, p)
+        head_build = build_head(split, head, p, trims)
+        half = split.body_half                                # los miembros se cortan del cuerpo sin cabeza
     torso_half = half
     built: dict[str, dict] = {}
     for spec in limbs:
@@ -98,6 +106,9 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
         built[spec.name] = {"limb": limb, "face": face, "axis": axis, "spec": spec,
                             "angles": [float(a) for a in angles],
                             "pin_margin": pin_margin(face, _pin_spec(spec, p).shaft_d)}
+    if head_build is not None:
+        say("Cavidad del cuello…")
+        torso_half = S.difference(torso_half, head_build.pocket)
     torso_half = apply_trims(torso_half, trims, "torso")
     torso_half = S.drop_small_components(torso_half, 0.02)
 
@@ -119,6 +130,13 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
         if b["pin_margin"] is not None:
             report["limbs"][name]["pin_margin_mm"] = round(float(b["pin_margin"]), 3)
     pieces["torso"] = S.union(torso_half, S.mirror_x(torso_half))
+    if head_build is not None:
+        pieces[HEAD_NAME] = head_build.head
+        report["head"] = {"pin_center": head_build.face.center.tolist(), "pin_dir": head_build.face.outward.tolist(),
+                          "contact_area": head_build.face.area}
+        if head_build.pin_margin is not None:
+            report["head"]["pin_margin_mm"] = round(float(head_build.pin_margin), 3)
+        res_motion[HEAD_NAME] = (head_build.head, head_build.face.center, head_build.axis, (0.0, 90.0))   # giro libre sobre el cuello: se valida 0–90°
     if p.decimate > 0:
         say("Reduciendo triángulos…")
         n0 = pieces["torso"].num_tri()
@@ -163,6 +181,14 @@ def validate(res: BuildResult, p: Params, limbs: list[LimbSpec], sit: bool = Tru
         elif m is not None and m < p.min_wall:
             out["avisos_pasador"].append(f"{name}: el vástago queda a {m:.2f} mm del borde de la cara "
                                          f"(< {p.min_wall:.1f} mm de pared)")
+    hm = res.report.get("head", {}).get("pin_margin_mm")
+    if hm is not None and hm < 0:
+        out["avisos_pasador"].append(f"{HEAD_NAME}: el vástago del pasador sobresale {-hm:.2f} mm de la cara del cuello")
+    elif hm is not None and hm < p.min_wall:
+        out["avisos_pasador"].append(f"{HEAD_NAME}: el vástago queda a {hm:.2f} mm del borde de la cara del cuello "
+                                     f"(< {p.min_wall:.1f} mm de pared)")
+    if HEAD_NAME in res.pieces and p.neck_pin.shaft_d < p.min_pin_d:
+        out["problems"].append(f"{HEAD_NAME}: vástago Ø{p.neck_pin.shaft_d} < {p.min_pin_d}")
     for name, mf in res.pieces.items():
         comps = len(mf.decompose())
         wt = mf.status() == S.m3.Error.NoError
