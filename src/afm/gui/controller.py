@@ -16,7 +16,7 @@ import numpy as np
 import trimesh
 
 from .. import solids as S
-from ..head import HEAD_NAME
+from ..head import HEAD_NAME, MIN_BASE_IOU
 from ..limbs import silhouette_on_plane
 from ..orient import OrientResult, best_orientation, overhang_mask
 from ..planes import Plane
@@ -1077,6 +1077,31 @@ class Controller:
             return
         self.mode = Mode.VIEW
         self._changed("Plano del cuello definido: la cabeza se separa y gira libre sobre un pasador en el cuello.")
+
+    def set_head_replacement(self, path: str, yaw: float | None = None, up: str | None = None) -> bool:
+        """Cabeza de reemplazo (STL): descarta la original, sin simetría, base escalada a la del cuello."""
+        if not self._need_loaded():
+            return False
+        cur = self.session.project.head
+        yaw = (cur.replacement_yaw if cur else 0.0) if yaw is None else yaw
+        up = (cur.replacement_up if cur else "+Z") if up is None else up
+        try:
+            info = self.session.set_head_replacement(path, yaw, up)
+        except Exception as e:                     # archivo ilegible, malla irreparable, plano sin cabeza…
+            self._changed(f"No se pudo usar esa cabeza: {e}", scene=False)
+            return False
+        msg = (f"Cabeza de reemplazo lista: escala ×{info['escala']:.3f} (uniforme), alto {info['alto_mm']:.1f} mm, "
+               f"base coincide {100 * info['coincidencia_base']:.0f} %.")
+        if info["base_cortada"]:
+            msg += " No traía base plana: se cortó una fracción baja para apoyarla."
+        if info["coincidencia_base"] < MIN_BASE_IOU:
+            msg += " AVISO: la base se parece poco a la del cuello; probá otro giro o eje «arriba»."
+        self._changed(msg)
+        return True
+
+    def clear_head_replacement(self) -> None:
+        self._changed("Se vuelve a usar la cabeza original del modelo." if self.session.clear_head_replacement()
+                      else "No había cabeza de reemplazo.")
 
     def _finish_limb_plane(self) -> None:
         pts, self.pending = self.pending, []

@@ -9,7 +9,7 @@ import numpy as np
 import trimesh
 
 from . import solids as S
-from .head import HEAD_NAME, HeadSpec, build_head, split_head
+from .head import HEAD_NAME, MIN_BASE_IOU, HeadSpec, build_head, split_head
 from .limbs import LimbSpec, ContactFace, check_limb_plane, pin_margin, separate_limb
 from .params import Params
 from .pins import mushroom_pin
@@ -134,6 +134,8 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
         pieces[HEAD_NAME] = head_build.head
         report["head"] = {"pin_center": head_build.face.center.tolist(), "pin_dir": head_build.face.outward.tolist(),
                           "contact_area": head_build.face.area}
+        if split.replacement is not None:
+            report["head"]["replacement"] = split.replacement
         if head_build.pin_margin is not None:
             report["head"]["pin_margin_mm"] = round(float(head_build.pin_margin), 3)
         res_motion[HEAD_NAME] = (head_build.head, head_build.face.center, head_build.axis, (0.0, 90.0))   # giro libre sobre el cuello: se valida 0–90°
@@ -187,6 +189,10 @@ def validate(res: BuildResult, p: Params, limbs: list[LimbSpec], sit: bool = Tru
     elif hm is not None and hm < p.min_wall:
         out["avisos_pasador"].append(f"{HEAD_NAME}: el vástago queda a {hm:.2f} mm del borde de la cara del cuello "
                                      f"(< {p.min_wall:.1f} mm de pared)")
+    rep = res.report.get("head", {}).get("replacement")
+    if rep is not None and rep["coincidencia_base"] < MIN_BASE_IOU:
+        out["avisos"].append(f"{HEAD_NAME}: la base de la cabeza importada coincide solo un {100 * rep['coincidencia_base']:.0f} % "
+                             f"con la del cuello (escala ×{rep['escala']:.3f}): puede quedar desalineada; probá otro giro o «arriba»")
     if HEAD_NAME in res.pieces and p.neck_pin.shaft_d < p.min_pin_d:
         out["problems"].append(f"{HEAD_NAME}: vástago Ø{p.neck_pin.shaft_d} < {p.min_pin_d}")
     for name, mf in res.pieces.items():
