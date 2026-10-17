@@ -55,8 +55,11 @@ def main(argv=None) -> int:
     b.add_argument("--max-angle", type=float, default=45.0, help="ángulo de voladizo tolerado (grados desde la vertical)")
     pr = sub.add_parser("probe", help="generar placa de probetas de articulación (§8.11)")
     pr.add_argument("--out", default="out/probetas")
-    pr.add_argument("--clearances", default="0.3,0.4,0.5,0.6")
-    pr.add_argument("--deltas", default="-0.2,0,0.2", help="variación del Ø de vástago (mm)")
+    pr.add_argument("--clearances", default=None, help="holguras radiales a probar (mm)")
+    pr.add_argument("--deltas", default=None, help="variación del Ø de vástago (hongo) o de bulón (bisagra), en mm")
+    pr.add_argument("--tipo", default="hongo", choices=("hongo", "bisagra"),
+                    help="hongo = cadera/hombro (§8.11); bisagra = rodilla/codo (plan de articulaciones, Fase 6)")
+    pr.add_argument("--axiales", default=None, help="solo bisagra: holguras axiales a probar, p. ej. 0.25,0.35,0.45")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO)
     os.makedirs(args.out, exist_ok=True)
@@ -64,12 +67,23 @@ def main(argv=None) -> int:
         from . import probes
         from .params import Params
         p = Params()
-        cells = probes.probe_cells(p, clearances=[float(x) for x in args.clearances.split(",")],
-                                   shaft_deltas=[float(x) for x in args.deltas.split(",")])
-        S.to_trimesh(probes.build_probe(p, cells)).export(os.path.join(args.out, "probetas.stl"))
+        fl = lambda t: [float(x) for x in t.split(",")]
+        if args.tipo == "bisagra":
+            kw = {"clearances": fl(args.clearances)} if args.clearances else {}
+            if args.deltas:
+                kw["pin_deltas"] = fl(args.deltas)
+            if args.axiales:
+                kw["axial_clearances"] = fl(args.axiales)
+            cells = probes.hinge_probe_cells(p, **kw)
+            mesh, text = probes.build_hinge_probe(p, cells), probes.hinge_labels_text(cells)
+        else:
+            cells = probes.probe_cells(p, clearances=fl(args.clearances or "0.3,0.4,0.5,0.6"),
+                                       shaft_deltas=fl(args.deltas or "-0.2,0,0.2"))
+            mesh, text = probes.build_probe(p, cells), probes.labels_text(cells)
+        S.to_trimesh(mesh).export(os.path.join(args.out, "probetas.stl"))
         with open(os.path.join(args.out, "probetas.txt"), "w") as f:
-            f.write(probes.labels_text(cells) + "\n")
-        print(probes.labels_text(cells))
+            f.write(text + "\n")
+        print(text)
         return 0
     if args.cmd == "demo":
         stl = os.path.join(args.out, "muneco.stl")

@@ -171,3 +171,16 @@ def test_tilted_hinge_axis_like_reference_knee(params):
     res85 = P.build(body, proj.limbs, params, proj.symmetry, joints=[kn])
     assert any("pantorrilla_izq y pantorrilla_der se interpenetran" in x
                for x in P.validate(res85, params, proj.limbs, joints=[kn])["problems"])
+
+
+def test_wall_around_bolt_measured_and_flagged(built, params):
+    res, val, joints = built
+    limbs = demo_project().limbs
+    for name, rec in val["articulaciones"].items():
+        assert rec["pared_mm"] is not None and rec["pared_mm"] >= 2 * params.nozzle, (name, rec)
+    thick = dataclasses.replace(params, min_wall=500.0)             # imposible: solo avisa (se imprime igual)
+    v2 = P.validate(res, thick, limbs, joints=joints)
+    assert any("pared del cuerpo proximal" in x for x in v2["avisos"])
+    coarse = dataclasses.replace(params, nozzle=500.0)              # 2 líneas imposibles: bloquea
+    v3 = P.validate(res, coarse, limbs, joints=joints)
+    assert any("no se imprime" in x for x in v3["problems"])

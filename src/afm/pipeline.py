@@ -326,6 +326,52 @@ RETENTION_MM = 1.0
 JOINT_TOL_MM3 = 1e-4
 
 
+def _ray_hits(tris: np.ndarray, origin, direction, eps: float = 1e-12) -> np.ndarray:
+    """Distancias (ordenadas, sin duplicados por aristas compartidas) de todos los cruces del rayo con la malla.
+    Möller–Trumbore vectorizado; no usa rtree/embree (igual que `gui.picking`)."""
+    o = np.asarray(origin, float)
+    d = np.asarray(direction, float)
+    v0 = tris[:, 0]
+    e1, e2 = tris[:, 1] - v0, tris[:, 2] - v0
+    p = np.cross(d, e2)
+    det = np.einsum("ij,ij->i", e1, p)
+    ok = np.abs(det) > eps
+    inv = np.zeros_like(det)
+    inv[ok] = 1.0 / det[ok]
+    sv = o - v0
+    u = np.einsum("ij,ij->i", sv, p) * inv
+    q = np.cross(sv, e1)
+    v = (q @ d) * inv
+    t = np.einsum("ij,ij->i", e2, q) * inv
+    t = np.sort(t[ok & (u >= -1e-9) & (v >= -1e-9) & (u + v <= 1 + 1e-9) & (t > 1e-6)])
+    return t[np.concatenate(([True], np.diff(t) > 1e-5))] if len(t) else t
+
+
+def joint_wall_mm(jb: JointBuild, hinge, rays: int = 16) -> float | None:
+    """Pared mínima del cuerpo proximal alrededor de los bulones (plan de articulaciones §4, Fase 4).
+
+    Desde cerca de la punta de cada bulón se lanzan rayos a lo largo del eje (pared axial detrás del agujero ciego) y
+    radiales (pared alrededor del agujero); el espesor es la distancia entre el 1.er cruce (cara del agujero) y el
+    2.º (superficie exterior). Los rayos que salen por la ranura (un solo cruce) no cuentan. None si no hay datos."""
+    tris = np.asarray(S.to_trimesh(jb.proximal).triangles, float)
+    ax = np.asarray(jb.axis, float)
+    u = np.cross(ax, (0.0, 0.0, 1.0))
+    if np.linalg.norm(u) < 1e-6:
+        u = np.cross(ax, (0.0, 1.0, 0.0))
+    u /= np.linalg.norm(u)
+    v = np.cross(ax, u)
+    dirs_for = lambda s: [s * ax] + [np.cos(t) * u + np.sin(t) * v for t in np.linspace(0, 2 * np.pi, rays, endpoint=False)]
+    best = None
+    for s in (1.0, -1.0):
+        origin = np.asarray(jb.center, float) + s * ax * (hinge.tongue_t / 2 + hinge.pin_len - 0.1)   # cerca de la punta del bulón (agujero ciego)
+        ds = dirs_for(s)
+        for d in ds:
+            t = _ray_hits(tris, origin, d)
+            if len(t) >= 2:
+                best = float(t[1] - t[0]) if best is None else min(best, float(t[1] - t[0]))
+    return best
+
+
 def _validate_joints(res: BuildResult, p: Params, joints, out: dict, step: float) -> dict:
     """Rodilla / codo: recorrido libre dentro del rango, tope efectivo fuera de él, holgura mínima,
     retención (la pieza distal no sale al desplazarla) y medidas mínimas (plan de articulaciones §4, Fase 4)."""
@@ -371,6 +417,14 @@ def _validate_joints(res: BuildResult, p: Params, joints, out: dict, step: float
             out["problems"].append(f"{jname}: bulón Ø{hinge.pin_d} < {p.min_hinge_pin_d}")
         if hinge.tongue_t < p.min_tongue:
             out["problems"].append(f"{jname}: lengüeta de {hinge.tongue_t} mm < {p.min_tongue}")
+        wall = joint_wall_mm(jb, hinge)
+        rec["pared_mm"] = None if wall is None else round(wall, 3)
+        if wall is not None and wall < 2 * p.nozzle:
+            out["problems"].append(f"{jname}: pared del cuerpo proximal alrededor del bulón de {wall:.2f} mm "
+                                   f"< 2 líneas de boquilla ({2 * p.nozzle:g} mm): no se imprime")
+        elif wall is not None and wall < p.min_wall:
+            out["avisos"].append(f"{jname}: pared del cuerpo proximal alrededor del bulón de {wall:.2f} mm "
+                                 f"< {p.min_wall:g} mm (subir el eje, alargar el miembro o achicar el bulón)")
         out["avisos"].extend(jb.warnings)
         info[jname] = rec
     return info
