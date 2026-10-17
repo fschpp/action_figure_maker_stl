@@ -196,6 +196,15 @@ def test_wall_around_bolt_measured_and_flagged(built, params):
     assert any("no se imprime" in x for x in v3["problems"])
 
 
+def test_bolts_not_swept_fewer_pinched_edges(built):
+    """Los bulones son de revolución sobre el eje: barrerlos girando unía copias casi idénticas y dejaba aristas de
+    4 caras en la pieza proximal (el slicer avisa de «non-manifold edge»). Con los bulones sin rotar, el brazo del
+    muñeco baja de 11 a 2 aristas. Quedan aristas sobre la pared de la ranura (eje ± 1,56 mm) sin resolver, sobre
+    todo en el muslo (≈ 19): este test fija solo lo que mejoró."""
+    res, _val, _j = built
+    assert P._nonmanifold_edges(res.pieces["brazo_izq"]) <= 4
+
+
 def test_posed_pieces_matches_print_pose(built, params):
     res, _val, _j = built
     sit = P.posed_pieces(res, params.sit_angle)

@@ -183,7 +183,8 @@ def build_joint(limb: S.Manifold, joint: JointSpec, toward: np.ndarray, p: Param
     disc = S.cylinder_along(c, axis, radius, 400.0, 64, start=-200.0)
     tongue = S.intersection(S.intersection(limb, slab), disc)      # llega bajo el plano: se funde con `below`
     bolts = [_bolt(c, axis * s, hinge, 32) for s in (1.0, -1.0)]
-    distal = S.largest_component(S.union(below, tongue, *bolts))
+    body_dist = S.largest_component(S.union(below, tongue))
+    distal = S.largest_component(S.union(body_dist, *bolts))
 
     lo, hi = flex_range(joint, p)
     sgn = joint.sign()
@@ -192,8 +193,12 @@ def build_joint(limb: S.Manifold, joint: JointSpec, toward: np.ndarray, p: Param
     angles = list(np.arange(raw[0], raw[1] + 1e-9, step)) if raw[1] > raw[0] else [raw[0]]
     if angles[-1] < raw[1] - 1e-9:
         angles.append(raw[1])
-    grown = dilate_anisotropic(distal, p.clearance, p.axial_clearance, axis)
-    sweep = S.union(*[S.rotate_about_axis(grown, c, axis, a) for a in angles])
+    # Los bulones son cuerpos de revolución sobre el propio eje: girarlos no los mueve, y unir 20 copias casi idénticas
+    # (facetas que coinciden casi pero no del todo) deja aristas de 4 caras en la pieza proximal. Se ensanchan una vez
+    # y se suman sin rotar; el resto del distal sí se barre. Dilatar distribuye sobre la unión: el sólido es el mismo.
+    grown = dilate_anisotropic(body_dist, p.clearance, p.axial_clearance, axis)
+    grown_bolts = [dilate_anisotropic(b, p.clearance, p.axial_clearance, axis) for b in bolts]
+    sweep = S.union(*[S.rotate_about_axis(grown, c, axis, a) for a in angles], *grown_bolts)
     proximal = S.largest_component(S.difference(prox0, sweep))
     return JointBuild(proximal, distal, c, axis, sgn, (lo, hi), [float(a) for a in angles], h, radius, warnings,
                       sweep)
