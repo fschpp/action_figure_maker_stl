@@ -18,6 +18,15 @@ La figura de referencia se sostiene con tornillos y tuercas (eso **no** se imple
 | **Rodilla** | (−6,2 ; 37,2) | **Orejita (lug) en la bota**: espesor ≈ 2,35, contorno redondo Ø≈5,1 alrededor del agujero **Ø2,56**. **Ranura (clevis) en el muslo**: ancho ≈ 3,1 → ≈ 0,35 mm de holgura axial por lado; fondo de la ranura en arco alrededor del eje; paredes laterales de ≈ 2,3–3,7. Agujero del muslo Ø2,34 (centro 1,2 mm más abajo que el de la bota: el muslo está modelado desplazado; ignorar en el motor, que usa un solo eje). |
 | **Codo** | (−2,2 ; 77,3) | Misma topología que la rodilla: lengüeta en el antebrazo (agujero Ø≈2,6) dentro de una ranura del brazo. Ancho de ranura ≈ 4,7 vs. lengüeta ≈ 2,5–3,2: **medir de nuevo**, los cortes inclinados dan valores poco confiables. |
 
+**Topes y rango de giro (corrección del cliente, verificada).** En la figura de referencia rodilla y codo **no giran libres**: `muslo_0002` tiene un tope en la parte frontal de la rodilla y `antebrazo_003` (el brazo) lo tiene donde va el codo, y limitan el giro del segmento distal. Se simuló: se llevó el agujero de la bota/antebrazo al eje del agujero del muslo/brazo y se giró alrededor de X de −120° a +120° (pasos de 10°), midiendo el volumen de interferencia entre las mallas (mallas decimadas a 30 k triángulos; la interferencia chica ≲ 1 mm³ es ruido de la decimación). Convención: flexión = la pantorrilla va hacia atrás (rodilla) / el antebrazo va hacia adelante (codo).
+
+| | Extensión (tope) | Flexión (tope) | Rango útil | Nota |
+|---|---|---|---|---|
+| **Rodilla** | ≈ 0° a −10° (hiperextensión casi nula, valor poco claro: la interferencia crece suave desde −10°) | ≈ **+90–95°** (de 90° a 100° la interferencia pasa de 8 a 34 mm³) | ≈ 0→90° | de «abajo hasta atrás», como describe el cliente |
+| **Codo** | ≈ **+10°** (a +20° ya interfiere 1,2 mm³ y crece lineal: tope de hiperextensión) | ≈ **−90 a −95°** (de −90° a −100° pasa de 1,1 a 8,5 mm³) | ≈ 100° en total | de «adentro hasta abajo» |
+
+Para el motor significa que **el tope no se agrega aparte**: es lo que queda de material del padre fuera del barrido. En la cadera actual el límite ya sale así (`sweep` de 0 a `sit_angle + hip_margin`); para rodilla y codo se usa el mismo mecanismo con un rango propio, de modo que el cuerpo de la pieza proximal queda sin tallar más allá de los ángulos de tope. Ojo: la cavidad lleva `clearance` de holgura, por lo que el tope real queda unos grados más allá del rango declarado.
+
 Conclusión de diseño: rodilla y codo son **bisagras de lengüeta en ranura con eje transversal**; la cadera es un **pasador con cabeza grande** (relación cabeza/vástago 1,9 vs. 1,3 del hongo actual) retenido por una pared fina entre dos bolsillos.
 
 ## 2. Qué tiene hoy el motor y qué falta
@@ -41,7 +50,7 @@ No tiene, y por eso hace falta código nuevo:
 **Parámetros nuevos** (en `Params`, mm absolutos como `PinSpec`; valores iniciales tomados de la figura de referencia y a confirmar con probetas):
 - `hinge_pin: HingeSpec(pin_d=2.4, pin_len=1.2, tongue_t=2.4, end_r=2.8)` para rodilla y codo (override por articulación).
 - `axial_clearance=0.35` (la figura usa 0,35–0,5) y `clearance` radial se mantiene en 0,50 (lo medido en Mickey) hasta que las probetas digan otra cosa.
-- `knee_range=(0,130)`, `elbow_range=(0,120)`, `knee_print_angle`, `elbow_print_angle` (en la pose sentada: rodilla 90°).
+- `knee_range=(0,90)`, `elbow_range=(0,90)` en convención de **flexión positiva** (rodilla: pantorrilla hacia atrás; codo: antebrazo hacia adelante), más `stop_margin` (grados de material que se deja sin tallar como tope, por defecto 5° de la figura de referencia) y `*_hyperext` (rodilla ≈ 0–10°, codo ≈ 10°). Los valores vienen de la simulación de la figura del cliente (§1), no son libres. `knee_print_angle`, `elbow_print_angle` (en la pose sentada: rodilla 90°, que cae justo en el tope: imprimir a ≈ 85° para no apoyar la pieza contra el tope).
 - **Cadera**: preset `hip_pin` ← `PinSpec(shaft_d=4.8, shaft_len≈2.3, head_d=9.25, head_h=2.44)` (ver aviso de escala abajo) + chequeos nuevos de pared detrás de la cabeza (≥ 1,2 = `min_wall`; la figura usa 1,3) y de que las dos cabezas enfrentadas no se toquen (separación ≥ 2·holgura).
 
 **Aviso de escala (importante)**: los valores salen de una figura de 129 mm. El repo normaliza a 100 mm de pies a coronilla (×0,775 si la coronilla es la punta del sombrero). Las dimensiones de articulación se deben tratar como **mm absolutos de impresión**, no escalarse: con ×0,775 el bulón quedaría Ø1,9 y la lengüeta 1,9 mm, en el límite de lo imprimible con boquilla 0,4. Se agrega validación `min_pin_d` y `min_tongue` y la decisión (normalizar a 100 mm o dejar 129 mm) la toma el cliente.
@@ -65,7 +74,7 @@ No tiene, y por eso hace falta código nuevo:
 **Fase 7: caso real y documentación.** Armar la figura de referencia (o una figura sintética equivalente en `testfigure.py`) con las 3 articulaciones, regenerar, comparar con la tabla de §1 y con la figura impresa; actualizar `docs/tutorial_gui.md`, `PROGRESS.md`.
 
 ## 5. Criterios de aceptación
-- Rodilla y codo: giro libre en todo el rango sin interferencia (< 1e-4 mm³), holgura mínima ≥ 0,9·`clearance`, pieza distal retenida (no sale al desplazarla ≥ 1 mm en ± Y/± Z/± X).
+- Rodilla y codo: giro libre **dentro de su rango declarado** (sin interferencia < 1e-4 mm³, medido cada 2,5°) y **tope efectivo fuera de él**: la pieza distal debe chocar con el padre a ≤ `stop_margin` + 5° del límite, tanto en extensión como en flexión (sin esto la articulación gira «libre» y no es la de la figura). Holgura mínima ≥ 0,9·`clearance` dentro del rango; pieza distal retenida (no sale al desplazarla ≥ 1 mm en ± Y/± Z/± X). Comparar con los topes medidos de la figura de referencia (rodilla ≈ 0→90°, codo ≈ +10→−90°) con tolerancia ±10°.
 - Cada pieza variedad estanca; torso 1 componente.
 - Cadera: cabeza/vástago ≥ 1,6, pared ≥ `min_wall`, sin choque entre las cabezas.
 - Probetas imprimen con giro suave sin romper (decisión del cliente).
@@ -74,6 +83,7 @@ No tiene, y por eso hace falta código nuevo:
 1. **Escala** (ver §3): 13 cm vs. 10 cm cambia si los bulones son imprimibles. Hay que decidir si el motor normaliza o respeta el tamaño real.
 2. **Tiempos de cómputo**: dos barridos encadenados con `dilate` sobre mallas de ~300 k triángulos; probablemente hay que decimar antes (como ya se hace con el torso).
 3. **Bulones horizontales** imprimen con puentes; si fallan, alternativa: bulón en forma de gota (rombo) o imprimir la figura acostada (`orient`).
-4. **Pared del padre**: el barrido de la pantorrilla puede dejar el fondo del muslo muy fino; solución prevista: aumentar `end_r` o acotar `range_deg`.
+4. **Topes**: la medición de §1 es una simulación con piezas despiezadas y alineadas por el centro del agujero (hay un desfase de 1,2 mm en la rodilla); los ángulos de tope son ±10°. Hay que confirmarlos con la figura armada o con probetas. Además la validación actual (`recorrido`) solo comprueba que no haya choque en el rango; hay que sumar el chequeo inverso (que **sí** choque fuera de él).
+5. **Pared del padre**: el barrido de la pantorrilla puede dejar el fondo del muslo muy fino; solución prevista: aumentar `end_r` o acotar `range_deg`.
 5. Nombres: `antebrazo_003` es el brazo y `brazomano` el antebrazo, confirmar.
 6. **No se modela** el pasador/tornillo ni las tuercas de la figura de referencia ni la división de la pelvis en dos mitades (lo pidió explícitamente el cliente).
