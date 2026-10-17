@@ -4,7 +4,7 @@ import dataclasses
 import numpy as np
 import pytest
 
-from afm.gui.controller import JOINT_PREFIX, Controller, Mode
+from afm.gui.controller import GUIDE_ARM_COLOR, GUIDE_FOREARM_COLOR, JOINT_PREFIX, Controller, Mode
 from afm.gui.picking import PickResult
 from afm.gui.session import Session
 from afm.project import Project, demo_project
@@ -277,3 +277,92 @@ def test_two_lines_work_for_the_leg_and_a_limb_with_a_joint_is_refused(ctrl):
     assert [j.name for j in ctrl.session.project.joints] == ["rodilla"]
     ctrl.start_joint_lines("pierna")
     assert ctrl.mode == Mode.VIEW and "ya tiene su articulación" in ctrl.message
+
+
+def test_guides_are_visible_while_picking_and_stay_after_the_elbow_is_created(ctrl):
+    """Se ven las 2 líneas todo el tiempo: cian = brazo, magenta = antebrazo; y el Estado da el ángulo de la primera."""
+    ctrl.start_joint_lines_for_kind("arm")
+    assert ctrl.guide_overlays() == []
+    pts = lines_pts(3.4, 6.8)
+    feed(ctrl, pts[:1])
+    kinds = {(k, key) for k, key, *_ in ctrl.guide_overlays()}
+    assert kinds == {("points", "guia:pend:brazo")}
+    ctrl.cancel()
+    ctrl.start_joint_lines_for_kind("arm")
+    feed(ctrl, pts[:2])
+    names = {key for _, key, *_ in ctrl.guide_overlays()}
+    assert names == {"guia:pend:brazo", "guia:pend:brazo:l"} and "3.4°" in ctrl.message and "cian" in ctrl.message
+    feed(ctrl, pts[2:3])
+    over = {key: color for _, key, _, color in ctrl.guide_overlays()}
+    assert over["guia:pend:ante"] == GUIDE_FOREARM_COLOR and over["guia:pend:brazo:l"] == GUIDE_ARM_COLOR
+    assert "magenta" in ctrl.message
+    feed(ctrl, pts[3:])
+    final = {key: (kind, np.asarray(p)) for kind, key, p, _ in ctrl.guide_overlays()}
+    assert set(final) == {"guia:codo:brazo", "guia:codo:antebrazo", "guia:codo:codo"}     # quedan dibujadas
+    assert final["guia:codo:codo"][1][0] == pytest.approx([18.0, -4.0, 59.0])
+    ctrl.remove_plane(JOINT_PREFIX + "codo")
+    assert ctrl.guide_overlays() == [] and ctrl.joint_guides == {}
+
+
+def test_guides_disappear_when_the_joint_is_remade_with_three_points(ctrl):
+    ctrl.start_joint_lines_for_kind("arm")
+    feed(ctrl, lines_pts(3.4, 6.8))
+    assert ctrl.joint_guides
+    ctrl.remove_plane(JOINT_PREFIX + "codo")
+    ctrl.start_joint_plane_for_kind("arm")
+    feed(ctrl, ELBOW)
+    assert [j.name for j in ctrl.session.project.joints] == ["codo"] and ctrl.guide_overlays() == []
+
+
+def test_a_bad_first_line_is_reported_right_after_the_second_click(ctrl):
+    ctrl.start_joint_lines_for_kind("arm")
+    feed(ctrl, [(18.0, -4.0, 70.0), (18.0, -4.0, 70.4)])
+    assert "no sirve" in ctrl.message and "Backspace" in ctrl.message
+
+
+class _RecordingScene:
+    """Escena falsa: guarda qué pide dibujar `Controller.sync` y si lo pide por delante de la figura (`on_top`)."""
+
+    def __init__(self):
+        self.items, self.on_top = {}, {}
+
+    def set_mesh(self, name, mesh, color=None, clip_x=-1e9):
+        self.items[name] = ("mesh", mesh)
+
+    def set_plane(self, name, plane, hs, center=None, color=None):
+        self.items[name] = ("quad", plane)
+        self.items[name + ":borde"] = ("lines", None)
+
+    def set_lines(self, name, pl, color=None, closed=False, on_top=False):
+        self.items[name], self.on_top[name] = ("lines", pl), on_top
+
+    def set_points(self, name, pts, color=None, size=10.0, on_top=False):
+        self.items[name], self.on_top[name] = ("points", np.asarray(pts)), on_top
+
+    def show(self, name, visible):
+        pass
+
+    def remove(self, name):
+        for k in (name, name + ":borde"):
+            self.items.pop(k, None)
+            self.on_top.pop(k, None)
+
+
+def test_sync_draws_the_guides_in_front_of_the_figure_and_keeps_them(ctrl):
+    """La geometría no puede taparlas: las líneas y los puntos de las guías se dibujan sin prueba de profundidad."""
+    sc = _RecordingScene()
+    ctrl.start_joint_lines_for_kind("arm")
+    pts = lines_pts(3.4, 6.8)
+    feed(ctrl, pts[:2])
+    ctrl.sync(sc)
+    assert {"guia:pend:brazo", "guia:pend:brazo:l"} <= set(sc.items)
+    assert sc.on_top["guia:pend:brazo"] and sc.on_top["guia:pend:brazo:l"]
+    assert "pendientes" not in sc.items                          # no se dibuja además con el estilo rojo normal
+    feed(ctrl, pts[2:])
+    ctrl.sync(sc)
+    guides = {k for k in sc.items if k.startswith("guia:")}
+    assert guides == {"guia:codo:brazo", "guia:codo:antebrazo", "guia:codo:codo"}
+    assert all(sc.on_top[k] for k in guides)                     # quedan dibujadas, por delante, ya con el codo creado
+    ctrl.remove_plane(JOINT_PREFIX + "codo")
+    ctrl.sync(sc)
+    assert not [k for k in sc.items if k.startswith("guia:")]

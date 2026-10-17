@@ -278,7 +278,10 @@ figura de referencia. La pierna queda en **muslo + pantorrilla** y el brazo en *
    se dobla; (3) en el codo otra vez, en el mismo lugar; (4) abajo, en el centro del antebrazo. Son dos líneas: brazo
    (1→2) y antebrazo (3→4), y solo cuentan x y z. El corte pasa por el codo y sigue la **bisectriz** de las dos, así las
    piezas encajan a ras al estirar el miembro; el eje queda perpendicular a esa bisectriz y **sube desde el codo por la
-   línea del brazo**, no en vertical, para quedar centrado. El Estado informa cuánto se abre cada línea y la inclinación
+   línea del brazo**, no en vertical, para quedar centrado. Mientras elegís, las dos líneas se ven **por delante de la figura** (la geometría no las tapa): la del brazo en
+   **cian** (con el ángulo en el Estado apenas hay 2 puntos) y la del antebrazo en **magenta**, con un punto blanco en el
+   codo. Al terminar quedan dibujadas junto al plano amarillo para que compruebes que siguen el miembro; si no te
+   convencen, quitá la fila «Codo» (⊗) y repetí. El Estado informa cuánto se abre cada línea y la inclinación
    resultante. Funciona igual con la pierna (muslo y pantorrilla) desde el controlador; en la ventana por ahora solo
    hay botón para el codo. Esta forma solo mira la vista de frente: un quiebre de costado (adelante/atrás) no entra en
    las líneas.

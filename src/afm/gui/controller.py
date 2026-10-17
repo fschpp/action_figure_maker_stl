@@ -44,6 +44,8 @@ class Mode(Enum):
     TRIM_PICK = "recorte_clic"      # un clic sobre la figura pone el centro de un recorte esfera / caja / cilindro
 
 
+GUIDE_ARM_COLOR = (0.2, 0.9, 1.0, 1.0)         # cian: línea del brazo (o del muslo)
+GUIDE_FOREARM_COLOR = (1.0, 0.35, 0.9, 1.0)    # magenta: línea del antebrazo (o de la pantorrilla)
 TRIM_SHAPES = ("polygon", "sphere", "box", "cylinder")
 TRIM_SHAPE_LABELS = {"polygon": "polígono", "sphere": "esfera", "box": "caja", "cylinder": "cilindro"}
 TRIM_OP_LABELS = {"subtract": "restar", "union": "unir"}
@@ -138,6 +140,7 @@ class Controller:
         self.edit_cross = False                     # el polígono en edición es el 2.º corte (frente) del miembro
         self.joint_limb: str | None = None          # miembro al que se le está definiendo la articulación (JOINT_PLANE)
         self.joint_name: str | None = None          # articulación cuyo eje se está colocando (JOINT_AXIS)
+        self.joint_guides: dict[str, tuple] = {}    # articulación -> (línea del brazo 2×3, línea del antebrazo 2×3) dibujadas
         self.pin_limb: str | None = None            # miembro cuyo pasador se está colocando (modo PIN)
         self.pin_prev = None                         # PinPreview de ese miembro (cara de contacto)
         self.mirror_live = False                     # con «un solo lado»: mostrar el espejo del lado de trabajo en vivo
@@ -185,6 +188,7 @@ class Controller:
     # ------------------------------------------------------------- archivos
     def open_stl(self, path: str, crown_z: float | None = None) -> None:
         self.session = Session()
+        self.joint_guides = {}
         self.hidden.clear()
         rep = self.session.load(path, crown_z)
         self._after_load()
@@ -195,6 +199,7 @@ class Controller:
 
     def open_project(self, path: str, stl_path: str | None = None) -> None:
         self.session = Session.open_project(path, stl_path)
+        self.joint_guides = {}
         self.hidden.clear()
         self._after_load()
         self._changed(f"Proyecto abierto: {path.split('/')[-1]}")
@@ -309,10 +314,43 @@ class Controller:
         spec = self.session.limb(self.joint_limb)
         up, down = self._line_names(spec.kind if spec else "arm")
         joint = "la rodilla" if spec is not None and spec.kind == "leg" else "el codo"
-        return {1: f"Línea del {up}: punto 1/2 listo. Ahora clic en {joint}, en el centro del miembro, donde se dobla.",
-                2: f"Línea del {up} lista. Ahora la del {down}: clic en {joint} otra vez (en el mismo lugar).",
-                3: f"Línea del {down}: punto 1/2 listo. Ahora clic abajo, en el centro del {down}."
-                }[len(self.pending)] + " Backspace deshace el último; Esc cancela."
+        n = len(self.pending)
+        if n == 1:
+            text = (f"Línea del {up} (cian): punto 1/2 listo. Ahora clic en {joint}, en el centro del miembro, "
+                    "donde se dobla.")
+        elif n == 2:
+            ang = Session.line_opening_deg(self.pending[0], self.pending[1])
+            if ang is None:
+                text = (f"La línea del {up} no sirve (muy corta o casi horizontal vista de frente): Backspace y elegí "
+                        f"otro punto en {joint}.")
+            else:
+                text = (f"Línea del {up} lista (cian): se abre {ang:.1f}° al bajar. Ahora la del {down}: clic en "
+                        f"{joint} otra vez (en el mismo lugar).")
+        else:
+            text = (f"Línea del {down} (magenta): punto 1/2 listo. Ahora clic abajo, en el centro del {down}.")
+        return text + " Backspace deshace el último; Esc cancela."
+
+    def guide_overlays(self) -> list[tuple]:
+        """Guías de las 2 líneas como (tipo, clave, puntos, color) con tipo «lines» | «points»: las que se están eligiendo
+        (puntos cian del brazo y magenta del antebrazo, y la línea del brazo apenas hay 2 puntos) y las de cada
+        articulación creada con 2 líneas (las 2 líneas y un punto blanco en el codo). `sync` las dibuja sin prueba de
+        profundidad, para que se vean aunque la línea atraviese la figura."""
+        out: list[tuple] = []
+        if self.mode == Mode.JOINT_LINES and self.pending:
+            pts = np.array(self.pending, float)
+            out.append(("points", "guia:pend:brazo", pts[:2], GUIDE_ARM_COLOR))
+            if len(pts) >= 2:
+                out.append(("lines", "guia:pend:brazo:l", pts[:2], GUIDE_ARM_COLOR))
+            if len(pts) > 2:
+                out.append(("points", "guia:pend:ante", pts[2:], GUIDE_FOREARM_COLOR))
+        for name, (up, low) in self.joint_guides.items():
+            if self.session.joint(name) is None:
+                continue
+            up, low = np.asarray(up, float), np.asarray(low, float)
+            out.append(("lines", f"guia:{name}:brazo", up, GUIDE_ARM_COLOR))
+            out.append(("lines", f"guia:{name}:antebrazo", low, GUIDE_FOREARM_COLOR))
+            out.append(("points", f"guia:{name}:codo", ((up[1] + low[0]) / 2.0)[None], (1.0, 1.0, 1.0, 1.0)))
+        return out
 
     def _finish_joint_lines(self) -> None:
         pts, self.pending = self.pending, []
@@ -324,6 +362,7 @@ class Controller:
             self._changed(f"No sirve: {e}. Dibujá las 2 líneas de nuevo.")
             return
         self.mode, self.joint_limb = Mode.VIEW, None
+        self.joint_guides[j.name] = (np.array(pts[:2], float), np.array(pts[2:], float))
         up, down = self._line_names(self.session.limb(limb).kind)
         self._changed(f"{j.name.capitalize()} definida siguiendo el miembro: el {up} se abre {a_up:.1f}° y el {down} "
                       f"{a_down:.1f}° (hacia +X al bajar); el corte sigue la bisectriz y el eje quedó inclinado "
@@ -355,6 +394,7 @@ class Controller:
         except (ValueError, KeyError) as e:
             self._changed(f"No sirve: {e}. Elegí 3 puntos de nuevo.")
             return
+        self.joint_guides.pop(j.name, None)                  # sin líneas guía: se definió con 3 puntos
         self.mode, self.joint_limb = Mode.VIEW, None
         self._changed(f"{j.name.capitalize()} definida con rango {self.joint_range_text(j.name)}; el eje quedó "
                       f"inclinado {self.joint_tilt(j.name):.1f}° siguiendo el plano. Ajustá el eje con «Colocar eje» "
@@ -1382,6 +1422,7 @@ class Controller:
             return
         if plane_id.startswith(JOINT_PREFIX):
             self.cancel(quiet=True)
+            self.joint_guides.pop(plane_id[len(JOINT_PREFIX):], None)
             self.session.remove_joint(plane_id[len(JOINT_PREFIX):])
         elif plane_id == HEAD_NAME:
             self.session.remove_head()
@@ -1492,16 +1533,22 @@ class Controller:
         for key in [k for k in scene.items if k.startswith("plano:") and not k.endswith(":borde")]:
             if key not in wanted:
                 scene.remove(key)
-        if self.pending:
+        if self.pending and self.mode != Mode.JOINT_LINES:
             pts = np.array(self.pending)
             scene.set_points("pendientes", pts, (1.0, 0.25, 0.25, 1.0), 12.0)
-            if self.mode == Mode.JOINT_LINES:           # dos segmentos sueltos: brazo (P1-P2) y antebrazo (P3-P4)
-                scene.set_lines("pendientes:lineas", [pts[:2], pts[2:4]], (1.0, 0.25, 0.25, 1.0))
-            else:
-                scene.set_lines("pendientes:lineas", pts, (1.0, 0.25, 0.25, 1.0), closed=len(pts) == 3)
+            scene.set_lines("pendientes:lineas", pts, (1.0, 0.25, 0.25, 1.0), closed=len(pts) == 3)
         else:
             scene.remove("pendientes")
             scene.remove("pendientes:lineas")
+        wanted_guides = set()
+        for kind, key, gpts, color in self.guide_overlays():
+            wanted_guides.add(key)
+            if kind == "lines":
+                scene.set_lines(key, gpts, color, on_top=True)
+            else:
+                scene.set_points(key, gpts, color, 12.0, on_top=True)
+        for key in [k for k in scene.items if k.startswith("guia:") and k not in wanted_guides]:
+            scene.remove(key)
         self._sync_polygons(scene)
         self._sync_pins(scene)
         self._sync_joints(scene)

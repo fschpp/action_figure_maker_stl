@@ -464,6 +464,18 @@ class Session:
         return plane, elbow, opening(u), opening(v), -u
 
     @staticmethod
+    def line_opening_deg(p, q) -> float | None:
+        """Grados que se abre hacia +X al bajar la línea P→Q vista de frente, o None si no sirve para una articulación
+        (menos de 2 mm de largo o a más de 60° de la vertical)."""
+        dx, dz = float(q[0] - p[0]), float(q[2] - p[2])
+        if dz > 0:
+            dx, dz = -dx, -dz
+        length = float(np.hypot(dx, dz))
+        if length < 2.0 or -dz / length < 0.5:
+            return None
+        return float(np.degrees(np.arctan2(dx, -dz)))
+
+    @staticmethod
     def plane_front_tilt_deg(normal) -> float:
         """Inclinación (vista de frente) del plano de una articulación: ángulo de su traza en XZ respecto de X, con el
         mismo signo que `_tilt_axis` (z sube con x). Un plano horizontal da 0; se limita a ±45° como el control."""

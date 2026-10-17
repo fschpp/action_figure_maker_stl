@@ -1,6 +1,9 @@
 # Progreso del desarrollo
 
 ## Current Focus
+**Articulaciones — guías del codo con 2 líneas visibles (2026-10-17):** al elegir los 4 clics no se veían las líneas (se dibujaban con prueba de profundidad y la geometría las tapaba; la del antebrazo ni existía antes del cuarto clic). `Controller.guide_overlays()` devuelve puntos y líneas (brazo cian, antebrazo magenta, punto blanco en el codo) que `sync` dibuja con `on_top=True`; el Estado da el ángulo de la línea del brazo tras el 2.º clic y avisa si no sirve; las guías quedan dibujadas tras crear la articulación (`Controller.joint_guides`, solo en memoria, no se guardan en el .proyecto) y se olvidan al quitar la articulación o rehacerla con 3 puntos.
+
+**Anterior:**
 **Articulaciones — codo con 2 líneas de frente (2026-10-17):** `Mode.JOINT_LINES` (4 clics: línea del brazo arriba→codo y del antebrazo codo→abajo, solo x y z), `Session.plane_from_lines` (corte por el codo siguiendo la bisectriz, eje inclinado como el corte) y `add_joint(lift_dir=…)` (el eje sube por la línea del brazo, no en vertical). Botón «Agregar codo siguiendo el brazo (2 líneas, de frente)»; `Controller.start_joint_lines_for_kind("leg")` ya sirve para la rodilla pero no tiene botón. Güemes (líneas sobre la línea central medida; brazo 8,9°, antebrazo 11,3°, eje 10,1°): con Ø bulón 2,0 / largo 1,0 / lengüeta 2,0 / radio 3,0 → `ok`, pared 0,82 mm; con la bisagra por defecto 0,42 mm (no se imprime). **Falta:** el quiebre de costado del codo de Güemes (≈ 20°) no entra en líneas de frente; aristas de 4 caras con eje inclinado (6–129 según la bisagra).
 
 **Anterior:**
