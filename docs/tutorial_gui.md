@@ -261,6 +261,31 @@ En la barra lateral, antes de «Generar», está la sección **Parámetros**: ho
 - **Perfil de línea:** escribí un nombre y **Guardar** para dejar estos parámetros en `~/.config/afm/perfiles/`; en la próxima figura elegí el perfil y **Cargar**. Las siluetas y los planos no se tocan.
 - **Probetas:** elegí el pasador (cadera u hombro) y **Generar probetas de articulación…**; se escribe `probetas.stl` (una placa con varias articulaciones, cada una con otra holgura y otro Ø de vástago) y `probetas.txt` con la tabla en el orden de la grilla. Imprimilas con tu impresora, elegí la de menor fricción que sostenga la pose, cargá esos valores en Parámetros y guardalos en el perfil.
 
+### 7.2c Rodilla y codo (bisagras)
+
+Después de dibujar la silueta de una pierna o de un brazo (y colocar su pasador de cadera u hombro) se puede
+partir el miembro en dos con una bisagra print-in-place: lengüeta en ranura con dos bulones cortos, como la
+figura de referencia. La pierna queda en **muslo + pantorrilla** y el brazo en **brazo + antebrazo**.
+
+1. **«Agregar rodilla a una pierna (3 puntos)»** (o **«Agregar codo a un brazo»**): elegí 3 puntos sobre la
+   figura a la altura donde se dobla. El plano tiene que quedar casi horizontal; lo de arriba es el muslo / brazo.
+   Aparece una fila amarilla («Rodilla» / «Codo») en la lista de planos y una línea amarilla con el eje.
+2. **Eje:** arranca justo arriba del plano, en el centro de los 3 puntos. Con el botón del **marcador** de la fila
+   hacé clic sobre el costado de la figura, en el centro de la bisagra: se toman la altura y la profundidad del clic
+   (la posición en X se conserva: el eje atraviesa el miembro). El eje debe quedar al menos 0,5 mm arriba del plano.
+3. **Los tres números de la fila:** flexión mínima (negativa = hiperextensión), flexión máxima e **inclinación del
+   eje** (° alrededor de Z; 0 = a lo largo de X). La figura de referencia usa ≈ 14° en la rodilla y ≈ 9,5° en el codo.
+   Por defecto la rodilla va de 0° a 90° (la pantorrilla va hacia atrás) y el codo de −10° a 90° (el antebrazo va hacia
+   adelante). **El tope no es una pieza aparte:** es el material del muslo / brazo que queda sin tallar fuera de ese rango.
+4. **Generar figura:** el informe de validación revisa el giro libre dentro del rango, el tope fuera de él, la holgura,
+   que la pieza no se pueda sacar, la pared alrededor de los bulones y el recorrido de toda la cadena (cadera × rodilla)
+   contra el torso y las demás piezas. La **pose sentada en vivo** (§7.5) ya muestra la pierna con su rodilla.
+5. **Probetas:** en «Perfil de línea» elegí «Bisagra de rodilla / codo» y «Generar probetas de articulación…».
+
+Una articulación por miembro. Quitar el miembro (o la fila amarilla) la quita. Si el codo choca con el torso al flexionar,
+la validación lo informa: el motor no talla un hueco para el brazo en el torso, así que hace falta algo de luz entre ambos.
+*(Esta parte de la ventana no se pudo probar con GTK real; la lógica sí tiene tests.)*
+
 ### 7.3 Generar y exportar
 
 Con la simetría definida y cada miembro con su silueta, el Estado deja de listar pendientes y se puede:

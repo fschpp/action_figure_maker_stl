@@ -38,6 +38,8 @@ class Mode(Enum):
     NECK_PLANE = "plano_cuello"
     POLYGON = "silueta"
     PIN = "pasador"
+    JOINT_PLANE = "plano_articulacion"   # 3 clics: plano que parte el miembro en proximal y distal (rodilla / codo)
+    JOINT_AXIS = "eje_articulacion"      # un clic sobre la figura fija (y, z) del eje de la bisagra
     TRIM_PICK = "recorte_clic"      # un clic sobre la figura pone el centro de un recorte esfera / caja / cilindro
 
 
@@ -45,6 +47,7 @@ TRIM_SHAPES = ("polygon", "sphere", "box", "cylinder")
 TRIM_SHAPE_LABELS = {"polygon": "polígono", "sphere": "esfera", "box": "caja", "cylinder": "cilindro"}
 TRIM_OP_LABELS = {"subtract": "restar", "union": "unir"}
 SYMMETRY_PLANE_NAME = "simetría"
+JOINT_PREFIX = "articulacion:"      # id de plano de una articulación en la lista (`articulacion:rodilla`)
 POSE_TOL_MM3 = 1e-4              # misma tolerancia de interferencia que `pipeline.validate`
 
 
@@ -63,7 +66,7 @@ class PlaneEntry:
     id: str                  # SYMMETRY_ID o el nombre del miembro
     label: str
     plane: Plane
-    kind: str                # "symmetry" | "arm" | "leg"
+    kind: str                # "symmetry" | "arm" | "leg" | "head" | "joint"
     visible: bool = True
 
 
@@ -128,6 +131,8 @@ class Controller:
         self.draft: PolygonDraft | None = None      # polígono de silueta en edición (modo POLYGON)
         self.edit_limb: str | None = None
         self.edit_cross = False                     # el polígono en edición es el 2.º corte (frente) del miembro
+        self.joint_limb: str | None = None          # miembro al que se le está definiendo la articulación (JOINT_PLANE)
+        self.joint_name: str | None = None          # articulación cuyo eje se está colocando (JOINT_AXIS)
         self.pin_limb: str | None = None            # miembro cuyo pasador se está colocando (modo PIN)
         self.pin_prev = None                         # PinPreview de ese miembro (cara de contacto)
         self.mirror_live = False                     # con «un solo lado»: mostrar el espejo del lado de trabajo en vivo
@@ -241,11 +246,116 @@ class Controller:
         self._changed("Plano del cuello: elegí 3 puntos (2 en la nuca, a cada lado, y 1 bajo el mentón). "
                       "Lo de arriba es la cabeza; el pasador va en el centro de la cara del corte.")
 
+    # ------------------------------------------------ articulaciones (rodilla / codo)
+    def start_joint_plane(self, limb: str) -> None:
+        """Plano de la rodilla (pierna) o del codo (brazo): 3 puntos sobre la figura a esa altura."""
+        if not self._need_loaded():
+            return
+        spec = self.session.limb(limb)
+        if spec is None:
+            self._changed(f"No hay un miembro «{limb}».", scene=False)
+            return
+        if self.session.joint_of_limb(limb) is not None:
+            self._changed(f"«{limb}» ya tiene su articulación: quitala (−) para rehacerla.", scene=False)
+            return
+        self.cancel(quiet=True)
+        self.mode, self.joint_limb = Mode.JOINT_PLANE, limb
+        what = "rodilla" if spec.kind == "leg" else "codo"
+        self._changed(f"Plano de la {what}: elegí 3 puntos sobre la figura a la altura donde se dobla "
+                      "(el plano tiene que quedar casi horizontal; lo de arriba es el muslo / brazo).")
+
+    def start_joint_plane_for_kind(self, kind: str) -> None:
+        """Rodilla («leg») o codo («arm»): toma el primer miembro de ese tipo que todavía no tiene articulación."""
+        if kind not in _KIND_BASE:
+            raise ValueError(kind)
+        limb = next((l.name for l in self.session.project.limbs
+                     if l.kind == kind and self.session.joint_of_limb(l.name) is None), None)
+        if limb is None:
+            self._changed(f"No hay un {_KIND_BASE[kind]} sin articulación: agregá primero su plano y silueta "
+                          "(o quitá la articulación que ya tiene).", scene=False)
+            return
+        self.start_joint_plane(limb)
+
+    def joint_tilt(self, name: str) -> float:
+        d = self.session.joint(name).axis_dir
+        return float(np.degrees(np.arctan2(d[1], d[0])))
+
+    def _finish_joint_plane(self) -> None:
+        pts, self.pending = self.pending, []
+        limb = self.joint_limb
+        try:
+            plane = Session.plane_from_points(pts, "articulación")
+            j = self.session.add_joint(limb, plane, anchor=np.mean(pts, axis=0))
+        except (ValueError, KeyError) as e:
+            self._changed(f"No sirve: {e}. Elegí 3 puntos de nuevo.")
+            return
+        self.mode, self.joint_limb = Mode.VIEW, None
+        self._changed(f"{j.name.capitalize()} definida con rango {self.joint_range_text(j.name)}. Ajustá el eje con "
+                      "«Colocar eje» (clic sobre el lado de la figura) y la inclinación si hace falta.")
+
+    def start_joint_axis(self, name: str) -> None:
+        if not self._need_loaded():
+            return
+        if self.session.joint(name) is None:
+            self._changed(f"No hay una articulación «{name}».", scene=False)
+            return
+        self.cancel(quiet=True)
+        self.mode, self.joint_name = Mode.JOINT_AXIS, name
+        self._changed(f"Eje de la {name}: hacé clic sobre el costado de la figura, en el centro de la bisagra "
+                      "(se toman la altura y la profundidad del clic; el eje atraviesa el miembro).")
+
+    def _finish_joint_axis(self, hit: PickResult) -> None:
+        name = self.joint_name
+        try:
+            self.session.set_joint_axis(name, hit.point)
+        except ValueError as e:
+            self._changed(f"No sirve: {e}.")
+            return
+        self.mode, self.joint_name = Mode.VIEW, None
+        self._changed(f"Eje de la {name} movido.")
+
+    def set_joint_tilt(self, name: str, tilt_deg: float) -> bool:
+        """Inclina el eje de la bisagra (° alrededor de Z; 0 = a lo largo de X). La figura de referencia usa ≈ 14° en la
+        rodilla y ≈ 9,5° en el codo."""
+        if not -45.0 <= float(tilt_deg) <= 45.0:
+            self._changed("La inclinación tiene que estar entre −45° y 45°.", scene=False)
+            return False
+        try:
+            self.session.set_joint_axis(name, None, tilt_deg)
+        except (ValueError, KeyError) as e:
+            self._changed(f"No sirve: {e}.", scene=False)
+            return False
+        self._changed(f"Eje de la {name} inclinado {float(tilt_deg):g}°. Hay que generar de nuevo.")
+        return True
+
+    def set_joint_range(self, name: str, lo: float | None, hi: float | None) -> bool:
+        try:
+            self.session.set_joint_range(name, lo, hi)
+        except (ValueError, KeyError) as e:
+            self._changed(f"No sirve: {e}.", scene=False)
+            return False
+        self._changed(f"Rango de la {name}: {self.joint_range_text(name)}. Hay que generar de nuevo.")
+        return True
+
+    def joint_limits(self, name: str) -> tuple[float, float]:
+        from ..joints import flex_range
+        return flex_range(self.session.joint(name), self.session.project.params)
+
+    def set_joint_limit(self, name: str, which: str, value: float) -> bool:
+        """Cambia solo el mínimo («lo») o el máximo («hi») del rango de flexión, conservando el otro."""
+        lo, hi = self.joint_limits(name)
+        return self.set_joint_range(name, float(value), hi) if which == "lo" else self.set_joint_range(name, lo, float(value))
+
+    def joint_range_text(self, name: str) -> str:
+        lo, hi = self.joint_limits(name)
+        return f"{lo:g}° … {hi:g}° de flexión"
+
     def cancel(self, quiet: bool = False) -> None:
         was = self.mode
         self.mode, self.pending, self.pending_kind = Mode.VIEW, [], None
         self.draft, self.edit_limb, self.edit_cross = None, None, False
         self.pin_limb, self.pin_prev = None, None
+        self.joint_limb, self.joint_name = None, None
         was_trim = self.trim_cfg is not None
         self.trim_cfg, self.edit_trim = None, None
         if not quiet:
@@ -925,6 +1035,18 @@ class Controller:
         self._changed(f"Recorte {TRIM_SHAPE_LABELS[shape]} en «{target}»: hacé clic en la figura donde va el centro "
                       "(en el lado +X); Esc cancela.")
 
+    def _sync_joints(self, scene) -> None:
+        """Dibuja el eje de cada bisagra como una línea amarilla (sin prueba de profundidad)."""
+        wanted = set()
+        for j in self.session.project.joints:
+            key = f"eje:{j.name}"
+            wanted.add(key)
+            c, d = np.asarray(j.axis_center, float), np.asarray(j.axis_dir, float)
+            d = d / np.linalg.norm(d)
+            scene.set_lines(key, np.array([c - d * 9.0, c + d * 9.0]), (1.0, 0.85, 0.1, 1.0), on_top=True)
+        for key in [k for k in scene.items if k.startswith("eje:") and k not in wanted]:
+            scene.remove(key)
+
     def _finish_trim_pick(self, hit: PickResult) -> None:
         cfg = self.trim_cfg
         center = np.asarray(hit.point, float).copy()
@@ -1035,6 +1157,8 @@ class Controller:
             self._finish_crown(hit)
         elif self.mode == Mode.TRIM_PICK:
             self._finish_trim_pick(hit)
+        elif self.mode == Mode.JOINT_AXIS:
+            self._finish_joint_axis(hit)
         else:
             self.pending.append(hit.point.copy())
             if len(self.pending) < 3:
@@ -1043,6 +1167,8 @@ class Controller:
                 self._finish_symmetry()
             elif self.mode == Mode.NECK_PLANE:
                 self._finish_neck_plane()
+            elif self.mode == Mode.JOINT_PLANE:
+                self._finish_joint_plane()
             else:
                 self._finish_limb_plane()
         return hit
@@ -1160,6 +1286,9 @@ class Controller:
         head = self.session.project.head
         if head is not None:
             out.append(PlaneEntry(HEAD_NAME, "Cabeza (cuello)", head.plane, "head", HEAD_NAME not in self.hidden))
+        for j in self.session.project.joints:
+            jid = JOINT_PREFIX + j.name
+            out.append(PlaneEntry(jid, j.name.capitalize(), j.plane, "joint", jid not in self.hidden))
         return out
 
     def toggle_plane(self, plane_id: str) -> None:
@@ -1178,7 +1307,10 @@ class Controller:
             self.hidden.clear()
             self._changed("Simetría quitada (también los miembros: dependen de ella).")
             return
-        if plane_id == HEAD_NAME:
+        if plane_id.startswith(JOINT_PREFIX):
+            self.cancel(quiet=True)
+            self.session.remove_joint(plane_id[len(JOINT_PREFIX):])
+        elif plane_id == HEAD_NAME:
             self.session.remove_head()
         else:
             self.session.remove_limb(plane_id)
@@ -1277,7 +1409,7 @@ class Controller:
             drawn = [("figura", sess.work, _MIRROR_COLOR)]
         hs = self.plane_half_size
         palette = {"symmetry": (1.0, 0.55, 0.2, 0.18), "arm": (0.3, 0.6, 1.0, 0.22), "leg": (0.4, 0.85, 0.5, 0.22),
-                   "head": (0.9, 0.5, 0.9, 0.22)}
+                   "head": (0.9, 0.5, 0.9, 0.22), "joint": (1.0, 0.85, 0.2, 0.22)}
         wanted = set()
         for e in self.plane_entries():
             key = f"plano:{e.id}"
@@ -1296,6 +1428,7 @@ class Controller:
             scene.remove("pendientes:lineas")
         self._sync_polygons(scene)
         self._sync_pins(scene)
+        self._sync_joints(scene)
         self._sync_trims(scene)
         self._sync_mirror(scene, drawn, cplane)
 

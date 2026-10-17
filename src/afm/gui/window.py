@@ -14,7 +14,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
 from gi.repository import Gdk, Gio, GLib, Gtk  # noqa: E402
 
-from .controller import PARAM_FIELDS, TRIM_OP_LABELS, TRIM_SHAPE_LABELS, TRIM_SHAPES, Controller, Mode  # noqa: E402
+from .controller import JOINT_PREFIX, PARAM_FIELDS, TRIM_OP_LABELS, TRIM_SHAPE_LABELS, TRIM_SHAPES, Controller, Mode  # noqa: E402
 from .render import SceneRenderer  # noqa: E402
 
 DRAG_THRESHOLD_PX = 4.0
@@ -22,7 +22,8 @@ DRAG_THRESHOLD_PX = 4.0
 _ARROWS = {Gdk.KEY_Left: (-1, 0), Gdk.KEY_Right: (1, 0), Gdk.KEY_Up: (0, 1), Gdk.KEY_Down: (0, -1)}
 _MODE_TITLES = {Mode.VIEW: "", Mode.CROWN: "  ·  marcando coronilla", Mode.SYMMETRY: "  ·  plano de simetría",
                 Mode.LIMB_PLANE: "  ·  plano de un miembro", Mode.NECK_PLANE: "  ·  plano del cuello", Mode.POLYGON: "  ·  dibujando silueta",
-                Mode.PIN: "  ·  colocando pasador", Mode.TRIM_PICK: "  ·  colocando recorte"}
+                Mode.PIN: "  ·  colocando pasador", Mode.TRIM_PICK: "  ·  colocando recorte",
+                Mode.JOINT_PLANE: "  ·  plano de articulación", Mode.JOINT_AXIS: "  ·  colocando eje de bisagra"}
 _TRIM_OPS = ("subtract", "union")
 
 
@@ -129,10 +130,14 @@ class MainWindow(Gtk.ApplicationWindow):
         self.btn_arm = self._button("Agregar plano de brazo (3 puntos)", lambda *_: self.ctrl.start_limb_plane("arm"))
         self.btn_leg = self._button("Agregar plano de pierna (3 puntos)", lambda *_: self.ctrl.start_limb_plane("leg"))
         self.btn_neck = self._button("Agregar plano del cuello / cabeza (3 puntos)", lambda *_: self.ctrl.start_neck_plane())
+        self.btn_knee = self._button("Agregar rodilla a una pierna (3 puntos)",
+                                     lambda *_: self.ctrl.start_joint_plane_for_kind("leg"))
+        self.btn_elbow = self._button("Agregar codo a un brazo (3 puntos)",
+                                      lambda *_: self.ctrl.start_joint_plane_for_kind("arm"))
         self.btn_head_stl = self._button("Cabeza de reemplazo (STL)…", self._on_head_replacement)
         self.btn_head_orig = self._button("Volver a la cabeza original", lambda *_: self.ctrl.clear_head_replacement())
         for b in (self.btn_sym, self.btn_sym_auto, self.btn_arm, self.btn_leg, self.btn_neck,
-                  self.btn_head_stl, self.btn_head_orig):
+                  self.btn_knee, self.btn_elbow, self.btn_head_stl, self.btn_head_orig):
             box.append(b)
         row = Gtk.Box(spacing=6)
         row.append(Gtk.Label(label="Corte a (mm del plano de simetría)"))
@@ -271,7 +276,7 @@ class MainWindow(Gtk.ApplicationWindow):
         row.append(self.ent_profile)
         row.append(self._button("Guardar", lambda *_: self._on_save_profile()))
         box.append(row)
-        self.dd_probe = Gtk.DropDown.new_from_strings(["Pasador de cadera", "Pasador de hombro"])
+        self.dd_probe = Gtk.DropDown.new_from_strings(["Pasador de cadera", "Pasador de hombro", "Bisagra de rodilla / codo"])
         box.append(self.dd_probe)
         box.append(self._button("Generar probetas de articulación…", lambda *_: self._on_probes()))
 
@@ -341,6 +346,8 @@ class MainWindow(Gtk.ApplicationWindow):
             self.btn_arm.set_sensitive(loaded and has_sym)
             self.btn_leg.set_sensitive(loaded and has_sym)
             self.btn_neck.set_sensitive(loaded and has_sym)
+            self.btn_knee.set_sensitive(loaded and has_sym and bool(ctrl.session.project.limbs))
+            self.btn_elbow.set_sensitive(loaded and has_sym and bool(ctrl.session.project.limbs))
             head = ctrl.session.project.head
             self.btn_head_stl.set_sensitive(loaded and head is not None)
             self.btn_head_orig.set_sensitive(loaded and head is not None and head.replacement_path is not None)
@@ -460,6 +467,26 @@ class MainWindow(Gtk.ApplicationWindow):
                 pn.add_css_class("flat")
                 pn.connect("clicked", lambda _b, pid=e.id: self.ctrl.start_pin(pid))
                 row.append(pn)
+            if e.kind == "joint":
+                jn = e.id[len(JOINT_PREFIX):]
+                ax = Gtk.Button(icon_name="find-location-symbolic", tooltip_text="Colocar el eje de la bisagra "
+                                "(clic sobre el costado de la figura)")
+                ax.add_css_class("flat")
+                ax.connect("clicked", lambda _b, n=jn: self.ctrl.start_joint_axis(n))
+                row.append(ax)
+                lo, hi = self.ctrl.joint_limits(jn)
+                for tip, val, lo_b, hi_b, cb in (
+                        ("Flexión mínima (° ; negativa = hiperextensión)", lo, -45.0, 149.0,
+                         lambda b, n=jn: self.ctrl.set_joint_limit(n, "lo", b.get_value())),
+                        ("Flexión máxima (°)", hi, -44.0, 150.0,
+                         lambda b, n=jn: self.ctrl.set_joint_limit(n, "hi", b.get_value())),
+                        ("Inclinación del eje (° alrededor de Z)", self.ctrl.joint_tilt(jn), -45.0, 45.0,
+                         lambda b, n=jn: self.ctrl.set_joint_tilt(n, b.get_value()))):
+                    sp = Gtk.SpinButton.new_with_range(lo_b, hi_b, 1.0)
+                    sp.set_value(val)
+                    sp.set_tooltip_text(tip)
+                    sp.connect("value-changed", lambda b, cb=cb: None if self._updating else cb(b))
+                    row.append(sp)
             rm = Gtk.Button(icon_name="edit-delete-symbolic", tooltip_text="Quitar plano")
             rm.add_css_class("flat")
             rm.connect("clicked", lambda _b, pid=e.id: self.ctrl.remove_plane(pid))
@@ -657,7 +684,7 @@ class MainWindow(Gtk.ApplicationWindow):
 
     def _on_probes(self) -> None:
         dlg = Gtk.FileDialog(title="Carpeta donde guardar las probetas")
-        which = "hip" if self.dd_probe.get_selected() == 0 else "shoulder"
+        which = ("hip", "shoulder", "hinge")[self.dd_probe.get_selected()]
 
         def finished(d, res):
             try:

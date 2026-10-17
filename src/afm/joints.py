@@ -25,6 +25,7 @@ from .params import HingeSpec, Params
 from .planes import Plane
 
 KINDS = ("knee", "elbow")
+JOINT_KIND_BY_LIMB = {"leg": "knee", "arm": "elbow"}
 DEFAULT_NAMES = {"knee": ("muslo", "pantorrilla"), "elbow": ("brazo", "antebrazo")}
 BOLT_OVERLAP = 0.3       # cuánto entra el bulón en la lengüeta (unión sólida)
 BOLT_CHAMFER = 0.4

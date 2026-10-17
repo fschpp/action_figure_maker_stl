@@ -19,6 +19,7 @@ import trimesh
 
 from .. import meshio, pipeline as P, solids as S
 from ..head import HeadSpec, neck_plane, split_head
+from ..joints import JOINT_KIND_BY_LIMB, JointSpec, min_shoulder
 from ..limbs import CROSS_THICKNESS_MM, LimbCut, LimbSpec, PinPreview, check_limb_plane, contact_preview, effective_cut_offset, plane_is_lateral, plane_on_symmetry
 from ..params import PinSpec
 
@@ -413,7 +414,92 @@ class Session:
             spec.pin_center = tuple(float(x) for x in prev.plane.to_world(uv[None])[0])
         self.outcome = None
 
+    # --------------------------------------------------- articulaciones (rodilla / codo)
+    def joint(self, name: str) -> JointSpec | None:
+        return next((j for j in self.project.joints if j.name == name), None)
+
+    def joint_of_limb(self, limb: str) -> JointSpec | None:
+        return next((j for j in self.project.joints if j.limb == limb), None)
+
+    @staticmethod
+    def _tilt_axis(tilt_deg: float) -> tuple:
+        t = np.radians(float(tilt_deg))
+        return (float(np.cos(t)), float(np.sin(t)), 0.0)
+
+    def add_joint(self, limb: str, plane: Plane, anchor=None, tilt_deg: float = 0.0) -> JointSpec:
+        """Parte `limb` por `plane` en proximal y distal (rodilla de una pierna, codo de un brazo).
+
+        El eje de la bisagra arranca en `anchor` (por defecto el origen del plano) llevado hacia el lado proximal
+        (arriba) lo justo para que quede pared alrededor del bulón (`joints.min_shoulder`); ajustalo con
+        `set_joint_axis`. `tilt_deg` gira el eje en el plano horizontal alrededor de Z (0 = a lo largo de X)."""
+        spec = self.limb(limb)
+        if spec is None:
+            raise KeyError(limb)
+        if self.joint_of_limb(limb) is not None:
+            raise ValueError(f"«{limb}» ya tiene una articulación: quitala primero")
+        kind = JOINT_KIND_BY_LIMB[spec.kind]
+        n = np.asarray(plane.normal, float)
+        n = n / np.linalg.norm(n)
+        if n[2] < 0:
+            n = -n                                            # lado proximal = arriba (figura de pie, Z arriba)
+        if abs(n[2]) < 0.5:
+            raise ValueError("el plano de la articulación tiene que ser casi horizontal (corta el miembro a lo largo)")
+        p = self.project.params
+        h = min_shoulder(p.hinge_pin, p)
+        base = np.asarray(plane.origin if anchor is None else anchor, float)
+        base = base - n * float((base - plane.origin) @ n)    # sobre el plano
+        center = base + n * h
+        name = "rodilla" if kind == "knee" else "codo"
+        j = JointSpec(name=name, limb=limb, kind=kind, plane=plane,
+                      axis_center=tuple(float(x) for x in center), axis_dir=self._tilt_axis(tilt_deg))
+        self.project.joints.append(j)
+        self.outcome = None
+        return j
+
+    def set_joint_axis(self, name: str, point_world=None, tilt_deg: float | None = None) -> JointSpec:
+        """Mueve el eje de la bisagra: `point_world` fija (y, z) del eje (la x se conserva: el eje atraviesa el
+        miembro), `tilt_deg` lo inclina. Falla con ValueError si queda a menos de 0,5 mm del lado proximal del plano."""
+        j = self.joint(name)
+        if j is None:
+            raise KeyError(name)
+        c = np.asarray(j.axis_center, float)
+        if point_world is not None:
+            pt = np.asarray(point_world, float)
+            c = np.array([c[0], pt[1], pt[2]])
+        n = np.asarray(j.plane.normal, float)
+        n = n / np.linalg.norm(n)
+        if n[2] < 0:
+            n = -n
+        h = float((c - np.asarray(j.plane.origin, float)) @ n)
+        if h < 0.5:
+            raise ValueError(f"el eje tiene que quedar al menos 0,5 mm arriba del plano de articulación (queda a {h:.2f} mm)")
+        j.axis_center = tuple(float(x) for x in c)
+        if tilt_deg is not None:
+            j.axis_dir = self._tilt_axis(tilt_deg)
+        self.outcome = None
+        return j
+
+    def set_joint_range(self, name: str, lo: float | None, hi: float | None) -> JointSpec:
+        """Rango de flexión (°, hiperextensión negativa). `None, None` vuelve al de los parámetros."""
+        j = self.joint(name)
+        if j is None:
+            raise KeyError(name)
+        if lo is None and hi is None:
+            j.flex_range = None
+        else:
+            lo, hi = float(lo), float(hi)
+            if not (-45.0 <= lo < hi <= 150.0):
+                raise ValueError("el rango tiene que cumplir −45° ≤ mínimo < máximo ≤ 150°")
+            j.flex_range = (lo, hi)
+        self.outcome = None
+        return j
+
+    def remove_joint(self, name: str) -> None:
+        self.project.joints = [j for j in self.project.joints if j.name != name]
+        self.outcome = None
+
     def remove_limb(self, name: str) -> None:
+        self.project.joints = [j for j in self.project.joints if j.limb != name]
         self.project.limbs = [l for l in self.project.limbs if l.name != name]
         self.project.trims = [t for t in self.project.trims if t.target != name]
         self.outcome = None
@@ -514,6 +600,10 @@ class Session:
         for l in self.project.limbs:
             if len(l.polygon) < 3:
                 out.append(f"{l.name}: dibujá la silueta (mínimo 3 puntos)")
+        names = {l.name for l in self.project.limbs}
+        for j in self.project.joints:
+            if j.limb not in names:
+                out.append(f"{j.name}: su miembro «{j.limb}» ya no existe")
         return out
 
     def build(self, progress=None) -> BuildOutcome:
