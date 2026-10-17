@@ -5,6 +5,7 @@ import json
 from dataclasses import dataclass, field
 
 from .head import HeadSpec
+from .joints import JointSpec
 from .limbs import LimbSpec
 from .params import Params, PinSpec
 from .planes import Plane
@@ -19,6 +20,7 @@ class Project:
     front: str = "+Y"                     # hacia dónde mira la figura en el STL ("+Y" o "-Y")
     limbs: list[LimbSpec] = field(default_factory=list)
     trims: list[Trim] = field(default_factory=list)
+    joints: list[JointSpec] = field(default_factory=list)   # rodillas / codos (bisagras); vacío = miembro rígido
     head: HeadSpec | None = None          # cabeza articulada (plano del cuello + pasador); None = cabeza fija al torso
 
     def to_dict(self) -> dict:
@@ -31,6 +33,7 @@ class Project:
             "limbs": [l.to_dict() for l in self.limbs],
             "trims": [t.to_dict() for t in self.trims],
             "head": None if self.head is None else self.head.to_dict(),
+            "joints": [j.to_dict() for j in self.joints],
         }
 
     @classmethod
@@ -43,6 +46,7 @@ class Project:
             limbs=[LimbSpec.from_dict(x) for x in d.get("limbs", [])],
             trims=[Trim.from_dict(x) for x in d.get("trims", [])],
             head=None if d.get("head") is None else HeadSpec.from_dict(d["head"]),
+            joints=[JointSpec.from_dict(x) for x in d.get("joints", [])],
         )
 
     def save(self, path: str) -> None:

@@ -22,8 +22,8 @@ def run(stl_path: str, project: Project, outdir: str, name: str, progress=print,
     mesh = P.align_to_symmetry(mesh, project.symmetry)
     body = S.to_manifold(mesh)
     res = P.build(body, project.limbs, project.params, project.symmetry, progress=progress,
-                  trims=project.trims, head=project.head)
-    val = P.validate(res, project.params, project.limbs)
+                  trims=project.trims, head=project.head, joints=project.joints)
+    val = P.validate(res, project.params, project.limbs, joints=project.joints)
     files = P.export(res, outdir, name, orient=orient, max_angle=max_angle)
     info = {"carga": rep.__dict__, "construccion": res.report, "validacion": val, "archivos": files}
     with open(os.path.join(outdir, f"{name}_informe.json"), "w") as f:
