@@ -80,3 +80,10 @@ def test_cli_flag_registered():
     with pytest.raises(SystemExit) as e:
         cli_main(["build", "--help"])
     assert e.value.code == 0
+
+
+def test_reference_figure_profile():
+    p = Params.reference_figure()
+    assert p.ref_height == 129.0 and p.hip_pin == HIP_PIN_REFERENCE
+    assert p.hinge_pin == Params().hinge_pin                # bulones de bisagra: mm absolutos, sin escalar
+    assert Params.from_dict(p.to_dict()) == p

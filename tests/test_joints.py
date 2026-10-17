@@ -1,6 +1,8 @@
 """Rodilla y codo: bisagra de lengüeta en ranura con dos bulones (plan de articulaciones §3–§5)."""
 import dataclasses
 
+import numpy as np
+
 import pytest
 
 from afm import pipeline as P, solids as S
@@ -142,3 +144,30 @@ def test_project_roundtrip_and_old_projects(tmp_path):
     d.pop("joints")
     d["params"] = {k: v for k, v in d["params"].items() if k not in ("hinge_pin", "knee_range")}
     assert Project.from_dict(d).joints == []                          # un .proyecto viejo carga igual
+
+
+def test_tilted_hinge_axis_like_reference_knee(params):
+    """Eje inclinado sobre Y como el de la figura de referencia (rodilla ≈ 14,5°, intencional): mismo comportamiento.
+
+    Con el eje inclinado el miembro flexionado se desplaza hacia el centro (≈ L·sen α·cos α·(1 − cos θ)): con las
+    piernas del muñeco, muy juntas, la pose sentada a 85° hace chocar las pantorrillas izquierda y derecha, y la
+    validación lo informa; con una flexión de impresión de 40° (≈ 1 mm de desplazamiento) todo queda en orden."""
+    a = np.radians(14.5)
+    kn = knee(axis_dir=(np.cos(a), 0.0, np.sin(a)))
+    body = S.to_manifold(make_doll())
+    proj = demo_project()
+    p40 = dataclasses.replace(params, knee_print_angle=40.0)
+    res = P.build(body, proj.limbs, p40, proj.symmetry, joints=[kn])
+    val = P.validate(res, p40, proj.limbs, joints=[kn])
+    assert val["ok"], val["problems"]
+    rec = val["articulaciones"]["rodilla"]
+    assert rec["tope_flexion_mm3"] > 1e-4 and rec["tope_extension_mm3"] > 1e-4
+    assert rec["retencion_libre"] == []
+    jb = res.joints["rodilla"]
+    assert jb.axis[2] == pytest.approx(np.sin(a), abs=1e-6)
+    ymin = lambda mf: mf.bounding_box()[1]
+    assert ymin(jb.rotate_distal(60)) < ymin(jb.distal) - 3          # sigue flexionando hacia atrás (−Y)
+    # a 85° (valor por defecto) las pantorrillas de las dos piernas se cruzan en el muñeco
+    res85 = P.build(body, proj.limbs, params, proj.symmetry, joints=[kn])
+    assert any("pantorrilla_izq y pantorrilla_der se interpenetran" in x
+               for x in P.validate(res85, params, proj.limbs, joints=[kn])["problems"])

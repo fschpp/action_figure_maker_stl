@@ -16,6 +16,7 @@ class PinSpec:
 # Pasador de cadera de la figura de referencia del cliente (plan de articulaciones §1/§3): cabeza/vástago ≈ 1,9.
 # mm absolutos de una figura de 129 mm; NO es el valor por defecto de `Params.hip_pin` (decisión de escala pendiente).
 HIP_PIN_REFERENCE = PinSpec(4.8, 2.3, 9.25, 2.44)
+REFERENCE_FIGURE_HEIGHT = 129.0   # 13 cm reales (decisión del cliente, 2026-10-17): pies → punta del sombrero
 HIP_WALL_REFERENCE = 1.30   # pared medida entre la cabeza y el cuerpo del muslo (= shaft_len − 2·holgura con 0,5 mm)
 
 
@@ -64,6 +65,12 @@ class Params:
         """Copia con el pasador de cadera de la figura de referencia (cabeza/vástago ≈ 1,9, mm absolutos)."""
         import dataclasses
         return dataclasses.replace(self, hip_pin=dataclasses.replace(HIP_PIN_REFERENCE))
+
+    @classmethod
+    def reference_figure(cls) -> "Params":
+        """Línea de figuras de 13 cm reales (Link): 129 mm de los pies al punto más alto (o a la coronilla marcada) y
+        pasador de cadera de la figura de referencia. Las medidas de articulación son mm absolutos: no se escalan."""
+        return cls(ref_height=REFERENCE_FIGURE_HEIGHT).with_hip_reference()
 
     def to_dict(self) -> dict:
         return asdict(self)

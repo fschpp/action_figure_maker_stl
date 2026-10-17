@@ -36,7 +36,9 @@ holgura axial de las bisagras es ≈ 0,14–0,2 mm por lado, no 0,35.
 | `brazomano` (**antebrazo + mano**) | 70 488 | sí | 11,0 × 12,2 × 31,3 | 48,5 → 79,8 | codo → mano |
 
 Altura total pies → tope del sombrero: 128,2 − (−0,8) = **129,0 mm**; el torso llega a 107,3. Normalizar a 100 mm pies → sombrero
-da ×0,775. La asignación brazo/antebrazo se deduce por posición (z 75–100 vs. 48–80): **confirmar con el cliente**.
+da ×0,775. **Decisión del cliente (2026-10-17): la figura es de 13 cm reales** (no se normaliza a 100 mm; `Params.reference_figure()` usa `ref_height = 129`) y las medidas de articulación son mm absolutos.
+
+**Nombres confirmados por el cliente:** el **brazo** es `antebrazo_003.stl` (hombro → codo) y el **antebrazo** es `brazomano.stl` (codo → mano).
 
 ## 3. Articulaciones
 
@@ -109,7 +111,10 @@ Eje **exactamente paralelo a X** (centros constantes: y −3,81, z 60,66–60,73
 1. **Ejes inclinados.** Rodilla y codo tienen el eje girado sobre Y (z sube con x, ≈ 14° y ≈ 9,5°); la cadera no. El plan
    suponía los tres paralelos a X. El motor ya acepta `axis_dir` arbitrario, pero la GUI (clic sobre el plano de trabajo)
    solo pondría X. **Pregunta para el cliente:** ¿la inclinación es intencional (p. ej. para que la pierna quede con un
-   ángulo natural) o es de cómo exportó las piezas? Si fuera de la exportación, rotar todo el miembro lo corrige.
+   ángulo natural) o es de cómo exportó las piezas? **Respuesta del cliente (2026-10-17): la inclinación es intencional**, así que se
+   conserva: `JointSpec.axis_dir` oblicuo (p. ej. `(cos 14,5°, 0, sen 14,5°)` en la rodilla) ya funciona y tiene test. Consecuencia: al
+   flexionar, el miembro se desplaza hacia el centro ≈ L·sen α·cos α·(1 − cos θ) (≈ 4,8 mm con L = 20 mm y α = 14,5°), por lo que
+   las piernas del muñeco, muy juntas, chocan con la rodilla a 85°; verificarlo con la figura real. La GUI todavía solo coloca ejes ∥ X.
 2. **Holgura axial.** La referencia usa 0,135 mm por lado en la rodilla y ≈ 0,2 en el codo (con tornillo que centra la
    pieza). El valor 0,35 del plan era la suma de otras lecturas inclinadas. Para print-in-place sin tornillo conviene
    mantener ≥ 0,3 hasta ver las probetas; queda como parámetro.

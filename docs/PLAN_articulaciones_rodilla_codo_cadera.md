@@ -80,10 +80,11 @@ No tiene, y por eso hace falta código nuevo:
 - Probetas imprimen con giro suave sin romper (decisión del cliente).
 
 ## 6. Riesgos y decisiones abiertas
-1. **Escala** (ver §3): 13 cm vs. 10 cm cambia si los bulones son imprimibles. Hay que decidir si el motor normaliza o respeta el tamaño real.
+1. **Escala** (ver §3) — **decidido por el cliente (2026-10-17): 13 cm reales**, sin normalizar a 100 mm (`ref_height = 129`, `Params.reference_figure()`); los bulones y holguras son mm absolutos.
 2. **Tiempos de cómputo**: dos barridos encadenados con `dilate` sobre mallas de ~300 k triángulos; probablemente hay que decimar antes (como ya se hace con el torso).
 3. **Bulones horizontales** imprimen con puentes; si fallan, alternativa: bulón en forma de gota (rombo) o imprimir la figura acostada (`orient`).
 4. **Topes**: la medición de §1 es una simulación con piezas despiezadas y alineadas por el centro del agujero (hay un desfase de 1,2 mm en la rodilla); los ángulos de tope son ±10°. Hay que confirmarlos con la figura armada o con probetas. Además la validación actual (`recorrido`) solo comprueba que no haya choque en el rango; hay que sumar el chequeo inverso (que **sí** choque fuera de él).
 5. **Pared del padre**: el barrido de la pantorrilla puede dejar el fondo del muslo muy fino; solución prevista: aumentar `end_r` o acotar `range_deg`.
-5. Nombres: `antebrazo_003` es el brazo y `brazomano` el antebrazo, confirmar.
+5. Nombres — **confirmados por el cliente (2026-10-17):** el brazo es `antebrazo_003.stl` y el antebrazo es `brazomano.stl`.
+7. **Ejes inclinados** — el cliente confirmó (2026-10-17) que la inclinación de rodilla (≈ 14°) y codo (≈ 9,5°) es **intencional**: se conserva (ver `docs/MEDIDAS_figura_referencia.md` §5). La GUI (Fase 5) debe permitir fijar la inclinación del eje.
 6. **No se modela** el pasador/tornillo ni las tuercas de la figura de referencia ni la división de la pelvis en dos mitades (lo pidió explícitamente el cliente).
