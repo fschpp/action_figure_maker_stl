@@ -153,6 +153,11 @@ def test_project_roundtrip_and_old_projects(tmp_path):
     assert Project.from_dict(d).joints == []                          # un .proyecto viejo carga igual
 
 
+# Con el eje de la rodilla inclinado como en la figura de referencia, las pantorrillas se tocan al sentar con flexión
+# máxima (hallazgo real de la validación de cadena).
+TILTED_KNEE_CALVES = "pantorrilla_izq choca con pantorrilla_der"
+
+
 def test_tilted_hinge_axis_like_reference_knee(params):
     """Eje inclinado sobre Y como el de la figura de referencia (rodilla ≈ 14,5°, intencional): mismo comportamiento.
 
@@ -166,7 +171,12 @@ def test_tilted_hinge_axis_like_reference_knee(params):
     p40 = dataclasses.replace(params, knee_print_angle=40.0)
     res = P.build(body, proj.limbs, p40, proj.symmetry, joints=[kn])
     val = P.validate(res, p40, proj.limbs, joints=[kn])
-    assert val["ok"], val["problems"]
+    # La validación de cadena (Fase 4) barre la flexión hasta el máximo con la cadera hasta `sit_angle`: con el eje
+    # inclinado las pantorrillas se pisan a cadera 60° y flexión 90°. Es un hallazgo real (el desplazamiento hacia el
+    # centro de la docstring), no un error de los demás chequeos: debe ser el único problema.
+    other = [x for x in val["problems"] if TILTED_KNEE_CALVES not in x]
+    assert not other, other
+    assert val["cadena"]["rodilla"]["pantorrilla_der"]["mm3"] > 1.0
     rec = val["articulaciones"]["rodilla"]
     assert rec["tope_flexion_mm3"] > 1e-4 and rec["tope_extension_mm3"] > 1e-4
     assert rec["retencion_libre"] == []
