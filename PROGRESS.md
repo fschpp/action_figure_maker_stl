@@ -10,7 +10,7 @@ _Última actualización: 2026-10-16 18:30 (America/Argentina/Buenos_Aires), rama
 
 ## Todo List
 ### [ ] Todo
-- [ ] **Articulaciones:** Fase 0 `tools/medir_articulaciones.py` (necesita los STL de Link; repetir sobre todo el codo)
+- [x] **Articulaciones:** Fase 0 hecha (2026-10-17): `tools/medir_articulaciones.py` + `docs/MEDIDAS_figura_referencia.md` / `.json`. Hallazgos: ejes de rodilla (≈14°) y codo (≈9,5°) inclinados sobre Y, cadera ∥ X; holgura axial de referencia 0,135 (rodilla) / ≈0,2 mm (codo) por lado; lengüeta 2,8 / 3,15 mm; pasador de cadera Ø4,80 / cabeza Ø9,26 × 2,44, pared 1,30. Pendiente: preguntar al cliente si la inclinación es intencional y revisar `HingeSpec.tongue_t` / `axial_clearance` con probetas
 - [ ] **Articulaciones:** Fase 3 cadera: preset `HIP_PIN_REFERENCE` en `Params`, chequeo de pared detrás de la cabeza (≥ `min_wall`) y de cabezas enfrentadas (≥ 2·holgura)
 - [ ] **Articulaciones:** pared del padre alrededor de la ranura (validar `min_wall`; hoy solo hay aviso de `shoulder_h`), cadena de rotaciones en `res.motion` (la vista de pose de la GUI sigue mostrando la pierna entera recta), choque pantorrilla vs. pierna opuesta / antebrazo vs. torso con la cadena posada
 - [ ] **Articulaciones:** Fase 5 GUI (`Mode.JOINT_PLANE`, `Mode.JOINT_AXIS`, fila «Articulación», rango y parámetros) y Fase 6 probetas de bisagra
