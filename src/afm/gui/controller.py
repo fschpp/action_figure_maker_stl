@@ -111,6 +111,10 @@ PARAM_FIELDS = (
     ("hip_pin.shaft_len", "Cadera: largo vástago (mm)", 0.5, 15.0, 0.1, 1),
     ("hip_pin.head_d", "Cadera: Ø cabeza (mm)", 3.0, 16.0, 0.1, 1),
     ("hip_pin.head_h", "Cadera: alto cabeza (mm)", 0.5, 8.0, 0.05, 2),
+    ("hinge_pin.pin_d", "Rodilla/codo: Ø bulón (mm)", 2.0, 6.0, 0.1, 1),
+    ("hinge_pin.pin_len", "Rodilla/codo: largo bulón (mm)", 0.5, 4.0, 0.1, 1),
+    ("hinge_pin.tongue_t", "Rodilla/codo: espesor lengüeta (mm)", 1.0, 6.0, 0.1, 1),
+    ("hinge_pin.end_r", "Rodilla/codo: radio lengüeta (mm)", 2.0, 8.0, 0.1, 1),
 )
 
 
@@ -260,9 +264,10 @@ class Controller:
             return
         self.cancel(quiet=True)
         self.mode, self.joint_limb = Mode.JOINT_PLANE, limb
-        what = "rodilla" if spec.kind == "leg" else "codo"
-        self._changed(f"Plano de la {what}: elegí 3 puntos sobre la figura a la altura donde se dobla "
-                      "(el plano tiene que quedar casi horizontal; lo de arriba es el muslo / brazo).")
+        what = "de la rodilla" if spec.kind == "leg" else "del codo"
+        self._changed(f"Plano {what}: elegí 3 puntos sobre la figura a la altura donde se dobla. Puede quedar inclinado "
+                      "(un brazo que cuelga en diagonal) mientras no sea más de 60° de la horizontal; el eje de la "
+                      "bisagra sigue esa inclinación. Lo de arriba es el muslo / brazo.")
 
     def start_joint_plane_for_kind(self, kind: str) -> None:
         """Rodilla («leg») o codo («arm»): toma el primer miembro de ese tipo que todavía no tiene articulación."""
@@ -278,7 +283,7 @@ class Controller:
 
     def joint_tilt(self, name: str) -> float:
         d = self.session.joint(name).axis_dir
-        return float(np.degrees(np.arctan2(d[1], d[0])))
+        return float(np.degrees(np.arctan2(d[2], d[0])))
 
     def _finish_joint_plane(self) -> None:
         pts, self.pending = self.pending, []
@@ -290,8 +295,9 @@ class Controller:
             self._changed(f"No sirve: {e}. Elegí 3 puntos de nuevo.")
             return
         self.mode, self.joint_limb = Mode.VIEW, None
-        self._changed(f"{j.name.capitalize()} definida con rango {self.joint_range_text(j.name)}. Ajustá el eje con "
-                      "«Colocar eje» (clic sobre el lado de la figura) y la inclinación si hace falta.")
+        self._changed(f"{j.name.capitalize()} definida con rango {self.joint_range_text(j.name)}; el eje quedó "
+                      f"inclinado {self.joint_tilt(j.name):.1f}° siguiendo el plano. Ajustá el eje con «Colocar eje» "
+                      "(clic sobre el lado de la figura) y la inclinación si hace falta.")
 
     def start_joint_axis(self, name: str) -> None:
         if not self._need_loaded():
@@ -315,8 +321,8 @@ class Controller:
         self._changed(f"Eje de la {name} movido.")
 
     def set_joint_tilt(self, name: str, tilt_deg: float) -> bool:
-        """Inclina el eje de la bisagra (° alrededor de Z; 0 = a lo largo de X). La figura de referencia usa ≈ 14° en la
-        rodilla y ≈ 9,5° en el codo."""
+        """Inclina el eje de la bisagra vista de frente (° alrededor de Y; 0 = a lo largo de X; positivo = z sube con x).
+        La figura de referencia usa ≈ 14° en la rodilla y ≈ 9,5° en el codo."""
         if not -45.0 <= float(tilt_deg) <= 45.0:
             self._changed("La inclinación tiene que estar entre −45° y 45°.", scene=False)
             return False

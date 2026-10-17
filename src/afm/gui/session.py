@@ -423,15 +423,31 @@ class Session:
 
     @staticmethod
     def _tilt_axis(tilt_deg: float) -> tuple:
+        """Eje visto de frente: gira alrededor de Y (0 = a lo largo de X; positivo = z sube con x), como la
+        rodilla (≈ 14°) y el codo (≈ 9,5°) de la figura de referencia."""
         t = np.radians(float(tilt_deg))
-        return (float(np.cos(t)), float(np.sin(t)), 0.0)
+        return (float(np.cos(t)), 0.0, float(np.sin(t)))
 
-    def add_joint(self, limb: str, plane: Plane, anchor=None, tilt_deg: float = 0.0) -> JointSpec:
+    @staticmethod
+    def plane_front_tilt_deg(normal) -> float:
+        """Inclinación (vista de frente) del plano de una articulación: ángulo de su traza en XZ respecto de X, con el
+        mismo signo que `_tilt_axis` (z sube con x). Un plano horizontal da 0; se limita a ±45° como el control."""
+        n = np.asarray(normal, float)
+        n = n / np.linalg.norm(n)
+        if n[2] < 0:
+            n = -n
+        t = float(np.degrees(np.arctan2(-n[0] * n[2], 1.0 - n[0] ** 2)))
+        return float(np.clip(t, -45.0, 45.0)) + 0.0
+
+    def add_joint(self, limb: str, plane: Plane, anchor=None, tilt_deg: float | None = None) -> JointSpec:
         """Parte `limb` por `plane` en proximal y distal (rodilla de una pierna, codo de un brazo).
 
         El eje de la bisagra arranca en `anchor` (por defecto el origen del plano) llevado hacia el lado proximal
         (arriba) lo justo para que quede pared alrededor del bulón (`joints.min_shoulder`); ajustalo con
-        `set_joint_axis`. `tilt_deg` gira el eje en el plano horizontal alrededor de Z (0 = a lo largo de X)."""
+        `set_joint_axis`. `tilt_deg` gira el eje vista de frente, alrededor de Y (0 = a lo largo de X, positivo = z
+        sube con x). Sin `tilt_deg` el eje sigue la inclinación del plano (un brazo que cuelga en diagonal se corta
+        con un plano perpendicular a él, y la bisagra queda perpendicular al brazo: no hace falta clavar los 3 clics
+        a la misma altura)."""
         spec = self.limb(limb)
         if spec is None:
             raise KeyError(limb)
@@ -448,8 +464,12 @@ class Session:
         h = min_shoulder(p.hinge_pin, p)
         base = np.asarray(plane.origin if anchor is None else anchor, float)
         base = base - n * float((base - plane.origin) @ n)    # sobre el plano
-        center = base + n * h
+        # El eje queda h por encima del plano (medido a lo largo de la normal) pero verticalmente sobre `anchor`: con
+        # el plano inclinado, subir por la normal corría el eje en X y «Colocar eje» no puede corregir la X.
+        center = base + np.array([0.0, 0.0, h / n[2]])
         name = "rodilla" if kind == "knee" else "codo"
+        if tilt_deg is None:
+            tilt_deg = self.plane_front_tilt_deg(n)
         j = JointSpec(name=name, limb=limb, kind=kind, plane=plane,
                       axis_center=tuple(float(x) for x in center), axis_dir=self._tilt_axis(tilt_deg))
         self.project.joints.append(j)

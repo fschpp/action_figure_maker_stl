@@ -42,3 +42,15 @@ def test_probes_and_result(tmp_path):
     c.apply_probe_result(0.4, 3.9, which="shoulder")
     p = c.session.project.params
     assert p.clearance == 0.4 and p.shoulder_pin.shaft_d == 3.9 and p.hip_pin.shaft_d == 5.0
+
+
+def test_hinge_params_are_editable_and_used_by_the_next_joint(tmp_path):
+    """El Ø del bulón y la lengüeta de rodilla/codo se cambian desde Parámetros (figuras delgadas necesitan una
+    bisagra más chica que la de la referencia)."""
+    c = Controller()
+    for key, value in (("hinge_pin.pin_d", 2.0), ("hinge_pin.pin_len", 1.0), ("hinge_pin.tongue_t", 2.0),
+                       ("hinge_pin.end_r", 3.0)):
+        assert c.set_param(key, value) and c.get_param(key) == value
+    assert not c.set_param("hinge_pin.pin_d", 1.0)           # menor que el mínimo imprimible del motor (2,0)
+    hp = c.session.project.params.hinge_pin
+    assert (hp.pin_d, hp.pin_len, hp.tongue_t, hp.end_r) == (2.0, 1.0, 2.0, 3.0)

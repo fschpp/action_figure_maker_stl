@@ -1,6 +1,9 @@
 # Progreso del desarrollo
 
 ## Current Focus
+**Articulaciones — eje inclinado de frente y plano inclinado (2026-10-17):** la GUI inclinaba el eje alrededor de Z (visto desde arriba) pero la referencia, `docs/MEDIDAS_figura_referencia.md` §5 y el test del motor lo inclinan alrededor de Y (z sube con x). `Session._tilt_axis` y `Controller.joint_tilt` pasan a Y; `add_joint` toma, sin `tilt_deg`, la inclinación del plano (`plane_front_tilt_deg`), así que los 3 clics no tienen que estar a la misma altura; el eje queda verticalmente sobre el centro de los clics (antes se corría en X por la normal y «Colocar eje» no lo corrige). `PARAM_FIELDS` suma `hinge_pin.{pin_d,pin_len,tongue_t,end_r}` (antes no se podía achicar la bisagra desde la GUI). Con el codo de Güemes inclinado 16,7°: `ok` con bulón Ø2,0, lengüeta 2,0, radio 3,0; con la bisagra por defecto la pared del bulón da 0,67 mm (< 0,8, no se imprime). **Falta:** las aristas de 4 caras (`_nonmanifold_edges`) suben mucho con el eje inclinado (≈ 85–90 en el brazo de Güemes frente a 0–8 con eje ∥ X): coplanaridad de la pared de la ranura entre las copias rotadas del barrido; sin resolver.
+
+**Anterior:**
 **Articulaciones — barrido del brazo en el torso (2026-10-17):** el codo ya no choca con el torso. `joints.JointBuild.sweep` guarda el barrido del distal (ensanchado con `clearance`/`axial_clearance`) en todo el rango de flexión; `pipeline.build` lo resta del torso para los miembros que no son pierna (la pierna se libra con el barrido de cadera y la validación de cadena lo confirma). Tests: `test_joints.py` sin la excepción `DOLL_ELBOW_VS_TORSO` (`val["ok"]` vuelve a exigirse, `cadena["codo"] == {}`) y `test_arm_sweep_carved_in_torso`. **Falta:** probar con Güemes (rendimiento y `shoulder_h` ≥ `min_shoulder`), y revisar visualmente en la GUI cuánto torso se quita.
 
 **Anterior:**

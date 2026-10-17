@@ -267,24 +267,35 @@ Después de dibujar la silueta de una pierna o de un brazo (y colocar su pasador
 partir el miembro en dos con una bisagra print-in-place: lengüeta en ranura con dos bulones cortos, como la
 figura de referencia. La pierna queda en **muslo + pantorrilla** y el brazo en **brazo + antebrazo**.
 
-1. **«Agregar rodilla a una pierna (3 puntos)»** (o **«Agregar codo a un brazo»**): elegí 3 puntos sobre la
-   figura a la altura donde se dobla. El plano tiene que quedar casi horizontal; lo de arriba es el muslo / brazo.
-   Aparece una fila amarilla («Rodilla» / «Codo») en la lista de planos y una línea amarilla con el eje.
-2. **Eje:** arranca justo arriba del plano, en el centro de los 3 puntos. Con el botón del **marcador** de la fila
-   hacé clic sobre el costado de la figura, en el centro de la bisagra: se toman la altura y la profundidad del clic
-   (la posición en X se conserva: el eje atraviesa el miembro). El eje debe quedar al menos 0,5 mm arriba del plano.
+1. **«Agregar rodilla a una pierna (3 puntos)»** (o **«Agregar codo a un brazo (3 puntos)»**): elegí 3 puntos sobre la
+   figura a la altura donde se dobla. **No hace falta que los 3 clics estén a la misma altura**: el plano puede quedar
+   inclinado (un brazo que cuelga en diagonal se corta con un plano perpendicular a él) mientras no pase de 60° de la
+   horizontal. Lo de arriba es el muslo / brazo. Aparece una fila amarilla («Rodilla» / «Codo») en la lista de planos y
+   una línea amarilla con el eje. No confundas este botón con **«Agregar plano del cuello / cabeza»**, que está justo
+   arriba: ese crea la fila «Cabeza (cuello)».
+2. **Eje:** arranca a unos 3,2 mm del plano hacia arriba (lo mínimo para dejar pared alrededor del bulón), verticalmente
+   sobre el centro de los 3 puntos, **inclinado como el plano** (el Estado dice cuántos grados). Con el botón del
+   **marcador** de la fila hacé clic sobre el costado de la figura, en el centro de la bisagra: se toman la altura y la
+   profundidad del clic (la posición en X se conserva: el eje atraviesa el miembro). El eje debe quedar al menos 0,5 mm
+   arriba del plano.
 3. **Los tres números de la fila:** flexión mínima (negativa = hiperextensión), flexión máxima e **inclinación del
-   eje** (° alrededor de Z; 0 = a lo largo de X). La figura de referencia usa ≈ 14° en la rodilla y ≈ 9,5° en el codo.
-   Por defecto la rodilla va de 0° a 90° (la pantorrilla va hacia atrás) y el codo de −10° a 90° (el antebrazo va hacia
-   adelante). **El tope no es una pieza aparte:** es el material del muslo / brazo que queda sin tallar fuera de ese rango.
-4. **Generar figura:** el informe de validación revisa el giro libre dentro del rango, el tope fuera de él, la holgura,
+   eje vista de frente** (° alrededor de Y; 0 = a lo largo de X; positiva = el eje sube hacia +X). Un brazo que cuelga
+   en diagonal hacia afuera pide una inclinación positiva, y es lo que usa la figura de referencia: ≈ 14° en la rodilla
+   y ≈ 9,5° en el codo. Normalmente no hace falta tocarla: ya sale del plano. Por defecto la rodilla va de 0° a 90° (la
+   pantorrilla va hacia atrás) y el codo de −10° a 90° (el antebrazo va hacia adelante). **El tope no es una pieza
+   aparte:** es el material del muslo / brazo que queda sin tallar fuera de ese rango.
+4. **Bisagra en figuras delgadas:** en «Parámetros» están el **Ø del bulón**, el **largo del bulón**, el **espesor de la
+   lengüeta** y el **radio de la lengüeta** de rodilla/codo. Con un brazo de unos 8 mm (Güemes) la bisagra por defecto
+   deja la pared del bulón en menos de 0,8 mm (no se imprime): probá Ø bulón 2,0 (el mínimo), largo 1,0, lengüeta 2,0 y
+   radio 3,0. Cambiarlos invalida la figura: hay que generar de nuevo.
+5. **Generar figura:** el informe de validación revisa el giro libre dentro del rango, el tope fuera de él, la holgura,
    que la pieza no se pueda sacar, la pared alrededor de los bulones y el recorrido de toda la cadena (cadera × rodilla)
    contra el torso y las demás piezas. La **pose sentada en vivo** (§7.5) ya muestra la pierna con su rodilla.
-5. **Probetas:** en «Perfil de línea» elegí «Bisagra de rodilla / codo» y «Generar probetas de articulación…».
+6. **Probetas:** en «Perfil de línea» elegí «Bisagra de rodilla / codo» y «Generar probetas de articulación…».
 
-Una articulación por miembro. Quitar el miembro (o la fila amarilla) la quita. Si el codo choca con el torso al flexionar,
-la validación lo informa: el motor no talla un hueco para el brazo en el torso, así que hace falta algo de luz entre ambos.
-*(Esta parte de la ventana no se pudo probar con GTK real; la lógica sí tiene tests.)*
+Una articulación por miembro. Quitar el miembro (o la fila amarilla) la quita. En un brazo, el motor **talla en el
+torso** el barrido del antebrazo al flexionar el codo; el informe trae `torso_tallado_mm3` con el material quitado (0 si
+el brazo cuelga separado del torso). *(Esta parte de la ventana no se pudo probar con GTK real; la lógica sí tiene tests.)*
 
 ### 7.3 Generar y exportar
 

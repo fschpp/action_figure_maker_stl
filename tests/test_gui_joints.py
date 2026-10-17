@@ -89,7 +89,7 @@ def test_tilt_and_range(ctrl):
     ctrl.session.add_joint("pierna", ctrl.session.plane_from_points(KNEE, "a"), anchor=(9.0, 0.0, 14.0))
     assert ctrl.set_joint_tilt("rodilla", 14.0)
     d = np.asarray(ctrl.session.joint("rodilla").axis_dir)
-    assert d == pytest.approx([np.cos(np.radians(14)), np.sin(np.radians(14)), 0.0])
+    assert d == pytest.approx([np.cos(np.radians(14)), 0.0, np.sin(np.radians(14))])    # vista de frente: z sube con x
     assert not ctrl.set_joint_tilt("rodilla", 80.0)
     assert ctrl.set_joint_range("rodilla", -5.0, 100.0) and ctrl.joint_range_text("rodilla").startswith("-5°")
     assert not ctrl.set_joint_range("rodilla", 50.0, 20.0)
@@ -118,7 +118,7 @@ def test_joints_survive_save_and_load(ctrl, tmp_path):
     path = str(tmp_path / "p.proyecto")
     ctrl.session.project.save(path)
     back = Project.load(path).joints[0]
-    assert back.flex_range == (-5.0, 100.0) and back.axis_dir[1] == pytest.approx(np.sin(np.radians(14)))
+    assert back.flex_range == (-5.0, 100.0) and back.axis_dir[2] == pytest.approx(np.sin(np.radians(14)))
 
 
 def test_sync_draws_axis_and_plane(ctrl):
@@ -169,3 +169,31 @@ def test_export_hinge_probes_from_controller(ctrl, tmp_path):
     info = ctrl.export_probes(str(tmp_path), which="hinge", clearances=(0.4,), shaft_deltas=(0.0,))
     assert info["celdas"] == 1 and (tmp_path / "probetas.stl").stat().st_size > 1000
     assert "bisagra" in ctrl.message
+
+
+def tilted_elbow(deg):
+    t = np.tan(np.radians(deg))
+    return [(14.0, -4.0, 59.0), (23.0, -4.0, 59.0 + 9 * t), (18.0, 4.0, 59.0 + 4 * t)]      # z = 59 + t·(x − 14)
+
+
+@pytest.mark.parametrize("deg", [10.0, -12.0, 0.0])
+def test_axis_follows_the_plane_tilt_so_clicks_need_not_be_level(ctrl, deg):
+    """Un brazo que cuelga en diagonal se corta con un plano inclinado vista de frente; el eje de la bisagra sigue esa
+    inclinación (antes quedaba horizontal y los 3 clics había que darlos a la misma altura)."""
+    ctrl.start_joint_plane("brazo")
+    feed(ctrl, tilted_elbow(deg))
+    assert ctrl.mode == Mode.VIEW and [j.name for j in ctrl.session.project.joints] == ["codo"]
+    assert ctrl.joint_tilt("codo") == pytest.approx(deg, abs=1e-6)
+    d = np.asarray(ctrl.session.joint("codo").axis_dir)
+    n = np.asarray(ctrl.session.joint("codo").plane.normal, float)
+    assert abs(d @ n) < 1e-9 and d[1] == 0.0               # el eje queda dentro del plano (traza en XZ)
+    assert f"{abs(deg):.1f}°" in ctrl.message
+    c = np.asarray(ctrl.session.joint("codo").axis_center, float)
+    assert c[:2] == pytest.approx(np.mean(tilted_elbow(deg), axis=0)[:2])    # el eje queda sobre el centro de los clics
+    assert (c - ctrl.session.joint("codo").plane.origin) @ n >= 3.2 - 1e-9     # y a la altura de pared mínima del plano
+
+
+def test_explicit_tilt_overrides_the_plane_and_horizontal_plane_gives_zero(ctrl):
+    ctrl.session.add_joint("brazo", ctrl.session.plane_from_points(ELBOW, "a"))
+    assert ctrl.joint_tilt("codo") == pytest.approx(0.0)
+    assert ctrl.set_joint_tilt("codo", 9.5) and ctrl.joint_tilt("codo") == pytest.approx(9.5)

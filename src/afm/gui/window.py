@@ -480,7 +480,7 @@ class MainWindow(Gtk.ApplicationWindow):
                          lambda b, n=jn: self.ctrl.set_joint_limit(n, "lo", b.get_value())),
                         ("Flexión máxima (°)", hi, -44.0, 150.0,
                          lambda b, n=jn: self.ctrl.set_joint_limit(n, "hi", b.get_value())),
-                        ("Inclinación del eje (° alrededor de Z)", self.ctrl.joint_tilt(jn), -45.0, 45.0,
+                        ("Inclinación del eje, vista de frente (° ; positiva = sube hacia +X)", self.ctrl.joint_tilt(jn), -45.0, 45.0,
                          lambda b, n=jn: self.ctrl.set_joint_tilt(n, b.get_value()))):
                     sp = Gtk.SpinButton.new_with_range(lo_b, hi_b, 1.0)
                     sp.set_value(val)
