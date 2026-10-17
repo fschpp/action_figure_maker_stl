@@ -429,6 +429,41 @@ class Session:
         return (float(np.cos(t)), 0.0, float(np.sin(t)))
 
     @staticmethod
+    def plane_from_lines(upper, lower):
+        """Plano de una articulación a partir de dos líneas dibujadas sobre la vista frontal.
+
+        `upper = (P1, P2)` va de arriba hasta el codo (o la rodilla) siguiendo el centro del brazo (o del muslo);
+        `lower = (P3, P4)` va del codo hacia abajo siguiendo el antebrazo (o la pantorrilla). Solo cuentan x y z de cada
+        punto (vista de frente). El corte pasa por el codo (punto medio de P2 y P3) y sigue la bisectriz de las dos
+        direcciones, de modo que las dos piezas encajan a ras cuando el miembro está estirado, y el eje de la bisagra
+        queda perpendicular a esa bisectriz (misma inclinación que el corte).
+
+        Devuelve `(plano, codo, ángulo_línea_superior, ángulo_línea_inferior, subida)`: los ángulos son los grados que
+        se abre cada línea hacia +X al bajar (negativos hacia −X) y `subida` es la dirección de la línea superior hacia
+        arriba (por donde `add_joint` lleva el eje desde el codo)."""
+        def direction(p, q, what):
+            p, q = np.asarray(p, float), np.asarray(q, float)
+            d = np.array([q[0] - p[0], 0.0, q[2] - p[2]])
+            length = float(np.linalg.norm(d))
+            if length < 2.0:
+                raise ValueError(f"la línea del {what} es demasiado corta vista de frente (menos de 2 mm)")
+            d /= length
+            if d[2] > 0:
+                d = -d                                    # siempre de arriba hacia abajo
+            if -d[2] < 0.5:
+                raise ValueError(f"la línea del {what} tiene que ir de arriba hacia abajo (a menos de 60° de la vertical)")
+            return d
+
+        u = direction(*upper, "brazo / muslo")
+        v = direction(*lower, "antebrazo / pantorrilla")
+        w = u + v
+        w /= np.linalg.norm(w)
+        opening = lambda d: float(np.degrees(np.arctan2(d[0], -d[2])))
+        elbow = (np.asarray(upper[1], float) + np.asarray(lower[0], float)) / 2.0
+        plane = Plane.from_normal(elbow, -w, "articulación")                # normal hacia arriba (lado proximal)
+        return plane, elbow, opening(u), opening(v), -u
+
+    @staticmethod
     def plane_front_tilt_deg(normal) -> float:
         """Inclinación (vista de frente) del plano de una articulación: ángulo de su traza en XZ respecto de X, con el
         mismo signo que `_tilt_axis` (z sube con x). Un plano horizontal da 0; se limita a ±45° como el control."""
@@ -439,7 +474,8 @@ class Session:
         t = float(np.degrees(np.arctan2(-n[0] * n[2], 1.0 - n[0] ** 2)))
         return float(np.clip(t, -45.0, 45.0)) + 0.0
 
-    def add_joint(self, limb: str, plane: Plane, anchor=None, tilt_deg: float | None = None) -> JointSpec:
+    def add_joint(self, limb: str, plane: Plane, anchor=None, tilt_deg: float | None = None,
+                  lift_dir=None) -> JointSpec:
         """Parte `limb` por `plane` en proximal y distal (rodilla de una pierna, codo de un brazo).
 
         El eje de la bisagra arranca en `anchor` (por defecto el origen del plano) llevado hacia el lado proximal
@@ -447,7 +483,9 @@ class Session:
         `set_joint_axis`. `tilt_deg` gira el eje vista de frente, alrededor de Y (0 = a lo largo de X, positivo = z
         sube con x). Sin `tilt_deg` el eje sigue la inclinación del plano (un brazo que cuelga en diagonal se corta
         con un plano perpendicular a él, y la bisagra queda perpendicular al brazo: no hace falta clavar los 3 clics
-        a la misma altura)."""
+        a la misma altura). `lift_dir` (vector que apunta hacia el lado proximal; por defecto vertical) es la
+        dirección por la que el eje sube desde `anchor`: con las 2 líneas es la línea del brazo, así el eje queda sobre
+        el trayecto del miembro y no en vertical sobre el codo."""
         spec = self.limb(limb)
         if spec is None:
             raise KeyError(limb)
@@ -466,7 +504,10 @@ class Session:
         base = base - n * float((base - plane.origin) @ n)    # sobre el plano
         # El eje queda h por encima del plano (medido a lo largo de la normal) pero verticalmente sobre `anchor`: con
         # el plano inclinado, subir por la normal corría el eje en X y «Colocar eje» no puede corregir la X.
-        center = base + np.array([0.0, 0.0, h / n[2]])
+        lift = np.array([0.0, 0.0, 1.0]) if lift_dir is None else np.asarray(lift_dir, float) / np.linalg.norm(lift_dir)
+        if lift @ n < 0.5:
+            raise ValueError("la dirección del miembro es casi paralela al plano de la articulación")
+        center = base + lift * (h / float(lift @ n))
         name = "rodilla" if kind == "knee" else "codo"
         if tilt_deg is None:
             tilt_deg = self.plane_front_tilt_deg(n)

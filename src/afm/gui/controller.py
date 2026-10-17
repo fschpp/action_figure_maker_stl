@@ -39,6 +39,7 @@ class Mode(Enum):
     POLYGON = "silueta"
     PIN = "pasador"
     JOINT_PLANE = "plano_articulacion"   # 3 clics: plano que parte el miembro en proximal y distal (rodilla / codo)
+    JOINT_LINES = "lineas_articulacion"   # 4 clics de frente: línea del brazo (arriba→codo) y del antebrazo (codo→abajo)
     JOINT_AXIS = "eje_articulacion"      # un clic sobre la figura fija (y, z) del eje de la bisagra
     TRIM_PICK = "recorte_clic"      # un clic sobre la figura pone el centro de un recorte esfera / caja / cilindro
 
@@ -268,6 +269,66 @@ class Controller:
         self._changed(f"Plano {what}: elegí 3 puntos sobre la figura a la altura donde se dobla. Puede quedar inclinado "
                       "(un brazo que cuelga en diagonal) mientras no sea más de 60° de la horizontal; el eje de la "
                       "bisagra sigue esa inclinación. Lo de arriba es el muslo / brazo.")
+
+    def start_joint_lines(self, limb: str) -> None:
+        """Codo (brazo) o rodilla (pierna) siguiendo el miembro: 2 líneas sobre la vista frontal, una arriba y otra abajo
+        de la articulación; el corte sigue la bisectriz y el eje queda perpendicular a ella (`Session.plane_from_lines`)."""
+        if not self._need_loaded():
+            return
+        spec = self.session.limb(limb)
+        if spec is None:
+            self._changed(f"No hay un miembro «{limb}».", scene=False)
+            return
+        if self.session.joint_of_limb(limb) is not None:
+            self._changed(f"«{limb}» ya tiene su articulación: quitala (−) para rehacerla.", scene=False)
+            return
+        self.cancel(quiet=True)
+        self.mode, self.joint_limb = Mode.JOINT_LINES, limb
+        up, down = self._line_names(spec.kind)
+        joint = "la rodilla" if spec.kind == "leg" else "el codo"
+        self._changed(f"{joint.capitalize()} con 2 líneas (conviene la vista «Frente»): línea del {up}, punto 1/2: clic "
+                      f"arriba, en el centro del {up}. Después {joint} y la línea del {down}. Backspace deshace; Esc cancela.")
+
+    def start_joint_lines_for_kind(self, kind: str) -> None:
+        """Como `start_joint_plane_for_kind` pero definiendo el corte con dos líneas."""
+        if kind not in _KIND_BASE:
+            raise ValueError(kind)
+        limb = next((l.name for l in self.session.project.limbs
+                     if l.kind == kind and self.session.joint_of_limb(l.name) is None), None)
+        if limb is None:
+            self._changed(f"No hay un {_KIND_BASE[kind]} sin articulación: agregá primero su plano y silueta "
+                          "(o quitá la articulación que ya tiene).", scene=False)
+            return
+        self.start_joint_lines(limb)
+
+    @staticmethod
+    def _line_names(kind: str) -> tuple[str, str]:
+        return ("muslo", "pantorrilla") if kind == "leg" else ("brazo", "antebrazo")
+
+    def _joint_lines_hint(self) -> str:
+        spec = self.session.limb(self.joint_limb)
+        up, down = self._line_names(spec.kind if spec else "arm")
+        joint = "la rodilla" if spec is not None and spec.kind == "leg" else "el codo"
+        return {1: f"Línea del {up}: punto 1/2 listo. Ahora clic en {joint}, en el centro del miembro, donde se dobla.",
+                2: f"Línea del {up} lista. Ahora la del {down}: clic en {joint} otra vez (en el mismo lugar).",
+                3: f"Línea del {down}: punto 1/2 listo. Ahora clic abajo, en el centro del {down}."
+                }[len(self.pending)] + " Backspace deshace el último; Esc cancela."
+
+    def _finish_joint_lines(self) -> None:
+        pts, self.pending = self.pending, []
+        limb = self.joint_limb
+        try:
+            plane, elbow, a_up, a_down, lift = Session.plane_from_lines((pts[0], pts[1]), (pts[2], pts[3]))
+            j = self.session.add_joint(limb, plane, anchor=elbow, lift_dir=lift)
+        except (ValueError, KeyError) as e:
+            self._changed(f"No sirve: {e}. Dibujá las 2 líneas de nuevo.")
+            return
+        self.mode, self.joint_limb = Mode.VIEW, None
+        up, down = self._line_names(self.session.limb(limb).kind)
+        self._changed(f"{j.name.capitalize()} definida siguiendo el miembro: el {up} se abre {a_up:.1f}° y el {down} "
+                      f"{a_down:.1f}° (hacia +X al bajar); el corte sigue la bisectriz y el eje quedó inclinado "
+                      f"{self.joint_tilt(j.name):.1f}°. Rango {self.joint_range_text(j.name)}. Centrá el eje con «Colocar eje» "
+                      "(clic sobre el lado de la figura) si hace falta.")
 
     def start_joint_plane_for_kind(self, kind: str) -> None:
         """Rodilla («leg») o codo («arm»): toma el primer miembro de ese tipo que todavía no tiene articulación."""
@@ -1167,8 +1228,14 @@ class Controller:
             self._finish_joint_axis(hit)
         else:
             self.pending.append(hit.point.copy())
-            if len(self.pending) < 3:
-                self._changed(f"Punto {len(self.pending)}/3. Backspace deshace el último; Esc cancela.")
+            need = 4 if self.mode == Mode.JOINT_LINES else 3
+            if len(self.pending) < need:
+                if self.mode == Mode.JOINT_LINES:
+                    self._changed(self._joint_lines_hint())
+                else:
+                    self._changed(f"Punto {len(self.pending)}/3. Backspace deshace el último; Esc cancela.")
+            elif self.mode == Mode.JOINT_LINES:
+                self._finish_joint_lines()
             elif self.mode == Mode.SYMMETRY:
                 self._finish_symmetry()
             elif self.mode == Mode.NECK_PLANE:
@@ -1428,7 +1495,10 @@ class Controller:
         if self.pending:
             pts = np.array(self.pending)
             scene.set_points("pendientes", pts, (1.0, 0.25, 0.25, 1.0), 12.0)
-            scene.set_lines("pendientes:lineas", pts, (1.0, 0.25, 0.25, 1.0), closed=len(pts) == 3)
+            if self.mode == Mode.JOINT_LINES:           # dos segmentos sueltos: brazo (P1-P2) y antebrazo (P3-P4)
+                scene.set_lines("pendientes:lineas", [pts[:2], pts[2:4]], (1.0, 0.25, 0.25, 1.0))
+            else:
+                scene.set_lines("pendientes:lineas", pts, (1.0, 0.25, 0.25, 1.0), closed=len(pts) == 3)
         else:
             scene.remove("pendientes")
             scene.remove("pendientes:lineas")

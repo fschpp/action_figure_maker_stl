@@ -134,10 +134,12 @@ class MainWindow(Gtk.ApplicationWindow):
                                      lambda *_: self.ctrl.start_joint_plane_for_kind("leg"))
         self.btn_elbow = self._button("Agregar codo a un brazo (3 puntos)",
                                       lambda *_: self.ctrl.start_joint_plane_for_kind("arm"))
+        self.btn_elbow_lines = self._button("Agregar codo siguiendo el brazo (2 líneas, de frente)",
+                                            lambda *_: self.ctrl.start_joint_lines_for_kind("arm"))
         self.btn_head_stl = self._button("Cabeza de reemplazo (STL)…", self._on_head_replacement)
         self.btn_head_orig = self._button("Volver a la cabeza original", lambda *_: self.ctrl.clear_head_replacement())
         for b in (self.btn_sym, self.btn_sym_auto, self.btn_arm, self.btn_leg, self.btn_neck,
-                  self.btn_knee, self.btn_elbow, self.btn_head_stl, self.btn_head_orig):
+                  self.btn_knee, self.btn_elbow, self.btn_elbow_lines, self.btn_head_stl, self.btn_head_orig):
             box.append(b)
         row = Gtk.Box(spacing=6)
         row.append(Gtk.Label(label="Corte a (mm del plano de simetría)"))
@@ -348,6 +350,7 @@ class MainWindow(Gtk.ApplicationWindow):
             self.btn_neck.set_sensitive(loaded and has_sym)
             self.btn_knee.set_sensitive(loaded and has_sym and bool(ctrl.session.project.limbs))
             self.btn_elbow.set_sensitive(loaded and has_sym and bool(ctrl.session.project.limbs))
+            self.btn_elbow_lines.set_sensitive(loaded and has_sym and bool(ctrl.session.project.limbs))
             head = ctrl.session.project.head
             self.btn_head_stl.set_sensitive(loaded and head is not None)
             self.btn_head_orig.set_sensitive(loaded and head is not None and head.replacement_path is not None)

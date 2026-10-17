@@ -273,6 +273,15 @@ figura de referencia. La pierna queda en **muslo + pantorrilla** y el brazo en *
    horizontal. Lo de arriba es el muslo / brazo. Aparece una fila amarilla («Rodilla» / «Codo») en la lista de planos y
    una línea amarilla con el eje. No confundas este botón con **«Agregar plano del cuello / cabeza»**, que está justo
    arriba: ese crea la fila «Cabeza (cuello)».
+   **Alternativa para un brazo que sigue un trayecto: «Agregar codo siguiendo el brazo (2 líneas, de frente)».** Poné
+   la vista «Frente» y hacé 4 clics sobre el centro del miembro: (1) arriba, en el centro del brazo; (2) en el codo, donde
+   se dobla; (3) en el codo otra vez, en el mismo lugar; (4) abajo, en el centro del antebrazo. Son dos líneas: brazo
+   (1→2) y antebrazo (3→4), y solo cuentan x y z. El corte pasa por el codo y sigue la **bisectriz** de las dos, así las
+   piezas encajan a ras al estirar el miembro; el eje queda perpendicular a esa bisectriz y **sube desde el codo por la
+   línea del brazo**, no en vertical, para quedar centrado. El Estado informa cuánto se abre cada línea y la inclinación
+   resultante. Funciona igual con la pierna (muslo y pantorrilla) desde el controlador; en la ventana por ahora solo
+   hay botón para el codo. Esta forma solo mira la vista de frente: un quiebre de costado (adelante/atrás) no entra en
+   las líneas.
 2. **Eje:** arranca a unos 3,2 mm del plano hacia arriba (lo mínimo para dejar pared alrededor del bulón), verticalmente
    sobre el centro de los 3 puntos, **inclinado como el plano** (el Estado dice cuántos grados). Con el botón del
    **marcador** de la fila hacé clic sobre el costado de la figura, en el centro de la bisagra: se toman la altura y la

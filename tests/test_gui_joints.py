@@ -6,6 +6,7 @@ import pytest
 
 from afm.gui.controller import JOINT_PREFIX, Controller, Mode
 from afm.gui.picking import PickResult
+from afm.gui.session import Session
 from afm.project import Project, demo_project
 from afm.testfigure import make_doll
 
@@ -197,3 +198,82 @@ def test_explicit_tilt_overrides_the_plane_and_horizontal_plane_gives_zero(ctrl)
     ctrl.session.add_joint("brazo", ctrl.session.plane_from_points(ELBOW, "a"))
     assert ctrl.joint_tilt("codo") == pytest.approx(0.0)
     assert ctrl.set_joint_tilt("codo", 9.5) and ctrl.joint_tilt("codo") == pytest.approx(9.5)
+
+
+# ---------------------------------------------------------------- codo / rodilla con 2 líneas de frente
+def lines_pts(open_up, open_down, elbow=(18.0, -4.0, 59.0), length=10.0):
+    """4 puntos: línea superior (abre `open_up`° al bajar, hacia +X) terminando en el codo; inferior saliendo de él."""
+    ex, ey, ez = elbow
+    su, sd = np.sin(np.radians(open_up)), np.sin(np.radians(open_down))
+    cu, cd = np.cos(np.radians(open_up)), np.cos(np.radians(open_down))
+    return [(ex - length * su, ey, ez + length * cu), (ex, ey, ez), (ex, ey, ez), (ex + length * sd, ey, ez - length * cd)]
+
+
+def test_plane_from_lines_is_the_bisector_and_passes_through_the_elbow():
+    pts = lines_pts(3.4, 6.8)
+    plane, elbow, a_up, a_down, lift = Session.plane_from_lines(pts[:2], pts[2:])
+    assert lift == pytest.approx([-np.sin(np.radians(3.4)), 0.0, np.cos(np.radians(3.4))])      # sube por la línea del brazo
+    assert (a_up, a_down) == pytest.approx((3.4, 6.8))
+    assert elbow == pytest.approx([18.0, -4.0, 59.0])
+    n = np.asarray(plane.normal, float)
+    assert n[1] == 0.0 and n[2] > 0
+    assert Session.plane_front_tilt_deg(n) == pytest.approx((3.4 + 6.8) / 2)      # la bisectriz de las dos líneas
+    assert abs(np.asarray(plane.origin, float) @ n - elbow @ n) < 1e-9
+
+
+def test_plane_from_lines_vertical_lines_give_a_horizontal_plane_and_direction_order_is_irrelevant():
+    pts = lines_pts(0.0, 0.0)
+    plane, *_ = Session.plane_from_lines(pts[:2], pts[2:])
+    assert np.asarray(plane.normal) == pytest.approx([0.0, 0.0, 1.0])
+    swapped = Session.plane_from_lines((pts[1], pts[0]), (pts[3], pts[2]))[0]        # puntos en el otro sentido
+    assert np.asarray(swapped.normal) == pytest.approx([0.0, 0.0, 1.0])
+
+
+@pytest.mark.parametrize("pts, text", [
+    ([(0, 0, 60), (0, 0, 60.5), (0, 0, 60), (0, 0, 50)], "demasiado corta"),          # solo cuenta la vista de frente
+    ([(0, 0, 60), (10, 0, 59), (10, 0, 59), (10, 0, 50)], "60° de la vertical"),       # casi horizontal
+])
+def test_plane_from_lines_rejects_unusable_lines(pts, text):
+    with pytest.raises(ValueError, match=text):
+        Session.plane_from_lines(pts[:2], pts[2:])
+
+
+def test_two_lines_define_the_elbow_with_the_axis_on_the_elbow_point(ctrl):
+    ctrl.start_joint_lines_for_kind("arm")
+    assert ctrl.mode == Mode.JOINT_LINES and ctrl.joint_limb == "brazo"
+    pts = lines_pts(3.4, 6.8, elbow=(18.0, -4.0, 59.0))
+    feed(ctrl, pts[:3])
+    assert ctrl.mode == Mode.JOINT_LINES and len(ctrl.pending) == 3 and "antebrazo" in ctrl.message
+    ctrl.undo_point()
+    assert len(ctrl.pending) == 2
+    feed(ctrl, pts[2:])
+    assert ctrl.mode == Mode.VIEW and [j.name for j in ctrl.session.project.joints] == ["codo"]
+    assert ctrl.joint_tilt("codo") == pytest.approx(5.1, abs=1e-6)
+    jt = ctrl.session.joint("codo")
+    c = np.asarray(jt.axis_center, float)
+    n = np.asarray(jt.plane.normal, float)
+    assert c[1] == pytest.approx(-4.0)
+    assert (c - np.array([18.0, -4.0, 59.0])) @ n == pytest.approx(3.2)             # 3,2 mm del plano (pared del bulón)
+    up = np.array([-np.sin(np.radians(3.4)), 0.0, np.cos(np.radians(3.4))])
+    off = c - np.array([18.0, -4.0, 59.0])
+    assert np.linalg.norm(off - (off @ up) * up) < 1e-9                  # el eje subió por la línea del brazo, no en vertical
+    assert "3.4°" in ctrl.message and "6.8°" in ctrl.message and "5.1°" in ctrl.message
+
+
+def test_two_lines_can_be_cancelled_and_bad_lines_do_not_create_a_joint(ctrl):
+    ctrl.start_joint_lines_for_kind("arm")
+    feed(ctrl, [(18.0, -4.0, 70.0), (18.0, -4.0, 70.4), (18.0, -4.0, 59.0), (18.0, -4.0, 49.0)])
+    assert ctrl.session.project.joints == [] and "demasiado corta" in ctrl.message
+    ctrl.start_joint_lines_for_kind("arm")
+    feed(ctrl, lines_pts(0.0, 0.0)[:1])
+    ctrl.cancel()
+    assert ctrl.mode == Mode.VIEW and ctrl.pending == [] and ctrl.joint_limb is None
+
+
+def test_two_lines_work_for_the_leg_and_a_limb_with_a_joint_is_refused(ctrl):
+    ctrl.start_joint_lines_for_kind("leg")
+    assert ctrl.joint_limb == "pierna" and "muslo" in ctrl.message and "rodilla" in ctrl.message
+    feed(ctrl, lines_pts(0.0, 0.0, elbow=(9.0, 0.0, 14.0)))
+    assert [j.name for j in ctrl.session.project.joints] == ["rodilla"]
+    ctrl.start_joint_lines("pierna")
+    assert ctrl.mode == Mode.VIEW and "ya tiene su articulación" in ctrl.message
