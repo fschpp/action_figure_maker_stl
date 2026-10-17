@@ -272,6 +272,7 @@ def validate(res: BuildResult, p: Params, limbs: list[LimbSpec], sit: bool = Tru
             out["problems"].append(f"{name}: interfiere con el torso durante el giro ({worst:.4f} mm³)")
     out["cadera"] = _validate_hip_pin(res, p, limbs, out)
     out["articulaciones"] = _validate_joints(res, p, joints, out, sweep_check_step)
+    out["cadena"] = _validate_chain(res, p, out)
     out["ok"] = not out["problems"]
     return out
 
@@ -324,6 +325,77 @@ def _validate_hip_pin(res: BuildResult, p: Params, limbs: list[LimbSpec], out: d
 
 RETENTION_MM = 1.0
 JOINT_TOL_MM3 = 1e-4
+
+
+def posed_pieces(res: BuildResult, hip_angle: float, flex: dict | None = None,
+                 p: Params | None = None) -> dict:
+    """Miembros del lado izquierdo y sus espejos (`<pieza>_izq/_der`) con la cadena de rotaciones compuesta.
+
+    Una pierna con rodilla se compone de proximal (muslo) y distal (pantorrilla): el distal gira `flex[nombre de la
+    articulación]` grados (por defecto la flexión de la pose impresa) alrededor del eje de la bisagra y luego el
+    conjunto gira `hip_angle` alrededor del pasador de cadera. Los miembros sin articulación giran enteros. La cabeza
+    no participa. Es la misma composición que usa `build` para la pose sentada (plan de articulaciones, Fase 4)."""
+    flex = flex or {}
+    rep = res.report.get("joints", {})
+    by_limb = {r["limb"]: (jn, r) for jn, r in rep.items()}
+    out: dict = {}
+    for name, (limb0, center, axis, (a0, a1)) in res.motion.items():
+        if name == HEAD_NAME:
+            continue
+        turns = a1 > a0
+        if name in by_limb:
+            jn, r = by_limb[name]
+            jb = res.joints[jn]
+            f = float(flex.get(jn, r["print_flex"]))
+            parts = {r["piezas"][0]: jb.proximal, r["piezas"][1]: jb.rotate_distal(f)}
+        else:
+            parts = {name: limb0}
+        for nm, mf in parts.items():
+            if turns:
+                mf = S.rotate_about_axis(mf, center, axis, hip_angle)
+            out[f"{nm}_izq"] = mf
+            out[f"{nm}_der"] = S.mirror_x(mf)
+    return out
+
+
+def _validate_chain(res: BuildResult, p: Params, out: dict, hip_step: float = 15.0) -> dict:
+    """Recorrido de la cadena completa (plan de articulaciones §4, Fase 4): cadera de 0° a `sit_angle` combinada con
+    la flexión de cada articulación (mínima, media y máxima) y sin choque con el torso ni con las demás piezas
+    (pantorrilla vs. pierna opuesta, antebrazo vs. torso). Solo interesan las piezas distales: la proximal ya se
+    valida con el barrido de cadera; proximal–distal de un mismo lado tiene su propia validación."""
+    info: dict = {}
+    if not res.joints:
+        return info
+    torso = res.pieces["torso"]
+    jr = {jn: r for jn, r in res.report.get("joints", {}).items()}
+    hips = list(np.arange(0.0, p.sit_angle + 1e-9, hip_step))
+    names_cache: dict = {}
+    for jn, jb in res.joints.items():
+        r = jr[jn]
+        lo, hi = jb.flex
+        dist_nm = r["piezas"][1]
+        prox_nm = r["piezas"][0]
+        worst = {}
+        for ha in hips:
+            for fl in sorted({lo, max(lo, 0.0) + (hi - max(lo, 0.0)) / 2, hi}):
+                key = (ha, fl)
+                posed = names_cache.get(key)
+                if posed is None:
+                    posed = names_cache[key] = posed_pieces(res, ha, {k: (fl if k == jn else (v.flex[1] / 2)) for k, v in res.joints.items()})
+                d = posed[f"{dist_nm}_izq"]
+                hits = {"torso": float((d ^ torso).volume())}
+                for other, mf in posed.items():
+                    if other in (f"{dist_nm}_izq", f"{prox_nm}_izq"):
+                        continue
+                    hits[other] = float((d ^ mf).volume())
+                for other, v in hits.items():
+                    if v > worst.get(other, (0.0,))[0]:
+                        worst[other] = (v, ha, fl)
+        bad = {k: v for k, v in worst.items() if v[0] > JOINT_TOL_MM3}
+        info[jn] = {k: {"mm3": round(v[0], 5), "cadera": v[1], "flexion": v[2]} for k, v in bad.items()}
+        for k, (v, ha, fl) in bad.items():
+            out["problems"].append(f"{jn}: {dist_nm}_izq choca con {k} (cadera {ha:.0f}°, flexión {fl:.0f}°, {v:.3f} mm³)")
+    return info
 
 
 def _ray_hits(tris: np.ndarray, origin, direction, eps: float = 1e-12) -> np.ndarray:

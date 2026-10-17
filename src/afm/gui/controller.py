@@ -724,13 +724,8 @@ class Controller:
         c = self._pose_cache
         if c is not None and c[0] is out and abs(c[1] - angle) < 1e-9:
             return c[2]
-        pieces = {}
-        for name, (limb0, center, axis, (a0, a1)) in out.result.motion.items():
-            if name == HEAD_NAME:
-                continue                 # la cabeza gira sobre el cuello, no participa de la pose sentada
-            limb = S.rotate_about_axis(limb0, center, axis, angle) if a1 > a0 else limb0
-            pieces[f"{name}_izq"] = limb
-            pieces[f"{name}_der"] = S.mirror_x(limb)
+        from ..pipeline import posed_pieces       # cadena muslo/pantorrilla, brazo/antebrazo; la cabeza no participa
+        pieces = posed_pieces(out.result, angle)
         self._pose_cache = (out, angle, pieces)
         return pieces
 

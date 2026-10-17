@@ -1,6 +1,9 @@
 # Progreso del desarrollo
 
 ## Current Focus
+**Articulaciones — Fase 4 completa: cadena de rotaciones y validación de cadena (2026-10-17, rama `articulaciones-fase4-cadena` sobre `main` 1567421):** `pipeline.posed_pieces(res, hip_angle, flex)` compone la cadena (distal gira `flex` en la bisagra, luego todo gira `hip_angle` en la cadera; por defecto flexión de la pose impresa) y devuelve `<pieza>_izq/_der`; `Controller._posed_pieces` (vista de pose de la GUI) ya la usa, así que la pierna se ve con su rodilla. `validate` agrega `cadena`: cadera 0°→`sit_angle` (pasos de 15°) × flexión mínima/media/máxima de cada articulación, pieza distal contra torso y contra todas las demás (pantorrilla vs. pierna opuesta, antebrazo vs. torso); ≈1 s en el muñeco. **Hallazgo:** en el muñeco el antebrazo choca con el torso al flexionar el codo (brazo pegado al torso y el motor no talla barrido de brazo en el torso); el test lo documenta (`DOLL_ELBOW_VS_TORSO`). Rodilla: sin choques. Tests: `test_joints.py` +2 (`posed_pieces` coincide con la pose impresa; la cadena detecta el codo y libera la rodilla); GUI `phases35`/`head` pasan (29). **Falta:** barrido de brazo en el torso (o aviso en la GUI), Fase 5 GUI, probar con Güemes.
+
+**Anterior (Fase 4, pared del bulón):**
 **Articulaciones — Fase 4: pared del padre alrededor del bulón (2026-10-17, misma rama `articulaciones-fase6-probeta-bisagra`):** `pipeline.joint_wall_mm` lanza rayos (Möller–Trumbore propio, sin rtree) desde cerca de la punta de cada bulón, axiales y radiales, y mide el espesor entre el agujero ciego y la siguiente superficie; `validate` lo informa en `articulaciones[...]["pared_mm"]`, avisa si < `min_wall` y **bloquea** si < 2 líneas de boquilla. En el muñeco da ≈1,05 mm (codo y rodilla inclinada): aviso, no error. `tests/test_joints.py` (+1; los 3 tests de validación pasan; la suite de joints tarda ≈4 min porque cada test arma las piezas). **Falta de la Fase 4:** cadena de rotaciones en `res.motion` y choque pantorrilla–pierna opuesta / antebrazo–torso con la pose posada.
 
 **Anterior (Fase 6, mismo día):**
@@ -18,7 +21,8 @@ _Última actualización: 2026-10-16 18:30 (America/Argentina/Buenos_Aires), rama
 ### [ ] Todo
 - [x] **Articulaciones:** Fase 3 cadera hecha (2026-10-17 00:15 America/Argentina/Buenos_Aires): `Params.with_hip_reference()` + `afm build --cadera-referencia`, `hip_pin_walls` / `_validate_hip_pin` en `pipeline.py` (`val["cadera"]`: pared tras la cabeza = `shaft_len − 2·holgura` ≥ `min_wall`, separación entre cabezas espejadas ≥ 2·holgura, cabeza/vástago ≥ 1,6 como aviso), `tests/test_hip_pin.py` (7). Pendiente: medir la pared sobre la malla (hoy es analítica) y activar el preset desde la GUI
 - [x] **Articulaciones:** pared del padre alrededor del bulón medida (2026-10-17)
-- [ ] **Articulaciones:** cadena de rotaciones en `res.motion` (la vista de pose de la GUI sigue mostrando la pierna entera recta), choque pantorrilla vs. pierna opuesta / antebrazo vs. torso con la cadena posada
+- [x] **Articulaciones:** cadena de rotaciones (`posed_pieces`) y choques de cadena (2026-10-17)
+- [ ] **Articulaciones:** el brazo no talla barrido en el torso: con el brazo pegado al torso el antebrazo choca al flexionar el codo (muñeco); decidir tallar un barrido de brazo o avisar en la GUI
 - [x] **Articulaciones:** Fase 6 probeta de bisagra (2026-10-17): motor, CLI y controlador; falta el botón en la ventana y que el cliente la imprima
 - [ ] **Articulaciones:** Fase 5 GUI (`Mode.JOINT_PLANE`, `Mode.JOINT_AXIS`, fila «Articulación», rango y parámetros)
 - [ ] **Articulaciones:** probar con una figura real (Güemes): rendimiento (`dilate` del distal entero; en el muñeco ≈ 8 s por articulación) y que el plano deje `shoulder_h` ≥ `min_shoulder`

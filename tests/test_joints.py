@@ -50,9 +50,16 @@ def test_pieces_split_and_mirrored(built):
     assert set(res.joints) == {"rodilla", "codo"}
 
 
+# El brazo del muñeco queda pegado al torso (x 11,5–22 dentro del torso, que llega a x = 23) y el motor no talla un
+# barrido de brazo en el torso (limitación conocida), así que el antebrazo choca al flexionar el codo: es un hallazgo
+# real de la validación de cadena, no de los demás chequeos.
+DOLL_ELBOW_VS_TORSO = "antebrazo_izq choca con torso"
+
+
 def test_validation_ok(built):
     _res, val, _j = built
-    assert val["ok"], val["problems"]
+    other = [x for x in val["problems"] if DOLL_ELBOW_VS_TORSO not in x]
+    assert not other, other
     for rec in val["articulaciones"].values():
         assert rec["recorrido_mm3"] <= 1e-4
         assert rec["tope_flexion_mm3"] > 1e-4 and rec["tope_extension_mm3"] > 1e-4
@@ -184,3 +191,21 @@ def test_wall_around_bolt_measured_and_flagged(built, params):
     coarse = dataclasses.replace(params, nozzle=500.0)              # 2 líneas imposibles: bloquea
     v3 = P.validate(res, coarse, limbs, joints=joints)
     assert any("no se imprime" in x for x in v3["problems"])
+
+
+def test_posed_pieces_matches_print_pose(built, params):
+    res, _val, _j = built
+    sit = P.posed_pieces(res, params.sit_angle)
+    for nm in ("muslo_izq", "pantorrilla_izq", "brazo_izq", "antebrazo_izq", "pantorrilla_der"):
+        assert nm in sit
+        assert abs(sit[nm].volume() - res.pieces[nm].volume()) < 1e-3
+        assert (sit[nm] ^ res.pieces[nm]).volume() > sit[nm].volume() - 1e-3      # mismo sólido (coincide)
+    assert "cabeza" not in sit and "torso" not in sit
+
+
+def test_chain_check_finds_elbow_against_torso_and_clears_knee(built):
+    _res, val, _j = built
+    chain = val["cadena"]
+    assert chain["rodilla"] == {}
+    assert "torso" in chain["codo"] and chain["codo"]["torso"]["mm3"] > 1.0
+    assert any(DOLL_ELBOW_VS_TORSO in x for x in val["problems"])
