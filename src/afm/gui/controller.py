@@ -346,24 +346,32 @@ class Controller:
 
     def export_probes(self, outdir: str, which: str = "hip", clearances=None, shaft_deltas=None) -> dict | None:
         """Escribe la placa de probetas (`probetas.stl` + `probetas.txt`) con los parámetros actuales.
-        `which`: pasador de «hip» (cadera) o «shoulder» (hombro) a variar."""
+        `which`: «hip» (cadera), «shoulder» (hombro) o «hinge» (bisagra de rodilla/codo) a variar."""
         import os
         from .. import probes, solids as S
         p = self.session.project.params
-        base = p.hip_pin if which == "hip" else p.shoulder_pin
         kw = {}
         if clearances is not None:
             kw["clearances"] = clearances
-        if shaft_deltas is not None:
-            kw["shaft_deltas"] = shaft_deltas
-        cells = probes.probe_cells(p, base=base, **kw)
+        if which == "hinge":      # rodilla / codo: `shaft_deltas` varía el Ø del bulón
+            if shaft_deltas is not None:
+                kw["pin_deltas"] = shaft_deltas
+            cells = probes.hinge_probe_cells(p, **kw)
+            mesh, text = probes.build_hinge_probe(p, cells), probes.hinge_labels_text(cells)
+        else:
+            base = p.hip_pin if which == "hip" else p.shoulder_pin
+            if shaft_deltas is not None:
+                kw["shaft_deltas"] = shaft_deltas
+            cells = probes.probe_cells(p, base=base, **kw)
+            mesh, text = probes.build_probe(p, cells), probes.labels_text(cells)
         os.makedirs(outdir, exist_ok=True)
         stl = os.path.join(outdir, "probetas.stl")
-        S.to_trimesh(probes.build_probe(p, cells)).export(stl)
+        S.to_trimesh(mesh).export(stl)
         txt = os.path.join(outdir, "probetas.txt")
         with open(txt, "w") as f:
-            f.write(probes.labels_text(cells) + "\n")
-        self._changed(f"Probetas ({len(cells)} articulaciones, pasador de {'cadera' if which == 'hip' else 'hombro'}) "
+            f.write(text + "\n")
+        kind = {"hip": "cadera", "shoulder": "hombro", "hinge": "bisagra de rodilla/codo"}.get(which, which)
+        self._changed(f"Probetas ({len(cells)} articulaciones, pasador de {kind}) "
                       f"en {outdir}. Imprimilas, cargá en «Parámetros» la combinación elegida y guardala en el perfil.",
                       scene=False)
         return {"stl": stl, "tabla": txt, "celdas": len(cells)}
