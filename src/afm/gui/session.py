@@ -522,8 +522,9 @@ class Session:
             raise ValueError("; ".join(probs))
         body = S.to_manifold(self.work)
         res = P.build(body, self.project.limbs, self.project.params, self.project.symmetry,
-                      progress=progress, trims=self.project.trims, head=self.project.head)
-        val = P.validate(res, self.project.params, self.project.limbs)
+                      progress=progress, trims=self.project.trims, head=self.project.head,
+                      joints=self.project.joints)
+        val = P.validate(res, self.project.params, self.project.limbs, joints=self.project.joints)
         self.outcome = BuildOutcome(res, val)
         return self.outcome
 

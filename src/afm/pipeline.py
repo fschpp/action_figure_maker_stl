@@ -10,6 +10,7 @@ import trimesh
 
 from . import solids as S
 from .head import HEAD_NAME, MIN_BASE_IOU, HeadSpec, build_head, split_head
+from .joints import JointBuild, JointSpec, build_joint, flex_range, hinge_for, print_flex
 from .limbs import LimbSpec, ContactFace, check_limb_plane, pin_margin, separate_limb
 from .params import Params
 from .pins import mushroom_pin
@@ -32,6 +33,7 @@ class BuildResult:
     pieces: dict[str, S.Manifold]
     report: dict = field(default_factory=dict)
     motion: dict = field(default_factory=dict)   # name -> (limb de pie, centro, eje, (a0, a1)) para validar el recorrido
+    joints: dict = field(default_factory=dict)   # nombre de la articulación -> JointBuild (rodilla, codo)
 
 
 def align_to_symmetry(mesh: trimesh.Trimesh, sym: Plane | None) -> trimesh.Trimesh:
@@ -73,10 +75,18 @@ def _rotation_axis(face: ContactFace) -> np.ndarray:
 
 def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None = None,
           sit: bool = True, progress=None, trims: list[Trim] | None = None,
-          head: HeadSpec | None = None) -> BuildResult:
+          head: HeadSpec | None = None, joints: list[JointSpec] | None = None) -> BuildResult:
     """Construye las piezas. `body` debe estar normalizado y con el plano de simetría en x = 0."""
     say = progress or (lambda *_: None)
     trims = trims or []
+    joints = list(joints or [])
+    by_limb: dict[str, JointSpec] = {}
+    for j in joints:
+        if j.limb in by_limb:
+            raise ValueError(f"«{j.limb}»: por ahora una sola articulación por miembro")
+        if j.limb not in {l.name for l in limbs}:
+            raise ValueError(f"la articulación «{j.name}» apunta al miembro «{j.limb}», que no existe")
+        by_limb[j.limb] = j
     for spec in limbs:
         check_limb_plane(spec.plane)       # falla rápido: un plano de canto da piezas inservibles
     half = body.trim_by_plane((1.0, 0.0, 0.0), 0.0)          # lado de trabajo (+X)
@@ -106,6 +116,10 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
         built[spec.name] = {"limb": limb, "face": face, "axis": axis, "spec": spec,
                             "angles": [float(a) for a in angles],
                             "pin_margin": pin_margin(face, _pin_spec(spec, p).shaft_d)}
+    joint_builds: dict[str, JointBuild] = {}
+    for lname, j in by_limb.items():
+        say(f"Articulación {j.name}…")
+        joint_builds[lname] = build_joint(built[lname]["limb"], j, built[lname]["face"].center, p)
     if head_build is not None:
         say("Cavidad del cuello…")
         torso_half = S.difference(torso_half, head_build.pocket)
@@ -116,13 +130,32 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
     pieces: dict[str, S.Manifold] = {}
     res_motion: dict = {}
     report: dict = {"limbs": {}}
+    res_joints: dict[str, JointBuild] = {}
     for name, b in built.items():
         limb = b["limb"]
-        if sit and b["spec"].kind == "leg":
-            limb = S.rotate_about_axis(limb, b["face"].center, b["axis"], p.sit_angle)
+        hip_sit = sit and b["spec"].kind == "leg"
         res_motion[name] = (b["limb"], b["face"].center, b["axis"], (b["angles"][0], b["angles"][-1]))
-        pieces[f"{name}_izq"] = limb
-        pieces[f"{name}_der"] = S.mirror_x(limb)
+        jb = joint_builds.get(name)
+        if jb is None:
+            if hip_sit:
+                limb = S.rotate_about_axis(limb, b["face"].center, b["axis"], p.sit_angle)
+            pieces[f"{name}_izq"] = limb
+            pieces[f"{name}_der"] = S.mirror_x(limb)
+        else:
+            j = by_limb[name]
+            prox, dist = jb.proximal, jb.rotate_distal(print_flex(j, p))     # flexión de la pose impresa
+            if hip_sit:
+                prox = S.rotate_about_axis(prox, b["face"].center, b["axis"], p.sit_angle)
+                dist = S.rotate_about_axis(dist, b["face"].center, b["axis"], p.sit_angle)
+            pn, dn = j.names()
+            for nm, mf in ((pn, prox), (dn, dist)):
+                pieces[f"{nm}_izq"] = mf
+                pieces[f"{nm}_der"] = S.mirror_x(mf)
+            res_joints[j.name] = jb
+            report.setdefault("joints", {})[j.name] = {
+                "center": jb.center.tolist(), "axis": jb.axis.tolist(), "flex": list(jb.flex),
+                "shoulder_h": round(jb.shoulder_h, 3), "radius": round(jb.radius, 3), "avisos": jb.warnings,
+                "piezas": [pn, dn], "limb": name, "print_flex": print_flex(j, p)}
         report["limbs"][name] = {
             "pin_center": b["face"].center.tolist(), "pin_dir": b["face"].outward.tolist(),
             "contact_area": b["face"].area, "sweep": [b["angles"][0], b["angles"][-1]],
@@ -144,7 +177,7 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
         n0 = pieces["torso"].num_tri()
         pieces["torso"] = _decimate_keeping_clearance(pieces, p)
         report["torso_triangulos"] = [n0, pieces["torso"].num_tri()]
-    return BuildResult(pieces=pieces, report=report, motion=res_motion)
+    return BuildResult(pieces=pieces, report=report, motion=res_motion, joints=res_joints)
 
 
 def _decimate_keeping_clearance(pieces: dict, p: Params, tol: float = 0.02) -> S.Manifold:
@@ -173,7 +206,7 @@ def _nonmanifold_edges(mf: S.Manifold) -> int:
 
 
 def validate(res: BuildResult, p: Params, limbs: list[LimbSpec], sit: bool = True,
-             sweep_check_step: float = 2.5) -> dict:
+             sweep_check_step: float = 2.5, joints: list[JointSpec] | None = None) -> dict:
     out: dict = {"ok": True, "problems": [], "avisos": [], "avisos_pasador": [], "pieces": {}, "gaps": {}}
     torso = res.pieces["torso"]
     for name, info in res.report.get("limbs", {}).items():
@@ -237,8 +270,63 @@ def validate(res: BuildResult, p: Params, limbs: list[LimbSpec], sit: bool = Tru
         out["recorrido"][name] = round(float(worst), 5)
         if worst > 1e-4:
             out["problems"].append(f"{name}: interfiere con el torso durante el giro ({worst:.4f} mm³)")
+    out["articulaciones"] = _validate_joints(res, p, joints, out, sweep_check_step)
     out["ok"] = not out["problems"]
     return out
+
+
+RETENTION_MM = 1.0
+JOINT_TOL_MM3 = 1e-4
+
+
+def _validate_joints(res: BuildResult, p: Params, joints, out: dict, step: float) -> dict:
+    """Rodilla / codo: recorrido libre dentro del rango, tope efectivo fuera de él, holgura mínima,
+    retención (la pieza distal no sale al desplazarla) y medidas mínimas (plan de articulaciones §4, Fase 4)."""
+    info: dict = {}
+    by_name = {j.name: j for j in (joints or [])}
+    for jname, jb in res.joints.items():
+        j = by_name.get(jname)
+        hinge = hinge_for(j, p) if j is not None else p.hinge_pin
+        lo, hi = jb.flex
+        prox = jb.proximal
+        rec = {}
+        worst = 0.0
+        for f in np.arange(lo, hi + 1e-9, step):
+            worst = max(worst, float((jb.rotate_distal(float(f)) ^ prox).volume()))
+        rec["recorrido_mm3"] = round(worst, 5)
+        if worst > JOINT_TOL_MM3:
+            out["problems"].append(f"{jname}: la pieza distal interfiere con la proximal dentro del rango "
+                                   f"{lo:.0f}°…{hi:.0f}° ({worst:.4f} mm³)")
+        reach = p.stop_margin + 5.0
+        for label, f in (("flexion", hi + reach), ("extension", lo - reach)):
+            v = float((jb.rotate_distal(f) ^ prox).volume())
+            rec[f"tope_{label}_mm3"] = round(v, 5)
+            if v <= JOINT_TOL_MM3:
+                out["problems"].append(f"{jname}: sin tope de {'flexión' if label == 'flexion' else 'extensión'}: "
+                                       f"a {f:.0f}° todavía no choca (el tope debe estar a ≤ {reach:.0f}° del límite)")
+        rest = jb.distal if lo > 0 or hi < 0 else jb.rotate_distal(0.0)
+        gap = float(rest.min_gap(prox, 5.0))
+        rec["holgura_mm"] = round(gap, 4)
+        need = 0.9 * min(p.clearance, p.axial_clearance)
+        if gap < need:
+            out["problems"].append(f"{jname}: holgura mínima {gap:.3f} mm < {need:.3f} mm")
+        free = []
+        for lbl, vec in (("+X", (1, 0, 0)), ("-X", (-1, 0, 0)), ("+Y", (0, 1, 0)), ("-Y", (0, -1, 0)),
+                         ("+Z", (0, 0, 1)), ("-Z", (0, 0, -1))):
+            moved = jb.rotate_distal(max(lo, min(hi, 0.0))).translate(tuple(RETENTION_MM * c for c in vec))
+            if float((moved ^ prox).volume()) <= JOINT_TOL_MM3:
+                free.append(lbl)
+        rec["retencion_libre"] = free
+        if free:
+            out["problems"].append(f"{jname}: la pieza distal sale sin chocar al desplazarla {RETENTION_MM:g} mm "
+                                   f"hacia {', '.join(free)}")
+        if hinge.pin_d < p.min_hinge_pin_d:
+            out["problems"].append(f"{jname}: bulón Ø{hinge.pin_d} < {p.min_hinge_pin_d}")
+        if hinge.tongue_t < p.min_tongue:
+            out["problems"].append(f"{jname}: lengüeta de {hinge.tongue_t} mm < {p.min_tongue}")
+        out["avisos"].extend(jb.warnings)
+        info[jname] = rec
+    return info
 
 
 # ----------------------------------------------------------------- exportación
