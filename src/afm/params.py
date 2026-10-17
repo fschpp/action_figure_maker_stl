@@ -16,6 +16,7 @@ class PinSpec:
 # Pasador de cadera de la figura de referencia del cliente (plan de articulaciones §1/§3): cabeza/vástago ≈ 1,9.
 # mm absolutos de una figura de 129 mm; NO es el valor por defecto de `Params.hip_pin` (decisión de escala pendiente).
 HIP_PIN_REFERENCE = PinSpec(4.8, 2.3, 9.25, 2.44)
+HIP_WALL_REFERENCE = 1.30   # pared medida entre la cabeza y el cuerpo del muslo (= shaft_len − 2·holgura con 0,5 mm)
 
 
 @dataclass
@@ -58,6 +59,11 @@ class Params:
     min_tongue: float = 2.0          # espesor mínimo de lengüeta (validación)
     min_hinge_pin_d: float = 2.0     # diámetro mínimo del bulón de bisagra (validación; el de hongo usa min_pin_d)
     decimate: float = 0.6            # reducción de triángulos de las piezas al exportar (0 = desactivar)
+
+    def with_hip_reference(self) -> "Params":
+        """Copia con el pasador de cadera de la figura de referencia (cabeza/vástago ≈ 1,9, mm absolutos)."""
+        import dataclasses
+        return dataclasses.replace(self, hip_pin=dataclasses.replace(HIP_PIN_REFERENCE))
 
     def to_dict(self) -> dict:
         return asdict(self)

@@ -270,9 +270,56 @@ def validate(res: BuildResult, p: Params, limbs: list[LimbSpec], sit: bool = Tru
         out["recorrido"][name] = round(float(worst), 5)
         if worst > 1e-4:
             out["problems"].append(f"{name}: interfiere con el torso durante el giro ({worst:.4f} mm³)")
+    out["cadera"] = _validate_hip_pin(res, p, limbs, out)
     out["articulaciones"] = _validate_joints(res, p, joints, out, sweep_check_step)
     out["ok"] = not out["problems"]
     return out
+
+
+def hip_pin_walls(spec_pin, center, direction, clearance: float) -> dict:
+    """Medidas de retención de un pasador de cadera (plan de articulaciones, Fase 3).
+
+    * `pared_mm`: material del torso que queda entre la cavidad del miembro (dilatada `clearance`) y la de la
+      cabeza: `shaft_len − 2·clearance` (la figura de referencia: 2,3 − 2·0,5 = 1,3 mm).
+    * `separacion_cabezas_mm`: distancia entre la cabeza de este lado y su espejo (x → −x); negativa si se cruzan.
+    * `relacion_cabeza_vastago`: head_d / shaft_d.
+    """
+    d = np.asarray(direction, float)
+    d = d / np.linalg.norm(d)
+    c = np.asarray(center, float)
+    r = spec_pin.head_d / 2
+    half_x = r * float(np.sqrt(max(0.0, 1.0 - d[0] ** 2)))        # semiancho en X de un disco perpendicular a `d`
+    x_base = (c + d * spec_pin.shaft_len)[0] - half_x
+    x_tip = (c + d * (spec_pin.shaft_len + spec_pin.head_h))[0] - half_x
+    return {"pared_mm": spec_pin.shaft_len - 2.0 * clearance,
+            "separacion_cabezas_mm": 2.0 * min(x_base, x_tip),
+            "relacion_cabeza_vastago": spec_pin.head_d / spec_pin.shaft_d}
+
+
+MIN_HEAD_SHAFT_RATIO = 1.6
+
+
+def _validate_hip_pin(res: BuildResult, p: Params, limbs: list[LimbSpec], out: dict) -> dict:
+    """Pared detrás de la cabeza (≥ `min_wall`), cabezas enfrentadas (separación ≥ 2·holgura) y relación
+    cabeza/vástago ≥ 1,6, para el pasador de cadera de cada pierna."""
+    info: dict = {}
+    for spec in limbs:
+        r = res.report.get("limbs", {}).get(spec.name)
+        if spec.kind != "leg" or r is None:
+            continue
+        pin = _pin_spec(spec, p)
+        w = hip_pin_walls(pin, r["pin_center"], r["pin_dir"], p.clearance)
+        info[spec.name] = {k: round(float(v), 3) for k, v in w.items()}
+        if w["pared_mm"] < p.min_wall - 1e-9:
+            out["problems"].append(f"{spec.name}: la pared tras la cabeza del pasador queda en {w['pared_mm']:.2f} mm "
+                                   f"(< {p.min_wall:.1f} mm): alargá el vástago o bajá la holgura")
+        if w["separacion_cabezas_mm"] < 2 * p.clearance - 1e-9:
+            out["problems"].append(f"{spec.name}: las cabezas de las dos caderas quedan a {w['separacion_cabezas_mm']:.2f} mm "
+                                   f"(< 2·holgura = {2 * p.clearance:.2f} mm)")
+        if w["relacion_cabeza_vastago"] < MIN_HEAD_SHAFT_RATIO:
+            out["avisos"].append(f"{spec.name}: cabeza/vástago = {w['relacion_cabeza_vastago']:.2f} (< {MIN_HEAD_SHAFT_RATIO}): "
+                                 "la cabeza puede salirse")
+    return info
 
 
 RETENTION_MM = 1.0
