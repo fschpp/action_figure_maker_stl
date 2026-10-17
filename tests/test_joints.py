@@ -50,16 +50,9 @@ def test_pieces_split_and_mirrored(built):
     assert set(res.joints) == {"rodilla", "codo"}
 
 
-# El brazo del muñeco queda pegado al torso (x 11,5–22 dentro del torso, que llega a x = 23) y el motor no talla un
-# barrido de brazo en el torso (limitación conocida), así que el antebrazo choca al flexionar el codo: es un hallazgo
-# real de la validación de cadena, no de los demás chequeos.
-DOLL_ELBOW_VS_TORSO = "antebrazo_izq choca con torso"
-
-
 def test_validation_ok(built):
     _res, val, _j = built
-    other = [x for x in val["problems"] if DOLL_ELBOW_VS_TORSO not in x]
-    assert not other, other
+    assert val["ok"], val["problems"]
     for rec in val["articulaciones"].values():
         assert rec["recorrido_mm3"] <= 1e-4
         assert rec["tope_flexion_mm3"] > 1e-4 and rec["tope_extension_mm3"] > 1e-4
@@ -213,9 +206,23 @@ def test_posed_pieces_matches_print_pose(built, params):
     assert "cabeza" not in sit and "torso" not in sit
 
 
-def test_chain_check_finds_elbow_against_torso_and_clears_knee(built):
+def test_chain_check_clears_knee_and_elbow(built):
     _res, val, _j = built
     chain = val["cadena"]
     assert chain["rodilla"] == {}
-    assert "torso" in chain["codo"] and chain["codo"]["torso"]["mm3"] > 1.0
-    assert any(DOLL_ELBOW_VS_TORSO in x for x in val["problems"])
+    assert chain["codo"] == {}                      # el barrido del antebrazo está tallado en el torso
+
+
+def test_arm_sweep_carved_in_torso(built, params):
+    """El brazo del muñeco queda pegado al torso: el antebrazo flexionado entraría en él, así que el motor talla el
+    barrido de la flexión del codo en el torso (la rodilla no: la pierna se libra con el barrido de cadera)."""
+    res, _val, joints = built
+    rep = res.report["joints"]
+    assert rep["codo"]["torso_tallado_mm3"] > 1.0
+    assert "torso_tallado_mm3" not in rep["rodilla"]
+    # el torso tallado no toca el antebrazo en ninguna flexión del rango
+    jb = res.joints["codo"]
+    torso = res.pieces["torso"]
+    lo, hi = jb.flex
+    for f in (lo, (lo + hi) / 2, hi):
+        assert (jb.rotate_distal(float(f)) ^ torso).volume() <= 1e-4

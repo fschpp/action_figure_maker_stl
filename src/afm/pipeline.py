@@ -120,6 +120,15 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
     for lname, j in by_limb.items():
         say(f"Articulación {j.name}…")
         joint_builds[lname] = build_joint(built[lname]["limb"], j, built[lname]["face"].center, p)
+    carved: dict[str, float] = {}
+    for lname, jb in joint_builds.items():
+        if built[lname]["spec"].kind == "leg" or jb.sweep is None:
+            continue          # la pierna ya queda libre del torso con el barrido de cadera (la validación de cadena lo comprueba)
+        # Brazo: el miembro cuelga pegado al torso y solo se talló estirado; el antebrazo flexionado entra en el torso.
+        # Se talla también el barrido de la flexión (el mismo ensanchado que talla el brazo proximal).
+        before = torso_half.volume()
+        torso_half = S.difference(torso_half, jb.sweep)
+        carved[lname] = before - torso_half.volume()
     if head_build is not None:
         say("Cavidad del cuello…")
         torso_half = S.difference(torso_half, head_build.pocket)
@@ -156,6 +165,8 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
                 "center": jb.center.tolist(), "axis": jb.axis.tolist(), "flex": list(jb.flex),
                 "shoulder_h": round(jb.shoulder_h, 3), "radius": round(jb.radius, 3), "avisos": jb.warnings,
                 "piezas": [pn, dn], "limb": name, "print_flex": print_flex(j, p)}
+            if name in carved:
+                report["joints"][j.name]["torso_tallado_mm3"] = round(2 * carved[name], 3)     # ambos lados (espejo)
         report["limbs"][name] = {
             "pin_center": b["face"].center.tolist(), "pin_dir": b["face"].outward.tolist(),
             "contact_area": b["face"].area, "sweep": [b["angles"][0], b["angles"][-1]],

@@ -140,6 +140,7 @@ class JointBuild:
     shoulder_h: float
     radius: float
     warnings: list = field(default_factory=list)
+    sweep: S.Manifold | None = None     # barrido del distal ensanchado en todo el rango de flexión (talla padre y, en brazos, torso)
 
     def raw(self, flex_deg: float) -> float:
         return self.sign * flex_deg
@@ -194,4 +195,5 @@ def build_joint(limb: S.Manifold, joint: JointSpec, toward: np.ndarray, p: Param
     grown = dilate_anisotropic(distal, p.clearance, p.axial_clearance, axis)
     sweep = S.union(*[S.rotate_about_axis(grown, c, axis, a) for a in angles])
     proximal = S.largest_component(S.difference(prox0, sweep))
-    return JointBuild(proximal, distal, c, axis, sgn, (lo, hi), [float(a) for a in angles], h, radius, warnings)
+    return JointBuild(proximal, distal, c, axis, sgn, (lo, hi), [float(a) for a in angles], h, radius, warnings,
+                      sweep)
