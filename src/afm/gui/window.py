@@ -24,7 +24,8 @@ _MODE_TITLES = {Mode.VIEW: "", Mode.CROWN: "  ·  marcando coronilla", Mode.SYMM
                 Mode.LIMB_PLANE: "  ·  plano de un miembro", Mode.NECK_PLANE: "  ·  plano del cuello", Mode.POLYGON: "  ·  dibujando silueta",
                 Mode.PIN: "  ·  colocando pasador", Mode.TRIM_PICK: "  ·  colocando recorte",
                 Mode.JOINT_PLANE: "  ·  plano de articulación", Mode.JOINT_AXIS: "  ·  colocando eje de bisagra",
-                Mode.JOINT_LINES: "  ·  codo con 2 líneas (de frente)", Mode.JOINT_SIDE: "  ·  guías de la articulación (de costado)"}
+                Mode.JOINT_LINES: "  ·  codo con 2 líneas (de frente)", Mode.JOINT_SIDE: "  ·  guías de la articulación (de costado)",
+                Mode.FLAT_PLANE: "  ·  plano de corte sin soportes"}
 _TRIM_OPS = ("subtract", "union")
 
 
@@ -293,6 +294,10 @@ class MainWindow(Gtk.ApplicationWindow):
         self.chk_flat.set_tooltip_text("Corta con un plano horizontal sobre la cola (altura en Parámetros: «Sin soportes: corte plano») y "
                                        "gira los brazos hacia adelante lo justo para que apoyen en ese plano. Los brazos no se modifican.")
         box.append(self.chk_flat)
+        self.btn_flat_plane = self._button("Ajustar la altura del corte (vista Derecha, figura sentada)", lambda *_: self._on_flat_plane())
+        self.btn_flat_plane.set_tooltip_text("Muestra la figura generada sentada, de costado, con el plano horizontal del corte «sin soportes». "
+                                             "Clic a la altura que querés, o ↑ ↓ (Mayús = 1 mm). Esc termina.")
+        box.append(self.btn_flat_plane)
         self.btn_export = self._button("Exportar piezas…", lambda *_: self._on_export())
         box.append(self.btn_export)
         hint3 = Gtk.Label(label="Generar puede tardar varios minutos. Si cambiás algo después, hay que generar de nuevo "
@@ -376,6 +381,7 @@ class MainWindow(Gtk.ApplicationWindow):
             self.sidebar_box.set_sensitive(not ctrl.busy)
             self.btn_generate.set_sensitive(loaded and not ctrl.busy)
             self.btn_export.set_sensitive(ctrl.session.outcome is not None and not ctrl.busy)
+            self.btn_flat_plane.set_sensitive(ctrl.session.outcome is not None and not ctrl.busy)
             editing = ctrl.mode == Mode.POLYGON
             for b in (self.btn_close_poly, self.btn_propose, self.btn_outline, self.btn_clear_poly, self.btn_end_poly):
                 b.set_sensitive(editing)
@@ -581,6 +587,9 @@ class MainWindow(Gtk.ApplicationWindow):
         if keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter) and self.ctrl.mode == Mode.POLYGON:
             self.ctrl.close_polygon()
             return True
+        if self.ctrl.mode == Mode.FLAT_PLANE and keyval in (Gdk.KEY_Up, Gdk.KEY_Down):
+            self.ctrl.nudge_flat(1 if keyval == Gdk.KEY_Up else -1, big=bool(state & Gdk.ModifierType.SHIFT_MASK))
+            return True
         if self.ctrl.mode == Mode.PIN and keyval in _ARROWS:
             du, dv = _ARROWS[keyval]
             self.ctrl.nudge_pin(du, dv, big=bool(state & Gdk.ModifierType.SHIFT_MASK))
@@ -590,6 +599,10 @@ class MainWindow(Gtk.ApplicationWindow):
     # ------------------------------------------------------------------ acciones
     def _set_view(self, name: str) -> None:
         self.ctrl.camera.set_view(name)
+        self.gl.queue_render()
+
+    def _on_flat_plane(self) -> None:
+        self.ctrl.start_flat_plane()
         self.gl.queue_render()
 
     def _pin_face_view(self) -> None:

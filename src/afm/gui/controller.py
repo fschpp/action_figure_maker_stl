@@ -43,6 +43,9 @@ class Mode(Enum):
     JOINT_SIDE = "guias_costado"          # 4 clics de costado: corrigen (y, z) de las mismas 4 guías y recalculan la articulación
     JOINT_AXIS = "eje_articulacion"      # un clic sobre la figura fija (y, z) del eje de la bisagra
     TRIM_PICK = "recorte_clic"      # un clic sobre la figura pone el centro de un recorte esfera / caja / cilindro
+    FLAT_PLANE = "plano_sin_soportes"   # figura generada sentada, vista Derecha: un clic (o flechas) fija la altura del corte plano
+
+EXPORT_ONLY_PARAMS = frozenset({"flat_depth"})   # parámetros que no cambian las piezas generadas
 
 
 GUIDE_ARM_COLOR = (0.2, 0.9, 1.0, 1.0)         # cian: línea del brazo (o del muslo)
@@ -75,6 +78,7 @@ class PlaneEntry:
 
 
 _MIRROR_COLOR = (0.70, 0.78, 0.92, 1.0)      # el espejo se ve con un tinte azul para no confundirlo con el lado real
+FLAT_NUDGE_MM = 0.1            # paso de las flechas al ajustar el plano de corte «sin soportes» (Mayús = 10 veces más)
 NUDGE_MM = 0.1                 # paso de las flechas al ajustar el pasador (Mayús = 10 veces más)
 
 
@@ -532,7 +536,8 @@ class Controller:
         if not quiet:
             self._changed("Edición del recorte terminada." if was_trim
                           else "Edición de silueta terminada." if was == Mode.POLYGON
-                          else "Colocación del pasador terminada." if was == Mode.PIN else "Cancelado.")
+                          else "Colocación del pasador terminada." if was == Mode.PIN
+                          else "Ajuste del plano de corte terminado." if was == Mode.FLAT_PLANE else "Cancelado.")
 
     def undo_point(self) -> None:
         if self.mode == Mode.POLYGON and self.draft is not None:
@@ -592,6 +597,9 @@ class Controller:
         for k in path:
             obj = getattr(obj, k)
         setattr(obj, last, value)
+        if key in EXPORT_ONLY_PARAMS:          # solo se usa al exportar: la figura generada sigue valiendo
+            self._changed(f"{label}: {value:g}.")
+            return True
         self.session.outcome = None
         self._changed(f"{label}: {value:g}. Hay que generar de nuevo.", scene=False)
         return True
@@ -1075,6 +1083,69 @@ class Controller:
         if self.pose_active():
             self._pose_update()
 
+    # ------------------------------------------------ plano de corte «sin soportes» (piernas y cola)
+    def flat_base_z(self) -> float | None:
+        """Altura del punto más bajo del torso generado (la cola): desde ahí se mide `flat_depth`. None sin figura."""
+        out = self.session.outcome
+        return None if out is None else float(out.result.pieces["torso"].bounding_box()[2])
+
+    def flat_cut_z(self) -> float | None:
+        base = self.flat_base_z()
+        return None if base is None else base + float(self.session.project.params.flat_depth)
+
+    def start_flat_plane(self) -> None:
+        """Muestra la figura generada sentada (como «ver la figura en la pose de cadera»), de costado (vista Derecha),
+        con el plano horizontal del corte «sin soportes»; un clic o las flechas ↑↓ fijan su altura."""
+        if not self._need_loaded():
+            return
+        if self.session.outcome is None:
+            self._changed("Primero generá la figura: el plano de corte se ajusta sobre la figura generada y sentada.",
+                          scene=False)
+            return
+        self.set_pose_view(True)
+        self.mode = Mode.FLAT_PLANE
+        self.camera.frame(self.session.work.bounds)
+        self.camera.set_view("derecha")
+        self._changed(self.flat_message(self.session.project.params.flat_depth) +
+                      " Hacé clic a la altura que querés (o ↑ ↓, Mayús = 1 mm); Esc termina.")
+
+    def flat_message(self, depth: float) -> str:
+        return f"Corte sin soportes: {depth:.1f} mm sobre la cola (z = {self.flat_base_z() + depth:.1f} mm)."
+
+    def set_flat_depth(self, depth: float) -> float | None:
+        """Fija la altura del corte (mm sobre la cola), dentro del rango de `Parámetros`. No invalida la figura."""
+        spec = next(f for f in PARAM_FIELDS if f[0] == "flat_depth")
+        lo, hi = spec[2], spec[3]
+        wanted = float(depth)
+        d = float(np.clip(wanted, lo, hi))
+        self.session.project.params.flat_depth = round(d, 3)
+        note = ""
+        if abs(d - wanted) > 1e-9:
+            note = f" (el rango es {lo:g}–{hi:g} mm)"
+        self._changed(self.flat_message(d) + note)
+        return d
+
+    def nudge_flat(self, direction: int, big: bool = False) -> None:
+        """↑ sube el plano, ↓ lo baja `FLAT_NUDGE_MM` (Mayús = 10 veces más)."""
+        if self.mode != Mode.FLAT_PLANE or self.session.outcome is None:
+            return
+        step = FLAT_NUDGE_MM * (10.0 if big else 1.0) * (1 if direction > 0 else -1)
+        self.set_flat_depth(self.session.project.params.flat_depth + step)
+
+    def _click_flat_plane(self, px: float, py: float, width: float, height: float) -> None:
+        """La altura es la z del clic sobre el plano medio (x = 0), que de costado es justo donde se hizo clic."""
+        base = self.flat_base_z()
+        if base is None:
+            return
+        origin, direction = self.camera.ray(px, py, width, height)
+        if abs(direction[0]) < 0.2:
+            self._changed("Mirá la figura de costado (botón Derecha o Izquierda) para fijar la altura con un clic.",
+                          scene=False)
+            return
+        t = (0.0 - origin[0]) / direction[0]
+        z = float(origin[2] + t * direction[2])
+        self.set_flat_depth(z - base)
+
     # ------------------------------------------------------- recortes manuales (plan §8.8)
     def trim_targets(self) -> list[str]:
         return (["torso"] + [l.name for l in self.session.project.limbs]
@@ -1339,6 +1410,9 @@ class Controller:
             return None
         if self.mode == Mode.PIN and self.pin_prev is not None:
             self._click_pin(px, py, width, height)
+            return None
+        if self.mode == Mode.FLAT_PLANE:
+            self._click_flat_plane(px, py, width, height)
             return None
         if self.picker is None or self.mode == Mode.VIEW:
             return None
@@ -1677,6 +1751,21 @@ class Controller:
                                color=(0.95, 0.25, 0.25, 1.0))
             else:
                 scene.set_mesh(f"pose:{name}", mesh, color=colors[name])
+        if self.mode == Mode.FLAT_PLANE:
+            self._sync_flat_plane(scene, meshes)
+
+    def _sync_flat_plane(self, scene, meshes: dict) -> None:
+        """Plano horizontal del corte «sin soportes»: cuadro translúcido + línea gruesa delante (de costado se ve de canto)."""
+        z = self.flat_cut_z()
+        lo = np.min([m.bounds[0] for m in meshes.values()], axis=0)
+        hi = np.max([m.bounds[1] for m in meshes.values()], axis=0)
+        center = (lo + hi) / 2
+        hs = float(np.linalg.norm(hi - lo)) * 0.5
+        plane = Plane.from_normal((center[0], center[1], z), (0.0, 0.0, 1.0), "corte sin soportes")
+        scene.set_plane("plano_sin_soportes", plane, hs, center=(center[0], center[1], z), color=(1.0, 0.55, 0.1, 0.25))
+        x = float(hi[0]) + 1.0
+        line = np.array([[x, lo[1] - 0.15 * hs, z], [x, hi[1] + 0.15 * hs, z]])
+        scene.set_lines("plano_sin_soportes:linea", line, (1.0, 0.45, 0.0, 1.0), on_top=True)
 
     def _sync_trims(self, scene) -> None:
         """Recortes manuales: rojo = restar, verde = unir. El que se está dibujando lo muestra el editor de polígonos."""
