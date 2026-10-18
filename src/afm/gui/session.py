@@ -718,12 +718,14 @@ class Session:
         self.outcome = BuildOutcome(res, val)
         return self.outcome
 
-    def export(self, outdir: str, name: str | None = None, orient: bool = False, max_angle: float = 45.0) -> dict:
+    def export(self, outdir: str, name: str | None = None, orient: bool = False, max_angle: float = 45.0,
+               flat: bool = False) -> dict:
         if self.outcome is None:
             raise ValueError("Primero generá la figura")
         name = name or (os.path.splitext(os.path.basename(self.stl_path or "figura"))[0])
         os.makedirs(outdir, exist_ok=True)
-        files = P.export(self.outcome.result, outdir, name, orient=orient, max_angle=max_angle)
+        files = P.export(self.outcome.result, outdir, name, orient=orient, max_angle=max_angle,
+                         flat=self.project.params.flat_depth if flat else None, params=self.project.params)
         info = {"validacion": self.outcome.validation, "construccion": self.outcome.result.report, "archivos": files}
         with open(os.path.join(outdir, f"{name}_informe.json"), "w") as f:
             json.dump(info, f, indent=2, default=float)

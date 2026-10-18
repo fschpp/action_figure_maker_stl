@@ -13,7 +13,7 @@ from .testfigure import make_doll
 
 
 def run(stl_path: str, project: Project, outdir: str, name: str, progress=print, orient: bool | str = False,
-        max_angle: float = 45.0) -> dict:
+        max_angle: float = 45.0, flat: float | None = None) -> dict:
     mesh, rep = meshio.load_figure(stl_path, project.params.ref_height, project.crown_z)
     for w in rep.warnings:
         progress(f"AVISO: {w}")
@@ -24,7 +24,7 @@ def run(stl_path: str, project: Project, outdir: str, name: str, progress=print,
     res = P.build(body, project.limbs, project.params, project.symmetry, progress=progress,
                   trims=project.trims, head=project.head, joints=project.joints)
     val = P.validate(res, project.params, project.limbs, joints=project.joints)
-    files = P.export(res, outdir, name, orient=orient, max_angle=max_angle)
+    files = P.export(res, outdir, name, orient=orient, max_angle=max_angle, flat=flat, params=project.params)
     info = {"carga": rep.__dict__, "construccion": res.report, "validacion": val, "archivos": files}
     with open(os.path.join(outdir, f"{name}_informe.json"), "w") as f:
         json.dump(info, f, indent=2, default=float)
@@ -46,6 +46,9 @@ def main(argv=None) -> int:
     b.add_argument("--out", default="out/figura")
     b.add_argument("--name", default=None)
     b.add_argument("--orient", action="store_true", help="exportar apoyado en la cama en la pose de la vista previa (sentada, cabeza arriba)")
+    b.add_argument("--sin-soportes", nargs="?", type=float, const=-1.0, default=None, metavar="MM",
+                   help="aplanar piernas y cola con un corte horizontal a MM sobre la cola (por defecto Params.flat_depth) y "
+                        "girar los brazos hacia adelante hasta apoyar en ese plano")
     b.add_argument("--orient-auto", action="store_true", help="exportar en la orientación de menor voladizo (puede dar vuelta la figura)")
     b.add_argument("--cabeza", default=None, metavar="STL",
                    help="usar esta cabeza en lugar de la original (el proyecto debe tener el plano del cuello)")
@@ -104,7 +107,11 @@ def main(argv=None) -> int:
                 replacement_up=args.cabeza_arriba or project.head.replacement_up)
         if args.cadera_referencia:
             project.params = project.params.with_hip_reference()
-        info = run(args.stl, project, args.out, name, orient="auto" if args.orient_auto else args.orient, max_angle=args.max_angle)
+        flat = args.sin_soportes
+        if flat is not None and flat < 0:
+            flat = project.params.flat_depth
+        info = run(args.stl, project, args.out, name, orient="auto" if args.orient_auto else args.orient,
+                   max_angle=args.max_angle, flat=flat)
     val = info["validacion"]
     print("Validación:", "OK" if val["ok"] else "CON PROBLEMAS")
     for pr in val["problems"]:
@@ -116,6 +123,13 @@ def main(argv=None) -> int:
     if ori:
         print(f"Orientación de impresión: {ori['etiqueta']} — voladizo {ori['voladizo_mm2']} mm², "
               f"base {ori['base_mm2']} mm²")
+    ss = info["archivos"].get("sin_soportes")
+    if ss:
+        giro = ", ".join(f"{k} {v:g}°" for k, v in ss["giro_brazos_grados"].items())
+        print(f"Sin soportes: corte {ss['corte_sobre_cola_mm']:g} mm sobre la cola (z = {ss['altura_corte_z']}); "
+              f"brazos girados hacia adelante: {giro or '0°'}")
+        for av in ss["avisos"]:
+            print(" AVISO:", av)
     return 0 if val["ok"] else 1
 
 

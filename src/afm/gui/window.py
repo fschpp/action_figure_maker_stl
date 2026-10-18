@@ -289,6 +289,10 @@ class MainWindow(Gtk.ApplicationWindow):
         box.append(self.btn_generate)
         self.chk_orient = Gtk.CheckButton(label="Apoyar las piezas en la cama al exportar (en la pose de cadera, cabeza arriba)", active=True)
         box.append(self.chk_orient)
+        self.chk_flat = Gtk.CheckButton(label="Modificar para imprimir sin soportes (aplana piernas y cola; los brazos giran hacia adelante)")
+        self.chk_flat.set_tooltip_text("Corta con un plano horizontal sobre la cola (altura en Parámetros: «Sin soportes: corte plano») y "
+                                       "gira los brazos hacia adelante lo justo para que apoyen en ese plano. Los brazos no se modifican.")
+        box.append(self.chk_flat)
         self.btn_export = self._button("Exportar piezas…", lambda *_: self._on_export())
         box.append(self.btn_export)
         hint3 = Gtk.Label(label="Generar puede tardar varios minutos. Si cambiás algo después, hay que generar de nuevo "
@@ -668,7 +672,7 @@ class MainWindow(Gtk.ApplicationWindow):
             except GLib.Error:
                 return
             try:
-                self.ctrl.export(f.get_path(), orient=self.chk_orient.get_active())
+                self.ctrl.export(f.get_path(), orient=self.chk_orient.get_active(), flat=self.chk_flat.get_active())
             except Exception as e:          # noqa: BLE001
                 self._error(e)
 

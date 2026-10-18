@@ -37,6 +37,12 @@ def to_trimesh(mf: Manifold) -> trimesh.Trimesh:
     )
 
 
+def _bad_edges(tm: trimesh.Trimesh) -> int:
+    """Aristas que no tienen exactamente 2 caras."""
+    _, counts = np.unique(tm.edges_sorted, axis=0, return_counts=True)
+    return int((counts != 2).sum())
+
+
 def to_printable_trimesh(mf: Manifold, tol: float = 1e-3) -> trimesh.Trimesh:
     """Malla lista para escribir a STL: lo que un slicer ve al soldar vértices por posición.
 
@@ -54,6 +60,19 @@ def to_printable_trimesh(mf: Manifold, tol: float = 1e-3) -> trimesh.Trimesh:
     if not keep.all():
         tm.update_faces(keep)
         tm.remove_unreferenced_vertices()
+    if _bad_edges(tm):
+        # un tallado que roza una superficie existente deja vértices a menos de 1e-4 mm sin soldar: pinchan la malla en
+        # aristas de 4 caras (el «non-manifold edge» del laminador). Se prueba soldar también hasta esa resolución y se
+        # conserva solo si mejora (en una malla sana, soldar de más puede crear pinches nuevos).
+        alt = tm.copy()
+        alt.merge_vertices(digits_vertex=4)
+        f = alt.faces
+        keep = (f[:, 0] != f[:, 1]) & (f[:, 1] != f[:, 2]) & (f[:, 0] != f[:, 2])
+        if not keep.all():
+            alt.update_faces(keep)
+            alt.remove_unreferenced_vertices()
+        if _bad_edges(alt) < _bad_edges(tm):
+            tm = alt
     return tm
 
 

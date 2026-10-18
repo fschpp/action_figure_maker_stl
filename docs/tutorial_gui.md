@@ -336,7 +336,14 @@ Con la simetría definida y cada miembro con su silueta, el Estado deja de lista
    `piezas/`, el informe `*_informe.json` y el proyecto. Con la casilla **Apoyar las piezas
    en la cama** todas se exportan **tal como se ven en «Ver la figura generada en la pose de cadera»** (sentada, cabeza
    arriba, sin darla vuelta), solo bajadas hasta z = 0 y con la misma transformación, para que sigan ensambladas en el
-   laminador. Los **voladizos** (casilla de la barra lateral) usan esa misma orientación: con la figura generada se pintan
+   laminador. Con **«Modificar para imprimir sin soportes»** (debajo de esa casilla), antes de exportar se corta con un
+   plano horizontal a **1 mm sobre el punto más bajo de la cola** (valor en «Parámetros»: «Sin soportes: corte plano sobre
+   la cola») para que **piernas y cola queden chatas**, y los **brazos giran hacia adelante** sobre el pasador del hombro
+   lo justo para que su punto más bajo apoye en ese plano (un brazo que cuelga sube al girar). El torso se talla con el
+   barrido del brazo para que gire libre. No se tocan los brazos; la cabeza tampoco. El Estado informa el corte, el giro
+   (por ejemplo, 23°) y los avisos (choques, piezas partidas, aristas no variedad). Cuanto más corte, más base plana pero
+   más material quitado de las piernas. En la línea de comandos: `afm build … --sin-soportes [MM]`. La vista de la pose
+   y el marcado de voladizos todavía no muestran este corte. Los **voladizos** (casilla de la barra lateral) usan esa misma orientación: con la figura generada se pintan
    en rojo sobre la vista de la pose de cadera (si estaba apagada, se enciende sola; una pieza que interfiere se
    marca en magenta mientras estén los voladizos); sin generar, sobre la figura de frente, cabeza arriba. En la línea de
    comandos, `--orient` hace lo mismo y `--orient-auto` conserva la orientación de menor voladizo (puede dar vuelta la
