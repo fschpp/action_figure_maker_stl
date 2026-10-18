@@ -302,3 +302,22 @@ def test_rod_extent_stops_where_the_arm_is_too_thin():
     thin = S.union(block, S.Manifold.cube((10.0, 3.0, 3.0), center=True).translate((15.0, 0, 0)))   # saliente de 3 × 3: no cabe
     assert rod_extent(thin, (0, 0, 0), (1, 0, 0), 2.5)[1] == pytest.approx(10.0, abs=0.3)
     assert rod_extent(block, (0, 0, 0), (1, 0, 0), 2.5, start=11.0) is None            # empezar fuera del material
+
+
+def test_neck_makes_the_tongue_a_u_shape_wide_where_it_meets_the_body(params):
+    """Sin cuello, la lengüeta es un disco que toca el cuerpo en una cuerda corta; con cuello llega con todo el ancho."""
+    body = S.to_manifold(make_doll())
+    proj = demo_project()
+    arm = [l for l in proj.limbs if l.kind == "arm"]
+    width = {}
+    for neck in (False, True):
+        h = HingeSpec(pin_d=2.0, pin_len=0.6, tongue_t=2.0, end_r=3.0, neck=neck)
+        jb = P.build(body, arm, params, proj.symmetry, head=proj.head, joints=[elbow(hinge=h)]).joints["codo"]
+        tri = S.to_trimesh(jb.distal)
+        sec = tri.section(plane_origin=jb.center - np.array([0, 0, 0.5 * (jb.shoulder if hasattr(jb, "shoulder") else 3.0)]),
+                          plane_normal=(1, 0, 0))
+        pts = sec.vertices
+        near = pts[np.abs(pts[:, 2] - (jb.center[2] - 1.5)) < 0.05]          # 1,5 mm bajo el eje, dentro del cuello
+        width[neck] = np.ptp(near[:, 1]) if len(near) else 0.0
+    assert width[True] > 2 * 3.0 * 0.95                                       # ancho completo de la lengüeta (2·radio)
+    assert width[True] > width[False] + 0.3

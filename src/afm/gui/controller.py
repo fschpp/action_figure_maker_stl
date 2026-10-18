@@ -119,6 +119,7 @@ PARAM_FIELDS = (
     ("hinge_pin.pin_len", "Rodilla/codo: largo bulón (mm)", 0.5, 4.0, 0.1, 1),
     ("hinge_pin.tongue_t", "Rodilla/codo: espesor lengüeta (mm)", 1.0, 6.0, 0.1, 1),
     ("hinge_pin.end_r", "Rodilla/codo: radio lengüeta (mm)", 2.0, 8.0, 0.1, 1),
+    ("hinge_pin.neck", "Rodilla/codo: lengüeta con cuello recto (1 = sí, 0 = disco)", 0.0, 1.0, 1.0, 0),
     ("hinge_pin.rod", "Rodilla/codo: bastago pasante (1 = sí, 0 = dos bulones)", 0.0, 1.0, 1.0, 0),
     ("hinge_pin.rod_wall", "Rodilla/codo: pared tras el bastago (mm; 0 = pasante)", 0.0, 4.0, 0.1, 1),
 )

@@ -300,19 +300,23 @@ figura de referencia. La pierna queda en **muslo + pantorrilla** y el brazo en *
    y ≈ 9,5° en el codo. Normalmente no hace falta tocarla: ya sale del plano. Por defecto la rodilla va de 0° a 90° (la
    pantorrilla va hacia atrás) y el codo de −10° a 90° (el antebrazo va hacia adelante). **El tope no es una pieza
    aparte:** es el material del muslo / brazo que queda sin tallar fuera de ese rango.
-4. **Bastago pasante (por defecto):** la lengüeta del antebrazo lleva **un bastago soldado** que cruza un orificio del
+4. **Lengüeta con cuello recto (por defecto):** vista a lo largo del eje, la lengüeta es una «U» invertida: lados rectos
+   (ancho = 2 × radio) que bajan hasta el cuerpo y punta redonda alrededor del eje. Antes era un disco que solo tocaba
+   el cuerpo en una cuerda corta (débil, y con un voladizo redondo que pedía soportes). En «Parámetros», «cuello recto» =
+   0 vuelve al disco.
+5. **Bastago pasante (por defecto):** la lengüeta del antebrazo lleva **un bastago soldado** que cruza un orificio del
    brazo y lo sujeta; las puntas quedan **ciegas** dentro del brazo, con `Pared tras el bastago` (1,2 mm) de material hacia
    afuera (0 = orificio abierto de lado a lado). Si el brazo se afina junto al eje (por ejemplo, pegado al torso), el
    bastago se acorta de ese lado para que alrededor del orificio quede pared; el Estado avisa. En «Parámetros»,
    «bastago pasante» = 0 vuelve a los dos bulones cortos de antes.
-5. **Bisagra en figuras delgadas:** en «Parámetros» están el **Ø del bulón**, el **largo del bulón**, el **espesor de la
+6. **Bisagra en figuras delgadas:** en «Parámetros» están el **Ø del bulón**, el **largo del bulón**, el **espesor de la
    lengüeta** y el **radio de la lengüeta** de rodilla/codo. Con un brazo de unos 8 mm (Güemes) la bisagra por defecto
    deja la pared del bulón en menos de 0,8 mm (no se imprime): probá Ø bulón 2,0 (el mínimo), largo 1,0, lengüeta 2,0 y
    radio 3,0. Cambiarlos invalida la figura: hay que generar de nuevo.
-6. **Generar figura:** el informe de validación revisa el giro libre dentro del rango, el tope fuera de él, la holgura,
+7. **Generar figura:** el informe de validación revisa el giro libre dentro del rango, el tope fuera de él, la holgura,
    que la pieza no se pueda sacar, la pared alrededor de los bulones y el recorrido de toda la cadena (cadera × rodilla)
    contra el torso y las demás piezas. La **pose sentada en vivo** (§7.5) ya muestra la pierna con su rodilla.
-7. **Probetas:** en «Perfil de línea» elegí «Bisagra de rodilla / codo» y «Generar probetas de articulación…».
+8. **Probetas:** en «Perfil de línea» elegí «Bisagra de rodilla / codo» y «Generar probetas de articulación…».
 
 Una articulación por miembro. Quitar el miembro (o la fila amarilla) la quita. En un brazo, el motor **talla en el
 torso** el barrido del antebrazo al flexionar el codo; el informe trae `torso_tallado_mm3` con el material quitado (0 si

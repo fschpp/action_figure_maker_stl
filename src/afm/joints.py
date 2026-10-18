@@ -224,6 +224,19 @@ def build_joint(limb: S.Manifold, joint: JointSpec, toward: np.ndarray, p: Param
     below = S.difference(limb, up)
     slab = S.cylinder_along(c, axis, 400.0, hinge.tongue_t, 16, start=-hinge.tongue_t / 2)
     disc = S.cylinder_along(c, axis, radius, 400.0, 64, start=-200.0)
+    if hinge.neck:
+        # Cuello recto: un ancho 2·radio (tangente al disco) que baja del eje hasta el cuerpo distal, de modo que la
+        # lengüeta sea una «U» invertida (lados rectos y punta redonda) y no un círculo que apenas toca el cuerpo: más
+        # resistente y sin el voladizo redondo que pide soportes.
+        w = np.cross(n, axis)
+        w = w / np.linalg.norm(w)
+        n_ax = np.cross(axis, w)                                   # normal al plano de corte, ortogonal al eje
+        if n_ax @ n < 0:                                           # base (eje, w, n_ax) siempre directa
+            w, n_ax = -w, -n_ax
+        length = h + 0.5
+        box = S.Manifold.cube((hinge.tongue_t, 2 * radius, length)).translate((-hinge.tongue_t / 2, -radius, -length))
+        m = np.column_stack([axis, w, n_ax, c])
+        disc = S.union(disc, box.transform(m))
     tongue = S.intersection(S.intersection(limb, slab), disc)      # llega bajo el plano: se funde con `below`
     tip = hinge.tongue_t / 2 + hinge.pin_len
     tips = (tip, tip)
