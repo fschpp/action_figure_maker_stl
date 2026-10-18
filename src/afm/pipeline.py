@@ -542,25 +542,20 @@ def _rotate_pts(pts: np.ndarray, origin, axis, angle_deg: float) -> np.ndarray:
 
 def _carve_torso_for_arm(torso: S.Manifold, arm_parts: list, center, axis, theta: float, p: Params) -> tuple:
     """Talla el torso con el barrido del brazo entre 0° y `theta` (ensanchado una holgura algo menor que la de la
-    cavidad, para no tocar donde ya hay hueco). El resultado depende de cómo cae la malla del barrido sobre la del
-    torso: una combinación (holgura, paso) puede dejar vértices que pinchan la malla, así que se prueban unas pocas y
+    cavidad, para no tocar donde ya hay hueco). El barrido se calcula con un campo de distancia voxelizado
+    (`S.swept_offset`): Minkowski sobre un brazo de ~200k caras no termina. El resultado depende de cómo cae la malla
+    del barrido sobre la del torso: una combinación (holgura, voxel) puede dejar vértices que pinchan la malla, así que se prueban unas pocas y
     se queda con la primera sin aristas no variedad (o la que menos tiene). Devuelve (torso, {holgura, paso, aristas})."""
-    from .joints import dilate_anisotropic
     best = None
-    for factor, step in ((0.9, 3.0), (0.9, 5.0), (0.95, 3.0), (0.85, 4.0)):
-        angles = np.linspace(0.0, theta, max(2, int(np.ceil(abs(theta) / step)) + 1))
-        sweep = None
-        for mf in arm_parts:
-            grown = dilate_anisotropic(mf, factor * p.clearance, factor * p.clearance, axis)
-            parts = [S.rotate_about_axis(grown, center, axis, a) for a in angles]
-            sweep = S.union(*parts) if sweep is None else S.union(sweep, *parts)
+    for factor, pitch in ((0.9, 0.2), (0.9, 0.25), (0.95, 0.2), (0.85, 0.22)):
+        sweep = S.swept_offset(arm_parts, center, axis, theta, factor * p.clearance, pitch, step_deg=3.0)
         cand = S.difference(torso, S.union(sweep, S.mirror_x(sweep)))
         bad = _nonmanifold_edges(cand)
         if best is None or bad < best[2]:
-            best = (cand, (factor, step), bad)
+            best = (cand, (factor, pitch), bad)
         if bad == 0:
             break
-    return best[0], {"holgura_factor": best[1][0], "paso_grados": best[1][1], "aristas_no_variedad": best[2]}
+    return best[0], {"holgura_factor": best[1][0], "voxel_mm": best[1][1], "paso_grados": 3.0, "aristas_no_variedad": best[2]}
 
 
 def flat_for_print(res: BuildResult, depth: float = 1.0, p: Params | None = None) -> tuple[dict, dict]:
