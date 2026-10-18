@@ -235,3 +235,70 @@ def test_arm_sweep_carved_in_torso(built, params):
     lo, hi = jb.flex
     for f in (lo, (lo + hi) / 2, hi):
         assert (jb.rotate_distal(float(f)) ^ torso).volume() <= 1e-4
+
+
+# ------------------------------------------------------------------ bastago pasante (codo/rodilla)
+@pytest.fixture(scope="module")
+def rod_vs_bolts(params):
+    """Codo del muñeco con bastago pasante (por defecto) y con los dos bulones de antes."""
+    body = S.to_manifold(make_doll())
+    proj = demo_project()
+    out = {}
+    for rod in (True, False):
+        h = HingeSpec(pin_d=2.0, pin_len=0.6, tongue_t=2.0, end_r=3.0, rod=rod, rod_wall=1.2)
+        joints = [elbow(hinge=h)]
+        res = P.build(body, [l for l in proj.limbs if l.kind == "arm"], params, proj.symmetry, head=proj.head, joints=joints)
+        out[rod] = (res, P.validate(res, params, [l for l in proj.limbs if l.kind == "arm"], joints=joints))
+    return out
+
+
+def test_rod_is_one_piece_with_the_forearm_and_passes_through_the_arm(rod_vs_bolts):
+    (res, val), (res_b, _vb) = rod_vs_bolts[True], rod_vs_bolts[False]
+    jb, jb_b = res.joints["codo"], res_b.joints["codo"]
+    assert val["ok"] if "ok" in val else not val["problems"], val["problems"]
+    assert S.to_trimesh(res.pieces["antebrazo_izq"]).body_count == 1               # el bastago está soldado: una sola pieza
+    # el brazo del muñeco es fino (pegado al torso): el bastago queda corto, como mucho igual que los bulones, y avisa
+    assert min(jb.tips) >= min(jb_b.tips) - 1e-9
+    assert any("bastago queda corto" in w for w in jb.warnings)
+    for tip in jb.tips:
+        assert tip > 2.0 / 2 + 0.5                                                   # sale de la lengüeta
+    # el orificio del brazo es de lado a lado menos la pared: la pared medida ≈ rod_wall
+    assert val["articulaciones"]["codo"]["pared_mm"] == pytest.approx(1.2, abs=0.35)
+
+
+def test_rod_is_retained_and_free_in_range(rod_vs_bolts):
+    _res, val = rod_vs_bolts[True]
+    rec = val["articulaciones"]["codo"]
+    assert rec["recorrido_mm3"] <= 1e-4 and rec["retencion_libre"] == []
+    assert rec["holgura_mm"] >= 0.9 * min(0.5, 0.35)
+
+
+def test_rod_wall_zero_gives_an_open_through_hole(params):
+    body = S.to_manifold(make_doll())
+    proj = demo_project()
+    arm = [l for l in proj.limbs if l.kind == "arm"]
+    closed = HingeSpec(pin_d=2.0, pin_len=0.6, tongue_t=2.0, end_r=3.0, rod_wall=1.2)
+    opened = dataclasses.replace(closed, rod_wall=0.0)
+    r = {}
+    for k, h in (("closed", closed), ("open", opened)):
+        r[k] = P.build(body, arm, params, proj.symmetry, head=proj.head, joints=[elbow(hinge=h)]).joints["codo"]
+    assert sum(r["open"].tips) > sum(r["closed"].tips) + 1.0
+
+
+def test_hinge_rod_fields_roundtrip_and_old_projects_load():
+    h = HingeSpec(rod=False, rod_wall=0.6)
+    assert HingeSpec(**vars(h).copy()) == h
+    old = {"pin_d": 2.4, "pin_len": 1.2, "tongue_t": 2.4, "end_r": 3.6}      # proyecto guardado antes del bastago
+    assert HingeSpec(**old).rod is True and HingeSpec(**old).rod_wall == 1.2
+
+
+def test_rod_extent_stops_where_the_arm_is_too_thin():
+    from afm.joints import rod_extent
+    block = S.Manifold.cube((20.0, 10.0, 10.0), center=True)          # x ∈ [−10, 10]; el disco de radio 2,5 cabe en todo
+    ext = rod_extent(block, (0, 0, 0), (1, 0, 0), 2.5)
+    assert ext == pytest.approx((10.0, 10.0), abs=0.3)
+    ext = rod_extent(block, (4.0, 0, 0), (1, 0, 0), 2.5)
+    assert ext == pytest.approx((14.0, 6.0), abs=0.3)
+    thin = S.union(block, S.Manifold.cube((10.0, 3.0, 3.0), center=True).translate((15.0, 0, 0)))   # saliente de 3 × 3: no cabe
+    assert rod_extent(thin, (0, 0, 0), (1, 0, 0), 2.5)[1] == pytest.approx(10.0, abs=0.3)
+    assert rod_extent(block, (0, 0, 0), (1, 0, 0), 2.5, start=11.0) is None            # empezar fuera del material

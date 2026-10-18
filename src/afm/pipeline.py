@@ -445,11 +445,16 @@ def joint_wall_mm(jb: JointBuild, hinge, rays: int = 16) -> float | None:
     v = np.cross(ax, u)
     dirs_for = lambda s: [s * ax] + [np.cos(t) * u + np.sin(t) * v for t in np.linspace(0, 2 * np.pi, rays, endpoint=False)]
     best = None
-    for s in (1.0, -1.0):
-        origin = np.asarray(jb.center, float) + s * ax * (hinge.tongue_t / 2 + hinge.pin_len - 0.1)   # cerca de la punta del bulón (agujero ciego)
+    for s, tip in ((1.0, jb.tips[1] or hinge.tongue_t / 2 + hinge.pin_len), (-1.0, jb.tips[0] or hinge.tongue_t / 2 + hinge.pin_len)):
+        # cerca de la punta del bulón (agujero ciego); en el bastago, 1 mm antes de la punta para medir sobre la parte
+        # cilíndrica del orificio y no sobre su chaflán, pero siempre fuera de la ranura de la lengüeta
+        back = max(tip - 1.0, hinge.tongue_t / 2 + 0.6) if getattr(hinge, "rod", False) else tip - 0.1
+        origin = np.asarray(jb.center, float) + s * ax * back
         ds = dirs_for(s)
         for d in ds:
             t = _ray_hits(tris, origin, d)
+            if len(t) >= 2:
+                t = t[np.concatenate(([True], np.diff(t) > 0.01))]     # un rayo que roza una arista cuenta dos veces el mismo cruce
             if len(t) >= 2:
                 best = float(t[1] - t[0]) if best is None else min(best, float(t[1] - t[0]))
     return best

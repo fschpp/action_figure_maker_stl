@@ -486,6 +486,36 @@ class Session:
         t = float(np.degrees(np.arctan2(-n[0] * n[2], 1.0 - n[0] ** 2)))
         return float(np.clip(t, -45.0, 45.0)) + 0.0
 
+    @staticmethod
+    def _axis_over_plane(n, base, h: float, lift_dir=None) -> np.ndarray:
+        """Centro del eje: `h` mm sobre el plano (a lo largo de la normal `n`), subiendo desde `base` por `lift_dir`."""
+        lift = np.array([0.0, 0.0, 1.0]) if lift_dir is None else np.asarray(lift_dir, float) / np.linalg.norm(lift_dir)
+        if lift @ n < 0.5:
+            raise ValueError("la dirección del miembro es casi paralela al plano de la articulación")
+        return np.asarray(base, float) + lift * (h / float(lift @ n))
+
+    def retarget_joint_lines(self, name: str, upper, lower) -> JointSpec:
+        """Rehace el corte y el eje de una articulación creada con 2 líneas a partir de las líneas corregidas (por
+        ejemplo desde el costado): conserva el rango, la bisagra y los nombres; el eje vuelve a calcularse como al
+        crearla (sobre el codo, subiendo por la línea del brazo; (y, z) salen de los puntos corregidos)."""
+        j = self.joint(name)
+        if j is None:
+            raise KeyError(name)
+        plane, elbow, _a_up, _a_down, lift = self.plane_from_lines(upper, lower)
+        n = np.asarray(plane.normal, float)
+        n = n / np.linalg.norm(n)
+        if n[2] < 0:
+            n = -n
+        if abs(n[2]) < 0.5:
+            raise ValueError("el plano de la articulación tiene que ser casi horizontal (corta el miembro a lo largo)")
+        h = min_shoulder(self.project.params.hinge_pin, self.project.params)
+        base = elbow - n * float((elbow - plane.origin) @ n)
+        j.plane = plane
+        j.axis_center = tuple(float(x) for x in self._axis_over_plane(n, base, h, lift))
+        j.axis_dir = self._tilt_axis(self.plane_front_tilt_deg(n))
+        self.outcome = None
+        return j
+
     def add_joint(self, limb: str, plane: Plane, anchor=None, tilt_deg: float | None = None,
                   lift_dir=None) -> JointSpec:
         """Parte `limb` por `plane` en proximal y distal (rodilla de una pierna, codo de un brazo).
@@ -516,10 +546,7 @@ class Session:
         base = base - n * float((base - plane.origin) @ n)    # sobre el plano
         # El eje queda h por encima del plano (medido a lo largo de la normal) pero verticalmente sobre `anchor`: con
         # el plano inclinado, subir por la normal corría el eje en X y «Colocar eje» no puede corregir la X.
-        lift = np.array([0.0, 0.0, 1.0]) if lift_dir is None else np.asarray(lift_dir, float) / np.linalg.norm(lift_dir)
-        if lift @ n < 0.5:
-            raise ValueError("la dirección del miembro es casi paralela al plano de la articulación")
-        center = base + lift * (h / float(lift @ n))
+        center = self._axis_over_plane(n, base, h, lift_dir)
         name = "rodilla" if kind == "knee" else "codo"
         if tilt_deg is None:
             tilt_deg = self.plane_front_tilt_deg(n)

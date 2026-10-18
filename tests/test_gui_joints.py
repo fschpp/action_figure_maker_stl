@@ -252,10 +252,11 @@ def test_two_lines_define_the_elbow_with_the_axis_on_the_elbow_point(ctrl):
     jt = ctrl.session.joint("codo")
     c = np.asarray(jt.axis_center, float)
     n = np.asarray(jt.plane.normal, float)
-    assert c[1] == pytest.approx(-4.0)
-    assert (c - np.array([18.0, -4.0, 59.0])) @ n == pytest.approx(3.2)             # 3,2 mm del plano (pared del bulón)
+    assert c[1] == pytest.approx(0.0, abs=0.6)       # el clic de frente fue en y = −4 (cara delantera): se centró en el brazo
+    elbow = np.array([18.0, c[1], 59.0])
+    assert (c - elbow) @ n == pytest.approx(3.2)                                     # 3,2 mm del plano (pared del bulón)
     up = np.array([-np.sin(np.radians(3.4)), 0.0, np.cos(np.radians(3.4))])
-    off = c - np.array([18.0, -4.0, 59.0])
+    off = c - elbow
     assert np.linalg.norm(off - (off @ up) * up) < 1e-9                  # el eje subió por la línea del brazo, no en vertical
     assert "3.4°" in ctrl.message and "6.8°" in ctrl.message and "5.1°" in ctrl.message
 
@@ -299,7 +300,7 @@ def test_guides_are_visible_while_picking_and_stay_after_the_elbow_is_created(ct
     feed(ctrl, pts[3:])
     final = {key: (kind, np.asarray(p)) for kind, key, p, _ in ctrl.guide_overlays()}
     assert set(final) == {"guia:codo:brazo", "guia:codo:antebrazo", "guia:codo:codo"}     # quedan dibujadas
-    assert final["guia:codo:codo"][1][0] == pytest.approx([18.0, -4.0, 59.0])
+    assert final["guia:codo:codo"][1][0] == pytest.approx([18.0, 0.0, 59.0], abs=0.6)       # y centrada en el brazo
     ctrl.remove_plane(JOINT_PREFIX + "codo")
     assert ctrl.guide_overlays() == [] and ctrl.joint_guides == {}
 
@@ -366,3 +367,43 @@ def test_sync_draws_the_guides_in_front_of_the_figure_and_keeps_them(ctrl):
     ctrl.remove_plane(JOINT_PREFIX + "codo")
     ctrl.sync(sc)
     assert not [k for k in sc.items if k.startswith("guia:")]
+
+
+def test_front_guides_are_centered_in_depth_inside_the_arm(ctrl):
+    ctrl.start_joint_lines_for_kind("arm")
+    feed(ctrl, lines_pts(3.4, 6.8, elbow=(18.0, -4.0, 59.0)))
+    up, low = ctrl.joint_guides["codo"]
+    ys = np.concatenate([up[:, 1], low[:, 1]])
+    assert np.all(np.abs(ys) < 0.6)                      # antes quedaban en y = −4: sobre la cara delantera, fuera del brazo
+
+
+def test_side_adjust_moves_guides_and_recomputes_the_joint(ctrl):
+    ctrl.start_joint_lines_for_kind("arm")
+    feed(ctrl, lines_pts(3.4, 6.8, elbow=(18.0, -4.0, 59.0)))
+    j = ctrl.session.joint("codo")
+    j.flex_range = (-5.0, 80.0)
+    x_before = [p[0] for p in np.vstack(ctrl.joint_guides["codo"])]
+    ctrl.start_joint_side("codo")
+    assert ctrl.mode == Mode.JOINT_SIDE and "costado" in ctrl.message
+    side = [(30.0, 1.5, 70.0), (30.0, 1.5, 59.5), (30.0, 1.5, 59.5), (30.0, 1.5, 49.0)]   # x de la superficie lateral: se ignora
+    feed(ctrl, side[:3])
+    assert ctrl.mode == Mode.JOINT_SIDE and len(ctrl.pending) == 3
+    ctrl.undo_point()
+    feed(ctrl, side[2:])
+    assert ctrl.mode == Mode.VIEW
+    up, low = ctrl.joint_guides["codo"]
+    assert np.allclose([p[0] for p in np.vstack([up, low])], x_before)                       # la x queda
+    assert np.allclose(np.vstack([up, low])[:, 1], 1.5)
+    j = ctrl.session.joint("codo")
+    c = np.asarray(j.axis_center, float)
+    assert c[1] == pytest.approx(1.5) and np.asarray(j.plane.origin)[2] == pytest.approx(59.5)
+    assert j.flex_range == (-5.0, 80.0)                                                      # rango y bisagra se conservan
+
+
+def test_side_adjust_needs_a_joint_made_with_two_lines(ctrl):
+    ctrl.start_joint_plane_for_kind("arm")
+    feed(ctrl, ELBOW)
+    ctrl.start_joint_side("codo")
+    assert ctrl.mode == Mode.VIEW and "2 líneas" in ctrl.message
+    ctrl.start_joint_side("no existe")
+    assert "No hay una articulación" in ctrl.message

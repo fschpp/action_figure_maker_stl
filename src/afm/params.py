@@ -30,6 +30,10 @@ class HingeSpec:
     pin_len: float = 1.2      # cuánto sale del lado de la lengüeta
     tongue_t: float = 2.4     # espesor de la lengüeta (pieza distal)
     end_r: float = 3.6        # radio del disco de la lengüeta alrededor del eje
+    # Bastago pasante: en vez de dos bulones cortos, un solo bastago soldado a la lengüeta del antebrazo que
+    # atraviesa un orificio del brazo (de lado a lado). rod=False vuelve a los dos bulones.
+    rod: bool = True
+    rod_wall: float = 1.2     # pared de brazo que queda tras cada punta del bastago (0 = orificio pasante abierto)
 
 
 @dataclass
