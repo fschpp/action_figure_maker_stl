@@ -32,6 +32,7 @@ class HingeSpec:
     end_r: float = 3.6        # radio del disco de la lengüeta alrededor del eje
     # Bastago pasante: en vez de dos bulones cortos, un solo bastago soldado a la lengüeta del antebrazo que
     # atraviesa un orificio del brazo (de lado a lado). rod=False vuelve a los dos bulones.
+    neck: bool = True         # lengüeta con cuello recto (lados rectos hasta el cuerpo, punta redonda) en vez de un disco suelto
     rod: bool = True
     rod_wall: float = 1.2     # pared de brazo que queda tras cada punta del bastago (0 = orificio pasante abierto)
 
