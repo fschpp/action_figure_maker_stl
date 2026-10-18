@@ -342,8 +342,12 @@ Con la simetría definida y cada miembro con su silueta, el Estado deja de lista
    lo justo para que su punto más bajo apoye en ese plano (un brazo que cuelga sube al girar). El torso se talla con el
    barrido del brazo para que gire libre. No se tocan los brazos; la cabeza tampoco. El Estado informa el corte, el giro
    (por ejemplo, 23°) y los avisos (choques, piezas partidas, aristas no variedad). Cuanto más corte, más base plana pero
-   más material quitado de las piernas. En la línea de comandos: `afm build … --sin-soportes [MM]`. La vista de la pose
-   y el marcado de voladizos todavía no muestran este corte. Los **voladizos** (casilla de la barra lateral) usan esa misma orientación: con la figura generada se pintan
+   más material quitado de las piernas. En la línea de comandos: `afm build … --sin-soportes [MM]`. Para **ver y fijar la
+   altura del corte**, con la figura generada, el botón **«Ajustar la altura del corte»** muestra la figura **sentada y de
+   costado (vista Derecha)**, como en «Ver la figura generada en la pose de cadera», con el plano horizontal dibujado:
+   un **clic** a la altura que querés (se toma solo la altura), o **↑ ↓** (Mayús = 1 mm), fijan los mm sobre la cola; Esc
+   termina. El rango es el de «Parámetros» (0,2–6 mm) y ajustarlo no obliga a generar de nuevo. La vista de la pose
+   y el marcado de voladizos todavía no muestran el resultado del corte (piernas aplanadas, brazos girados). Los **voladizos** (casilla de la barra lateral) usan esa misma orientación: con la figura generada se pintan
    en rojo sobre la vista de la pose de cadera (si estaba apagada, se enciende sola; una pieza que interfiere se
    marca en magenta mientras estén los voladizos); sin generar, sobre la figura de frente, cabeza arriba. En la línea de
    comandos, `--orient` hace lo mismo y `--orient-auto` conserva la orientación de menor voladizo (puede dar vuelta la
