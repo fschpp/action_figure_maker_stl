@@ -1,6 +1,9 @@
 # Progreso del desarrollo
 
 ## Current Focus
+**Exportar sin soportes (2026-10-18):** opción «Modificar para imprimir sin soportes» (GUI: casilla junto a «Apoyar las piezas en la cama»; CLI `--sin-soportes [MM]`; parámetro `Params.flat_depth`, 1,0 mm sobre la cola): `pipeline.flat_for_print` corta piernas y torso con un plano horizontal, gira los brazos hacia adelante sobre el pasador del hombro hasta que su punto más bajo apoye en ese plano y talla el torso con el barrido del brazo (`_carve_torso_for_arm`, prueba combinaciones hasta no dejar aristas no variedad); `solids.to_printable_trimesh` suelda hasta 1e-4 mm solo si reduce aristas de 4 caras. Güemes: giro 22,75°, base 864 mm² (antes 0), voladizo 1440 → 685 mm², holgura brazo–torso 0,43 mm, sin aviso. Pendiente: probar en GTK real y llevar el corte a la vista de pose / marcado de voladizos.
+
+**Anterior:**
 **Voladizos y exportación consistentes con la pose de cadera (2026-10-18):** la exportación y los voladizos usaban `best_orientation` (menor voladizo), que daba vuelta la figura (patas/asiento arriba). Ahora `orient.pose_orientation` solo apoya la figura en z = 0 tal como se ve en la vista de pose (sentada, cabeza arriba): `P.export(orient=True)`, `overhang_faces` y la vista de pose (voladizos en rojo sobre las piezas generadas, `Controller._pose_overhangs`, cama compartida con `overhang_mask(zmin=)`). `--orient-auto` conserva la orientación anterior.
 
 **Anterior:**

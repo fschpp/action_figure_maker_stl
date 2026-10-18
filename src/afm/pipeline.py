@@ -518,6 +518,153 @@ def _validate_joints(res: BuildResult, p: Params, joints, out: dict, step: float
     return info
 
 
+# ----------------------------------------------------------------- imprimir sin soportes
+FLAT_ANGLE_MAX = 80.0       # tope del giro de los brazos hacia adelante (°)
+
+
+def _limb_piece_names(res: BuildResult, limb: str) -> list[str]:
+    """Piezas (sin sufijo de lado) que componen un miembro: una sola, o proximal + distal si tiene articulación."""
+    for r in res.report.get("joints", {}).values():
+        if r["limb"] == limb:
+            return list(r["piezas"])
+    return [limb]
+
+
+def _rotate_pts(pts: np.ndarray, origin, axis, angle_deg: float) -> np.ndarray:
+    ax = np.asarray(axis, float)
+    ax = ax / np.linalg.norm(ax)
+    a = np.radians(angle_deg)
+    K = np.array([[0, -ax[2], ax[1]], [ax[2], 0, -ax[0]], [-ax[1], ax[0], 0]])
+    R = np.eye(3) + np.sin(a) * K + (1 - np.cos(a)) * (K @ K)
+    o = np.asarray(origin, float)
+    return (pts - o) @ R.T + o
+
+
+def _carve_torso_for_arm(torso: S.Manifold, arm_parts: list, center, axis, theta: float, p: Params) -> tuple:
+    """Talla el torso con el barrido del brazo entre 0° y `theta` (ensanchado una holgura algo menor que la de la
+    cavidad, para no tocar donde ya hay hueco). El resultado depende de cómo cae la malla del barrido sobre la del
+    torso: una combinación (holgura, paso) puede dejar vértices que pinchan la malla, así que se prueban unas pocas y
+    se queda con la primera sin aristas no variedad (o la que menos tiene). Devuelve (torso, {holgura, paso, aristas})."""
+    from .joints import dilate_anisotropic
+    best = None
+    for factor, step in ((0.9, 3.0), (0.9, 5.0), (0.95, 3.0), (0.85, 4.0)):
+        angles = np.linspace(0.0, theta, max(2, int(np.ceil(abs(theta) / step)) + 1))
+        sweep = None
+        for mf in arm_parts:
+            grown = dilate_anisotropic(mf, factor * p.clearance, factor * p.clearance, axis)
+            parts = [S.rotate_about_axis(grown, center, axis, a) for a in angles]
+            sweep = S.union(*parts) if sweep is None else S.union(sweep, *parts)
+        cand = S.difference(torso, S.union(sweep, S.mirror_x(sweep)))
+        bad = _nonmanifold_edges(cand)
+        if best is None or bad < best[2]:
+            best = (cand, (factor, step), bad)
+        if bad == 0:
+            break
+    return best[0], {"holgura_factor": best[1][0], "paso_grados": best[1][1], "aristas_no_variedad": best[2]}
+
+
+def flat_for_print(res: BuildResult, depth: float = 1.0, p: Params | None = None) -> tuple[dict, dict]:
+    """Prepara la figura sentada para imprimirla sin soportes: devuelve (piezas nuevas, informe).
+
+    1. Corta con un plano horizontal a `depth` mm sobre el punto más bajo del torso (la cola): las piernas y la cola
+       quedan con una base plana. Se corta todo salvo los brazos y la cabeza.
+    2. Los brazos (sin tocarlos) quedan entonces por debajo del plano: giran hacia adelante alrededor del pasador del
+       hombro, el mínimo necesario para que su punto más bajo apoye justo en ese plano (un brazo que cuelga sube al
+       girar). Con articulación de codo gira la cadena entera.
+    3. El hueco del hombro en el torso se hizo para un brazo que no gira: se talla además con el barrido del brazo
+       entre 0° y el giro (ensanchado la holgura), para que gire libre sobre el pasador.
+    El conjunto queda apoyado en el plano del corte; la exportación lo baja a z = 0.
+    """
+    p = Params() if p is None else p
+    depth = float(depth)
+    pieces = dict(res.pieces)
+    info: dict = {"corte_sobre_cola_mm": depth, "avisos": []}
+    arm_limbs = [n for n, (_l, _c, _a, (a0, a1)) in res.motion.items() if n != HEAD_NAME and a1 <= a0]
+    arm_pieces = {f"{pn}{side}" for n in arm_limbs for pn in _limb_piece_names(res, n) for side in ("_izq", "_der")}
+    z_cut = pieces["torso"].bounding_box()[2] + depth
+    info["altura_corte_z"] = round(float(z_cut), 3)
+    # 1. aplanar piernas y cola (todo menos brazos y cabeza)
+    above = S.Manifold.cube((1e4, 1e4, 1e4)).translate((-5e3, -5e3, z_cut))
+    removed: dict = {}
+    for name, mf in list(pieces.items()):
+        if name in arm_pieces or name == HEAD_NAME or mf.bounding_box()[2] >= z_cut:
+            continue
+        before_parts = len(mf.decompose())
+        cut = S.intersection(mf, above)
+        removed[name] = round(float(mf.volume() - cut.volume()), 1)
+        if len(cut.decompose()) > before_parts:
+            info["avisos"].append(f"{name}: el corte lo parte en más piezas sueltas; probá con menos corte")
+        pieces[name] = cut
+    info["volumen_quitado_mm3"] = removed
+    # 2. brazos hacia adelante hasta apoyar en el plano
+    legs = [m for n, m in pieces.items() if n not in arm_pieces and n not in ("torso", HEAD_NAME)]
+    fwd = 1.0
+    if legs:
+        ly = np.mean([(m.bounding_box()[1] + m.bounding_box()[4]) / 2 for m in legs])
+        ty = (pieces["torso"].bounding_box()[1] + pieces["torso"].bounding_box()[4]) / 2
+        fwd = 1.0 if ly >= ty else -1.0          # hacia dónde apuntan las piernas sentadas = adelante
+    angles: dict = {}
+    for limb in arm_limbs:
+        _l, center, axis, _ = res.motion[limb]
+        left = {pn: res.pieces[f"{pn}_izq"] for pn in _limb_piece_names(res, limb)}
+        pts = np.vstack([S.to_trimesh(m).vertices for m in left.values()])
+        if pts[:, 2].min() >= z_cut - 1e-6:
+            angles[limb] = 0.0
+            continue
+        best = None
+        for sgn in (1.0, -1.0):
+            probe = _rotate_pts(pts, center, axis, sgn * 10.0)
+            low = pts[:, 2] < pts[:, 2].min() + 1.0
+            moved = (probe[low, 1] - pts[low, 1]).mean() * fwd
+            rises = probe[:, 2].min() - pts[:, 2].min()
+            if rises > 0 and moved > 0:
+                best = sgn
+        sgn = best if best is not None else 1.0
+        if best is None:
+            info["avisos"].append(f"{limb}: el brazo no sube al girar hacia adelante; no se gira")
+            angles[limb] = 0.0
+            continue
+        lo, hi = 0.0, FLAT_ANGLE_MAX
+        if _rotate_pts(pts, center, axis, sgn * hi)[:, 2].min() < z_cut:
+            info["avisos"].append(f"{limb}: ni girando {hi:.0f}° llega al plano del corte; queda en el aire")
+            theta = hi
+        else:
+            for _ in range(40):
+                mid = (lo + hi) / 2
+                if _rotate_pts(pts, center, axis, sgn * mid)[:, 2].min() < z_cut:
+                    lo = mid
+                else:
+                    hi = mid
+            theta = hi
+        angles[limb] = round(float(theta), 2)
+        for pn, mf in left.items():
+            rot = S.rotate_about_axis(mf, center, axis, sgn * theta)
+            pieces[f"{pn}_izq"] = rot
+            pieces[f"{pn}_der"] = S.mirror_x(rot)
+        t_before = pieces["torso"].volume()
+        pieces["torso"], used = _carve_torso_for_arm(pieces["torso"], list(left.values()), center, axis, sgn * theta, p)
+        info.setdefault("tallado_torso", {})[limb] = used
+        removed["torso"] = round(removed.get("torso", 0.0) + float(t_before - pieces["torso"].volume()), 1)
+    info["giro_brazos_grados"] = angles
+    info["volumen_quitado_mm3"] = removed
+    # 3. los brazos girados no pueden chocar con nada
+    gaps: dict = {}
+    for name in sorted(n for n in arm_pieces if n.endswith("_izq")):
+        for other, mo in pieces.items():
+            if other in arm_pieces or other == HEAD_NAME:
+                continue
+            if S.intersection(pieces[name], mo).volume() > 1e-3:
+                info["avisos"].append(f"{name} choca con {other} tras girar: usá menos corte")
+            gaps[f"{name}~{other}"] = round(float(pieces[name].min_gap(mo, 5.0)), 3)
+    info["holgura_brazos_mm"] = gaps
+    changed = [n for n in pieces if pieces[n] is not res.pieces.get(n)]
+    bad = {n: _nonmanifold_edges(pieces[n]) for n in changed}
+    info["bordes_no_variedad"] = {n: k for n, k in bad.items() if k}
+    for n, k in info["bordes_no_variedad"].items():
+        info["avisos"].append(f"{n}: {k} aristas no variedad tras el corte")
+    return pieces, info
+
+
 # ----------------------------------------------------------------- exportación
 def print_orientation(res: BuildResult, max_angle: float = 45.0, extra_tilts=(0.0,), mode: str = "pose"):
     """Orientación de impresión del conjunto armado (§8.7). Todas las piezas comparten la misma
@@ -534,13 +681,18 @@ def print_orientation(res: BuildResult, max_angle: float = 45.0, extra_tilts=(0.
 
 
 def export(res: BuildResult, outdir: str, name: str = "figura", orient: bool | str = False,
-           max_angle: float = 45.0, extra_tilts=(0.0,)) -> dict:
+           max_angle: float = 45.0, extra_tilts=(0.0,), flat: float | None = None, params: Params | None = None) -> dict:
     """Escribe el ensamblado y un STL por parte. Con `orient=True` apoya todo el conjunto en la cama en la pose de
     la vista previa (sentada, cabeza arriba); con `orient="auto"` lo gira a la orientación de menor voladizo.
-    En ambos casos informa la orientación."""
+    En ambos casos informa la orientación. Con `flat` (altura del corte en mm sobre la cola; `Params.flat_depth`) antes se aplana la base y se
+    giran los brazos para imprimir sin soportes (`flat_for_print`); el informe va en `info["sin_soportes"]`."""
     os.makedirs(os.path.join(outdir, "piezas"), exist_ok=True)
     T = None
     info: dict = {}
+    if flat is not None:
+        pieces, rep = flat_for_print(res, flat, params)
+        res = BuildResult(pieces=pieces, report=res.report, motion=res.motion, joints=res.joints)
+        info["sin_soportes"] = rep
     if orient:
         o = print_orientation(res, max_angle, extra_tilts, mode="auto" if orient == "auto" else "pose")
         T = o.rotation

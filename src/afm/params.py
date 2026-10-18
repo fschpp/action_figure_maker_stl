@@ -65,6 +65,7 @@ class Params:
     min_tongue: float = 2.0          # espesor mínimo de lengüeta (validación)
     min_hinge_pin_d: float = 2.0     # diámetro mínimo del bulón de bisagra (validación; el de hongo usa min_pin_d)
     decimate: float = 0.6            # reducción de triángulos de las piezas al exportar (0 = desactivar)
+    flat_depth: float = 1.0          # «imprimir sin soportes»: altura del corte plano sobre el punto más bajo de la cola (mm)
 
     def with_hip_reference(self) -> "Params":
         """Copia con el pasador de cadera de la figura de referencia (cabeza/vástago ≈ 1,9, mm absolutos)."""

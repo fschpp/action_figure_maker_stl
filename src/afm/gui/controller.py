@@ -106,6 +106,7 @@ PARAM_FIELDS = (
     ("clearance", "Holgura miembro–cavidad (mm)", 0.1, 1.5, 0.05, 2),
     ("burr", "Rebaba a rebajar en la cara (mm)", 0.0, 3.0, 0.05, 2),
     ("sit_angle", "Ángulo de pose sentada (°)", 0.0, 180.0, 5.0, 0),
+    ("flat_depth", "Sin soportes: corte plano sobre la cola (mm)", 0.2, 6.0, 0.1, 1),
     ("hip_margin", "Margen del límite de cadera (°)", 0.0, 30.0, 1.0, 0),
     ("shoulder_pin.shaft_d", "Hombro: Ø vástago (mm)", 2.0, 12.0, 0.1, 1),
     ("shoulder_pin.shaft_len", "Hombro: largo vástago (mm)", 0.5, 15.0, 0.1, 1),
@@ -1567,17 +1568,24 @@ class Controller:
         self.finish_generate(outcome)
         return outcome
 
-    def export(self, outdir: str, orient: bool = True) -> dict | None:
+    def export(self, outdir: str, orient: bool = True, flat: bool = False) -> dict | None:
         """Escribe las piezas, el ensamblado, el informe y el proyecto en `outdir`."""
         if self.session.outcome is None:
             self._changed("Primero generá la figura (los cambios posteriores invalidan el resultado).", scene=False)
             return None
-        info = self.session.export(outdir, orient=orient, max_angle=self.overhang_angle)
+        info = self.session.export(outdir, orient=orient, max_angle=self.overhang_angle, flat=flat)
         files = info["archivos"]
         msg = f"Exportado en {outdir}: ensamblada + {len(files['piezas'])} piezas."
         ori = files.get("orientacion")
         if ori:
-            msg += f" Orientación: {ori['etiqueta']}, voladizo {ori['voladizo_mm2']} mm²."
+            msg += f" Orientación: {ori['etiqueta']}, voladizo {ori['voladizo_mm2']} mm², base {ori['base_mm2']} mm²."
+        ss = files.get("sin_soportes")
+        if ss:
+            giro = ss["giro_brazos_grados"]
+            msg += (f" Sin soportes: corte {ss['corte_sobre_cola_mm']:g} mm sobre la cola, brazos girados "
+                    + (", ".join(f"{a:.0f}°" for a in giro.values()) or "0°") + " hacia adelante.")
+            if ss["avisos"]:
+                msg += " AVISO: " + "; ".join(ss["avisos"])
         self._changed(msg, scene=False)
         return info
 
