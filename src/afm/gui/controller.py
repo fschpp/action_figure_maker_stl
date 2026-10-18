@@ -40,6 +40,7 @@ class Mode(Enum):
     PIN = "pasador"
     JOINT_PLANE = "plano_articulacion"   # 3 clics: plano que parte el miembro en proximal y distal (rodilla / codo)
     JOINT_LINES = "lineas_articulacion"   # 4 clics de frente: línea del brazo (arriba→codo) y del antebrazo (codo→abajo)
+    JOINT_SIDE = "guias_costado"          # 4 clics de costado: corrigen (y, z) de las mismas 4 guías y recalculan la articulación
     JOINT_AXIS = "eje_articulacion"      # un clic sobre la figura fija (y, z) del eje de la bisagra
     TRIM_PICK = "recorte_clic"      # un clic sobre la figura pone el centro de un recorte esfera / caja / cilindro
 
@@ -118,6 +119,8 @@ PARAM_FIELDS = (
     ("hinge_pin.pin_len", "Rodilla/codo: largo bulón (mm)", 0.5, 4.0, 0.1, 1),
     ("hinge_pin.tongue_t", "Rodilla/codo: espesor lengüeta (mm)", 1.0, 6.0, 0.1, 1),
     ("hinge_pin.end_r", "Rodilla/codo: radio lengüeta (mm)", 2.0, 8.0, 0.1, 1),
+    ("hinge_pin.rod", "Rodilla/codo: bastago pasante (1 = sí, 0 = dos bulones)", 0.0, 1.0, 1.0, 0),
+    ("hinge_pin.rod_wall", "Rodilla/codo: pared tras el bastago (mm; 0 = pasante)", 0.0, 4.0, 0.1, 1),
 )
 
 
@@ -352,9 +355,31 @@ class Controller:
             out.append(("points", f"guia:{name}:codo", ((up[1] + low[0]) / 2.0)[None], (1.0, 1.0, 1.0, 1.0)))
         return out
 
+    def _centered_in_y(self, pt) -> np.ndarray:
+        """Lleva un punto elegido sobre la superficie (vista de frente: cara delantera del miembro) al centro del
+        miembro en profundidad: dos rayos a lo largo de Y, uno desde cada lado, por (x, z) del punto; y = la mitad
+        entre las dos primeras caras. Si algún rayo no toca la figura o el espesor no es creíble (> 40 mm: el rayo
+        atravesó el torso, por ejemplo) se deja el punto como está; «Ajustar guías de costado» corrige a mano."""
+        pt = np.asarray(pt, float).copy()
+        if self.picker is None:
+            return pt
+        from .picking import ray_first_hit
+        tris, big = self.picker._tris, 1e4
+        ys = []
+        for sgn in (1.0, -1.0):
+            r = ray_first_hit(tris, (pt[0], sgn * big, pt[2]), (0.0, -sgn, 0.0))
+            if r is None:
+                return pt
+            ys.append(sgn * big - sgn * r[1])
+        if abs(ys[0] - ys[1]) > 40.0:
+            return pt
+        pt[1] = (ys[0] + ys[1]) / 2.0
+        return pt
+
     def _finish_joint_lines(self) -> None:
         pts, self.pending = self.pending, []
         limb = self.joint_limb
+        pts = [self._centered_in_y(p) for p in pts]          # de frente se clickea la cara delantera: centrar en profundidad
         try:
             plane, elbow, a_up, a_down, lift = Session.plane_from_lines((pts[0], pts[1]), (pts[2], pts[3]))
             j = self.session.add_joint(limb, plane, anchor=elbow, lift_dir=lift)
@@ -366,8 +391,45 @@ class Controller:
         up, down = self._line_names(self.session.limb(limb).kind)
         self._changed(f"{j.name.capitalize()} definida siguiendo el miembro: el {up} se abre {a_up:.1f}° y el {down} "
                       f"{a_down:.1f}° (hacia +X al bajar); el corte sigue la bisectriz y el eje quedó inclinado "
-                      f"{self.joint_tilt(j.name):.1f}°. Rango {self.joint_range_text(j.name)}. Centrá el eje con «Colocar eje» "
-                      "(clic sobre el lado de la figura) si hace falta.")
+                      f"{self.joint_tilt(j.name):.1f}°. Rango {self.joint_range_text(j.name)}. Las guías se centraron en "
+                      "profundidad: revisalas de costado y, si hace falta, corregilas con «Ajustar guías de costado».")
+
+    def start_joint_side(self, name: str) -> None:
+        """Corrige las 4 guías de una articulación hecha con 2 líneas desde la vista de costado (conviene «Costado»):
+        los mismos 4 puntos en el mismo orden (arriba del brazo, codo, codo, abajo del antebrazo). De cada clic se toman
+        y y z; la x se conserva de la guía de frente. Con eso se recalculan el corte y el eje."""
+        if not self._need_loaded():
+            return
+        if self.session.joint(name) is None:
+            self._changed(f"No hay una articulación «{name}».", scene=False)
+            return
+        if name not in self.joint_guides:
+            self._changed(f"«{name}» no se hizo con 2 líneas: quitala (−) y rehacela con «codo siguiendo el brazo».",
+                          scene=False)
+            return
+        self.cancel(quiet=True)
+        self.mode, self.joint_name = Mode.JOINT_SIDE, name
+        up, down = self._line_names(self.session.limb(self.session.joint(name).limb).kind)
+        self._changed(f"Guías de {name} de costado (vista «Costado»): clic 1/4 arriba, en el centro del {up}; 2/4 en la "
+                      f"articulación; 3/4 otra vez en la articulación; 4/4 abajo, en el centro del {down}. Se toman la "
+                      "altura y la profundidad de cada clic. Backspace deshace; Esc cancela.")
+
+    def _finish_joint_side(self) -> None:
+        name, pts = self.joint_name, self.pending
+        self.pending = []
+        up_old, low_old = self.joint_guides[name]
+        old = np.vstack([up_old, low_old])
+        new = np.array([[old[i][0], p[1], p[2]] for i, p in enumerate(pts)], float)
+        try:
+            self.session.retarget_joint_lines(name, (new[0], new[1]), (new[2], new[3]))
+        except (ValueError, KeyError) as e:
+            self._changed(f"No sirve: {e}. Hacé los 4 clics de costado de nuevo.")
+            self.mode = Mode.JOINT_SIDE
+            return
+        self.joint_guides[name] = (new[:2].copy(), new[2:].copy())
+        self.mode, self.joint_name = Mode.VIEW, None
+        self._changed(f"Guías de {name} corregidas de costado: el corte y el eje se recalcularon "
+                      f"(inclinación {self.joint_tilt(name):.1f}°). Hay que generar de nuevo.")
 
     def start_joint_plane_for_kind(self, kind: str) -> None:
         """Rodilla («leg») o codo («arm»): toma el primer miembro de ese tipo que todavía no tiene articulación."""
@@ -1268,14 +1330,18 @@ class Controller:
             self._finish_joint_axis(hit)
         else:
             self.pending.append(hit.point.copy())
-            need = 4 if self.mode == Mode.JOINT_LINES else 3
+            need = 4 if self.mode in (Mode.JOINT_LINES, Mode.JOINT_SIDE) else 3
             if len(self.pending) < need:
                 if self.mode == Mode.JOINT_LINES:
                     self._changed(self._joint_lines_hint())
+                elif self.mode == Mode.JOINT_SIDE:
+                    self._changed(f"Guía de costado: punto {len(self.pending)}/4. Backspace deshace el último; Esc cancela.")
                 else:
                     self._changed(f"Punto {len(self.pending)}/3. Backspace deshace el último; Esc cancela.")
             elif self.mode == Mode.JOINT_LINES:
                 self._finish_joint_lines()
+            elif self.mode == Mode.JOINT_SIDE:
+                self._finish_joint_side()
             elif self.mode == Mode.SYMMETRY:
                 self._finish_symmetry()
             elif self.mode == Mode.NECK_PLANE:

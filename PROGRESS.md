@@ -1,6 +1,9 @@
 # Progreso del desarrollo
 
 ## Current Focus
+**Articulaciones — codo: guías centradas/ajustables de costado y bastago pasante (2026-10-17):** las guías de las 2 líneas se clickeaban sobre la cara delantera (y = superficie) y quedaban fuera del brazo; ahora se centran solas en profundidad (`Controller._centered_in_y`, 2 rayos a lo largo de Y) y `Mode.JOINT_SIDE` («Ajustar guías de costado», 4 clics en vista Costado: toma y, z; conserva x) recalcula corte y eje con `Session.retarget_joint_lines`. La bisagra de rodilla/codo pasa a un **bastago soldado a la lengüeta del antebrazo que cruza un orificio del brazo** (`HingeSpec.rod=True`, `rod_wall`; `rod=False` vuelve a los 2 bulones); el largo sale de `joints.rod_extent` sobre el material que queda tras el barrido del distal (con el eje inclinado el núcleo se afina hacia un lado: ese lado queda corto y avisa; rodilla inclinada 14,5° del muñeco → pared 0,81 mm) y se valida con `joint_wall_mm` (mide 1 mm antes de la punta). Suite: `test_joints` 22, GUI/params/probetas/cadera 51 pasan.
+
+**Anterior:**
 **Articulaciones — guías del codo con 2 líneas visibles (2026-10-17):** al elegir los 4 clics no se veían las líneas (se dibujaban con prueba de profundidad y la geometría las tapaba; la del antebrazo ni existía antes del cuarto clic). `Controller.guide_overlays()` devuelve puntos y líneas (brazo cian, antebrazo magenta, punto blanco en el codo) que `sync` dibuja con `on_top=True`; el Estado da el ángulo de la línea del brazo tras el 2.º clic y avisa si no sirve; las guías quedan dibujadas tras crear la articulación (`Controller.joint_guides`, solo en memoria, no se guardan en el .proyecto) y se olvidan al quitar la articulación o rehacerla con 3 puntos.
 
 **Anterior:**
@@ -34,6 +37,8 @@ _Última actualización: 2026-10-16 18:30 (America/Argentina/Buenos_Aires), rama
 
 ## Todo List
 ### [ ] Todo
+- [ ] **Codo (bastago):** probar en GTK real el botón «Ajustar guías de costado» (icono flip en la fila del codo) y el centrado automático; regenerar Güemes con bastago (rendimiento: `rod_extent` hace ~2×(largo/0,25) booleanas) y ver en el visor que el orificio no queda a la vista (pared 1,2 mm); imprimir la probeta de bisagra (la probeta sigue usando bulones: `probes.py` usa `_bolt`)
+- [ ] **Codo (bastago):** confirmar con el cliente la interpretación: bastago macizo soldado a la lengüeta, con las puntas **ciegas** dentro del brazo (pared `rod_wall`=1,2 mm; 0 = orificio pasante abierto)
 - [x] **Articulaciones:** Fase 3 cadera hecha (2026-10-17 00:15 America/Argentina/Buenos_Aires): `Params.with_hip_reference()` + `afm build --cadera-referencia`, `hip_pin_walls` / `_validate_hip_pin` en `pipeline.py` (`val["cadera"]`: pared tras la cabeza = `shaft_len − 2·holgura` ≥ `min_wall`, separación entre cabezas espejadas ≥ 2·holgura, cabeza/vástago ≥ 1,6 como aviso), `tests/test_hip_pin.py` (7). Pendiente: medir la pared sobre la malla (hoy es analítica) y activar el preset desde la GUI
 - [x] **Articulaciones:** pared del padre alrededor del bulón medida (2026-10-17)
 - [x] **Articulaciones:** cadena de rotaciones (`posed_pieces`) y choques de cadena (2026-10-17)

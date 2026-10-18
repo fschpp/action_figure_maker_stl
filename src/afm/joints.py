@@ -116,6 +116,48 @@ def _bolt(center, direction, spec: HingeSpec, segments: int = 32) -> S.Manifold:
     return S.union(body, cone)
 
 
+def _chamfer_cone(center, d, r: float, ch: float, dist: float) -> S.Manifold:
+    """Cono de chaflán de un extremo de revolución: arranca a `dist − ch` del centro y termina en `dist` (hacia `d`)."""
+    cone = S.Manifold.cylinder(ch + 0.05, r, r - ch, 32)
+    return cone.transform(Plane.from_normal(np.asarray(center, float) + np.asarray(d, float) * (dist - ch - 0.05),
+                                            d).matrix()[:3, :])
+
+
+def _rod(center, axis, spec: HingeSpec, lo: float, hi: float, segments: int = 32) -> S.Manifold:
+    """Bastago de revolución sobre el eje, de −`lo` a +`hi` mm del centro, con las dos puntas achaflanadas."""
+    ax = np.asarray(axis, float)
+    r = spec.pin_d / 2
+    ch = min(BOLT_CHAMFER, r / 2, (lo + hi) / 4)
+    body = S.cylinder_along(center, ax, r, lo + hi - 2 * ch, segments, start=-lo + ch)
+    return S.union(body, _chamfer_cone(center, ax, r, ch, hi), _chamfer_cone(center, -ax, r, ch, lo))
+
+
+def rod_extent(proximal0: S.Manifold, center, axis, need_r: float, above: S.Manifold | None = None,
+               step: float = 0.25, limit: float = 30.0, start: float = 0.0) -> tuple[float, float] | None:
+    """Hasta dónde puede llegar el bastago a cada lado del centro: (hacia −eje, hacia +eje) en mm.
+
+    Se avanza por el eje mientras un disco de radio `need_r` (radio del orificio + pared) quede entero dentro del
+    cuerpo proximal (la parte que cae del lado distal de `above`, si se da, no cuenta: ahí no hay brazo sino ranura).
+    Donde el brazo se afina o termina, el bastago se corta: así la pared alrededor del orificio nunca es menor que
+    `need_r − radio del orificio`. `start`: desde qué distancia del centro se empieza (para saltar la ranura de la
+    lengüeta, que en `proximal0` ya está tallada). None si ni al empezar entra el disco."""
+    c, ax = np.asarray(center, float), np.asarray(axis, float)
+    out = []
+    for sgn in (-1.0, 1.0):
+        reach = 0.0
+        t = start
+        while t < limit:
+            slab = S.cylinder_along(c, ax, need_r, step, 24, start=sgn * t if sgn > 0 else -t - step)
+            if above is not None:
+                slab = S.intersection(slab, above)
+            if slab.is_empty() or float(S.difference(slab, proximal0).volume()) > 1e-3 * float(slab.volume()):
+                break
+            reach = t + step
+            t += step
+        out.append(reach)
+    return None if out[0] <= 0.0 and out[1] <= 0.0 else (out[0], out[1])
+
+
 def dilate_anisotropic(mf: S.Manifold, radial: float, axial: float, axis, segments: int = 12) -> S.Manifold:
     """Dilata `radial` mm en el plano perpendicular a `axis` y `axial` mm a lo largo de `axis`
     (suma de Minkowski con un elipsoide circunscrito, como `solids.dilate`)."""
@@ -141,6 +183,7 @@ class JointBuild:
     radius: float
     warnings: list = field(default_factory=list)
     sweep: S.Manifold | None = None     # barrido del distal ensanchado en todo el rango de flexión (talla padre y, en brazos, torso)
+    tips: tuple = (0.0, 0.0)            # distancia del centro a la punta del bulón / bastago en (−eje, +eje)
 
     def raw(self, flex_deg: float) -> float:
         return self.sign * flex_deg
@@ -182,9 +225,9 @@ def build_joint(limb: S.Manifold, joint: JointSpec, toward: np.ndarray, p: Param
     slab = S.cylinder_along(c, axis, 400.0, hinge.tongue_t, 16, start=-hinge.tongue_t / 2)
     disc = S.cylinder_along(c, axis, radius, 400.0, 64, start=-200.0)
     tongue = S.intersection(S.intersection(limb, slab), disc)      # llega bajo el plano: se funde con `below`
-    bolts = [_bolt(c, axis * s, hinge, 32) for s in (1.0, -1.0)]
+    tip = hinge.tongue_t / 2 + hinge.pin_len
+    tips = (tip, tip)
     body_dist = S.largest_component(S.union(below, tongue))
-    distal = S.largest_component(S.union(body_dist, *bolts))
 
     lo, hi = flex_range(joint, p)
     sgn = joint.sign()
@@ -193,12 +236,30 @@ def build_joint(limb: S.Manifold, joint: JointSpec, toward: np.ndarray, p: Param
     angles = list(np.arange(raw[0], raw[1] + 1e-9, step)) if raw[1] > raw[0] else [raw[0]]
     if angles[-1] < raw[1] - 1e-9:
         angles.append(raw[1])
-    # Los bulones son cuerpos de revolución sobre el propio eje: girarlos no los mueve, y unir 20 copias casi idénticas
-    # (facetas que coinciden casi pero no del todo) deja aristas de 4 caras en la pieza proximal. Se ensanchan una vez
-    # y se suman sin rotar; el resto del distal sí se barre. Dilatar distribuye sobre la unión: el sólido es el mismo.
+    # Los bulones / el bastago son cuerpos de revolución sobre el propio eje: girarlos no los mueve, y unir 20 copias casi
+    # idénticas (facetas que coinciden casi pero no del todo) deja aristas de 4 caras en la pieza proximal. Se ensanchan
+    # una vez y se suman sin rotar; el resto del distal sí se barre. Dilatar distribuye sobre la unión: el sólido es el mismo.
     grown = dilate_anisotropic(body_dist, p.clearance, p.axial_clearance, axis)
+    sweep_body = S.union(*[S.rotate_about_axis(grown, c, axis, a) for a in angles])
+    if hinge.rod:
+        # Material que de verdad queda alrededor del eje una vez tallado el barrido del cuerpo distal: con el eje inclinado
+        # respecto del plano de corte, ese núcleo se afina hacia un lado, y el bastago tiene que acabar donde todavía hay pared.
+        need_r = hinge.pin_d / 2 + p.clearance + SHOULDER_WALL            # orificio + pared mínima alrededor
+        slot = hinge.tongue_t / 2 + p.axial_clearance + 0.1
+        ext = rod_extent(S.difference(prox0, sweep_body), c, axis, need_r, up, start=slot)
+        floor = hinge.tongue_t / 2 + 0.5
+        keep = max(hinge.rod_wall, 0.0) + (p.axial_clearance if hinge.rod_wall > 0 else 0.0)
+        tips = tuple((e - keep) if (ext is not None and e - keep >= floor) else tip for e in (ext or (0.0, 0.0)))
+        sides = [lbl for lbl, e in zip(("−", "+"), ext or (0.0, 0.0)) if e - keep < floor]
+        if sides:
+            warnings.append(f"{joint.name}: el brazo es angosto o se afina junto al eje: el bastago queda corto "
+                            f"({tip:.1f} mm) del lado {' y '.join(sides)} del eje")
+        bolts = [_rod(c, axis, hinge, tips[0], tips[1])]
+    else:
+        bolts = [_bolt(c, axis * s, hinge, 32) for s in (1.0, -1.0)]
+    distal = S.largest_component(S.union(body_dist, *bolts))
     grown_bolts = [dilate_anisotropic(b, p.clearance, p.axial_clearance, axis) for b in bolts]
-    sweep = S.union(*[S.rotate_about_axis(grown, c, axis, a) for a in angles], *grown_bolts)
+    sweep = S.union(sweep_body, *grown_bolts)
     proximal = S.largest_component(S.difference(prox0, sweep))
     return JointBuild(proximal, distal, c, axis, sgn, (lo, hi), [float(a) for a in angles], h, radius, warnings,
-                      sweep)
+                      sweep, tips)

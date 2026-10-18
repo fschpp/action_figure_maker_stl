@@ -284,7 +284,11 @@ figura de referencia. La pierna queda en **muslo + pantorrilla** y el brazo en *
    convencen, quitá la fila «Codo» (⊗) y repetí. El Estado informa cuánto se abre cada línea y la inclinación
    resultante. Funciona igual con la pierna (muslo y pantorrilla) desde el controlador; en la ventana por ahora solo
    hay botón para el codo. Esta forma solo mira la vista de frente: un quiebre de costado (adelante/atrás) no entra en
-   las líneas.
+   las líneas. Como de frente se clickea la **cara delantera** del miembro, los 4 puntos se **centran solos en
+   profundidad** (dos rayos a lo largo de Y); mirá las guías en la vista **«Costado»**: deben quedar dentro del brazo. Si
+   no, usá el botón **«Ajustar guías de costado»** de la fila del codo (icono de espejo): 4 clics en el mismo orden (arriba
+   del brazo, codo, codo, abajo del antebrazo) sobre el centro del miembro; se toman altura y profundidad de cada clic (la
+   posición en X queda) y se recalculan el corte y el eje.
 2. **Eje:** arranca a unos 3,2 mm del plano hacia arriba (lo mínimo para dejar pared alrededor del bulón), verticalmente
    sobre el centro de los 3 puntos, **inclinado como el plano** (el Estado dice cuántos grados). Con el botón del
    **marcador** de la fila hacé clic sobre el costado de la figura, en el centro de la bisagra: se toman la altura y la
@@ -296,14 +300,19 @@ figura de referencia. La pierna queda en **muslo + pantorrilla** y el brazo en *
    y ≈ 9,5° en el codo. Normalmente no hace falta tocarla: ya sale del plano. Por defecto la rodilla va de 0° a 90° (la
    pantorrilla va hacia atrás) y el codo de −10° a 90° (el antebrazo va hacia adelante). **El tope no es una pieza
    aparte:** es el material del muslo / brazo que queda sin tallar fuera de ese rango.
-4. **Bisagra en figuras delgadas:** en «Parámetros» están el **Ø del bulón**, el **largo del bulón**, el **espesor de la
+4. **Bastago pasante (por defecto):** la lengüeta del antebrazo lleva **un bastago soldado** que cruza un orificio del
+   brazo y lo sujeta; las puntas quedan **ciegas** dentro del brazo, con `Pared tras el bastago` (1,2 mm) de material hacia
+   afuera (0 = orificio abierto de lado a lado). Si el brazo se afina junto al eje (por ejemplo, pegado al torso), el
+   bastago se acorta de ese lado para que alrededor del orificio quede pared; el Estado avisa. En «Parámetros»,
+   «bastago pasante» = 0 vuelve a los dos bulones cortos de antes.
+5. **Bisagra en figuras delgadas:** en «Parámetros» están el **Ø del bulón**, el **largo del bulón**, el **espesor de la
    lengüeta** y el **radio de la lengüeta** de rodilla/codo. Con un brazo de unos 8 mm (Güemes) la bisagra por defecto
    deja la pared del bulón en menos de 0,8 mm (no se imprime): probá Ø bulón 2,0 (el mínimo), largo 1,0, lengüeta 2,0 y
    radio 3,0. Cambiarlos invalida la figura: hay que generar de nuevo.
-5. **Generar figura:** el informe de validación revisa el giro libre dentro del rango, el tope fuera de él, la holgura,
+6. **Generar figura:** el informe de validación revisa el giro libre dentro del rango, el tope fuera de él, la holgura,
    que la pieza no se pueda sacar, la pared alrededor de los bulones y el recorrido de toda la cadena (cadera × rodilla)
    contra el torso y las demás piezas. La **pose sentada en vivo** (§7.5) ya muestra la pierna con su rodilla.
-6. **Probetas:** en «Perfil de línea» elegí «Bisagra de rodilla / codo» y «Generar probetas de articulación…».
+7. **Probetas:** en «Perfil de línea» elegí «Bisagra de rodilla / codo» y «Generar probetas de articulación…».
 
 Una articulación por miembro. Quitar el miembro (o la fila amarilla) la quita. En un brazo, el motor **talla en el
 torso** el barrido del antebrazo al flexionar el codo; el informe trae `torso_tallado_mm3` con el material quitado (0 si

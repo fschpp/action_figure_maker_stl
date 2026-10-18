@@ -23,7 +23,8 @@ _ARROWS = {Gdk.KEY_Left: (-1, 0), Gdk.KEY_Right: (1, 0), Gdk.KEY_Up: (0, 1), Gdk
 _MODE_TITLES = {Mode.VIEW: "", Mode.CROWN: "  ·  marcando coronilla", Mode.SYMMETRY: "  ·  plano de simetría",
                 Mode.LIMB_PLANE: "  ·  plano de un miembro", Mode.NECK_PLANE: "  ·  plano del cuello", Mode.POLYGON: "  ·  dibujando silueta",
                 Mode.PIN: "  ·  colocando pasador", Mode.TRIM_PICK: "  ·  colocando recorte",
-                Mode.JOINT_PLANE: "  ·  plano de articulación", Mode.JOINT_AXIS: "  ·  colocando eje de bisagra"}
+                Mode.JOINT_PLANE: "  ·  plano de articulación", Mode.JOINT_AXIS: "  ·  colocando eje de bisagra",
+                Mode.JOINT_LINES: "  ·  codo con 2 líneas (de frente)", Mode.JOINT_SIDE: "  ·  guías de la articulación (de costado)"}
 _TRIM_OPS = ("subtract", "union")
 
 
@@ -477,6 +478,13 @@ class MainWindow(Gtk.ApplicationWindow):
                 ax.add_css_class("flat")
                 ax.connect("clicked", lambda _b, n=jn: self.ctrl.start_joint_axis(n))
                 row.append(ax)
+                if jn in self.ctrl.joint_guides:
+                    sd = Gtk.Button(icon_name="object-flip-horizontal-symbolic",
+                                    tooltip_text="Ajustar las guías de las 2 líneas desde el costado (4 clics en la vista "
+                                                 "«Costado»); recalcula el corte y el eje")
+                    sd.add_css_class("flat")
+                    sd.connect("clicked", lambda _b, n=jn: self.ctrl.start_joint_side(n))
+                    row.append(sd)
                 lo, hi = self.ctrl.joint_limits(jn)
                 for tip, val, lo_b, hi_b, cb in (
                         ("Flexión mínima (° ; negativa = hiperextensión)", lo, -45.0, 149.0,
