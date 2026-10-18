@@ -12,7 +12,7 @@ from .project import Project, demo_project
 from .testfigure import make_doll
 
 
-def run(stl_path: str, project: Project, outdir: str, name: str, progress=print, orient: bool = False,
+def run(stl_path: str, project: Project, outdir: str, name: str, progress=print, orient: bool | str = False,
         max_angle: float = 45.0) -> dict:
     mesh, rep = meshio.load_figure(stl_path, project.params.ref_height, project.crown_z)
     for w in rep.warnings:
@@ -38,13 +38,15 @@ def main(argv=None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     d = sub.add_parser("demo", help="figura sintética de ejemplo")
     d.add_argument("--out", default="out/demo")
-    d.add_argument("--orient", action="store_true", help="exportar en la orientación de impresión de menor voladizo")
+    d.add_argument("--orient", action="store_true", help="exportar apoyado en la cama en la pose de la vista previa (sentada, cabeza arriba)")
+    d.add_argument("--orient-auto", action="store_true", help="exportar en la orientación de menor voladizo (puede dar vuelta la figura)")
     b = sub.add_parser("build", help="articular un STL con un proyecto JSON")
     b.add_argument("stl")
     b.add_argument("proyecto")
     b.add_argument("--out", default="out/figura")
     b.add_argument("--name", default=None)
-    b.add_argument("--orient", action="store_true", help="exportar en la orientación de impresión de menor voladizo")
+    b.add_argument("--orient", action="store_true", help="exportar apoyado en la cama en la pose de la vista previa (sentada, cabeza arriba)")
+    b.add_argument("--orient-auto", action="store_true", help="exportar en la orientación de menor voladizo (puede dar vuelta la figura)")
     b.add_argument("--cabeza", default=None, metavar="STL",
                    help="usar esta cabeza en lugar de la original (el proyecto debe tener el plano del cuello)")
     b.add_argument("--cabeza-giro", type=float, default=None, metavar="GRADOS", help="girar la cabeza importada sobre su eje vertical")
@@ -88,7 +90,7 @@ def main(argv=None) -> int:
     if args.cmd == "demo":
         stl = os.path.join(args.out, "muneco.stl")
         make_doll().export(stl)
-        info = run(stl, demo_project(), args.out, "muneco", orient=args.orient)
+        info = run(stl, demo_project(), args.out, "muneco", orient="auto" if args.orient_auto else args.orient)
     else:
         name = args.name or os.path.splitext(os.path.basename(args.stl))[0]
         project = Project.load(args.proyecto)
@@ -102,7 +104,7 @@ def main(argv=None) -> int:
                 replacement_up=args.cabeza_arriba or project.head.replacement_up)
         if args.cadera_referencia:
             project.params = project.params.with_hip_reference()
-        info = run(args.stl, project, args.out, name, orient=args.orient, max_angle=args.max_angle)
+        info = run(args.stl, project, args.out, name, orient="auto" if args.orient_auto else args.orient, max_angle=args.max_angle)
     val = info["validacion"]
     print("Validación:", "OK" if val["ok"] else "CON PROBLEMAS")
     for pr in val["problems"]:

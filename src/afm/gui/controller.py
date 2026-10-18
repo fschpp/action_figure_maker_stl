@@ -18,7 +18,7 @@ import trimesh
 from .. import solids as S
 from ..head import HEAD_NAME, MIN_BASE_IOU
 from ..limbs import silhouette_on_plane
-from ..orient import OrientResult, best_orientation, overhang_mask
+from ..orient import OrientResult, overhang_mask, pose_orientation
 from ..planes import Plane
 from ..trims import Trim
 from .camera import OrbitCamera
@@ -1269,12 +1269,12 @@ class Controller:
 
     # ------------------------------------------------------------- voladizos
     def overhang_faces(self) -> tuple[np.ndarray, OrientResult] | None:
-        """Máscara de caras voladizas de ``session.work`` y la orientación de impresión usada.
+        """Máscara de caras voladizas de ``session.work`` y la orientación usada.
 
-        Es una referencia sobre la figura entera en su pose actual (no sobre las piezas ya cortadas):
-        se elige la orientación de menor voladizo (`best_orientation`) y se marca, sobre la malla
-        original, qué caras quedan colgando más allá de ``overhang_angle``. La rotación conserva el
-        orden de las caras, así que la máscara sirve tal cual para dibujar ``work``.
+        Es una referencia sobre la figura entera tal como se ve (cabeza arriba, sin girarla: es la orientación en que
+        se exportan las piezas, ver `pose_orientation`); no sobre las piezas ya cortadas. Con la figura generada, los
+        voladizos se marcan sobre la vista de la pose de cadera (`_pose_overhangs`). La rotación conserva el orden de
+        las caras, así que la máscara sirve tal cual para dibujar ``work``.
         """
         work = self.session.work
         if work is None:
@@ -1282,24 +1282,46 @@ class Controller:
         key_bounds = work.bounds.tobytes()
         c = self._overhang_cache
         if c is None or c[0] is not work or c[1] != key_bounds or c[2] != self.overhang_angle:
-            res = best_orientation(work, self.overhang_angle)
+            res = pose_orientation(work, self.overhang_angle)
             oriented = work.copy()
             oriented.apply_transform(res.rotation)
             c = self._overhang_cache = (work, key_bounds, self.overhang_angle,
                                         overhang_mask(oriented, self.overhang_angle), res)
         return c[3], c[4]
 
+    def _pose_overhangs(self, meshes: dict) -> dict:
+        """Voladizos de las piezas de la vista de pose: {nombre: máscara de caras}. Todas comparten la altura de la
+        cama (el mínimo del conjunto), como al imprimirlas juntas en la pose sentada."""
+        zmin = min(m.bounds[0][2] for m in meshes.values())
+        return {n: overhang_mask(m, self.overhang_angle, zmin=zmin) for n, m in meshes.items()}
+
     def _overhang_message(self) -> str:
         found = self.overhang_faces()
         if found is None:
             return "Primero abrí un STL."
         _mask, res = found
+        if self.pose_active():
+            area = sum(float(m.area_faces[mk].sum()) for m, mk in self._pose_overhang_cache())
+            return (f"Voladizos en rojo (pared a más de {self.overhang_angle:.0f}° de la vertical) sobre la figura "
+                    f"generada en la pose de cadera ({self._pose_angle():.0f}°), cabeza arriba, como se exporta: "
+                    f"{area:.0f} mm².")
         return (f"Voladizos en rojo (pared a más de {self.overhang_angle:.0f}° de la vertical): "
-                f"{res.overhang_area:.0f} mm² con la figura apoyada en {res.label}. "
-                "Referencia sobre la figura entera, no sobre las piezas.")
+                f"{res.overhang_area:.0f} mm² con la figura vista de frente, cabeza arriba. Referencia sobre la figura "
+                "entera; generala y mirala en la pose de cadera para ver los de las piezas.")
+
+    def _pose_overhang_cache(self) -> list:
+        """[(malla, máscara)] de las piezas de la pose mostrada (torso + miembros)."""
+        out = self.session.outcome
+        meshes = {"torso": S.to_trimesh(out.result.pieces["torso"])}
+        for name, mf in self._posed_pieces(self._pose_angle()).items():
+            meshes[name] = S.to_trimesh(mf)
+        masks = self._pose_overhangs(meshes)
+        return [(meshes[n], masks[n]) for n in meshes]
 
     def set_show_overhangs(self, on: bool) -> None:
         self.show_overhangs = bool(on)
+        if self.show_overhangs and self.session.outcome is not None and not self.pose_view:
+            self.set_pose_view(True)          # con la figura generada, los voladizos se ven en la pose de cadera
         self._changed(self._overhang_message() if self.show_overhangs and self.loaded else None)
 
     def set_overhang_angle(self, angle: float) -> None:
@@ -1630,10 +1652,23 @@ class Controller:
             self.pose_report = self.pose_check()
         rep = self.pose_report
         bad = set(rep["torso"]) | {n for pair in rep["pairs"] for n in pair}
-        scene.set_mesh("pose:torso", S.to_trimesh(out.result.pieces["torso"]), color=(0.62, 0.68, 0.78, 1.0))
+        meshes = {"torso": S.to_trimesh(out.result.pieces["torso"])}
+        colors = {"torso": (0.62, 0.68, 0.78, 1.0)}
         for name, mf in self._posed_pieces(rep["angle"]).items():
-            scene.set_mesh(f"pose:{name}", S.to_trimesh(mf),
-                           color=(0.95, 0.28, 0.28, 1.0) if name in bad else (0.85, 0.80, 0.68, 1.0))
+            meshes[name] = S.to_trimesh(mf)
+            # con los voladizos en rojo, la interferencia se marca en magenta para no confundirlos
+            hit = (0.85, 0.3, 0.85, 1.0) if self.show_overhangs else (0.95, 0.28, 0.28, 1.0)
+            colors[name] = hit if name in bad else (0.85, 0.80, 0.68, 1.0)
+        masks = self._pose_overhangs(meshes) if self.show_overhangs else {}
+        for name, mesh in meshes.items():
+            mk = masks.get(name)
+            if mk is not None and mk.any():
+                v, f = mesh.vertices, mesh.faces
+                scene.set_mesh(f"pose:{name}", trimesh.Trimesh(v, f[~mk], process=False), color=colors[name])
+                scene.set_mesh(f"pose:{name}:voladizo", trimesh.Trimesh(v, f[mk], process=False),
+                               color=(0.95, 0.25, 0.25, 1.0))
+            else:
+                scene.set_mesh(f"pose:{name}", mesh, color=colors[name])
 
     def _sync_trims(self, scene) -> None:
         """Recortes manuales: rojo = restar, verde = unir. El que se está dibujando lo muestra el editor de polígonos."""

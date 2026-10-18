@@ -519,23 +519,30 @@ def _validate_joints(res: BuildResult, p: Params, joints, out: dict, step: float
 
 
 # ----------------------------------------------------------------- exportación
-def print_orientation(res: BuildResult, max_angle: float = 45.0, extra_tilts=(0.0,)):
+def print_orientation(res: BuildResult, max_angle: float = 45.0, extra_tilts=(0.0,), mode: str = "pose"):
     """Orientación de impresión del conjunto armado (§8.7). Todas las piezas comparten la misma
-    transformación para seguir en un único sistema de coordenadas."""
-    from .orient import best_orientation
+    transformación para seguir en un único sistema de coordenadas.
+
+    `mode="pose"` (por defecto): la figura tal como se ve en la vista de la pose de cadera (sentada, cabeza arriba),
+    solo apoyada en la cama. `mode="auto"`: la orientación de menor voladizo (`best_orientation`), que puede dar
+    vuelta la figura."""
+    from .orient import best_orientation, pose_orientation
     asm = trimesh.util.concatenate([S.to_trimesh(mf) for mf in res.pieces.values()])
-    return best_orientation(asm, max_angle, extra_tilts)
+    if mode == "auto":
+        return best_orientation(asm, max_angle, extra_tilts)
+    return pose_orientation(asm, max_angle)
 
 
-def export(res: BuildResult, outdir: str, name: str = "figura", orient: bool = False,
+def export(res: BuildResult, outdir: str, name: str = "figura", orient: bool | str = False,
            max_angle: float = 45.0, extra_tilts=(0.0,)) -> dict:
-    """Escribe el ensamblado y un STL por parte. Con `orient=True` aplica a todo la orientación
-    de impresión de menor voladizo y la informa."""
+    """Escribe el ensamblado y un STL por parte. Con `orient=True` apoya todo el conjunto en la cama en la pose de
+    la vista previa (sentada, cabeza arriba); con `orient="auto"` lo gira a la orientación de menor voladizo.
+    En ambos casos informa la orientación."""
     os.makedirs(os.path.join(outdir, "piezas"), exist_ok=True)
     T = None
     info: dict = {}
     if orient:
-        o = print_orientation(res, max_angle, extra_tilts)
+        o = print_orientation(res, max_angle, extra_tilts, mode="auto" if orient == "auto" else "pose")
         T = o.rotation
         info["orientacion"] = {"etiqueta": o.label, "voladizo_mm2": round(o.overhang_area, 2),
                                "base_mm2": round(o.base_area, 2), "angulo_max": max_angle}

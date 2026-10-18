@@ -362,3 +362,69 @@ def test_a_cut_that_stays_inside_the_solid_is_dropped_known_limit(built, tmp_pat
     c.add_trim_primitive("torso", "sphere", (6, 0, 58), 4.0)
     out = c.generate()
     assert out.result.pieces["torso"].volume() == pytest.approx(built.session.outcome.result.pieces["torso"].volume(), abs=0.5)
+
+
+# ------------------------------------------------------------------ voladizos y exportación en la pose de cadera
+def test_overhangs_with_a_generated_figure_are_drawn_on_the_hip_pose(built):
+    c, sc = built, FakeScene()
+    try:
+        c.set_overhang_angle(10.0)                        # muñeco con curvas: seguro hay caras que cuelgan
+        c.set_show_overhangs(True)
+        assert c.pose_active(), "con la figura generada, los voladizos se ven en la pose de cadera"
+        assert "pose de cadera" in c.message and "cabeza arriba" in c.message
+        c.sync(sc)
+        over = [k for k in sc.items if k.startswith("pose:") and k.endswith(":voladizo")]
+        assert over, "alguna pieza de la pose tiene voladizos"
+        for k in over:                                    # cada pieza se parte en sana + voladiza: no se pierde ninguna cara
+            name = k[: -len(":voladizo")]
+            n_faces = len(sc.items[name][1].faces) + len(sc.items[k][1].faces)
+            full = [m for m, _ in c._pose_overhang_cache()]
+            assert n_faces in {len(m.faces) for m in full}
+        # la figura se ve cabeza arriba: el torso llega más alto que las piernas sentadas
+        assert sc.items["pose:torso"][1].bounds[1, 2] > sc.items["pose:pierna_izq"][1].bounds[1, 2]
+        c.set_show_overhangs(False)
+        c.sync(sc)
+        assert not [k for k in sc.items if k.endswith(":voladizo")]
+    finally:
+        c.set_show_overhangs(False)
+        c.set_pose_view(False)
+
+
+def test_pose_overhang_masks_share_one_bed_height(built):
+    from afm.orient import overhang_mask
+    c = built
+    try:
+        c.set_pose_view(True)
+        pairs = c._pose_overhang_cache()
+        assert pairs and all(mask.shape == (len(m.faces),) for m, mask in pairs)
+        zmin = min(m.bounds[0][2] for m, _ in pairs)          # la cama es la del conjunto, no la de cada pieza
+        for m, mask in pairs:
+            assert (mask == overhang_mask(m, c.overhang_angle, zmin=zmin)).all()
+    finally:
+        c.set_pose_view(False)
+
+
+def test_export_keeps_the_hip_pose_head_up(built, tmp_path):
+    import os
+    import trimesh
+    from afm import solids as S
+    c = built
+    base = os.path.splitext(os.path.basename(c.session.stl_path))[0]
+    info = c.export(str(tmp_path / "out"), orient=True)
+    assert info["archivos"]["orientacion"]["etiqueta"] == "pose de cadera, cabeza arriba"
+    out = tmp_path / "out" / "piezas"
+    res = c.session.outcome.result
+    drop = None
+    for part, mf in res.pieces.items():
+        orig = S.to_printable_trimesh(mf)
+        exported = trimesh.load(str(out / f"{base}_{part}.stl"), process=False)
+        d = exported.bounds - orig.bounds                     # solo se baja: ni giro ni espejo
+        assert np.allclose(d[:, :2], 0.0, atol=1e-3) and np.allclose(d[0, 2], d[1, 2], atol=1e-3), part
+        drop = d[0, 2] if drop is None else drop
+        assert d[0, 2] == pytest.approx(drop, abs=1e-3)       # todas bajan lo mismo: siguen ensambladas
+    asm = trimesh.util.concatenate([trimesh.load(str(p), process=False) for p in out.glob("*.stl")])
+    assert asm.bounds[0][2] == pytest.approx(0.0, abs=1e-3)   # apoyada en la cama
+    zc = {p.stem: trimesh.load(str(p), process=False).centroid[2] for p in out.glob("*.stl")}
+    torso = next(v for k, v in zc.items() if k.endswith("torso"))
+    legs = [v for k, v in zc.items() if "pierna" in k]
+    assert legs and torso > max(legs)                         # el torso arriba y las piernas más abajo: no patas para arriba

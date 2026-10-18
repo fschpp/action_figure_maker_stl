@@ -15,16 +15,18 @@ class OrientResult:
     label: str
 
 
-def overhang_mask(mesh: trimesh.Trimesh, max_angle: float = 45.0, floor_tol: float = 0.05) -> np.ndarray:
+def overhang_mask(mesh: trimesh.Trimesh, max_angle: float = 45.0, floor_tol: float = 0.05,
+                  zmin: float | None = None) -> np.ndarray:
     """Máscara booleana por cara: True si la cara es voladizo.
 
     `max_angle` es el ángulo tolerado de la pared **respecto de la vertical**: una pared vertical es
     0° (se imprime sin soporte) y un techo horizontal es 90° (el peor caso). Una cara mirando hacia
     abajo con normal n forma con la vertical un ángulo φ tal que -n_z = sen φ; es voladizo si
-    φ > max_angle. Las caras apoyadas en la cama (z ≈ mínimo) no cuentan.
+    φ > max_angle. Las caras apoyadas en la cama (z ≈ mínimo) no cuentan. `zmin`: altura de la cama si la
+    malla es solo una parte de un conjunto que se apoya junto (por defecto, el mínimo de la propia malla).
     """
     n = mesh.face_normals
-    zmin = mesh.bounds[0][2]
+    zmin = mesh.bounds[0][2] if zmin is None else zmin
     steep = -n[:, 2] > np.sin(np.radians(max_angle))
     on_bed = mesh.triangles[:, :, 2].max(axis=1) < zmin + floor_tol
     return steep & ~on_bed
@@ -70,3 +72,14 @@ def best_orientation(mesh: trimesh.Trimesh, max_angle: float = 45.0, extra_tilts
             if best is None or score < best[0]:
                 best = (score, OrientResult(lift @ T, ov, ba, label + (f" +{tilt}°" if tilt else "")))
     return best[1]
+
+
+def pose_orientation(mesh: trimesh.Trimesh, max_angle: float = 45.0) -> OrientResult:
+    """Orientación «como se ve»: la de la figura generada en la pose de cadera (cabeza hacia +Z, sentada), sin girarla,
+    solo bajada hasta apoyar en la cama (z = 0). Es la que usa la vista previa de la pose; a diferencia de
+    `best_orientation` nunca da vuelta la figura (patas / asiento para arriba) para ahorrar voladizo."""
+    lift = np.eye(4)
+    lift[2, 3] = -mesh.bounds[0][2]
+    m = mesh.copy()
+    m.apply_transform(lift)
+    return OrientResult(lift, overhang_area(m, max_angle), base_area(m), "pose de cadera, cabeza arriba")

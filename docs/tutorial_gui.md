@@ -333,8 +333,14 @@ Con la simetría definida y cada miembro con su silueta, el Estado deja de lista
    libre de la cadera y avisos del soldado. Si hay **problemas** (interpenetración, holgura corta,
    interferencia en el giro) los lista.
 3. **Exportar piezas…:** elegís una carpeta y se escriben `*_ensamblada.stl`, un STL por pieza en
-   `piezas/`, el informe `*_informe.json` y el proyecto. Con la casilla **Orientar las piezas para
-   imprimir** todas comparten la orientación de menor voladizo (ángulo de la casilla de voladizos).
+   `piezas/`, el informe `*_informe.json` y el proyecto. Con la casilla **Apoyar las piezas
+   en la cama** todas se exportan **tal como se ven en «Ver la figura generada en la pose de cadera»** (sentada, cabeza
+   arriba, sin darla vuelta), solo bajadas hasta z = 0 y con la misma transformación, para que sigan ensambladas en el
+   laminador. Los **voladizos** (casilla de la barra lateral) usan esa misma orientación: con la figura generada se pintan
+   en rojo sobre la vista de la pose de cadera (si estaba apagada, se enciende sola; una pieza que interfiere se
+   marca en magenta mientras estén los voladizos); sin generar, sobre la figura de frente, cabeza arriba. En la línea de
+   comandos, `--orient` hace lo mismo y `--orient-auto` conserva la orientación de menor voladizo (puede dar vuelta la
+   figura).
 
 Cualquier cambio posterior (una silueta, un plano, la simetría) **invalida el resultado**: hay que
 generar de nuevo antes de exportar.
@@ -424,11 +430,11 @@ los dos lados se apaga. Durante la colocación del pasador no se dibuja (el plan
 
 Esta versión de la ventana **define planos, dibuja las siluetas, coloca los pasadores, hace recortes manuales, genera la figura,
 la muestra en la pose de cadera con sus colisiones, exporta las piezas y guarda el proyecto** (también puede mostrar los
-**voladizos** de impresión en rojo sobre la figura entera, con la casilla de la barra lateral). Todavía no:
+**voladizos** de impresión en rojo sobre la figura entera, o sobre la pose de cadera si ya está generada, con la casilla de la barra lateral). Todavía no:
 
 * ofrece un control gráfico para el recorte redondeado de la cadera (se cambia con `cap_*` en el proyecto);
 * acierta solo la altura de la cadera cuando hay abrigo o faldón largo (la silueta propuesta se corrige a mano);
-* muestra los voladizos sobre las piezas ya cortadas, ni la pose sentada **sin** haber generado antes;
+* muestra los voladizos sobre las piezas ya cortadas una por una (sí sobre la pose de cadera generada), ni la pose sentada **sin** haber generado antes;
 * detecta solo las láminas finas / rebabas de la malla (se quitan con un recorte).
 
 La línea de comandos sigue disponible (útil para procesar sin ventana):
