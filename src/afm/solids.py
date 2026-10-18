@@ -159,6 +159,65 @@ def dilate(mf: Manifold, r: float, segments: int = 12) -> Manifold:
     return mf.minkowski_sum(Manifold.sphere(rr, segments))
 
 
+def swept_offset(parts: list, center, axis, angle_deg: float, radius: float, pitch: float = 0.2,
+                 step_deg: float = 3.0) -> Manifold:
+    """Volumen barrido por `parts` al girar de 0° a `angle_deg` alrededor de (center, axis), ensanchado `radius` mm.
+
+    Se calcula con un campo de distancia voxelizado (distancia euclídea al sólido en su pose inicial, evaluada en cada
+    pose girada) y marching cubes, no con Minkowski ni uniones de copias: esas dos escalan con la cantidad de caras y
+    se vuelven inviables (o dejan cientos de miles de microcaras) con piezas de ~200k triángulos. El error del borde es
+    del orden de `pitch`/4; la malla resultante es lisa y liviana. Devuelve un Manifold estanco."""
+    from scipy import ndimage
+    from skimage import measure
+
+    tm = trimesh.util.concatenate([to_trimesh(m) for m in parts])
+    c = np.asarray(center, float)
+    ax = np.asarray(axis, float)
+    ax = ax / np.linalg.norm(ax)
+    K = np.array([[0, -ax[2], ax[1]], [ax[2], 0, -ax[0]], [-ax[1], ax[0], 0]])
+
+    def rot(a_deg):
+        a = np.radians(a_deg)
+        return np.eye(3) + np.sin(a) * K + (1 - np.cos(a)) * (K @ K)
+
+    n = max(1, int(np.ceil(abs(angle_deg) / step_deg)))
+    angles = np.linspace(0.0, angle_deg, n + 1)
+    pad = radius + 3 * pitch
+    # campo de distancia local (pose inicial)
+    vox = tm.voxelized(pitch).fill()
+    occ = np.pad(vox.matrix, int(np.ceil(pad / pitch)) + 1)
+    origin = np.asarray(vox.transform)[:3, 3] - (int(np.ceil(pad / pitch)) + 1) * pitch
+    dist = (ndimage.distance_transform_edt(~occ) * pitch).astype(np.float32)
+    # rejilla del mundo: caja de las poses extremas (el giro es continuo: se usan todas las poses)
+    pts_all = np.vstack([(tm.vertices - c) @ rot(a).T + c for a in angles])
+    lo = pts_all.min(0) - pad
+    hi = pts_all.max(0) + pad
+    shape = np.ceil((hi - lo) / pitch).astype(int) + 1
+    field = np.full(shape, 1e3, np.float32)
+    xs = lo[0] + np.arange(shape[0]) * pitch
+    ys = lo[1] + np.arange(shape[1]) * pitch
+    zs = lo[2] + np.arange(shape[2]) * pitch
+    slab = max(1, int(2_000_000 // (shape[1] * shape[2])))
+    for i0 in range(0, shape[0], slab):
+        xi = xs[i0:i0 + slab]
+        G = np.stack(np.meshgrid(xi, ys, zs, indexing="ij"), -1).reshape(-1, 3) - c
+        best = np.full(len(G), 1e3, np.float32)
+        for a in angles:
+            loc = (G @ rot(a)) + c                      # rot(a)^-1 = rot(a).T → G @ R
+            idx = ((loc - origin) / pitch).T
+            d = ndimage.map_coordinates(dist, idx, order=1, mode="constant", cval=1e3).astype(np.float32)
+            np.minimum(best, d, out=best)
+        field[i0:i0 + slab] = best.reshape(len(xi), shape[1], shape[2])
+    vol = np.pad(radius - field, 1, constant_values=-1.0)
+    verts, faces, _n, _v = measure.marching_cubes(vol, 0.0, spacing=(pitch, pitch, pitch))
+    verts = verts + lo - pitch
+    mesh = trimesh.Trimesh(verts, faces, process=False)
+    mesh.merge_vertices()
+    if mesh.volume < 0:
+        mesh.invert()
+    return to_manifold(mesh)
+
+
 def mirror_x(mf: Manifold) -> Manifold:
     return mf.mirror((1, 0, 0))
 
