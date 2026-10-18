@@ -287,7 +287,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self.btn_generate = self._button("Generar figura", lambda *_: self._on_generate())
         self.btn_generate.add_css_class("suggested-action")
         box.append(self.btn_generate)
-        self.chk_orient = Gtk.CheckButton(label="Orientar las piezas para imprimir al exportar", active=True)
+        self.chk_orient = Gtk.CheckButton(label="Apoyar las piezas en la cama al exportar (en la pose de cadera, cabeza arriba)", active=True)
         box.append(self.chk_orient)
         self.btn_export = self._button("Exportar piezas…", lambda *_: self._on_export())
         box.append(self.btn_export)

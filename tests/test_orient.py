@@ -78,3 +78,36 @@ def test_best_orientation_avoids_ceiling():
     m.apply_transform(trimesh.transformations.rotation_matrix(3.14159265, (1, 0, 0)))   # T al revés
     r = orient.best_orientation(m)
     assert r.overhang_area < 1.0
+
+
+def test_pose_orientation_never_flips_the_figure():
+    """`pose_orientation` solo baja la figura a la cama: aunque cabeza abajo tendría menos voladizo, no la da vuelta."""
+    import numpy as np
+    post = trimesh.creation.box((4, 4, 60))
+    post.apply_translation((0, 0, 30))
+    top = trimesh.creation.box((40, 40, 10))
+    top.apply_translation((0, 0, 65))
+    t = trimesh.util.concatenate([post, top])             # «T»: el techo ancho arriba es todo voladizo
+    r = orient.pose_orientation(t, 45.0)
+    assert np.allclose(r.rotation[:3, :3], np.eye(3)) and r.rotation[2, 3] == -t.bounds[0][2]
+    assert r.overhang_area > 1000                         # el techo de la «T» (≈ 1600 − 16 mm²) sigue ahí
+    best = orient.best_orientation(t, 45.0)
+    assert not np.allclose(best.rotation[:3, :3], np.eye(3)) and best.overhang_area < r.overhang_area   # lo da vuelta
+
+
+def test_overhang_mask_zmin_is_the_shared_bed():
+    box = trimesh.creation.box((10, 10, 10))
+    box.apply_translation((0, 0, 5 + 7.0))                 # flota 7 mm sobre la cama del conjunto
+    assert orient.overhang_mask(box, 45.0).sum() == 0      # sola, su base cuenta como apoyo
+    assert orient.overhang_mask(box, 45.0, zmin=0.0).sum() == 2   # con la cama más abajo, su fondo (2 triángulos) es voladizo
+
+
+def test_export_default_keeps_demo_head_up_and_auto_still_available(tmp_path):
+    import json
+    from afm import cli
+    assert cli.main(["demo", "--out", str(tmp_path / "a"), "--orient"]) == 0
+    info = json.load(open(tmp_path / "a" / "muneco_informe.json"))
+    assert info["archivos"]["orientacion"]["etiqueta"] == "pose de cadera, cabeza arriba"
+    assert cli.main(["demo", "--out", str(tmp_path / "b"), "--orient-auto"]) == 0
+    info = json.load(open(tmp_path / "b" / "muneco_informe.json"))
+    assert info["archivos"]["orientacion"]["etiqueta"].endswith("arriba") and "pose" not in info["archivos"]["orientacion"]["etiqueta"]

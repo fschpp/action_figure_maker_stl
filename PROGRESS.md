@@ -1,6 +1,9 @@
 # Progreso del desarrollo
 
 ## Current Focus
+**Voladizos y exportación consistentes con la pose de cadera (2026-10-18):** la exportación y los voladizos usaban `best_orientation` (menor voladizo), que daba vuelta la figura (patas/asiento arriba). Ahora `orient.pose_orientation` solo apoya la figura en z = 0 tal como se ve en la vista de pose (sentada, cabeza arriba): `P.export(orient=True)`, `overhang_faces` y la vista de pose (voladizos en rojo sobre las piezas generadas, `Controller._pose_overhangs`, cama compartida con `overhang_mask(zmin=)`). `--orient-auto` conserva la orientación anterior.
+
+**Anterior:**
 **Articulaciones — codo: guías centradas/ajustables de costado y bastago pasante (2026-10-17):** las guías de las 2 líneas se clickeaban sobre la cara delantera (y = superficie) y quedaban fuera del brazo; ahora se centran solas en profundidad (`Controller._centered_in_y`, 2 rayos a lo largo de Y) y `Mode.JOINT_SIDE` («Ajustar guías de costado», 4 clics en vista Costado: toma y, z; conserva x) recalcula corte y eje con `Session.retarget_joint_lines`. La bisagra de rodilla/codo pasa a un **bastago soldado a la lengüeta del antebrazo que cruza un orificio del brazo** (`HingeSpec.rod=True`, `rod_wall`; `rod=False` vuelve a los 2 bulones); el largo sale de `joints.rod_extent` sobre el material que queda tras el barrido del distal (con el eje inclinado el núcleo se afina hacia un lado: ese lado queda corto y avisa; rodilla inclinada 14,5° del muñeco → pared 0,81 mm) y se valida con `joint_wall_mm` (mide 1 mm antes de la punta). **Lengüeta con cuello recto** (`HingeSpec.neck`, 2026-10-18): en el STL del antebrazo de Güemes la lengüeta era un disco que tocaba el cuerpo en una cuerda de ~3 mm; ahora es una «U» invertida (ancho 2·radio hasta el cuerpo). Suite de articulaciones, GUI, parámetros, probetas y cadera: 74 pasan.
 
 **Anterior:**
