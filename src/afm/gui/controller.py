@@ -619,6 +619,33 @@ class Controller:
         self._changed(f"{label}: {value:g}. Hay que generar de nuevo.", scene=False)
         return True
 
+    def set_ref_height(self, mm: float) -> bool:
+        """Cambia la altura de la figura (pies → coronilla, mm). Reescala la malla y, si ya había planos, siluetas,
+        recortes y ejes, los escala por el mismo factor. Las medidas absolutas (pasadores, holgura, clic) no se
+        tocan. Devuelve False (con el motivo en `message`) si el valor no vale."""
+        try:
+            k = self.session.set_ref_height(mm)
+        except ValueError as e:
+            self._changed(str(e), scene=False)
+            return False
+        if k == 1.0:
+            return True
+        if self.loaded:
+            self._rebuild_picker()
+            self.camera.frame(self.session.work.bounds)
+        pr = self.session.project
+        has_geom = pr.symmetry is not None or pr.limbs or pr.trims or pr.joints or pr.head is not None
+        msg = f"Altura de la figura: {pr.params.ref_height:g} mm (×{k:.4g})."
+        if has_geom:
+            msg += (" Planos, siluetas y recortes se escalaron con la figura; revisalos. Los pasadores, la holgura y el"
+                    " clic son medidas absolutas y no cambian: ajustalos en Parámetros si hace falta. Hay que generar de nuevo.")
+        elif self.loaded:
+            msg += " Los pasadores, la holgura y el clic son medidas absolutas: revisalos en Parámetros."
+        self.joint_guides = {n: (up * k, low * k) for n, (up, low) in self.joint_guides.items()}
+        self.cancel(quiet=True)             # sale de cualquier edición a medias (estaba en la escala anterior)
+        self._changed(msg)
+        return True
+
     def profile_names(self, directory: str | None = None) -> list[str]:
         from .. import profile
         return profile.list_profiles(directory)
@@ -642,6 +669,7 @@ class Controller:
         except (OSError, ValueError, TypeError) as e:
             self._changed(f"No se pudo cargar el perfil «{name}»: {e}.", scene=False)
             return False
+        params.ref_height = self.session.project.params.ref_height   # la altura es de la figura abierta, no del perfil
         self.session.project.params = params
         self.session.outcome = None
         self._changed(f"Perfil «{name}» cargado (holgura {params.clearance:g} mm). Hay que generar de nuevo.",
@@ -1475,7 +1503,7 @@ class Controller:
         self._rebuild_picker()
         self.camera.frame(self.session.work.bounds)
         self.cancel(quiet=True)
-        self._changed(f"Coronilla marcada a {z:.1f} mm: la figura se reescaló a 100 mm.")
+        self._changed(f"Coronilla marcada a {z:.1f} mm: la figura se reescaló a {self.session.project.params.ref_height:g} mm.")
 
     def _finish_symmetry(self) -> None:
         pts, self.pending = self.pending, []

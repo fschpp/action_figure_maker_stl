@@ -49,6 +49,44 @@ class Project:
             joints=[JointSpec.from_dict(x) for x in d.get("joints", [])],
         )
 
+    def scale_geometry(self, k: float) -> None:
+        """Multiplica por `k` todo lo que está medido sobre la figura (planos, polígonos, centros, espesores de
+        las herramientas de corte, desplazamientos). No toca las medidas absolutas de impresión de `params`."""
+        import numpy as np
+
+        def pl(plane: Plane | None) -> Plane | None:
+            return None if plane is None else Plane.from_normal(plane.origin * k, plane.normal, plane.name)
+
+        def pt(p):
+            return None if p is None else tuple(float(x) * k for x in p)
+
+        def opt(x):
+            return None if x is None else float(x) * k
+
+        self.symmetry = pl(self.symmetry)
+        for l in self.limbs:
+            l.plane = pl(l.plane)
+            l.polygon = np.asarray(l.polygon, float) * k
+            l.thickness = float(l.thickness) * k
+            l.pin_center = pt(l.pin_center)
+            l.cut_offset = opt(l.cut_offset)
+            l.cap_radius = opt(l.cap_radius)
+            l.cap_center = pt(l.cap_center)
+            if l.cross is not None:
+                l.cross.plane = pl(l.cross.plane)
+                l.cross.polygon = np.asarray(l.cross.polygon, float) * k
+                l.cross.thickness = float(l.cross.thickness) * k
+        for t in self.trims:
+            t.plane = pl(t.plane)
+            t.polygon = np.asarray(t.polygon, float) * k
+            t.distance = float(t.distance) * k
+        for j in self.joints:
+            j.plane = pl(j.plane)
+            j.axis_center = pt(j.axis_center)
+        if self.head is not None:
+            self.head.plane = pl(self.head.plane)
+            self.head.pin_center = pt(self.head.pin_center)
+
     def save(self, path: str) -> None:
         with open(path, "w") as f:
             json.dump(self.to_dict(), f, indent=2)
