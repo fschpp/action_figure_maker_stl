@@ -90,6 +90,32 @@ def test_front_view_click_asks_for_a_side_view(c):
     assert c.session.project.params.flat_depth == before and "costado" in c.message
 
 
+def test_legs_are_straight_while_adjusting_the_cut_and_after_if_the_checkbox_is_on(c, monkeypatch):
+    seen = []
+    import afm.pipeline as P
+    real = P.posed_pieces
+
+    def spy(res, angle, flex=None, p=None):
+        seen.append(flex)
+        return real(res, angle, flex, p)
+
+    monkeypatch.setattr(P, "posed_pieces", spy)
+    c._pose_cache = None
+    c.start_flat_plane()
+    assert c.legs_straight() and c.pose_report["estiradas"]
+    assert seen and seen[-1] is not None                         # rodillas a 0° mientras se ajusta el corte
+    c.cancel(quiet=True)
+    assert not c.legs_straight()                                 # sin la casilla vuelve la flexión de la pose impresa
+    c.set_flat_print(True)
+    assert c.flat_print and c.pose_active() and c.legs_straight()
+    assert "piernas estiradas" in c.message
+    c.start_flat_plane()
+    c.cancel(quiet=True)
+    assert c.legs_straight()                                     # con la casilla activa sigue estirada
+    c.set_flat_print(False)
+    assert not c.legs_straight()
+
+
 def test_changing_flat_depth_in_parameters_keeps_the_generated_figure(c):
     assert c.set_param("flat_depth", 2.5)
     assert c.session.outcome is not None

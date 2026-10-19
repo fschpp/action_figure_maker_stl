@@ -307,7 +307,9 @@ class MainWindow(Gtk.ApplicationWindow):
         box.append(self.chk_orient)
         self.chk_flat = Gtk.CheckButton(label="Modificar para imprimir sin soportes (aplana piernas y cola; los brazos giran hacia adelante)")
         self.chk_flat.set_tooltip_text("Corta con un plano horizontal sobre la cola (altura en Parámetros: «Sin soportes: corte plano») y "
-                                       "gira los brazos hacia adelante lo justo para que apoyen en ese plano. Los brazos no se modifican.")
+                                       "gira los brazos hacia adelante lo justo para que apoyen en ese plano. Las piernas quedan estiradas (rodilla a 0°): muslo y "
+                                       "pantorrilla horizontales sobre el plano. Los brazos no se modifican.")
+        self.chk_flat.connect("toggled", lambda b: None if self._updating else self._on_flat_toggled(b.get_active()))
         box.append(self.chk_flat)
         self.btn_flat_plane = self._button("Ajustar la altura del corte (vista Derecha, figura sentada)", lambda *_: self._on_flat_plane())
         self.btn_flat_plane.set_tooltip_text("Muestra la figura generada sentada, de costado, con el plano horizontal del corte «sin soportes». "
@@ -619,6 +621,10 @@ class MainWindow(Gtk.ApplicationWindow):
     # ------------------------------------------------------------------ acciones
     def _set_view(self, name: str) -> None:
         self.ctrl.camera.set_view(name)
+        self.gl.queue_render()
+
+    def _on_flat_toggled(self, on: bool) -> None:
+        self.ctrl.set_flat_print(on)
         self.gl.queue_render()
 
     def _on_flat_plane(self) -> None:
