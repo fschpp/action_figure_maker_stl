@@ -184,7 +184,7 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
             report.setdefault("joints", {})[j.name] = {
                 "center": jb.center.tolist(), "axis": jb.axis.tolist(), "flex": list(jb.flex),
                 "shoulder_h": round(jb.shoulder_h, 3), "radius": round(jb.radius, 3), "avisos": jb.warnings,
-                "piezas": [pn, dn], "limb": name, "print_flex": print_flex(j, p)}
+                "piezas": [pn, dn], "limb": name, "print_flex": print_flex(j, p), "print_hip": float(th)}
             if name in carved:
                 report["joints"][j.name]["torso_tallado_mm3"] = round(2 * carved[name], 3)     # ambos lados (espejo)
         report["limbs"][name] = {
@@ -463,6 +463,19 @@ def _validate_detent(res: BuildResult, p: Params, out: dict, step: float) -> dic
     return info
 
 
+def straight_leg_flex(res: BuildResult) -> dict:
+    """Flexión 0° (pierna estirada) para cada articulación de una pierna (miembro que gira en la cadera). Es la pose
+    de «imprimir sin soportes»: muslo y pantorrilla en línea, ambos horizontales con la cadera sentada. Los codos no
+    se tocan (el brazo se gira entero hacia adelante)."""
+    rep = res.report.get("joints", {})
+    out: dict = {}
+    for jn, r in rep.items():
+        m = res.motion.get(r["limb"])
+        if m is not None and m[3][1] > m[3][0]:
+            out[jn] = 0.0
+    return out
+
+
 def posed_pieces(res: BuildResult, hip_angle: float, flex: dict | None = None,
                  p: Params | None = None) -> dict:
     """Miembros del lado izquierdo y sus espejos (`<pieza>_izq/_der`) con la cadena de rotaciones compuesta.
@@ -686,6 +699,7 @@ def _carve_torso_for_arm(torso: S.Manifold, arm_parts: list, center, axis, theta
 def flat_for_print(res: BuildResult, depth: float = 1.0, p: Params | None = None) -> tuple[dict, dict]:
     """Prepara la figura sentada para imprimirla sin soportes: devuelve (piezas nuevas, informe).
 
+    0. Las piernas con rodilla se estiran (flexión 0°): muslo y pantorrilla quedan alineados y horizontales.
     1. Corta con un plano horizontal a `depth` mm sobre el punto más bajo del torso (la cola): las piernas y la cola
        quedan con una base plana. Se corta todo salvo los brazos y la cabeza.
     2. Los brazos (sin tocarlos) quedan entonces por debajo del plano: giran hacia adelante alrededor del pasador del
@@ -699,6 +713,21 @@ def flat_for_print(res: BuildResult, depth: float = 1.0, p: Params | None = None
     depth = float(depth)
     pieces = dict(res.pieces)
     info: dict = {"corte_sobre_cola_mm": depth, "avisos": []}
+    # 0. piernas estiradas: con rodilla, la pantorrilla pasa de la flexión de la pose impresa a 0° y queda en línea con el
+    #    muslo (ambos horizontales con la cadera sentada), para que las dos piezas apoyen sobre el plano del corte
+    stretched: dict = {}
+    for jn, fl in straight_leg_flex(res).items():
+        r = res.report["joints"][jn]
+        jb = res.joints[jn]
+        _l, hc, hax, _rng = res.motion[r["limb"]]
+        th = float(r.get("print_hip", p.sit_angle))
+        for nm, mf in zip(r["piezas"], (jb.proximal, jb.rotate_distal(fl))):
+            if th:
+                mf = S.rotate_about_axis(mf, hc, hax, th)
+            pieces[f"{nm}_izq"] = mf
+            pieces[f"{nm}_der"] = S.mirror_x(mf)
+        stretched[jn] = {"flexion_grados": fl, "flexion_impresa_grados": r["print_flex"]}
+    info["rodillas_estiradas"] = stretched
     arm_limbs = [n for n, (_l, _c, _a, (a0, a1)) in res.motion.items() if n != HEAD_NAME and a1 <= a0 and n not in res.detent]
     for n in res.detent:
         if n in res.motion and res.motion[n][3][1] <= res.motion[n][3][0]:

@@ -171,7 +171,8 @@ class Controller:
         self.pose_view = False                       # vista previa de la figura generada con las piernas en la pose sentada
         self.pose_angle: float | None = None         # ángulo de cadera de la vista previa (None = el de la pose sentada)
         self.pose_report: dict | None = None         # resultado de `pose_check` para ese ángulo
-        self._pose_cache: tuple | None = None        # (outcome, ángulo, {pieza: sólido}) de la pose mostrada
+        self._pose_cache: tuple | None = None        # (outcome, ángulo, estiradas, {pieza: sólido}) de la pose mostrada
+        self.flat_print = False                      # casilla «sin soportes»: la vista de pose muestra las piernas estiradas
         self.trim_cfg: dict | None = None            # recorte en edición: target / op / distance / symmetric / shape / size
         self.edit_trim: int | None = None            # índice en project.trims del polígono de recorte en edición
         self._guide_cache: tuple | None = None       # (work, bounds, plano) -> contornos de la figura en el plano
@@ -548,6 +549,8 @@ class Controller:
         self.joint_limb, self.joint_name = None, None
         was_trim = self.trim_cfg is not None
         self.trim_cfg, self.edit_trim = None, None
+        if was == Mode.FLAT_PLANE and self.pose_view and not self.flat_print:
+            self.pose_report = None          # vuelven las rodillas a la flexión de la pose impresa: se recalculan las interferencias
         if not quiet:
             self._changed("Edición del recorte terminada." if was_trim
                           else "Edición de silueta terminada." if was == Mode.POLYGON
@@ -1050,16 +1053,40 @@ class Controller:
     def _pose_angle(self) -> float:
         return float(self.session.project.params.sit_angle if self.pose_angle is None else self.pose_angle)
 
+    def legs_straight(self) -> bool:
+        """True si la vista de pose muestra las piernas estiradas (rodilla a 0°, muslo y pantorrilla horizontales):
+        con la casilla «sin soportes» activa o mientras se ajusta la altura del corte."""
+        return self.flat_print or self.mode == Mode.FLAT_PLANE
+
     def _posed_pieces(self, angle: float) -> dict:
-        """Miembros de la figura generada con las piernas giradas `angle` grados (izquierdos y sus espejos)."""
+        """Miembros de la figura generada con las piernas giradas `angle` grados (izquierdos y sus espejos).
+        Con `legs_straight()` la rodilla va a 0° en vez de la flexión de la pose impresa."""
         out = self.session.outcome
+        straight = self.legs_straight()
         c = self._pose_cache
-        if c is not None and c[0] is out and abs(c[1] - angle) < 1e-9:
-            return c[2]
-        from ..pipeline import posed_pieces       # cadena muslo/pantorrilla, brazo/antebrazo; la cabeza no participa
-        pieces = posed_pieces(out.result, angle)
-        self._pose_cache = (out, angle, pieces)
+        if c is not None and c[0] is out and abs(c[1] - angle) < 1e-9 and c[2] == straight:
+            return c[3]
+        from ..pipeline import posed_pieces, straight_leg_flex       # cadena muslo/pantorrilla, brazo/antebrazo; la cabeza no participa
+        pieces = posed_pieces(out.result, angle, straight_leg_flex(out.result) if straight else None)
+        self._pose_cache = (out, angle, straight, pieces)
         return pieces
+
+    def set_flat_print(self, on: bool) -> None:
+        """Casilla «Modificar para imprimir sin soportes»: al activarla la figura generada se muestra sentada y con las
+        piernas estiradas (es como se exporta); al apagarla vuelve la rodilla a la flexión de la pose impresa."""
+        on = bool(on)
+        if on == self.flat_print:
+            return
+        self.flat_print = on
+        self._pose_cache, self.pose_report = None, None
+        if self.session.outcome is None:
+            return
+        if not self.pose_view:
+            if not on:
+                return
+            self.set_pose_view(True)                 # ya calcula el informe con las piernas estiradas
+            return
+        self._pose_update()
 
     def pose_check(self, angle: float | None = None) -> dict | None:
         """Interferencias de la figura generada con las piernas giradas `angle` grados (None = el de la vista previa).
@@ -1082,7 +1109,7 @@ class Controller:
                     pairs[(a, b)] = round(v, 5)
         torso_hits = {n: round(v, 5) for n, v in hits.items() if v > POSE_TOL_MM3}
         return {"angle": angle, "limit": self.pose_limit(), "torso": torso_hits, "pairs": pairs,
-                "ok": not torso_hits and not pairs}
+                "ok": not torso_hits and not pairs, "estiradas": self.legs_straight()}
 
     @staticmethod
     def pose_message(r: dict) -> str:
@@ -1097,6 +1124,8 @@ class Controller:
             txt = f"Pose a {r['angle']:.0f}°: " + "; ".join(parts)
         if r["limit"] is not None and r["angle"] > r["limit"] + 1e-6:
             txt += f" (pasa del límite de cadera tallado en el torso, {r['limit']:.0f}°)"
+        if r.get("estiradas"):
+            txt += " (piernas estiradas, como se imprimen sin soportes)"
         return txt + "."
 
     def _pose_update(self) -> None:
@@ -1147,6 +1176,7 @@ class Controller:
             return
         self.set_pose_view(True)
         self.mode = Mode.FLAT_PLANE
+        self.pose_report = self.pose_check()         # piernas estiradas mientras se ajusta el corte
         self.camera.frame(self.session.work.bounds)
         self.camera.set_view("derecha")
         self._changed(self.flat_message(self.session.project.params.flat_depth) +
