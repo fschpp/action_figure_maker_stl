@@ -17,6 +17,7 @@ from .params import Params
 from .pins import mushroom_pin
 from .planes import Plane
 from .trims import Trim, apply_trims
+from .waist import PELVIS_NAME, WAIST_NAME, WaistBuild, WaistSpec, build_waist
 
 log = logging.getLogger(__name__)
 
@@ -37,6 +38,7 @@ class BuildResult:
     joints: dict = field(default_factory=dict)   # nombre de la articulación -> JointBuild (rodilla, codo)
     detent: dict = field(default_factory=dict)   # nombre del miembro -> DetentLimb (mecanismo de clic)
     detent_ref: S.Manifold | None = None         # torso SIN lengüetas ni puntas: referencia para el giro libre del clic
+    waist: WaistBuild | None = None              # cintura: `pieces["torso"]` es el pecho (arriba) y `pieces["pelvis"]` la pelvis
 
 
 def align_to_symmetry(mesh: trimesh.Trimesh, sym: Plane | None) -> trimesh.Trimesh:
@@ -78,7 +80,8 @@ def _rotation_axis(face: ContactFace) -> np.ndarray:
 
 def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None = None,
           sit: bool = True, progress=None, trims: list[Trim] | None = None,
-          head: HeadSpec | None = None, joints: list[JointSpec] | None = None) -> BuildResult:
+          head: HeadSpec | None = None, joints: list[JointSpec] | None = None,
+          waist: WaistSpec | None = None) -> BuildResult:
     """Construye las piezas. `body` debe estar normalizado y con el plano de simetría en x = 0."""
     say = progress or (lambda *_: None)
     trims = trims or []
@@ -224,8 +227,32 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
             report["detent"][nm]["protrusion_mm3"] = dl.info["protrusion_mm3"]
             wall = DT.finger_wall_mm(pieces["torso"], dl)
             report["detent"][nm]["pared_sobre_lengueta_mm"] = None if wall is None else round(wall, 3)
-    return BuildResult(pieces=pieces, report=report, motion=res_motion, joints=res_joints, detent=detents, detent_ref=ref)
+    waist_build = None
+    if waist is not None:
+        say("Cintura…")
+        waist_build = build_waist(pieces["torso"], waist, p, skin=body)
+        pieces["torso"], pieces[PELVIS_NAME] = waist_build.upper, waist_build.lower
+        report["waist"] = _waist_report(waist_build, built, by_limb, head_build is not None)
+    return BuildResult(pieces=pieces, report=report, motion=res_motion, joints=res_joints, detent=detents, detent_ref=ref,
+                       waist=waist_build)
 
+
+def _waist_report(wb: WaistBuild, built: dict, by_limb: dict, has_head: bool) -> dict:
+    """Informe de la cintura: datos del pasador y qué piezas quedan arriba (giran con el pecho) y cuáles abajo."""
+    upper, lower = ["torso"], [PELVIS_NAME]
+    if has_head:
+        upper.append(HEAD_NAME)
+    for name, b in built.items():
+        side = float((b["face"].center - wb.plane.origin) @ wb.plane.normal)    # hombro: arriba; cadera: abajo
+        names = list(by_limb[name].names()) if name in by_limb else [name]
+        (upper if side > 0 else lower).extend(f"{x}{s}" for x in names for s in ("_izq", "_der"))
+    return {**wb.info, "arriba": upper, "abajo": lower}
+
+
+def body_ref(res: BuildResult) -> S.Manifold:
+    """Torso entero contra el que se miden los miembros: con cintura, pecho y pelvis juntos (separados por la holgura)."""
+    torso = res.pieces["torso"]
+    return S.union(torso, res.pieces[PELVIS_NAME]) if PELVIS_NAME in res.pieces else torso
 
 def _print_angle(spec: LimbSpec, p: Params, dspec, sit: bool) -> float:
     """Ángulo del miembro en la pose impresa: la pose sentada de la cadera, o el del brazo (`DetentSpec.print_angle`)."""
@@ -271,7 +298,7 @@ def validate(res: BuildResult, p: Params, limbs: list[LimbSpec], sit: bool = Tru
              sweep_check_step: float = 2.5, joints: list[JointSpec] | None = None,
              detent_free_step: float = 10.0) -> dict:
     out: dict = {"ok": True, "problems": [], "avisos": [], "avisos_pasador": [], "pieces": {}, "gaps": {}}
-    torso = res.pieces["torso"]
+    torso = body_ref(res)         # con cintura: pecho + pelvis
     for name, info in res.report.get("limbs", {}).items():
         m = info.get("pin_margin_mm")
         if m is not None and m < 0:
@@ -302,15 +329,15 @@ def validate(res: BuildResult, p: Params, limbs: list[LimbSpec], sit: bool = Tru
                                  "(el slicer puede avisar de 'non-manifold edge')")
         if not wt:
             out["problems"].append(f"{name}: no es variedad estanca")
-        if name == "torso" and comps != 1:
-            out["problems"].append(f"torso: {comps} componentes (debería ser 1, soldado)")
+        if name in ("torso", PELVIS_NAME) and comps != 1:
+            out["problems"].append(f"{name}: {comps} componentes (debería ser 1, soldado)")
     clearance_of = {}          # holgura mínima exigida por pieza: con clic, la punta deja `detent_gap` contra el disco
     for lname, dl in res.detent.items():
         for pn in _limb_piece_names(res, lname):
             for side in ("_izq", "_der"):
                 clearance_of[f"{pn}{side}"] = min(p.clearance, dl.spec.detent_gap)
     for name, mf in res.pieces.items():
-        if name == "torso":
+        if name in ("torso", PELVIS_NAME):
             continue
         inter = (mf ^ torso).volume()
         gap = mf.min_gap(torso, 5.0)
@@ -320,7 +347,7 @@ def validate(res: BuildResult, p: Params, limbs: list[LimbSpec], sit: bool = Tru
             out["problems"].append(f"{name}: interpenetra el torso ({inter:.4f} mm³)")
         elif gap < need_gap - 0.1 * need_gap - 1e-6 and gap < 5.0:
             out["problems"].append(f"{name}: holgura mínima {gap:.3f} mm < {need_gap:.3f} mm")
-    names = [n for n in res.pieces if n != "torso"]
+    names = [n for n in res.pieces if n not in ("torso", PELVIS_NAME)]
     for i, a in enumerate(names):
         for b in names[i + 1:]:
             if (res.pieces[a] ^ res.pieces[b]).volume() > 1e-6:
@@ -344,6 +371,7 @@ def validate(res: BuildResult, p: Params, limbs: list[LimbSpec], sit: bool = Tru
     out["detent"] = _validate_detent(res, p, out, detent_free_step)
     out["articulaciones"] = _validate_joints(res, p, joints, out, sweep_check_step)
     out["cadena"] = _validate_chain(res, p, out)
+    out["cintura"] = _validate_waist(res, p, out)
     out["ok"] = not out["problems"]
     return out
 
@@ -450,7 +478,7 @@ def _validate_detent(res: BuildResult, p: Params, out: dict, step: float) -> dic
                                    f"(interferencia {at_print['interf_punta_disco_mm3']} mm³, distancia {at_print['dist_punta_disco_mm']} mm)")
         own = {f"{pn}{side}" for pn in _limb_piece_names(res, lname) for side in ("_izq", "_der")}
         blockers = {"torso": res.detent_ref if res.detent_ref is not None else res.pieces["torso"]}
-        blockers.update({n: mf for n, mf in res.pieces.items() if n != "torso" and n not in own})
+        blockers.update({n: mf for n, mf in res.pieces.items() if n not in ("torso", PELVIS_NAME) and n not in own})
         fr = DT.free_range(dl, blockers, step)
         rec["giro_libre"] = fr
         if dl.print_angle in fr["clics_descartados"] or any(abs(a - dl.print_angle) < 1e-6 for a in fr["clics_descartados"]):
@@ -502,7 +530,7 @@ def _validate_chain(res: BuildResult, p: Params, out: dict, hip_step: float = 15
     info: dict = {}
     if not res.joints:
         return info
-    torso = res.pieces["torso"]
+    torso = body_ref(res)
     jr = {jn: r for jn, r in res.report.get("joints", {}).items()}
     hips = list(np.arange(0.0, p.sit_angle + 1e-9, hip_step))
     names_cache: dict = {}
@@ -531,6 +559,92 @@ def _validate_chain(res: BuildResult, p: Params, out: dict, hip_step: float = 15
         info[jn] = {k: {"mm3": round(v[0], 5), "cadera": v[1], "flexion": v[2]} for k, v in bad.items()}
         for k, (v, ha, fl) in bad.items():
             out["problems"].append(f"{jn}: {dist_nm}_izq choca con {k} (cadera {ha:.0f}°, flexión {fl:.0f}°, {v:.3f} mm³)")
+    return info
+
+
+WAIST_STEP_DEG = 5.0
+WAIST_SKIN_TOL_MM3 = 0.5       # lo que sobresale la cavidad engrosada `min_wall` por la teselación de la piel no es una pared fina
+MIN_HEAD_SHAFT_RATIO_WAIST = 1.6
+
+
+def _bbox_overlap(a: S.Manifold, b: S.Manifold, tol: float = 1e-6) -> bool:
+    ba, bb = a.bounding_box(), b.bounding_box()
+    return all(ba[i] < bb[i + 3] + tol and bb[i] < ba[i + 3] + tol for i in range(3))
+
+
+def _validate_waist(res: BuildResult, p: Params, out: dict, step: float = WAIST_STEP_DEG,
+                    max_deg: float | None = None) -> dict:
+    """Cintura: pasador (Ø mínimo, pared tras la cabeza, relación cabeza/vástago, que no sobresalga de la piel),
+    holgura pecho–pelvis, pasador cautivo, y giro libre: todo lo que cuelga del pecho (pecho, cabeza, brazos) gira
+    hasta `twist_deg` a cada lado alrededor del eje del pasador sin chocar con la pelvis ni las piernas.
+    `info["giro_libre"]` da el ángulo máximo sin choque a cada lado (hasta `max_deg`; por defecto `twist_deg`)."""
+    wb = res.waist
+    if wb is None:
+        return {}
+    rep = res.report["waist"]
+    sp, info = wb.pin_spec, dict(rep)
+    if sp.shaft_d < p.min_pin_d:
+        out["problems"].append(f"{WAIST_NAME}: vástago Ø{sp.shaft_d:.2f} < {p.min_pin_d:g}"
+                               + (f" (se achicó ×{rep['pin_reducido']} para entrar en la cara: elegí un plano más ancho)"
+                                  if rep.get("pin_reducido") else ""))
+    elif rep.get("pin_reducido"):
+        out["avisos"].append(f"{WAIST_NAME}: la cara del corte es angosta: el pasador se achicó ×{rep['pin_reducido']} "
+                             f"(vástago Ø{sp.shaft_d:.1f}, cabeza Ø{sp.head_d:.1f})")
+    if rep["pared_tras_cabeza_mm"] < p.min_wall - 1e-9:
+        out["problems"].append(f"{WAIST_NAME}: la pared tras la cabeza del pasador queda en {rep['pared_tras_cabeza_mm']:.2f} mm "
+                               f"(< {p.min_wall:.1f} mm): alargá el vástago o bajá la holgura")
+    if rep["relacion_cabeza_vastago"] < MIN_HEAD_SHAFT_RATIO_WAIST:
+        out["avisos"].append(f"{WAIST_NAME}: cabeza/vástago = {rep['relacion_cabeza_vastago']:.2f} "
+                             f"(< {MIN_HEAD_SHAFT_RATIO_WAIST}): la cabeza puede salirse")
+    m = rep.get("margen_vastago_mm")
+    if m is not None and m < 0:
+        out["avisos_pasador"].append(f"{WAIST_NAME}: el vástago del pasador sobresale {-m:.2f} mm de la cara del corte")
+    elif m is not None and m < p.min_wall:
+        out["avisos_pasador"].append(f"{WAIST_NAME}: el vástago queda a {m:.2f} mm del borde de la cara del corte "
+                                     f"(< {p.min_wall:.1f} mm de pared)")
+    if rep.get("pasador_fuera_mm3", 0.0) > WAIST_SKIN_TOL_MM3:
+        out["avisos_pasador"].append(f"{WAIST_NAME}: el pasador con {p.min_wall:g} mm de pared sobresale de la piel del torso "
+                                     f"({rep['pasador_fuera_mm3']:.3f} mm³): corré el plano a una parte más ancha o achicá el pasador")
+    upper, lower = res.pieces["torso"], res.pieces[PELVIS_NAME]
+    inter = float((upper ^ lower).volume())
+    gap = float(upper.min_gap(lower, 5.0))
+    info["holgura_mm"] = round(gap, 4)
+    if inter > 1e-6:
+        out["problems"].append(f"{WAIST_NAME}: pecho y pelvis se interpenetran ({inter:.4f} mm³)")
+    elif gap < 0.9 * p.clearance - 1e-6 and gap < 5.0:
+        out["problems"].append(f"{WAIST_NAME}: holgura pecho–pelvis {gap:.3f} mm < {p.clearance:.3f} mm")
+    # pasador cautivo: separar las mitades 1 mm a lo largo del eje las hace chocar contra el labio de la cavidad
+    n = wb.axis
+    moved = upper.translate(tuple(n * 1.0)) if wb.pin_on == "lower" else lower.translate(tuple(-n * 1.0))
+    still = lower if wb.pin_on == "lower" else upper
+    info["cautivo"] = bool((moved ^ still).volume() > 1e-6)
+    if not info["cautivo"]:
+        out["problems"].append(f"{WAIST_NAME}: el pasador no queda retenido (separar las mitades 1 mm no choca)")
+    # giro libre
+    need = float(rep["giro_pedido_grados"])
+    limit = float(need if max_deg is None else max_deg)
+    moving = {nm: res.pieces[nm] for nm in rep["arriba"] if nm in res.pieces}
+    fixed = {nm: res.pieces[nm] for nm in rep["abajo"] if nm in res.pieces}
+    free = {}
+    for sign, key in ((1.0, "+"), (-1.0, "-")):
+        ok_to = 0.0
+        hit = {}
+        for ang in np.arange(step, limit + 1e-9, step):
+            hit = {}
+            for mn, mm in moving.items():
+                rot = S.rotate_about_axis(mm, wb.face.center, n, sign * ang)
+                for fn, fm in fixed.items():
+                    if _bbox_overlap(rot, fm) and (rot ^ fm).volume() > JOINT_TOL_MM3:
+                        hit[f"{mn}~{fn}"] = round(float((rot ^ fm).volume()), 5)
+            if hit:
+                break
+            ok_to = float(ang)
+        free[key] = {"hasta_grados": ok_to, "choca": hit}
+    info["giro_libre"] = free
+    for key, side in (("+", "a un lado"), ("-", "al otro lado")):
+        if free[key]["hasta_grados"] < need - 1e-6 and free[key]["choca"]:
+            out["problems"].append(f"{WAIST_NAME}: al girar {side} choca a más de {free[key]['hasta_grados']:g}° "
+                                   f"({', '.join(free[key]['choca'])}); el giro pedido es {need:g}°")
     return info
 
 
@@ -707,7 +821,7 @@ def flat_for_print(res: BuildResult, depth: float = 1.0, p: Params | None = None
     arm_pieces = {f"{pn}{side}" for n in arm_limbs for pn in _limb_piece_names(res, n) for side in ("_izq", "_der")}
     protected = arm_pieces | {f"{pn}{side}" for n in res.detent if res.motion[n][3][1] <= res.motion[n][3][0]
                               for pn in _limb_piece_names(res, n) for side in ("_izq", "_der")}
-    z_cut = pieces["torso"].bounding_box()[2] + depth
+    z_cut = min(pieces[n].bounding_box()[2] for n in ("torso", PELVIS_NAME) if n in pieces) + depth
     info["altura_corte_z"] = round(float(z_cut), 3)
     # 1. aplanar piernas y cola (todo menos brazos y cabeza)
     above = S.Manifold.cube((1e4, 1e4, 1e4)).translate((-5e3, -5e3, z_cut))
@@ -723,7 +837,7 @@ def flat_for_print(res: BuildResult, depth: float = 1.0, p: Params | None = None
         pieces[name] = cut
     info["volumen_quitado_mm3"] = removed
     # 2. brazos hacia adelante hasta apoyar en el plano
-    legs = [m for n, m in pieces.items() if n not in arm_pieces and n not in ("torso", HEAD_NAME)]
+    legs = [m for n, m in pieces.items() if n not in arm_pieces and n not in ("torso", PELVIS_NAME, HEAD_NAME)]
     fwd = 1.0
     if legs:
         ly = np.mean([(m.bounding_box()[1] + m.bounding_box()[4]) / 2 for m in legs])
@@ -818,7 +932,7 @@ def export(res: BuildResult, outdir: str, name: str = "figura", orient: bool | s
     if flat is not None:
         pieces, rep = flat_for_print(res, flat, params)
         res = BuildResult(pieces=pieces, report=res.report, motion=res.motion, joints=res.joints, detent=res.detent,
-                          detent_ref=res.detent_ref)
+                          detent_ref=res.detent_ref, waist=res.waist)
         info["sin_soportes"] = rep
     if orient:
         o = print_orientation(res, max_angle, extra_tilts, mode="auto" if orient == "auto" else "pose")

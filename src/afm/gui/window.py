@@ -22,7 +22,7 @@ DRAG_THRESHOLD_PX = 4.0
 # flechas -> (derecha, arriba) sobre la cara de contacto vista de frente
 _ARROWS = {Gdk.KEY_Left: (-1, 0), Gdk.KEY_Right: (1, 0), Gdk.KEY_Up: (0, 1), Gdk.KEY_Down: (0, -1)}
 _MODE_TITLES = {Mode.VIEW: "", Mode.CROWN: "  ·  marcando coronilla", Mode.SYMMETRY: "  ·  plano de simetría",
-                Mode.LIMB_PLANE: "  ·  plano de un miembro", Mode.NECK_PLANE: "  ·  plano del cuello", Mode.POLYGON: "  ·  dibujando silueta",
+                Mode.LIMB_PLANE: "  ·  plano de un miembro", Mode.NECK_PLANE: "  ·  plano del cuello", Mode.WAIST_PLANE: "  ·  plano de la cintura", Mode.POLYGON: "  ·  dibujando silueta",
                 Mode.PIN: "  ·  colocando pasador", Mode.TRIM_PICK: "  ·  colocando recorte",
                 Mode.JOINT_PLANE: "  ·  plano de articulación", Mode.JOINT_AXIS: "  ·  colocando eje de bisagra",
                 Mode.JOINT_LINES: "  ·  codo con 2 líneas (de frente)", Mode.JOINT_SIDE: "  ·  guías de la articulación (de costado)",
@@ -133,6 +133,8 @@ class MainWindow(Gtk.ApplicationWindow):
         self.btn_arm = self._button("Agregar plano de brazo (3 puntos)", lambda *_: self.ctrl.start_limb_plane("arm"))
         self.btn_leg = self._button("Agregar plano de pierna (3 puntos)", lambda *_: self.ctrl.start_limb_plane("leg"))
         self.btn_neck = self._button("Agregar plano del cuello / cabeza (3 puntos)", lambda *_: self.ctrl.start_neck_plane())
+        self.btn_waist = self._button("Agregar cintura: cortar el torso y girar a los costados (3 puntos)",
+                                      lambda *_: self.ctrl.start_waist_plane())
         self.btn_knee = self._button("Agregar rodilla a una pierna (3 puntos)",
                                      lambda *_: self.ctrl.start_joint_plane_for_kind("leg"))
         self.btn_elbow = self._button("Agregar codo a un brazo (3 puntos)",
@@ -141,7 +143,7 @@ class MainWindow(Gtk.ApplicationWindow):
                                             lambda *_: self.ctrl.start_joint_lines_for_kind("arm"))
         self.btn_head_stl = self._button("Cabeza de reemplazo (STL)…", self._on_head_replacement)
         self.btn_head_orig = self._button("Volver a la cabeza original", lambda *_: self.ctrl.clear_head_replacement())
-        for b in (self.btn_sym, self.btn_sym_auto, self.btn_arm, self.btn_leg, self.btn_neck,
+        for b in (self.btn_sym, self.btn_sym_auto, self.btn_arm, self.btn_leg, self.btn_neck, self.btn_waist,
                   self.btn_knee, self.btn_elbow, self.btn_elbow_lines, self.btn_head_stl, self.btn_head_orig):
             box.append(b)
         row = Gtk.Box(spacing=6)
@@ -378,6 +380,7 @@ class MainWindow(Gtk.ApplicationWindow):
             self.btn_arm.set_sensitive(loaded and has_sym)
             self.btn_leg.set_sensitive(loaded and has_sym)
             self.btn_neck.set_sensitive(loaded and has_sym)
+            self.btn_waist.set_sensitive(loaded and has_sym)
             self.btn_knee.set_sensitive(loaded and has_sym and bool(ctrl.session.project.limbs))
             self.btn_elbow.set_sensitive(loaded and has_sym and bool(ctrl.session.project.limbs))
             self.btn_elbow_lines.set_sensitive(loaded and has_sym and bool(ctrl.session.project.limbs))

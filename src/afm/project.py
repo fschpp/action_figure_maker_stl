@@ -10,6 +10,7 @@ from .limbs import LimbSpec
 from .params import Params, PinSpec
 from .planes import Plane
 from .trims import Trim
+from .waist import WaistSpec
 
 
 @dataclass
@@ -22,6 +23,7 @@ class Project:
     trims: list[Trim] = field(default_factory=list)
     joints: list[JointSpec] = field(default_factory=list)   # rodillas / codos (bisagras); vacío = miembro rígido
     head: HeadSpec | None = None          # cabeza articulada (plano del cuello + pasador); None = cabeza fija al torso
+    waist: WaistSpec | None = None        # cintura articulada (plano de corte + pasador robusto); None = torso de una pieza
 
     def to_dict(self) -> dict:
         return {
@@ -33,6 +35,7 @@ class Project:
             "limbs": [l.to_dict() for l in self.limbs],
             "trims": [t.to_dict() for t in self.trims],
             "head": None if self.head is None else self.head.to_dict(),
+            "waist": None if self.waist is None else self.waist.to_dict(),
             "joints": [j.to_dict() for j in self.joints],
         }
 
@@ -46,6 +49,7 @@ class Project:
             limbs=[LimbSpec.from_dict(x) for x in d.get("limbs", [])],
             trims=[Trim.from_dict(x) for x in d.get("trims", [])],
             head=None if d.get("head") is None else HeadSpec.from_dict(d["head"]),
+            waist=None if d.get("waist") is None else WaistSpec.from_dict(d["waist"]),
             joints=[JointSpec.from_dict(x) for x in d.get("joints", [])],
         )
 
@@ -86,6 +90,9 @@ class Project:
         if self.head is not None:
             self.head.plane = pl(self.head.plane)
             self.head.pin_center = pt(self.head.pin_center)
+        if self.waist is not None:
+            self.waist.plane = pl(self.waist.plane)
+            self.waist.pin_center = pt(self.waist.pin_center)
 
     def save(self, path: str) -> None:
         with open(path, "w") as f:

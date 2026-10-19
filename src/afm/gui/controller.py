@@ -17,6 +17,8 @@ import trimesh
 
 from .. import solids as S
 from ..head import HEAD_NAME, MIN_BASE_IOU
+from ..pipeline import body_ref
+from ..waist import PELVIS_NAME, WAIST_NAME
 from ..limbs import silhouette_on_plane
 from ..orient import OrientResult, overhang_mask, pose_orientation
 from ..planes import Plane
@@ -36,6 +38,7 @@ class Mode(Enum):
     SYMMETRY = "simetria"
     LIMB_PLANE = "plano_miembro"
     NECK_PLANE = "plano_cuello"
+    WAIST_PLANE = "plano_cintura"   # 3 clics: corta el torso en pecho y pelvis con un pasador robusto (giro a los costados)
     POLYGON = "silueta"
     PIN = "pasador"
     JOINT_PLANE = "plano_articulacion"   # 3 clics: plano que parte el miembro en proximal y distal (rodilla / codo)
@@ -73,7 +76,7 @@ class PlaneEntry:
     id: str                  # SYMMETRY_ID o el nombre del miembro
     label: str
     plane: Plane
-    kind: str                # "symmetry" | "arm" | "leg" | "head" | "joint"
+    kind: str                # "symmetry" | "arm" | "leg" | "head" | "joint" | "waist"
     visible: bool = True
 
 
@@ -112,6 +115,11 @@ PARAM_FIELDS = (
     ("sit_angle", "Ángulo de pose sentada (°)", 0.0, 180.0, 5.0, 0),
     ("flat_depth", "Sin soportes: corte plano sobre la cola (mm)", 0.2, 6.0, 0.1, 1),
     ("hip_margin", "Margen del límite de cadera (°)", 0.0, 30.0, 1.0, 0),
+    ("waist_pin.shaft_d", "Cintura: Ø vástago (mm)", 3.0, 14.0, 0.1, 1),
+    ("waist_pin.shaft_len", "Cintura: largo vástago (mm; pared tras la cabeza = largo − 2·holgura)", 1.5, 15.0, 0.1, 1),
+    ("waist_pin.head_d", "Cintura: Ø cabeza (mm)", 5.0, 20.0, 0.1, 1),
+    ("waist_pin.head_h", "Cintura: alto cabeza (mm)", 1.0, 8.0, 0.05, 2),
+    ("waist_twist", "Cintura: giro libre a cada lado a validar (°)", 5.0, 180.0, 5.0, 0),
     ("shoulder_pin.shaft_d", "Hombro: Ø vástago (mm)", 2.0, 12.0, 0.1, 1),
     ("shoulder_pin.shaft_len", "Hombro: largo vástago (mm)", 0.5, 15.0, 0.1, 1),
     ("shoulder_pin.head_d", "Hombro: Ø cabeza (mm)", 3.0, 16.0, 0.1, 1),
@@ -268,6 +276,17 @@ class Controller:
         self.cancel(quiet=True)
         self.mode, self.pending_kind = Mode.LIMB_PLANE, kind
         self._changed(f"Plano del {_KIND_BASE[kind]}: elegí 3 puntos sobre la figura.")
+
+    def start_waist_plane(self) -> None:
+        if not self._need_loaded():
+            return
+        if self.session.project.symmetry is None:
+            self._changed("Primero definí el plano de simetría.", scene=False)
+            return
+        self.cancel(quiet=True)
+        self.mode = Mode.WAIST_PLANE
+        self._changed("Plano de la cintura: elegí 3 puntos a la altura de la cintura (2 a cada lado y 1 adelante o atrás). "
+                      "Lo de arriba (pecho, brazos, cabeza) gira sobre un pasador robusto que sale de la pelvis.")
 
     def start_neck_plane(self) -> None:
         if not self._need_loaded():
@@ -634,7 +653,7 @@ class Controller:
             self._rebuild_picker()
             self.camera.frame(self.session.work.bounds)
         pr = self.session.project
-        has_geom = pr.symmetry is not None or pr.limbs or pr.trims or pr.joints or pr.head is not None
+        has_geom = pr.symmetry is not None or pr.limbs or pr.trims or pr.joints or pr.head is not None or pr.waist is not None
         msg = f"Altura de la figura: {pr.params.ref_height:g} mm (×{k:.4g})."
         if has_geom:
             msg += (" Planos, siluetas y recortes se escalaron con la figura; revisalos. Los pasadores, la holgura y el"
@@ -1071,7 +1090,7 @@ class Controller:
             return None
         angle = self._pose_angle() if angle is None else float(angle)
         pieces = self._posed_pieces(angle)
-        torso = out.result.pieces["torso"]
+        torso = body_ref(out.result)         # con cintura: pecho + pelvis
         hits = {n: float((m ^ torso).volume()) for n, m in pieces.items()}
         names = list(pieces)
         pairs = {}
@@ -1424,10 +1443,15 @@ class Controller:
                 f"{res.overhang_area:.0f} mm² con la figura vista de frente, cabeza arriba. Referencia sobre la figura "
                 "entera; generala y mirala en la pose de cadera para ver los de las piezas.")
 
+    @staticmethod
+    def _torso_meshes(out) -> dict:
+        """Mallas del torso generado: una sola, o pecho («torso») y pelvis si hay cintura."""
+        return {n: S.to_trimesh(out.result.pieces[n]) for n in ("torso", PELVIS_NAME) if n in out.result.pieces}
+
     def _pose_overhang_cache(self) -> list:
         """[(malla, máscara)] de las piezas de la pose mostrada (torso + miembros)."""
         out = self.session.outcome
-        meshes = {"torso": S.to_trimesh(out.result.pieces["torso"])}
+        meshes = self._torso_meshes(out)
         for name, mf in self._posed_pieces(self._pose_angle()).items():
             meshes[name] = S.to_trimesh(mf)
         masks = self._pose_overhangs(meshes)
@@ -1487,6 +1511,8 @@ class Controller:
                 self._finish_symmetry()
             elif self.mode == Mode.NECK_PLANE:
                 self._finish_neck_plane()
+            elif self.mode == Mode.WAIST_PLANE:
+                self._finish_waist_plane()
             elif self.mode == Mode.JOINT_PLANE:
                 self._finish_joint_plane()
             else:
@@ -1526,6 +1552,17 @@ class Controller:
             return
         self.mode = Mode.VIEW
         self._changed("Plano del cuello definido: la cabeza se separa y gira libre sobre un pasador en el cuello.")
+
+    def _finish_waist_plane(self) -> None:
+        pts, self.pending = self.pending, []
+        try:
+            self.session.set_waist(Session.plane_from_points(pts, WAIST_NAME))
+        except ValueError as e:
+            self._changed(f"No sirve: {e}. Elegí 3 puntos de nuevo.")
+            return
+        self.mode = Mode.VIEW
+        self._changed("Plano de la cintura definido: el torso se corta en pecho y pelvis, unidos por un pasador robusto; "
+                      "la figura gira a los costados sobre la cintura.")
 
     def set_head_replacement(self, path: str, yaw: float | None = None, up: str | None = None) -> bool:
         """Cabeza de reemplazo (STL): descarta la original, sin simetría, base escalada a la del cuello."""
@@ -1606,6 +1643,9 @@ class Controller:
         head = self.session.project.head
         if head is not None:
             out.append(PlaneEntry(HEAD_NAME, "Cabeza (cuello)", head.plane, "head", HEAD_NAME not in self.hidden))
+        waist = self.session.project.waist
+        if waist is not None:
+            out.append(PlaneEntry(WAIST_NAME, "Cintura (giro)", waist.plane, "waist", WAIST_NAME not in self.hidden))
         for j in self.session.project.joints:
             jid = JOINT_PREFIX + j.name
             out.append(PlaneEntry(jid, j.name.capitalize(), j.plane, "joint", jid not in self.hidden))
@@ -1623,6 +1663,7 @@ class Controller:
             self.session.set_symmetry(None)
             self.session.project.limbs, self.session.project.trims = [], []
             self.session.project.head = None
+            self.session.project.waist = None
             self._rebuild_picker()
             self.hidden.clear()
             self._changed("Simetría quitada (también los miembros: dependen de ella).")
@@ -1633,6 +1674,8 @@ class Controller:
             self.session.remove_joint(plane_id[len(JOINT_PREFIX):])
         elif plane_id == HEAD_NAME:
             self.session.remove_head()
+        elif plane_id == WAIST_NAME:
+            self.session.remove_waist()
         else:
             self.session.remove_limb(plane_id)
         self.hidden.discard(plane_id)
@@ -1737,7 +1780,8 @@ class Controller:
             drawn = [("figura", sess.work, _MIRROR_COLOR)]
         hs = self.plane_half_size
         palette = {"symmetry": (1.0, 0.55, 0.2, 0.18), "arm": (0.3, 0.6, 1.0, 0.22), "leg": (0.4, 0.85, 0.5, 0.22),
-                   "head": (0.9, 0.5, 0.9, 0.22), "joint": (1.0, 0.85, 0.2, 0.22)}
+                   "head": (0.9, 0.5, 0.9, 0.22), "joint": (1.0, 0.85, 0.2, 0.22),
+                   "waist": (0.95, 0.35, 0.35, 0.22)}
         wanted = set()
         for e in self.plane_entries():
             key = f"plano:{e.id}"
@@ -1777,8 +1821,8 @@ class Controller:
             self.pose_report = self.pose_check()
         rep = self.pose_report
         bad = set(rep["torso"]) | {n for pair in rep["pairs"] for n in pair}
-        meshes = {"torso": S.to_trimesh(out.result.pieces["torso"])}
-        colors = {"torso": (0.62, 0.68, 0.78, 1.0)}
+        meshes = self._torso_meshes(out)
+        colors = {n: (0.62, 0.68, 0.78, 1.0) for n in meshes}
         for name, mf in self._posed_pieces(rep["angle"]).items():
             meshes[name] = S.to_trimesh(mf)
             # con los voladizos en rojo, la interferencia se marca en magenta para no confundirlos

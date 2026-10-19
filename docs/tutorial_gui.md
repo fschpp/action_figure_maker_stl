@@ -339,6 +339,38 @@ dos lengüetas impresas en el torso (arriba y abajo) cuya punta cae en las muesc
 * Límites: la cara de contacto tiene que ser perpendicular a X; las lengüetas son horizontales solo con la figura apoyada en la
   pose de la vista previa (`--orient`); «sin soportes» no gira los brazos con clic.
 
+### 7.2e Cintura (giro a los costados)
+
+Corta el torso por un plano de **3 puntos** a la altura de la cintura y une las dos mitades con un **pasador de hongo robusto**
+(misma tecnología que el hombro y el cuello, pero más grueso). Lo de arriba (pecho, brazos, cabeza) gira a derecha e izquierda
+sobre la pelvis; las piernas quedan con la pelvis. Código: `src/afm/waist.py`.
+
+* **Agregar:** botón «Agregar cintura: cortar el torso y girar a los costados (3 puntos)» → 3 clics a la altura de la cintura
+  (2 a cada lado y 1 adelante o atrás). Hace falta el plano de simetría. El plano se **simetriza** (la normal se proyecta sobre
+  x = 0) y **no tiene que ser horizontal**: el eje de giro es su normal, así que un plano inclinado inclina el giro. Se rechaza un
+  plano casi vertical. Aparece la fila «Cintura (giro)» (casilla y tachito, como los demás planos).
+* **Piezas:** `torso` pasa a ser el **pecho** (arriba) y aparece **`pelvis`** (abajo, con el pasador). Entre las dos caras queda
+  una holgura de `clearance` (0,5 mm) sobre la normal, así que **ningún giro puede hacerlas chocar entre sí**; lo que sí puede
+  chocar es lo que cuelga del pecho (brazos) contra la pelvis y las piernas.
+* **Pasador robusto** (`Params.waist_pin`; «Cintura: …» en Parámetros): vástago Ø6 (hombro: 4,1), cabeza Ø10 × 3 (relación 1,67),
+  vástago de 3 mm → **pared de 2 mm detrás de la cabeza** (`largo − 2·holgura`; hombro ≈ 1,5 mm). Sale de la **pelvis hacia
+  arriba** para que, impresa sentada y con la cabeza arriba, la cavidad del pecho quede techada por un puente corto y no haya una
+  cabeza flotando en el aire (`pin_on="upper"` en el `.proyecto` lo invierte).
+* **Se adapta a la cintura:** el pasador va en el centro del círculo inscrito de la cara del corte; si la cabeza no entra con
+  `min_wall` (1,2 mm) de pared a cada lado, se achican los diámetros (misma relación) y el informe lo dice (`pin_reducido`);
+  si la cara es demasiado angosta para un pasador de ≥ 40 % del pedido, falla con un mensaje claro. Con un `pin` propio y
+  `auto = false` en el `.proyecto` no se toca nada y la validación avisa si el pasador sobresale de la piel.
+* **Validación** (`validacion.cintura`): Ø de vástago ≥ `min_pin_d`, pared tras la cabeza ≥ `min_wall`, relación cabeza/vástago
+  ≥ 1,6, pasador dentro de la piel, holgura pecho–pelvis, **pasador cautivo** (separar las mitades 1 mm choca con el labio) y
+  **giro libre**: pecho, cabeza y brazos giran hasta `Cintura: giro libre a cada lado a validar` (45° por defecto, `waist_twist`;
+  `twist_deg` en el `.proyecto` por figura) sin chocar con la pelvis ni las piernas, cada 5°. Si choca antes se informa el
+  ángulo máximo a cada lado y qué piezas se tocan: bajá el giro, o subí el plano para que los brazos no bajen de la cintura.
+* **Imprimir:** con «sin soportes» la cola de la pelvis es lo que se aplana (el corte plano usa la pieza más baja del torso).
+  La vista de pose muestra pecho y pelvis.
+* **Límites:** un solo pasador central, así que es una articulación de giro (no de flexión); si imprimís en PLA y la zona del
+  pasador es angosta, subí `waist_pin.shaft_len` / `shaft_d` antes de achicar la cabeza. Sin probetas todavía: las medidas son una
+  estimación (el hongo del hombro engrosado) y hay que calibrarlas imprimiendo; falta una probeta específica de cintura.
+
 ### 7.3 Generar y exportar
 
 Con la simetría definida y cada miembro con su silueta, el Estado deja de listar pendientes y se puede:
@@ -394,7 +426,7 @@ Después de **Generar**, la casilla **Ver la figura generada en la pose de cader
 
 ## 8. Lista de planos
 
-Debajo de los botones aparece la lista de planos creados: **Simetría** y uno por cada miembro.
+Debajo de los botones aparece la lista de planos creados: **Simetría**, uno por cada miembro, la **cabeza** (cuello), la **cintura** y las articulaciones.
 
 * La **casilla** muestra u oculta el plano en el visor.
 * El **tachito** lo quita. Quitar la **Simetría** quita también todos los miembros, porque dependen
