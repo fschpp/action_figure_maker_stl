@@ -23,16 +23,21 @@ afm-gui figura.proyecto --stl nueva/ruta/figura.stl   # si el STL cambió de lug
 ┌───────────────────────────────────────────────────────────────┐
 │ [Abrir STL…] [Abrir proyecto…]            [Guardar proyecto…] │
 ├──────────────────────────────────────────┬────────────────────┤
-│                                          │ Figura             │
-│                                          │ Planos             │
-│            visor 3D                      │ Vista              │
-│                                          │ Estado             │
-└──────────────────────────────────────────┴────────────────────┘
+│                              [cubo]      │ Figura│Planos│…    │
+│            visor 3D          [Encuadrar] │ ▾ Sección          │
+│                                          │   ▸ Subsección     │
+├──────────────────────────────────────────┴────────────────────┤
+│ Estado (3 líneas de texto, con scroll si el mensaje es largo) │
+└───────────────────────────────────────────────────────────────┘
 ```
 
 * **Barra superior:** abrir un STL, abrir un proyecto y guardar el proyecto.
-* **Visor 3D** (izquierda): la figura y los planos.
-* **Barra lateral** (derecha): todos los controles, en secciones: Figura, Planos, Silueta del miembro, Pasador de brazo / cadera, Generar, Vista y Estado.
+* **Visor 3D** (izquierda): la figura y los planos, con el **cubo de vista** arriba a la derecha.
+* **Barra lateral** (derecha): los controles, en **pestañas por tema** (Figura, Planos, Miembros, Recortes,
+  Parámetros, Generar). Cada pestaña tiene **secciones y subsecciones plegables** (clic en el título); los
+  textos de ayuda largos están en subsecciones «Ayuda» plegadas. Al empezar una tarea (por ejemplo dibujar una
+  silueta o colocar un pasador) la barra salta sola a la pestaña con los controles de esa tarea.
+* **Estado** (al pie de la ventana, a todo lo ancho): mensajes del programa y lo que falta definir.
 * **Título de la ventana:** muestra el nombre del archivo y, mientras hay una selección en curso,
   qué se está haciendo (por ejemplo «plano de simetría»).
 
@@ -44,8 +49,8 @@ afm-gui figura.proyecto --stl nueva/ruta/figura.stl   # si el STL cambió de lug
 | Desplazar (pan) | Arrastrar con el botón medio o el derecho, o **Mayús** + arrastrar con el izquierdo |
 | Zoom | Rueda del ratón |
 | Elegir un punto | **Clic corto** con el botón izquierdo (solo cuando hay una selección en curso, ver §5) |
-| Vistas rápidas | Botones **Frente, Espalda, Izquierda, Derecha, Arriba, Iso** (sección Vista) |
-| Volver a encuadrar | Botón **Encuadrar figura** |
+| Vistas rápidas | **Cubo de vista** (arriba a la derecha): clic en una cara = Frente / Espalda / Izq. / Der. / Arriba / Abajo; clic en una arista = vista a 45°; clic en un vértice = vista isométrica. Arrastrar el cubo también orbita |
+| Volver a encuadrar | Botón **Encuadrar** bajo el cubo |
 
 Un arrastre de menos de unos pocos píxeles cuenta como clic. Si querés orbitar y te marca un punto
 sin querer, arrastrá un poco más.
@@ -60,8 +65,8 @@ ejemplo, que la coronilla no se indicó y se usó el punto más alto).
 
 ### 4.2 Frente hacia +Y / −Y
 
-La herramienta espera que la figura mire hacia **+Y**. Para saber si es así, apretá **Frente** en
-Vista: ese botón mira la figura desde +Y.
+La herramienta espera que la figura mire hacia **+Y**. Para saber si es así, hacé clic en la cara **Frente** del
+cubo de vista: mira la figura desde +Y.
 
 * Si ves a la figura **de cara**, dejá **+Y**.
 * Si ves la **espalda**, la figura mira hacia −Y: elegí **−Y** en «Frente hacia».
@@ -138,7 +143,7 @@ que no esté sobre la recta de los otros dos.
 ### 7.1 Dibujar la silueta del miembro
 
 La silueta es el polígono que separa el brazo o la pierna del resto del cuerpo. Se dibuja **sobre el
-plano del miembro**, así que primero ponete en la vista **Frente** (el plano se tiene que ver de cara).
+plano del miembro**, así que primero ponete en la vista **Frente** (cubo de vista) (el plano se tiene que ver de cara).
 
 1. En **Planos**, apretá el lápiz (**Dibujar / editar la silueta**) del miembro. Aparece, en gris, el
    **contorno de la figura proyectado sobre ese plano** (solo el lado de trabajo, x ≥ 0): es la guía para
