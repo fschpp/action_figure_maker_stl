@@ -58,3 +58,19 @@ def apply_probe_result(params: Params, clearance: float, shaft_d: float, which: 
     if which in ("both", "hip"):
         out.hip_pin = replace(params.hip_pin, shaft_d=shaft_d)
     return out
+
+
+def detent_profile(nozzle: float = 0.4) -> Params:
+    """Perfil de línea con el mecanismo de clic en hombros y caderas (plan de clic §3.5): la lengüeta cambia con la
+    boquilla (0,4: 1,2 × 10 mm; 0,8: 1,6 × 12 mm), así que hay un perfil por boquilla («clic_0.4», «clic_0.8»)."""
+    from .detent import spec_for_nozzle
+    p = default_for_nozzle(nozzle)
+    p.detent = spec_for_nozzle(nozzle)
+    p.shoulder_detent = True
+    p.hip_detent = True
+    return p
+
+
+def save_detent_profiles(directory: str | None = None) -> list[str]:
+    """Guarda los perfiles «clic_0.4» y «clic_0.8» (los 2 de la fase 1 del plan de clic)."""
+    return [save_profile(f"clic_{n:g}", detent_profile(n), directory) for n in (0.4, 0.8)]

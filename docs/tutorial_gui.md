@@ -322,6 +322,23 @@ Una articulación por miembro. Quitar el miembro (o la fila amarilla) la quita. 
 torso** el barrido del antebrazo al flexionar el codo; el informe trae `torso_tallado_mm3` con el material quitado (0 si
 el brazo cuelga separado del torso). *(Esta parte de la ventana no se pudo probar con GTK real; la lógica sí tiene tests.)*
 
+### 7.2d Mecanismo de clic (hombro y cadera)
+
+Además del hongo, el hombro y la cadera pueden llevar un **clic print-in-place**: un disco con 4 muescas en el miembro y
+dos lengüetas impresas en el torso (arriba y abajo) cuya punta cae en las muescas. Plan: `docs/PLAN_mecanismo_clic_hombro_cadera.md`.
+
+* **Activarlo:** en «Parámetros», «Hombro: mecanismo de clic» y/o «Cadera: mecanismo de clic» = 1 (CLI: perfil `clic_0.4` /
+  `clic_0.8`, ver `afm.profile.detent_profile`; o `mechanism: "detent"` en el miembro del `.proyecto`). Con 0 todo sigue como antes.
+* **Hombro:** gira libre 360° y hace clic cada 90°, desde el ángulo de la pose impresa («Clic: ángulo del brazo al imprimir»,
+  10° por defecto → clics a 10°, 100°, 190°, 280°). **Cadera:** clics a 0° y 90° (la pose sentada); el tope sigue siendo el del barrido.
+* **Medidas** (`Clic: …`): disco, profundidad de muesca, lengüeta, holguras. Son estimaciones: **imprimí primero las probetas**
+  (`afm probe --tipo clic --boquilla 0.4`, una placa de 3×3 por holgura de punta) y anotá cuál hace clic sin fundirse.
+* **Informe:** `validacion.detent.<miembro>` trae deformación de la lengüeta (≤ 1 %), par estimado, juego angular, pared sobre la
+  lengüeta, tabla de clics y el **giro libre** (ángulos que no tocan otra pieza; los clics inalcanzables se informan como descartados).
+* Si el torso no da el largo de lengüeta pedido (cadera de Güemes: ≈ 7 mm) el motor la acorta y baja la profundidad de la muesca para seguir en ε ≤ 1 %, y lo avisa.
+* Límites: la cara de contacto tiene que ser perpendicular a X; las lengüetas son horizontales solo con la figura apoyada en la
+  pose de la vista previa (`--orient`); «sin soportes» no gira los brazos con clic.
+
 ### 7.3 Generar y exportar
 
 Con la simetría definida y cada miembro con su silueta, el Estado deja de listar pendientes y se puede:
