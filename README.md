@@ -47,6 +47,8 @@ afm build figura.stl proyecto.json --out out/figura
 
 ## Convenciones
 
-* Unidades: mm. Figura normalizada a 100 mm de los pies a la coronilla.
+* Unidades: mm. Figura normalizada a `ref_height` mm de los pies a la coronilla (100 por defecto; se cambia en la GUI,
+  «Parámetros → Altura de la figura» + «Aplicar», que reescala también planos, siluetas y recortes; los pasadores,
+  la holgura y el clic son medidas absolutas y no se escalan).
 * Ejes: Z arriba, X izquierda-derecha, Y atrás-adelante (frente = +Y).
 * Se trabaja el lado **izquierdo (+X)** y se espeja; el torso sale soldado en una sola pieza.

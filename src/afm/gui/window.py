@@ -16,6 +16,7 @@ from gi.repository import Gdk, Gio, GLib, Gtk  # noqa: E402
 
 from .controller import JOINT_PREFIX, PARAM_FIELDS, TRIM_OP_LABELS, TRIM_SHAPE_LABELS, TRIM_SHAPES, Controller, Mode  # noqa: E402
 from .render import SceneRenderer  # noqa: E402
+from .session import Session  # noqa: E402
 
 DRAG_THRESHOLD_PX = 4.0
 # flechas -> (derecha, arriba) sobre la cara de contacto vista de frente
@@ -252,6 +253,20 @@ class MainWindow(Gtk.ApplicationWindow):
         box.append(self.trims_box)
 
         box.append(_section("Parámetros"))
+        row = Gtk.Box(spacing=6)
+        lbl = Gtk.Label(label="Altura de la figura: pies → coronilla (mm)", xalign=0, hexpand=True)
+        lbl.set_tooltip_text("Reescala la figura (y los planos, siluetas y recortes ya hechos) a esta altura. "
+                             "Los pasadores, la holgura y el clic son medidas absolutas y no se escalan.")
+        row.append(lbl)
+        lo, hi = Session.REF_HEIGHT_RANGE
+        self.spin_height = Gtk.SpinButton.new_with_range(lo, hi, 1.0)
+        self.spin_height.set_digits(1)
+        self._shown_height = self.ctrl.session.project.params.ref_height
+        self.spin_height.set_value(self._shown_height)
+        self.spin_height.connect("activate", lambda *_: self._on_apply_height())
+        row.append(self.spin_height)
+        row.append(self._button("Aplicar", lambda *_: self._on_apply_height()))
+        box.append(row)
         self.param_spins: dict[str, Gtk.SpinButton] = {}
         for key, label, lo, hi, step, digits in PARAM_FIELDS:
             row = Gtk.Box(spacing=6)
@@ -343,6 +358,11 @@ class MainWindow(Gtk.ApplicationWindow):
             for key, spin in self.param_spins.items():
                 if abs(spin.get_value() - ctrl.get_param(key)) > 1e-9:
                     spin.set_value(ctrl.get_param(key))
+            # la altura se sincroniza solo cuando cambia en el proyecto (abrir proyecto, aplicar): lo tipeado no se pisa
+            ref = ctrl.session.project.params.ref_height
+            if abs(ref - self._shown_height) > 1e-9:
+                self._shown_height = ref
+                self.spin_height.set_value(ref)
             probs = ctrl.problems()
             self.lbl_problems.set_text("Pendiente: " + "; ".join(probs) if probs else "Siluetas completas.")
             title = "Action Figure Maker"
@@ -690,6 +710,12 @@ class MainWindow(Gtk.ApplicationWindow):
                 self._error(e)
 
         dlg.select_folder(self, None, finished)
+
+    def _on_apply_height(self) -> None:
+        self.spin_height.update()            # toma lo tipeado aunque no se haya confirmado
+        if not self.ctrl.set_ref_height(self.spin_height.get_value()):
+            self._shown_height = self.ctrl.session.project.params.ref_height
+            self.spin_height.set_value(self._shown_height)
 
     def _on_load_profile(self) -> None:
         names = self.ctrl.profile_names()

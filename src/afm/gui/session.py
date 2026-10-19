@@ -91,6 +91,34 @@ class Session:
         self.outcome = None
         self._rebuild_frames()
 
+    REF_HEIGHT_RANGE = (20.0, 400.0)
+
+    def set_ref_height(self, mm: float) -> float:
+        """Cambia la altura de referencia (pies → coronilla, mm) y reescala todo en consecuencia.
+
+        La malla se reescala por k = nueva / actual (la cota de la coronilla, en unidades del archivo, no cambia).
+        Los planos, siluetas, recortes, centros de pasador y ejes de articulación del proyecto están en mm de la
+        figura: se multiplican por el mismo k para que sigan sobre las mismas zonas. Las medidas absolutas de
+        impresión (pasadores, holgura, rebaba, clic, bisagras) NO se escalan. Invalida la figura generada.
+        Devuelve k (1.0 si no cambió nada)."""
+        mm = float(mm)
+        lo, hi = self.REF_HEIGHT_RANGE
+        if not np.isfinite(mm) or not (lo <= mm <= hi):
+            raise ValueError(f"La altura tiene que estar entre {lo:g} y {hi:g} mm")
+        old = float(self.project.params.ref_height)
+        k = mm / old
+        if abs(k - 1.0) < 1e-9:
+            return 1.0
+        self.project.params.ref_height = mm
+        if self.base is not None:
+            self.base = self.base.copy()
+            self.base.apply_scale(k)
+            self.report.scale *= k
+        self.project.scale_geometry(k)
+        self.outcome = None
+        self._rebuild_frames()
+        return k
+
     def set_front(self, front: str) -> None:
         """'+Y' o '-Y' según hacia dónde mira la figura en el archivo. Invalida simetría, miembros y recortes."""
         if front not in ("+Y", "-Y"):
