@@ -131,6 +131,9 @@ class MainWindow(Gtk.ApplicationWindow):
         self.btn_save = Gtk.Button(label="Guardar proyecto…")
         self.btn_save.connect("clicked", self._on_save_project)
         bar.pack_end(self.btn_save)
+        self.btn_export = Gtk.Button(label="Exportar piezas…")
+        self.btn_export.connect("clicked", lambda *_: self._on_export())
+        bar.pack_end(self.btn_export)                 # queda a la izquierda de «Guardar proyecto…»
         return bar
 
     def _build_viewer(self) -> Gtk.Widget:
@@ -457,8 +460,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self.btn_flat_plane.set_tooltip_text("Muestra la figura generada sentada, de costado, con el plano horizontal del corte «sin soportes». "
                                              "Clic a la altura que querés, o ↑ ↓ (Mayús = 1 mm). Esc termina.")
         sub.append(self.btn_flat_plane)
-        self.btn_export = self._button("Exportar piezas…", lambda *_: self._on_export())
-        sec.append(self.btn_export)
+        _help(sec, "Las piezas se exportan con el botón «Exportar piezas…» de la barra superior, junto a «Guardar proyecto…».")
 
         self.sidebar_box = self.tabs                  # lo que se desactiva mientras se genera
         return self.tabs
