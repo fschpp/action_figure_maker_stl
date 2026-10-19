@@ -12,11 +12,12 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
-from gi.repository import Gdk, Gio, GLib, Gtk  # noqa: E402
+from gi.repository import Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 
 from .controller import JOINT_PREFIX, PARAM_FIELDS, TRIM_OP_LABELS, TRIM_SHAPE_LABELS, TRIM_SHAPES, Controller, Mode  # noqa: E402
 from .render import SceneRenderer  # noqa: E402
 from .session import Session  # noqa: E402
+from .viewcube import ViewCube, interpolate_view, view_angles  # noqa: E402
 
 DRAG_THRESHOLD_PX = 4.0
 # flechas -> (derecha, arriba) sobre la cara de contacto vista de frente
@@ -30,11 +31,55 @@ _MODE_TITLES = {Mode.VIEW: "", Mode.CROWN: "  ·  marcando coronilla", Mode.SYMM
 _TRIM_OPS = ("subtract", "union")
 
 
-def _section(title: str) -> Gtk.Label:
-    lab = Gtk.Label(label=title, xalign=0)
-    lab.add_css_class("heading")
-    lab.set_margin_top(10)
-    return lab
+TAB_FIGURA, TAB_PLANOS, TAB_MIEMBROS, TAB_RECORTES, TAB_PARAMS, TAB_GENERAR = range(6)
+CUBE_PX = 120
+VIEW_ANIM_S = 0.25            # duración de la animación al elegir una vista en el cubo
+PARAM_GROUPS = ("Generales", "Pasador de hombro", "Pasador de cadera", "Mecanismo de clic", "Rodilla / codo", "Cintura")
+_CSS = b"""
+.afm-section-title { font-weight: 700; padding: 4px 0; border-bottom: 1px solid alpha(currentColor, 0.2); }
+.afm-sub-title { font-weight: 600; opacity: 0.85; padding: 2px 0; }
+.afm-cube-btn { color: #e6e8ec; background: alpha(#000, 0.35); border-radius: 6px; padding: 2px 10px; min-height: 0; }
+.afm-cube-btn:hover { background: alpha(#00ae42, 0.8); }
+"""
+
+
+def _param_group(key: str) -> str:
+    """Subsección de la pestaña Parámetros a la que pertenece un campo de `PARAM_FIELDS`."""
+    if key.startswith("shoulder_pin."):
+        return PARAM_GROUPS[1]
+    if key.startswith("hip_pin."):
+        return PARAM_GROUPS[2]
+    if key.startswith("detent.") or key.endswith("_detent"):
+        return PARAM_GROUPS[3]
+    if key.startswith("hinge_pin."):
+        return PARAM_GROUPS[4]
+    if key.startswith("waist_"):
+        return PARAM_GROUPS[5]
+    return PARAM_GROUPS[0]
+
+
+def _collapsible(parent: Gtk.Box, title: str, expanded: bool = True, sub: bool = False) -> Gtk.Box:
+    """Sección (o subsección, `sub=True`) plegable: agrega un `Gtk.Expander` a `parent` y devuelve su caja interior."""
+    exp = Gtk.Expander(expanded=expanded)
+    lab = Gtk.Label(label=title, xalign=0, hexpand=True)
+    lab.add_css_class("afm-sub-title" if sub else "afm-section-title")
+    exp.set_label_widget(lab)
+    body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+    body.set_margin_top(6)
+    body.set_margin_bottom(8)
+    body.set_margin_start(12 if sub else 6)
+    exp.set_child(body)
+    exp.set_margin_top(4 if sub else 8)
+    parent.append(exp)
+    return body
+
+
+def _help(parent: Gtk.Box, text: str) -> None:
+    """Texto de ayuda largo, plegado por defecto para no recargar la pantalla."""
+    body = _collapsible(parent, "Ayuda", expanded=False, sub=True)
+    lab = Gtk.Label(label=text, xalign=0, wrap=True)
+    lab.add_css_class("dim-label")
+    body.append(lab)
 
 
 class MainWindow(Gtk.ApplicationWindow):
@@ -48,6 +93,8 @@ class MainWindow(Gtk.ApplicationWindow):
         self._trim_names: list[str] = []
         self._drag = {"button": 0, "last": (0.0, 0.0), "moved": False, "start": (0.0, 0.0), "pan": False}
 
+        self._install_css()
+        self._last_mode = self.ctrl.mode
         self.set_titlebar(self._build_header())
         paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL, wide_handle=True)
         paned.set_start_child(self._build_viewer())
@@ -56,7 +103,12 @@ class MainWindow(Gtk.ApplicationWindow):
         paned.set_shrink_start_child(False)
         paned.set_resize_end_child(False)
         paned.set_shrink_end_child(False)
-        self.set_child(paned)
+        paned.set_vexpand(True)
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        root.append(paned)
+        root.append(Gtk.Separator())
+        root.append(self._build_status())
+        self.set_child(root)
 
         keys = Gtk.EventControllerKey()
         keys.connect("key-pressed", self._on_key)
@@ -64,6 +116,12 @@ class MainWindow(Gtk.ApplicationWindow):
         self._refresh()
 
     # ------------------------------------------------------------ construcción
+    @staticmethod
+    def _install_css() -> None:
+        prov = Gtk.CssProvider()
+        prov.load_from_data(_CSS)
+        Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), prov, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
     def _build_header(self) -> Gtk.HeaderBar:
         bar = Gtk.HeaderBar()
         for label, cb in (("Abrir STL…", self._on_open_stl), ("Abrir proyecto…", self._on_open_project)):
@@ -97,79 +155,178 @@ class MainWindow(Gtk.ApplicationWindow):
         scroll = Gtk.EventControllerScroll(flags=Gtk.EventControllerScrollFlags.VERTICAL)
         scroll.connect("scroll", self._on_scroll)
         self.gl.add_controller(scroll)
-        return self.gl
+
+        overlay = Gtk.Overlay()
+        overlay.set_child(self.gl)
+        overlay.add_overlay(self._build_view_cube())
+        return overlay
+
+    def _build_view_cube(self) -> Gtk.Widget:
+        """Cubo de vista (arriba a la derecha del visor): clic = ir a esa vista, arrastrar = orbitar."""
+        self.view_cube = ViewCube(CUBE_PX)
+        self._cube_pointer: tuple[float, float] | None = None
+        self._cube_drag = {"last": (0.0, 0.0), "moved": False, "start": (0.0, 0.0)}
+        self._anim_id = 0
+        self.cube_area = Gtk.DrawingArea(content_width=CUBE_PX, content_height=CUBE_PX,
+                                         halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER)
+        self.cube_area.set_draw_func(self._draw_cube)
+        self.cube_area.set_tooltip_text("Cubo de vista: clic en una cara, arista o vértice para mirar desde ahí; arrastrar para orbitar")
+        drag = Gtk.GestureDrag()
+        drag.set_button(1)
+        drag.connect("drag-begin", self._on_cube_drag_begin)
+        drag.connect("drag-update", self._on_cube_drag_update)
+        drag.connect("drag-end", self._on_cube_drag_end)
+        self.cube_area.add_controller(drag)
+        motion = Gtk.EventControllerMotion()
+        motion.connect("motion", self._on_cube_motion)
+        motion.connect("leave", self._on_cube_leave)
+        self.cube_area.add_controller(motion)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, halign=Gtk.Align.END, valign=Gtk.Align.START)
+        for side in ("end", "top"):
+            getattr(box, f"set_margin_{side}")(10)
+        box.append(self.cube_area)
+        self.btn_frame = Gtk.Button(label="Encuadrar", halign=Gtk.Align.CENTER, tooltip_text="Encuadrar la figura en el visor")
+        self.btn_frame.add_css_class("afm-cube-btn")
+        self.btn_frame.connect("clicked", lambda *_: self._frame())
+        box.append(self.btn_frame)
+        return box
+
+    def _build_status(self) -> Gtk.Widget:
+        """Panel «Estado» al pie de la ventana: alto fijo de 3 líneas de texto (con scroll si el mensaje es más largo)."""
+        self.status_view = Gtk.TextView(editable=False, cursor_visible=False, wrap_mode=Gtk.WrapMode.WORD_CHAR,
+                                        left_margin=8, right_margin=8, top_margin=4, bottom_margin=4)
+        self._status_buf = self.status_view.get_buffer()
+        self._status_buf.create_tag("dim", foreground="gray", style=Pango.Style.ITALIC)
+        self._status_text: tuple[str, str] | None = None
+        line_h = self.status_view.create_pango_layout("Ag").get_pixel_size()[1]
+        height = 3 * line_h + 8 + 2
+        scroller = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, vscrollbar_policy=Gtk.PolicyType.AUTOMATIC,
+                                      vexpand=False, propagate_natural_height=False)
+        scroller.set_min_content_height(height)
+        scroller.set_max_content_height(height)
+        scroller.set_size_request(-1, height)
+        scroller.set_child(self.status_view)
+        frame = Gtk.Frame(label="Estado")
+        for side in ("start", "end", "bottom"):
+            getattr(frame, f"set_margin_{side}")(6)
+        frame.set_child(scroller)
+        return frame
+
+    def _set_status(self, message: str, problems: str) -> None:
+        if self._status_text == (message, problems):          # no se pisa el scroll si no cambió nada
+            return
+        self._status_text = (message, problems)
+        buf = self._status_buf
+        buf.set_text(message)
+        if problems:
+            buf.insert_with_tags_by_name(buf.get_end_iter(), "\n" + problems, "dim")
 
     def _build_sidebar(self) -> Gtk.Widget:
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        for side in ("start", "end", "top", "bottom"):
-            getattr(box, f"set_margin_{side}")(10)
+        """Pestañas por tema (como Bambu Studio); cada pestaña tiene secciones y subsecciones plegables."""
+        self.tabs = Gtk.Notebook(scrollable=True, tab_pos=Gtk.PositionType.TOP)
+        self.tabs.set_size_request(400, -1)
 
-        box.append(_section("Figura"))
+        # ------------------------------------------------------------ Figura
+        box = self._tab_page("Figura")
+        sec = _collapsible(box, "Figura")
         row = Gtk.Box(spacing=6)
-        row.append(Gtk.Label(label="Frente hacia"))
+        row.append(Gtk.Label(label="Frente hacia", xalign=0, hexpand=True))
         self.dd_front = Gtk.DropDown.new_from_strings(["+Y", "-Y"])
         self.dd_front.connect("notify::selected", self._on_front)
         row.append(self.dd_front)
-        box.append(row)
+        sec.append(row)
         self.btn_crown = self._button("Marcar coronilla (clic)", lambda *_: self.ctrl.start_crown())
-        box.append(self.btn_crown)
+        sec.append(self.btn_crown)
         self.chk_side = Gtk.CheckButton(label="Trabajar un solo lado (oculta x < 0)")
         self.chk_side.connect("toggled", lambda b: None if self._updating else self.ctrl.set_one_side(b.get_active()))
-        box.append(self.chk_side)
+        sec.append(self.chk_side)
+        sub = _collapsible(sec, "Voladizos de impresión", expanded=False, sub=True)
         self.chk_over = Gtk.CheckButton(label="Mostrar voladizos de impresión (rojo)")
         self.chk_over.connect("toggled", lambda b: None if self._updating else self.ctrl.set_show_overhangs(b.get_active()))
-        box.append(self.chk_over)
+        sub.append(self.chk_over)
         row = Gtk.Box(spacing=6)
-        row.append(Gtk.Label(label="Ángulo máximo desde la vertical (°)"))
+        row.append(Gtk.Label(label="Ángulo máximo desde la vertical (°)", xalign=0, hexpand=True))
         self.spin_over = Gtk.SpinButton.new_with_range(10, 80, 5)
         self.spin_over.set_value(self.ctrl.overhang_angle)
         self.spin_over.connect("value-changed", lambda b: None if self._updating else self.ctrl.set_overhang_angle(b.get_value()))
         row.append(self.spin_over)
-        box.append(row)
+        sub.append(row)
 
-        box.append(_section("Planos"))
+        sec = _collapsible(box, "Espejo y pose sentada")
+        self.chk_mirror = Gtk.CheckButton(label="Espejo en vivo (trabaja un solo lado)")
+        self.chk_mirror.connect("toggled", lambda b: None if self._updating else self.ctrl.set_mirror_live(b.get_active()))
+        sec.append(self.chk_mirror)
+        _help(sec, "Muestra, en el lado oculto (x < 0), el reflejo de lo que hacés en el lado +X: la figura, las siluetas "
+                   "(también la que estás dibujando), los pasadores y los recortes. Es lo que sale al generar: un lado y su espejo.")
+        self.chk_pose = Gtk.CheckButton(label="Ver la figura generada en la pose de cadera")
+        self.chk_pose.connect("toggled", lambda b: None if self._updating else self.ctrl.set_pose_view(b.get_active()))
+        sec.append(self.chk_pose)
+        row = Gtk.Box(spacing=6)
+        row.append(Gtk.Label(label="Ángulo de cadera (°)", xalign=0, hexpand=True))
+        self.spin_pose = Gtk.SpinButton.new_with_range(0, 180, 5)
+        self.spin_pose.connect("value-changed", lambda b: None if self._updating else self.ctrl.set_pose_angle(b.get_value()))
+        row.append(self.spin_pose)
+        sec.append(row)
+        _help(sec, "Hace falta haber generado la figura. Las piernas giran sobre el pasador de cadera (0° = de pie, 90° = "
+                   "sentada) y las piezas que chocan con el torso o entre sí se pintan de rojo; el resultado, con el límite de "
+                   "cadera tallado, queda en el Estado.")
+
+        # ------------------------------------------------------------ Planos
+        box = self._tab_page("Planos")
+        sec = _collapsible(box, "Plano de simetría")
         self.btn_sym = self._button("Plano de simetría (3 puntos)", lambda *_: self.ctrl.start_symmetry())
         self.btn_sym_auto = self._button("Simetría automática (x = 0)", lambda *_: self.ctrl.auto_symmetry())
+        for b in (self.btn_sym, self.btn_sym_auto):
+            sec.append(b)
+
+        sec = _collapsible(box, "Brazos y piernas")
         self.btn_arm = self._button("Agregar plano de brazo (3 puntos)", lambda *_: self.ctrl.start_limb_plane("arm"))
         self.btn_leg = self._button("Agregar plano de pierna (3 puntos)", lambda *_: self.ctrl.start_limb_plane("leg"))
-        self.btn_neck = self._button("Agregar plano del cuello / cabeza (3 puntos)", lambda *_: self.ctrl.start_neck_plane())
-        self.btn_waist = self._button("Agregar cintura: cortar el torso y girar a los costados (3 puntos)",
-                                      lambda *_: self.ctrl.start_waist_plane())
+        for b in (self.btn_arm, self.btn_leg):
+            sec.append(b)
+        row = Gtk.Box(spacing=6)
+        row.append(Gtk.Label(label="Corte a (mm del plano de simetría)", xalign=0, hexpand=True))
+        self.spin_cut = Gtk.SpinButton.new_with_range(0.5, 200.0, 0.5)
+        self.spin_cut.set_digits(2)
+        self.spin_cut.connect("value-changed", self._on_cut_offset)
+        row.append(self.spin_cut)
+        sec.append(row)
+        sub = _collapsible(sec, "Rodillas y codos", sub=True)
         self.btn_knee = self._button("Agregar rodilla a una pierna (3 puntos)",
                                      lambda *_: self.ctrl.start_joint_plane_for_kind("leg"))
         self.btn_elbow = self._button("Agregar codo a un brazo (3 puntos)",
                                       lambda *_: self.ctrl.start_joint_plane_for_kind("arm"))
         self.btn_elbow_lines = self._button("Agregar codo siguiendo el brazo (2 líneas, de frente)",
                                             lambda *_: self.ctrl.start_joint_lines_for_kind("arm"))
+        for b in (self.btn_knee, self.btn_elbow, self.btn_elbow_lines):
+            sub.append(b)
+
+        sec = _collapsible(box, "Cintura")
+        self.btn_waist = self._button("Agregar cintura: cortar el torso y girar a los costados (3 puntos)",
+                                      lambda *_: self.ctrl.start_waist_plane())
+        sec.append(self.btn_waist)
+
+        sec = _collapsible(box, "Cabeza")
+        self.btn_neck = self._button("Agregar plano del cuello / cabeza (3 puntos)", lambda *_: self.ctrl.start_neck_plane())
         self.btn_head_stl = self._button("Cabeza de reemplazo (STL)…", self._on_head_replacement)
         self.btn_head_orig = self._button("Volver a la cabeza original", lambda *_: self.ctrl.clear_head_replacement())
-        for b in (self.btn_sym, self.btn_sym_auto, self.btn_arm, self.btn_leg, self.btn_neck, self.btn_waist,
-                  self.btn_knee, self.btn_elbow, self.btn_elbow_lines, self.btn_head_stl, self.btn_head_orig):
-            box.append(b)
-        row = Gtk.Box(spacing=6)
-        row.append(Gtk.Label(label="Corte a (mm del plano de simetría)"))
-        self.spin_cut = Gtk.SpinButton.new_with_range(0.5, 200.0, 0.5)
-        self.spin_cut.set_digits(2)
-        self.spin_cut.connect("value-changed", self._on_cut_offset)
-        row.append(self.spin_cut)
-        box.append(row)
-        hint = Gtk.Label(label="Durante la selección: Retroceso deshace el último punto, Esc cancela.",
-                         xalign=0, wrap=True)
-        hint.add_css_class("dim-label")
-        box.append(hint)
+        for b in (self.btn_neck, self.btn_head_stl, self.btn_head_orig):
+            sec.append(b)
+
+        sec = _collapsible(box, "Lista de planos")
+        _help(sec, "Durante la selección: Retroceso deshace el último punto, Esc cancela.")
         self.planes_box = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
         self.planes_box.add_css_class("boxed-list")
-        box.append(self.planes_box)
+        sec.append(self.planes_box)
 
-        box.append(_section("Silueta del miembro"))
-        hint2 = Gtk.Label(label="Elegí «Dibujar silueta» (lápiz) en un plano de la lista; «2.º» dibuja el segundo corte, de "
-                                "frente (el miembro es lo que queda dentro de las dos siluetas: p. ej. en una pierna, la "
-                                "columna del muslo + el escalón de la cadera). Clic = vértice sobre el plano; "
-                                "cerrá con un clic en el primero o con Intro. Ya cerrado: clic en un vértice y luego "
-                                "clic para moverlo; clic sobre un borde agrega uno; Retroceso borra el elegido.",
-                          xalign=0, wrap=True)
-        hint2.add_css_class("dim-label")
-        box.append(hint2)
+        # --------------------------------------------------------- Miembros
+        box = self._tab_page("Miembros")
+        sec = _collapsible(box, "Silueta del miembro")
+        _help(sec, "Elegí «Dibujar silueta» (lápiz) en un plano de la lista; «2.º» dibuja el segundo corte, de frente (el "
+                   "miembro es lo que queda dentro de las dos siluetas: p. ej. en una pierna, la columna del muslo + el escalón "
+                   "de la cadera). Clic = vértice sobre el plano; cerrá con un clic en el primero o con Intro. Ya cerrado: clic "
+                   "en un vértice y luego clic para moverlo; clic sobre un borde agrega uno; Retroceso borra el elegido.")
         self.btn_close_poly = self._button("Cerrar polígono (Intro)", lambda *_: self.ctrl.close_polygon())
         self.btn_propose = self._button("Proponer silueta automática", lambda *_: self.ctrl.propose_silhouette())
         self.btn_outline = self._button("Empezar desde el contorno de la figura", lambda *_: self.ctrl.use_outline_as_base())
@@ -179,54 +336,26 @@ class MainWindow(Gtk.ApplicationWindow):
         self.btn_end_poly = self._button("Terminar edición de silueta (Esc)", lambda *_: self.ctrl.cancel())
         for b in (self.btn_close_poly, self.btn_propose, self.btn_outline, self.btn_raise, self.btn_clear_poly,
                   self.btn_end_poly):
-            box.append(b)
+            sec.append(b)
 
-        box.append(_section("Pasador de brazo / cadera"))
-        hint_pin = Gtk.Label(label="Elegí «Colocar el pasador» (marcador) en un miembro de la lista de planos. Se muestra la cara de "
-                                   "corte de frente, con el torso recortado: el círculo naranja es el vástago y el amarillo la "
-                                   "cabeza del hongo; el punto verde es dónde lo pondría el programa. Clic sobre la cara = "
-                                   "mover el pasador; flechas = ajustar 0,1 mm (Mayús: 1 mm). Si no lo tocás, se usa la "
-                                   "posición automática.", xalign=0, wrap=True)
-        hint_pin.add_css_class("dim-label")
-        box.append(hint_pin)
+        sec = _collapsible(box, "Pasador de brazo / cadera")
+        _help(sec, "Elegí «Colocar el pasador» (marcador) en un miembro de la lista de planos. Se muestra la cara de corte de "
+                   "frente, con el torso recortado: el círculo naranja es el vástago y el amarillo la cabeza del hongo; el punto "
+                   "verde es dónde lo pondría el programa. Clic sobre la cara = mover el pasador; flechas = ajustar 0,1 mm "
+                   "(Mayús: 1 mm). Si no lo tocás, se usa la posición automática.")
         self.btn_pin_reset = self._button("Volver a la posición automática", lambda *_: self.ctrl.reset_pin())
         self.btn_pin_face = self._button("Mirar la cara de frente", lambda *_: self._pin_face_view())
         self.btn_pin_end = self._button("Terminar colocación del pasador (Esc)", lambda *_: self.ctrl.cancel())
         for b in (self.btn_pin_reset, self.btn_pin_face, self.btn_pin_end):
-            box.append(b)
+            sec.append(b)
 
-        box.append(_section("Espejo y pose sentada"))
-        self.chk_mirror = Gtk.CheckButton(label="Espejo en vivo (trabaja un solo lado)")
-        self.chk_mirror.connect("toggled", lambda b: None if self._updating else self.ctrl.set_mirror_live(b.get_active()))
-        box.append(self.chk_mirror)
-        hint_mirror = Gtk.Label(label="Muestra, en el lado oculto (x < 0), el reflejo de lo que hacés en el lado +X: la figura, "
-                                      "las siluetas (también la que estás dibujando), los pasadores y los recortes. Es lo que "
-                                      "sale al generar: un lado y su espejo.", xalign=0, wrap=True)
-        hint_mirror.add_css_class("dim-label")
-        box.append(hint_mirror)
-        self.chk_pose = Gtk.CheckButton(label="Ver la figura generada en la pose de cadera")
-        self.chk_pose.connect("toggled", lambda b: None if self._updating else self.ctrl.set_pose_view(b.get_active()))
-        box.append(self.chk_pose)
-        row = Gtk.Box(spacing=6)
-        row.append(Gtk.Label(label="Ángulo de cadera (°)", xalign=0, hexpand=True))
-        self.spin_pose = Gtk.SpinButton.new_with_range(0, 180, 5)
-        self.spin_pose.connect("value-changed", lambda b: None if self._updating else self.ctrl.set_pose_angle(b.get_value()))
-        row.append(self.spin_pose)
-        box.append(row)
-        hint_pose = Gtk.Label(label="Hace falta haber generado la figura. Las piernas giran sobre el pasador de cadera (0° = de "
-                                    "pie, 90° = sentada) y las piezas que chocan con el torso o entre sí se pintan de rojo; el "
-                                    "resultado, con el límite de cadera tallado, queda en el Estado.", xalign=0, wrap=True)
-        hint_pose.add_css_class("dim-label")
-        box.append(hint_pose)
-
-        box.append(_section("Recortes manuales"))
-        hint_trim = Gtk.Label(label="Para los ajustes propios de cada figura (p. ej. la «esfera panza»): se dibuja un polígono "
-                                    "sobre el plano de simetría (visto de costado) o se coloca una esfera / caja / cilindro con "
-                                    "un clic en la figura; se extruye y se resta o se une a una pieza. Se hace sobre el lado +X y "
-                                    "se espeja. Tiene que llegar a la superficie: un hueco cerrado por dentro se descarta.",
-                              xalign=0, wrap=True)
-        hint_trim.add_css_class("dim-label")
-        box.append(hint_trim)
+        # --------------------------------------------------------- Recortes
+        box = self._tab_page("Recortes")
+        sec = _collapsible(box, "Recortes manuales")
+        _help(sec, "Para los ajustes propios de cada figura (p. ej. la «esfera panza»): se dibuja un polígono sobre el plano de "
+                   "simetría (visto de costado) o se coloca una esfera / caja / cilindro con un clic en la figura; se extruye y "
+                   "se resta o se une a una pieza. Se hace sobre el lado +X y se espeja. Tiene que llegar a la superficie: un "
+                   "hueco cerrado por dentro se descarta.")
         for text, attr, items in (("Pieza", "dd_trim_target", ["torso"]),
                                   ("Forma", "dd_trim_shape", [TRIM_SHAPE_LABELS[k].capitalize() for k in TRIM_SHAPES]),
                                   ("Operación", "dd_trim_op", [TRIM_OP_LABELS[k].capitalize() for k in _TRIM_OPS])):
@@ -235,28 +364,31 @@ class MainWindow(Gtk.ApplicationWindow):
             dd = Gtk.DropDown.new_from_strings(items)
             setattr(self, attr, dd)
             row.append(dd)
-            box.append(row)
+            sec.append(row)
         row = Gtk.Box(spacing=6)
         row.append(Gtk.Label(label="Extrusión (mm)", xalign=0, hexpand=True))
         self.spin_trim_len = Gtk.SpinButton.new_with_range(0.1, 500.0, 1.0)
         self.spin_trim_len.set_value(25.0)
         row.append(self.spin_trim_len)
-        box.append(row)
+        sec.append(row)
         row = Gtk.Box(spacing=6)
         row.append(Gtk.Label(label="Radio / arista de la forma (mm)", xalign=0, hexpand=True))
         self.spin_trim_size = Gtk.SpinButton.new_with_range(0.5, 100.0, 0.5)
         self.spin_trim_size.set_value(5.0)
         row.append(self.spin_trim_size)
-        box.append(row)
+        sec.append(row)
         self.btn_trim_add = self._button("Dibujar polígono / colocar con clic", lambda *_: self._on_trim_add())
-        box.append(self.btn_trim_add)
+        sec.append(self.btn_trim_add)
+        sec = _collapsible(box, "Recortes de la figura")
         self.trims_box = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
         self.trims_box.add_css_class("boxed-list")
-        box.append(self.trims_box)
+        sec.append(self.trims_box)
 
-        box.append(_section("Parámetros"))
+        # ------------------------------------------------------- Parámetros
+        box = self._tab_page("Parámetros")
+        sec = _collapsible(box, "Altura de la figura")
         row = Gtk.Box(spacing=6)
-        lbl = Gtk.Label(label="Altura de la figura: pies → coronilla (mm)", xalign=0, hexpand=True)
+        lbl = Gtk.Label(label="Pies → coronilla (mm)", xalign=0, hexpand=True)
         lbl.set_tooltip_text("Reescala la figura (y los planos, siluetas y recortes ya hechos) a esta altura. "
                              "Los pasadores, la holgura y el clic son medidas absolutas y no se escalan.")
         row.append(lbl)
@@ -268,84 +400,88 @@ class MainWindow(Gtk.ApplicationWindow):
         self.spin_height.connect("activate", lambda *_: self._on_apply_height())
         row.append(self.spin_height)
         row.append(self._button("Aplicar", lambda *_: self._on_apply_height()))
-        box.append(row)
+        sec.append(row)
+
+        sec = _collapsible(box, "Parámetros de articulación")
+        groups = {name: _collapsible(sec, name, expanded=(name == PARAM_GROUPS[0]), sub=True) for name in PARAM_GROUPS}
         self.param_spins: dict[str, Gtk.SpinButton] = {}
         for key, label, lo, hi, step, digits in PARAM_FIELDS:
             row = Gtk.Box(spacing=6)
-            lbl = Gtk.Label(label=label, xalign=0, hexpand=True)
-            row.append(lbl)
+            row.append(Gtk.Label(label=label, xalign=0, hexpand=True, wrap=True))
             spin = Gtk.SpinButton.new_with_range(lo, hi, step)
             spin.set_digits(digits)
             spin.set_value(self.ctrl.get_param(key))
             spin.connect("value-changed", lambda b, k=key: None if self._updating else self.ctrl.set_param(k, b.get_value()))
             row.append(spin)
-            box.append(row)
+            groups[_param_group(key)].append(row)
             self.param_spins[key] = spin
-        box.append(_section("Perfil de línea"))
-        hint_prof = Gtk.Label(label="Un perfil guarda estos parámetros para reusarlos en la próxima figura de la línea.",
-                              xalign=0, wrap=True)
-        hint_prof.add_css_class("dim-label")
-        box.append(hint_prof)
+
+        sec = _collapsible(box, "Perfil de línea", expanded=False)
+        _help(sec, "Un perfil guarda estos parámetros para reusarlos en la próxima figura de la línea.")
         row = Gtk.Box(spacing=6)
         self.dd_profile = Gtk.DropDown.new_from_strings(self.ctrl.profile_names() or ["(sin perfiles)"])
         self.dd_profile.set_hexpand(True)
         row.append(self.dd_profile)
         row.append(self._button("Cargar", lambda *_: self._on_load_profile()))
-        box.append(row)
+        sec.append(row)
         row = Gtk.Box(spacing=6)
         self.ent_profile = Gtk.Entry(placeholder_text="Nombre del perfil", hexpand=True)
         row.append(self.ent_profile)
         row.append(self._button("Guardar", lambda *_: self._on_save_profile()))
-        box.append(row)
-        self.dd_probe = Gtk.DropDown.new_from_strings(["Pasador de cadera", "Pasador de hombro", "Bisagra de rodilla / codo"])
-        box.append(self.dd_probe)
-        box.append(self._button("Generar probetas de articulación…", lambda *_: self._on_probes()))
+        sec.append(row)
 
-        box.append(_section("Generar"))
+        sec = _collapsible(box, "Probetas de articulación", expanded=False)
+        self.dd_probe = Gtk.DropDown.new_from_strings(["Pasador de cadera", "Pasador de hombro", "Bisagra de rodilla / codo"])
+        sec.append(self.dd_probe)
+        sec.append(self._button("Generar probetas de articulación…", lambda *_: self._on_probes()))
+
+        # ---------------------------------------------------------- Generar
+        box = self._tab_page("Generar")
+        sec = _collapsible(box, "Generar")
         self.btn_generate = self._button("Generar figura", lambda *_: self._on_generate())
         self.btn_generate.add_css_class("suggested-action")
-        box.append(self.btn_generate)
+        sec.append(self.btn_generate)
+        _help(sec, "Generar puede tardar varios minutos. Si cambiás algo después, hay que generar de nuevo antes de exportar.")
+
+        sec = _collapsible(box, "Exportar")
         self.chk_orient = Gtk.CheckButton(label="Apoyar las piezas en la cama al exportar (en la pose de cadera, cabeza arriba)", active=True)
-        box.append(self.chk_orient)
+        sec.append(self.chk_orient)
+        sub = _collapsible(sec, "Impresión sin soportes", sub=True)
         self.chk_flat = Gtk.CheckButton(label="Modificar para imprimir sin soportes (aplana piernas y cola; los brazos giran hacia adelante)")
         self.chk_flat.set_tooltip_text("Corta con un plano horizontal sobre la cola (altura en Parámetros: «Sin soportes: corte plano») y "
                                        "gira los brazos hacia adelante lo justo para que apoyen en ese plano. Las piernas quedan estiradas (rodilla a 0°): muslo y "
                                        "pantorrilla horizontales sobre el plano. Los brazos no se modifican.")
         self.chk_flat.connect("toggled", lambda b: None if self._updating else self._on_flat_toggled(b.get_active()))
-        box.append(self.chk_flat)
+        sub.append(self.chk_flat)
         self.btn_flat_plane = self._button("Ajustar la altura del corte (vista Derecha, figura sentada)", lambda *_: self._on_flat_plane())
         self.btn_flat_plane.set_tooltip_text("Muestra la figura generada sentada, de costado, con el plano horizontal del corte «sin soportes». "
                                              "Clic a la altura que querés, o ↑ ↓ (Mayús = 1 mm). Esc termina.")
-        box.append(self.btn_flat_plane)
+        sub.append(self.btn_flat_plane)
         self.btn_export = self._button("Exportar piezas…", lambda *_: self._on_export())
-        box.append(self.btn_export)
-        hint3 = Gtk.Label(label="Generar puede tardar varios minutos. Si cambiás algo después, hay que generar de nuevo "
-                                "antes de exportar.", xalign=0, wrap=True)
-        hint3.add_css_class("dim-label")
-        box.append(hint3)
+        sec.append(self.btn_export)
 
-        box.append(_section("Vista"))
-        views = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=3, column_spacing=4,
-                            row_spacing=4)
-        for label, name in (("Frente", "frente"), ("Espalda", "espalda"), ("Izquierda", "izquierda"),
-                            ("Derecha", "derecha"), ("Arriba", "arriba"), ("Iso", "iso")):
-            views.append(self._button(label, lambda _b, n=name: self._set_view(n)))
-        box.append(views)
-        reframe = self._button("Encuadrar figura", lambda *_: self._frame())
-        box.append(reframe)
+        self.sidebar_box = self.tabs                  # lo que se desactiva mientras se genera
+        return self.tabs
 
-        box.append(_section("Estado"))
-        self.lbl_status = Gtk.Label(xalign=0, wrap=True, selectable=True)
-        box.append(self.lbl_status)
-        self.lbl_problems = Gtk.Label(xalign=0, wrap=True)
-        self.lbl_problems.add_css_class("dim-label")
-        box.append(self.lbl_problems)
-
-        self.sidebar_box = box
-        scroller = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
+    def _tab_page(self, title: str) -> Gtk.Box:
+        """Agrega una pestaña con scroll propio y devuelve la caja donde van sus secciones."""
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        for side in ("start", "end", "top", "bottom"):
+            getattr(box, f"set_margin_{side}")(10)
+        scroller = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, vexpand=True)
         scroller.set_child(box)
-        scroller.set_size_request(320, -1)
-        return scroller
+        self.tabs.append_page(scroller, Gtk.Label(label=title))
+        return box
+
+    def _tab_for_mode(self) -> int | None:
+        """Pestaña donde están los controles del modo activo (None = no cambiar de pestaña)."""
+        mode = self.ctrl.mode
+        if mode == Mode.VIEW:
+            return None
+        if mode == Mode.POLYGON:
+            return TAB_RECORTES if self.ctrl.trim_cfg else TAB_MIEMBROS
+        return {Mode.CROWN: TAB_FIGURA, Mode.PIN: TAB_MIEMBROS, Mode.TRIM_PICK: TAB_RECORTES,
+                Mode.FLAT_PLANE: TAB_GENERAR}.get(mode, TAB_PLANOS)
 
     @staticmethod
     def _button(label: str, cb) -> Gtk.Button:
@@ -358,7 +494,6 @@ class MainWindow(Gtk.ApplicationWindow):
         ctrl = self.ctrl
         self._updating = True
         try:
-            self.lbl_status.set_text(ctrl.message)
             for key, spin in self.param_spins.items():
                 if abs(spin.get_value() - ctrl.get_param(key)) > 1e-9:
                     spin.set_value(ctrl.get_param(key))
@@ -368,7 +503,12 @@ class MainWindow(Gtk.ApplicationWindow):
                 self._shown_height = ref
                 self.spin_height.set_value(ref)
             probs = ctrl.problems()
-            self.lbl_problems.set_text("Pendiente: " + "; ".join(probs) if probs else "Siluetas completas.")
+            self._set_status(ctrl.message, "Pendiente: " + "; ".join(probs) if probs else "Siluetas completas.")
+            if ctrl.mode != self._last_mode:                 # al empezar una tarea, mostrar la pestaña con sus controles
+                self._last_mode = ctrl.mode
+                tab = self._tab_for_mode()
+                if tab is not None:
+                    self.tabs.set_current_page(tab)
             title = "Action Figure Maker"
             if ctrl.session.stl_path:
                 title += " — " + os.path.basename(ctrl.session.stl_path)
@@ -567,6 +707,7 @@ class MainWindow(Gtk.ApplicationWindow):
             self.ctrl.sync(self.scene)
             self.ctrl.scene_dirty = False
         self.scene.draw(self.ctrl.camera, w, h, self.mgl.detect_framebuffer())
+        self.cube_area.queue_draw()          # el cubo sigue a la cámara
         return True
 
     # ------------------------------------------------------------------ ratón
@@ -622,10 +763,69 @@ class MainWindow(Gtk.ApplicationWindow):
         return False
 
     # ------------------------------------------------------------------ acciones
-    def _set_view(self, name: str) -> None:
-        self.ctrl.camera.set_view(name)
-        self.gl.queue_render()
+    # ------------------------------------------------------------ cubo de vista
+    def _cube_rot(self):
+        return self.ctrl.camera.view()[:3, :3]
 
+    def _draw_cube(self, _area, cr, _w, _h) -> None:
+        hover = self.view_cube.hit(self._cube_rot(), *self._cube_pointer) if self._cube_pointer else None
+        self.view_cube.draw(cr, self._cube_rot(), hover)
+
+    def _on_cube_motion(self, _c, x: float, y: float) -> None:
+        self._cube_pointer = (x, y)
+        self.cube_area.queue_draw()
+
+    def _on_cube_leave(self, _c) -> None:
+        self._cube_pointer = None
+        self.cube_area.queue_draw()
+
+    def _on_cube_drag_begin(self, _g, x: float, y: float) -> None:
+        self._cancel_view_anim()
+        self._cube_drag = {"last": (0.0, 0.0), "moved": False, "start": (x, y)}
+
+    def _on_cube_drag_update(self, _g, dx: float, dy: float) -> None:
+        d = self._cube_drag
+        if not d["moved"] and (dx * dx + dy * dy) ** 0.5 < DRAG_THRESHOLD_PX:
+            return
+        d["moved"] = True
+        ddx, ddy = dx - d["last"][0], dy - d["last"][1]
+        d["last"] = (dx, dy)
+        self.ctrl.camera.orbit(ddx, ddy)
+        self.gl.queue_render()
+        self.cube_area.queue_draw()
+
+    def _on_cube_drag_end(self, _g, _dx: float, _dy: float) -> None:
+        if self._cube_drag["moved"]:
+            return
+        hit = self.view_cube.hit(self._cube_rot(), *self._cube_drag["start"])
+        if hit is not None:
+            self._animate_view(view_angles(hit.direction()))
+
+    def _cancel_view_anim(self) -> None:
+        if self._anim_id:
+            self.cube_area.remove_tick_callback(self._anim_id)
+            self._anim_id = 0
+
+    def _animate_view(self, target: tuple[float, float]) -> None:
+        """Lleva la cámara a (yaw, pitch) con una transición corta."""
+        self._cancel_view_anim()
+        cam = self.ctrl.camera
+        start = (cam.yaw, cam.pitch)
+        t0 = GLib.get_monotonic_time()
+
+        def tick(widget, _clock) -> bool:
+            t = (GLib.get_monotonic_time() - t0) / 1e6 / VIEW_ANIM_S
+            cam.yaw, cam.pitch = interpolate_view(start, target, t)
+            self.gl.queue_render()
+            widget.queue_draw()
+            if t >= 1.0:
+                self._anim_id = 0
+                return GLib.SOURCE_REMOVE
+            return GLib.SOURCE_CONTINUE
+
+        self._anim_id = self.cube_area.add_tick_callback(tick)
+
+    # ------------------------------------------------------------------ acciones
     def _on_flat_toggled(self, on: bool) -> None:
         self.ctrl.set_flat_print(on)
         self.gl.queue_render()
