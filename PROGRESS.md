@@ -1,5 +1,37 @@
 # Progreso del desarrollo
 
+_Plan de referencia: `PLAN_herramienta_stl_articulable.md` y `PLAN_mecanismo_clic_hombro_cadera.md`_
+
+## Current Focus
+**Mecanismo de clic print-in-place en hombro y cadera implementado (2026-10-19)** (plan de clic, fases 0–6 de código): falta imprimir las probetas (Fase 0 física), el banco de ciclos (Fase 7) y calibrar medidas.
+
+## Todo List
+### [ ] Todo
+- [ ] Imprimir `afm probe --tipo clic` (0,4 y 0,8) y medir clic, juego angular y par (`docs/PROTOCOLO_probetas_clic.md`); ajustar `DetentSpec` y guardar `clic_0.4`/`clic_0.8`.
+- [ ] Banco de ciclos (5.000 ciclos, Fase 7) y caso real impreso (Fase 8).
+- [ ] Confirmar con el cliente: ¿el clic reemplaza al hongo o es opción? (hoy opción por articulación, apagado por defecto); brazo a 10° (A) o colgando (B).
+- [ ] Par de retención estimado del hombro ≈ 9 N·mm (< 10): subir `finger_w`/`notch_depth` tras las probetas.
+- [ ] Lengüetas en Y (plan §3.1) como alternativa: hoy solo largas en X.
+### [/] In Progress
+- [/] Calibración con probetas físicas.
+### [x] Done
+- [x] `DetentSpec`, `Params.shoulder_detent/hip_detent`, `LimbSpec.mechanism/detent` (los `.proyecto` viejos siguen como hongo).
+- [x] `src/afm/detent.py`: disco con muescas, lengüetas, barrido de 360° como sólido de revolución, ajuste del largo al espacio, giro libre y clics descartados.
+- [x] `pipeline.build/validate`: hombro (vuelta completa, 4 clics desde la pose impresa) y cadera (0–95°, clics 0° y 90°); validación de ε, pared, protrusión, clic en pose impresa, par y juego.
+- [x] Probetas de clic (`afm probe --tipo clic`), perfiles `detent_profile(0.4/0.8)`, campos en la GUI, tutorial §7.2d, `examples/guemes_clic.py`.
+- [x] Güemes 13 cm con clic en ambos hombros y caderas: `ok`, torso 1 componente, holguras 0,30 mm, 4 y 2 clics alcanzables (≈9 min de cómputo). `tests/test_detent.py`: 19 pasan (+1 opcional `AFM_SLOW=1`).
+
+## Latest Blockers/Discoveries
+- Lengüetas **largas en X** (no en Y): junto al hombro el torso tiene ≈13 mm de profundidad. En la cadera de Güemes hay solo 7,19 mm hasta el plano de simetría: se acorta la lengüeta y la muesca (0,8→0,57 mm) para ε ≤ 1 %; par estimado 13,6 N·mm.
+- La lengüeta debe pasar por encima de la cabeza del hongo (la de cadera de referencia Ø9,25 > disco Ø8): `make_parts(head_r=…)`.
+- El vástago del hongo no puede quedar dentro del radio de la punta (la punta roza el vástago): detectado por la holgura mínima.
+- El giro libre de 360° se talla como revolución (`revolved_envelope`): elimina el roce con la piel que había en el prototipo; no depende de `rtree`.
+- Con clic no se decima nada de las ranuras (las lengüetas se agregan tras decimar el torso); «sin soportes» no gira brazos con clic.
+- Las lengüetas son horizontales solo con la pose de la vista previa (`--orient`).
+- Pendiente: un STL de Güemes de la suite tarda ≈9 min en esta máquina (validación de giro libre cada 10°).
+
+---
+
 ## Current Focus
 **Exportar sin soportes (2026-10-18):** opción «Modificar para imprimir sin soportes» (GUI: casilla junto a «Apoyar las piezas en la cama»; CLI `--sin-soportes [MM]`; parámetro `Params.flat_depth`, 1,0 mm sobre la cola): `pipeline.flat_for_print` corta piernas y torso con un plano horizontal, gira los brazos hacia adelante sobre el pasador del hombro hasta que su punto más bajo apoye en ese plano y talla el torso con el barrido del brazo (`_carve_torso_for_arm`, prueba combinaciones hasta no dejar aristas no variedad); `solids.to_printable_trimesh` suelda hasta 1e-4 mm solo si reduce aristas de 4 caras. Güemes: giro 22,75°, base 864 mm² (antes 0), voladizo 1440 → 685 mm², holgura brazo–torso 0,43 mm, sin aviso. Pendiente: probar en GTK real y llevar el corte a la vista de pose / marcado de voladizos.
 

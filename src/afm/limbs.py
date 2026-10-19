@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from . import solids as S
+from .params import DetentSpec
 from .planes import Plane
 
 
@@ -121,6 +122,10 @@ class LimbSpec:
     # Segundo corte (opcional) sobre otro plano, p. ej. la silueta de frente cuando la principal es de costado.
     # El miembro es lo que queda dentro de los dos prismas; sin él todo funciona como antes.
     cross: LimbCut | None = None
+    # Mecanismo de la articulación con el torso: None = según `Params.shoulder_detent` / `hip_detent`; "mushroom" = solo
+    # pasador de hongo; "detent" = hongo + disco de clic con lengüetas (PLAN_mecanismo_clic_hombro_cadera.md).
+    mechanism: str | None = None
+    detent: "DetentSpec | None" = None      # medidas propias del clic de este miembro; None = `Params.detent`
 
     def to_dict(self) -> dict:
         return {
@@ -137,6 +142,8 @@ class LimbSpec:
             "cap_center": None if self.cap_center is None else list(self.cap_center),
             "cap_dir": list(self.cap_dir),
             "cross": None if self.cross is None else self.cross.to_dict(),
+            "mechanism": self.mechanism,
+            "detent": None if self.detent is None else dataclasses.asdict(self.detent),
         }
 
     @classmethod
@@ -155,6 +162,8 @@ class LimbSpec:
             cap_center=None if d.get("cap_center") is None else tuple(d["cap_center"]),
             cap_dir=tuple(d.get("cap_dir", (0.0, 0.0, -1.0))),
             cross=None if d.get("cross") is None else LimbCut.from_dict(d["cross"]),
+            mechanism=d.get("mechanism"),
+            detent=None if d.get("detent") is None else DetentSpec(**d["detent"]),
         )
 
 

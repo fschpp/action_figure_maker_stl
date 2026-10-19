@@ -144,3 +144,80 @@ def hinge_labels_text(cells: list[HingeProbeCell]) -> str:
     """Tabla de referencia en el orden de la grilla, para anotar cuál gira suave y sostiene la pose."""
     return "\n".join(f"#{i + 1}: holgura radial {c.clearance:.2f} mm, axial {c.axial_clearance:.2f} mm, "
                      f"bulón Ø{c.hinge.pin_d:.1f} mm (lengüeta {c.hinge.tongue_t:.1f} mm)" for i, c in enumerate(cells))
+
+
+# --------------------------------------------------------------------------------------------------
+# Probeta de clic (hombro / cadera): PLAN_mecanismo_clic_hombro_cadera.md §5, Fase 0.
+# --------------------------------------------------------------------------------------------------
+DEFAULT_DETENT_DEPTH_DELTAS = (-0.2, 0.0, 0.2)       # sobre `DetentSpec.notch_depth`
+DEFAULT_DETENT_THICKNESSES = (1.0, 1.2, 1.4)         # `finger_t` (mm)
+DEFAULT_DETENT_GAPS = (0.2, 0.3, 0.4)                # `detent_gap`: una placa por valor
+
+
+@dataclass
+class DetentProbeCell:
+    label: str
+    spec: object              # DetentSpec
+
+
+def detent_probe_cells(p: Params, base=None, depth_deltas=DEFAULT_DETENT_DEPTH_DELTAS,
+                       thicknesses=DEFAULT_DETENT_THICKNESSES, gap: float | None = None) -> list[DetentProbeCell]:
+    """Grilla 3×3 profundidad de muesca × espesor de lengüeta, con una holgura de punta fija (una placa por holgura).
+    El flex_gap sigue a la flexión de la punta (δ + ranura) para que la lengüeta no choque al flexar."""
+    base = base or p.detent
+    g = base.detent_gap if gap is None else gap
+    cells = []
+    for dd in depth_deltas:
+        for t in thicknesses:
+            nd = round(base.notch_depth + dd, 3)
+            sp = replace(base, notch_depth=nd, finger_t=float(t), detent_gap=float(g),
+                         flex_gap=round(max(nd - g, 0.1) + base.slit_w, 3))
+            cells.append(DetentProbeCell(f"n{nd:.1f}/t{t:.1f}/g{g:.2f}", sp))
+    return cells
+
+
+def _detent_cell(cell: DetentProbeCell, p: Params, wall: float = 2.5, handle_len: float = 12.0) -> S.Manifold:
+    """Una articulación de clic de prueba: bloque con bolsillo, 2 lengüetas y puntas + miembro suelto (disco con
+    muescas, hongo y palanca). Eje = +X por el origen; la cara de contacto es x = 0 y el torso queda hacia −X.
+    Se imprime con X horizontal: las lengüetas (arriba/abajo, largas en X) quedan horizontales, como en la figura."""
+    from . import detent as DT
+    sp = cell.spec
+    parts = DT.make_parts((0.0, 0.0, 0.0), (-1.0, 0.0, 0.0), sp)
+    pin = mushroom_pin((-sp.disc_h, 0.0, 0.0), (-1.0, 0.0, 0.0), p.shoulder_pin)
+    handle = S.cylinder_along((0.3, 0, 0), (1, 0, 0), 3.0, handle_len, 48)
+    bar = S.Manifold.cube((3.0, 2 * (sp.disc_d / 2 + 4.0), 3.0), center=True).translate((0.3 + handle_len, 0, 0))
+    limb = S.union(pin, parts.disc_notch, handle, bar)
+    root = parts.root_depth
+    half_y = sp.finger_w / 2 + sp.slit_w + wall
+    top = sp.disc_d / 2 + sp.slit_w + sp.finger_t + sp.flex_gap + wall
+    block = S.Manifold.cube((root + 2.0 + wall, 2 * half_y, 2 * top), center=False).translate((-(root + 2.0 + wall), -half_y, -top))
+    pocket = S.dilate(S.union(pin, parts.disc_plain), p.clearance)
+    body = S.difference(block, pocket)
+    slots = [f.slot for f in parts.fingers]
+    body = S.union(S.difference(body, *slots), *[f.beam for f in parts.fingers], *[f.ridge for f in parts.fingers])
+    return S.union(body, limb)
+
+
+def build_detent_probe(p: Params | None = None, cells: list[DetentProbeCell] | None = None,
+                       columns: int = 3, pitch_x: float = 32.0, pitch_y: float = 22.0) -> S.Manifold:
+    """Placa de probetas de clic en una grilla (miembros sueltos dentro de su bolsillo)."""
+    p = p or Params()
+    cells = cells or detent_probe_cells(p)
+    parts = []
+    for i, cell in enumerate(cells):
+        r, c = divmod(i, columns)
+        parts.append(_detent_cell(cell, p).translate((c * pitch_x, -r * pitch_y, 0)))
+    return S.union(*parts)
+
+
+def detent_labels_text(cells: list[DetentProbeCell]) -> str:
+    """Tabla en el orden de la grilla, con la deformación, la fuerza y el par que estima el modelo, para anotar
+    cuál se mueve, hace clic y no se funde (¿cuánto juego angular queda? ¿cuánto par cuesta moverlo?)."""
+    from . import detent as DT
+    rows = []
+    for i, c in enumerate(cells):
+        s = c.spec
+        rows.append(f"#{i + 1}: muesca {s.notch_depth:.2f} mm, lengüeta {s.finger_t:.1f} × {s.finger_len:g} mm, holgura de punta "
+                    f"{s.detent_gap:.2f} mm | ε {100 * DT.tongue_strain(s):.2f} %, F {DT.tongue_force(s):.2f} N, "
+                    f"par est. {DT.hold_torque(s):.1f} N·mm, juego ±{DT.angular_play_deg(s):.1f}°")
+    return "\n".join(rows)

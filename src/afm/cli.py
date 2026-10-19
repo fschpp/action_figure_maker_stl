@@ -62,8 +62,12 @@ def main(argv=None) -> int:
     pr.add_argument("--out", default="out/probetas")
     pr.add_argument("--clearances", default=None, help="holguras radiales a probar (mm)")
     pr.add_argument("--deltas", default=None, help="variación del Ø de vástago (hongo) o de bulón (bisagra), en mm")
-    pr.add_argument("--tipo", default="hongo", choices=("hongo", "bisagra"),
-                    help="hongo = cadera/hombro (§8.11); bisagra = rodilla/codo (plan de articulaciones, Fase 6)")
+    pr.add_argument("--tipo", default="hongo", choices=("hongo", "bisagra", "clic"),
+                    help="hongo = cadera/hombro (§8.11); bisagra = rodilla/codo (plan de articulaciones, Fase 6); "
+                         "clic = disco con muescas + lengüetas (PLAN_mecanismo_clic_hombro_cadera.md, Fase 0)")
+    pr.add_argument("--boquilla", type=float, default=0.4, help="solo clic: boquilla (mm); fija el espesor y largo de la lengüeta")
+    pr.add_argument("--gaps", default=None, help="solo clic: holguras punta/muesca; una placa por valor (por defecto 0.2,0.3,0.4)")
+    pr.add_argument("--espesores", default=None, help="solo clic: espesores de lengüeta a probar (mm)")
     pr.add_argument("--axiales", default=None, help="solo bisagra: holguras axiales a probar, p. ej. 0.25,0.35,0.45")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO)
@@ -73,6 +77,24 @@ def main(argv=None) -> int:
         from .params import Params
         p = Params()
         fl = lambda t: [float(x) for x in t.split(",")]
+        if args.tipo == "clic":
+            from . import detent as DT
+            import dataclasses
+            p = dataclasses.replace(p, nozzle=args.boquilla, detent=DT.spec_for_nozzle(args.boquilla))
+            thick = fl(args.espesores) if args.espesores else (
+                (1.4, 1.6, 1.8) if args.boquilla >= 0.7 else probes.DEFAULT_DETENT_THICKNESSES)
+            lines = []
+            for g in fl(args.gaps or "0.2,0.3,0.4"):
+                cells = probes.detent_probe_cells(p, thicknesses=thick, gap=g)
+                fn = f"probetas_clic_b{args.boquilla:g}_gap{g:g}"
+                S.to_trimesh(probes.build_detent_probe(p, cells)).export(os.path.join(args.out, fn + ".stl"))
+                lines.append(f"== {fn}.stl (boquilla {args.boquilla:g} mm, holgura de punta {g:g} mm) ==\n"
+                             + probes.detent_labels_text(cells))
+            text = "\n\n".join(lines)
+            with open(os.path.join(args.out, f"probetas_clic_b{args.boquilla:g}.txt"), "w") as f:
+                f.write(text + "\n")
+            print(text)
+            return 0
         if args.tipo == "bisagra":
             kw = {"clearances": fl(args.clearances)} if args.clearances else {}
             if args.deltas:

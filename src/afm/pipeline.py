@@ -9,6 +9,7 @@ import numpy as np
 import trimesh
 
 from . import solids as S
+from . import detent as DT
 from .head import HEAD_NAME, MIN_BASE_IOU, HeadSpec, build_head, split_head
 from .joints import JointBuild, JointSpec, build_joint, flex_range, hinge_for, print_flex
 from .limbs import LimbSpec, ContactFace, check_limb_plane, pin_margin, separate_limb
@@ -34,6 +35,8 @@ class BuildResult:
     report: dict = field(default_factory=dict)
     motion: dict = field(default_factory=dict)   # name -> (limb de pie, centro, eje, (a0, a1)) para validar el recorrido
     joints: dict = field(default_factory=dict)   # nombre de la articulación -> JointBuild (rodilla, codo)
+    detent: dict = field(default_factory=dict)   # nombre del miembro -> DetentLimb (mecanismo de clic)
+    detent_ref: S.Manifold | None = None         # torso SIN lengüetas ni puntas: referencia para el giro libre del clic
 
 
 def align_to_symmetry(mesh: trimesh.Trimesh, sym: Plane | None) -> trimesh.Trimesh:
@@ -98,16 +101,32 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
         half = split.body_half                                # los miembros se cortan del cuerpo sin cabeza
     torso_half = half
     built: dict[str, dict] = {}
+    detents: dict[str, DT.DetentLimb] = {}
     for spec in limbs:
         say(f"Separando {spec.name}…")
         limb_raw, face = separate_limb(half, spec, p.burr)
         limb_raw = apply_trims(limb_raw, trims, spec.name)
+        axis = _rotation_axis(face)
+        dspec = DT.detent_spec_for(spec, p)
+        if dspec is not None:
+            say(f"Clic de {spec.name}…")
+            th = _print_angle(spec, p, dspec, sit)
+            rng = _detent_sweep(spec, p)
+            dl = DT.build_detent_limb(spec.name, limb_raw, face, axis, dspec, p, _pin_spec(spec, p), th, rng)
+            detents[spec.name] = dl
+            torso_half = S.difference(torso_half, dl.sweep)
+            angles = np.arange(rng[0], rng[1] + 1e-9, p.sweep_step) if rng and rng[1] > rng[0] else [0.0]
+            if len(angles) > 1 and angles[-1] < rng[1] - 1e-9:
+                angles = np.append(angles, rng[1])
+            built[spec.name] = {"limb": dl.limb, "face": face, "axis": axis, "spec": spec,
+                                "angles": [float(a) for a in angles], "print_angle": th,
+                                "pin_margin": pin_margin(face, _pin_spec(spec, p).shaft_d)}
+            continue
         pin = mushroom_pin(face.center, face.outward, _pin_spec(spec, p))
         limb = S.union(limb_raw, pin)
         say(f"Cavidad de {spec.name}…")
         grown = S.dilate(limb, p.clearance)
         a0, a1 = _sweep_range(spec, p)
-        axis = _rotation_axis(face)
         angles = np.arange(a0, a1 + 1e-9, p.sweep_step) if a1 > a0 else [a0]
         if len(angles) > 1 and angles[-1] < a1 - 1e-9:
             angles = np.append(angles, a1)
@@ -143,19 +162,20 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
     for name, b in built.items():
         limb = b["limb"]
         hip_sit = sit and b["spec"].kind == "leg"
+        th = b.get("print_angle", p.sit_angle if hip_sit else 0.0)       # giro de la pose impresa alrededor del pasador
         res_motion[name] = (b["limb"], b["face"].center, b["axis"], (b["angles"][0], b["angles"][-1]))
         jb = joint_builds.get(name)
         if jb is None:
-            if hip_sit:
-                limb = S.rotate_about_axis(limb, b["face"].center, b["axis"], p.sit_angle)
+            if th:
+                limb = S.rotate_about_axis(limb, b["face"].center, b["axis"], th)
             pieces[f"{name}_izq"] = limb
             pieces[f"{name}_der"] = S.mirror_x(limb)
         else:
             j = by_limb[name]
             prox, dist = jb.proximal, jb.rotate_distal(print_flex(j, p))     # flexión de la pose impresa
-            if hip_sit:
-                prox = S.rotate_about_axis(prox, b["face"].center, b["axis"], p.sit_angle)
-                dist = S.rotate_about_axis(dist, b["face"].center, b["axis"], p.sit_angle)
+            if th:
+                prox = S.rotate_about_axis(prox, b["face"].center, b["axis"], th)
+                dist = S.rotate_about_axis(dist, b["face"].center, b["axis"], th)
             pn, dn = j.names()
             for nm, mf in ((pn, prox), (dn, dist)):
                 pieces[f"{nm}_izq"] = mf
@@ -173,6 +193,12 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
         }
         if b["pin_margin"] is not None:
             report["limbs"][name]["pin_margin_mm"] = round(float(b["pin_margin"]), 3)
+        if name in detents:
+            dl = detents[name]
+            report["limbs"][name]["mecanismo"] = "clic"
+            report["limbs"][name]["pin_shift_mm"] = dl.spec.disc_h          # el hongo queda `disc_h` detrás del disco
+            report["limbs"][name]["disc_margin_mm"] = None if (m := pin_margin(b["face"], dl.spec.disc_d)) is None else round(float(m), 3)
+            report.setdefault("detent", {})[name] = DT.summary(dl)
     pieces["torso"] = S.union(torso_half, S.mirror_x(torso_half))
     if head_build is not None:
         pieces[HEAD_NAME] = head_build.head
@@ -188,7 +214,32 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
         n0 = pieces["torso"].num_tri()
         pieces["torso"] = _decimate_keeping_clearance(pieces, p)
         report["torso_triangulos"] = [n0, pieces["torso"].num_tri()]
-    return BuildResult(pieces=pieces, report=report, motion=res_motion, joints=res_joints)
+    ref = None
+    if detents:
+        say("Lengüetas del clic…")
+        ref = pieces["torso"]
+        pieces["torso"] = DT.add_fingers(ref, list(detents.values()))
+        for nm, dl in detents.items():
+            dl.info["protrusion_mm3"] = round(DT.protrusion_mm3(dl, body), 4)
+            report["detent"][nm]["protrusion_mm3"] = dl.info["protrusion_mm3"]
+            wall = DT.finger_wall_mm(pieces["torso"], dl)
+            report["detent"][nm]["pared_sobre_lengueta_mm"] = None if wall is None else round(wall, 3)
+    return BuildResult(pieces=pieces, report=report, motion=res_motion, joints=res_joints, detent=detents, detent_ref=ref)
+
+
+def _print_angle(spec: LimbSpec, p: Params, dspec, sit: bool) -> float:
+    """Ángulo del miembro en la pose impresa: la pose sentada de la cadera, o el del brazo (`DetentSpec.print_angle`)."""
+    if spec.kind == "leg":
+        return float(p.sit_angle) if sit else 0.0
+    return float(dspec.print_angle)
+
+
+def _detent_sweep(spec: LimbSpec, p: Params):
+    """Rango del barrido con clic: la cadera hasta el tope (como el hongo); el brazo da la vuelta completa (None)
+    salvo que el miembro declare `sweep_deg`."""
+    if spec.sweep_deg is not None:
+        return tuple(spec.sweep_deg)
+    return (0.0, p.sit_angle + p.hip_margin) if spec.kind == "leg" else None
 
 
 def _decimate_keeping_clearance(pieces: dict, p: Params, tol: float = 0.02) -> S.Manifold:
@@ -217,7 +268,8 @@ def _nonmanifold_edges(mf: S.Manifold) -> int:
 
 
 def validate(res: BuildResult, p: Params, limbs: list[LimbSpec], sit: bool = True,
-             sweep_check_step: float = 2.5, joints: list[JointSpec] | None = None) -> dict:
+             sweep_check_step: float = 2.5, joints: list[JointSpec] | None = None,
+             detent_free_step: float = 10.0) -> dict:
     out: dict = {"ok": True, "problems": [], "avisos": [], "avisos_pasador": [], "pieces": {}, "gaps": {}}
     torso = res.pieces["torso"]
     for name, info in res.report.get("limbs", {}).items():
@@ -252,16 +304,22 @@ def validate(res: BuildResult, p: Params, limbs: list[LimbSpec], sit: bool = Tru
             out["problems"].append(f"{name}: no es variedad estanca")
         if name == "torso" and comps != 1:
             out["problems"].append(f"torso: {comps} componentes (debería ser 1, soldado)")
+    clearance_of = {}          # holgura mínima exigida por pieza: con clic, la punta deja `detent_gap` contra el disco
+    for lname, dl in res.detent.items():
+        for pn in _limb_piece_names(res, lname):
+            for side in ("_izq", "_der"):
+                clearance_of[f"{pn}{side}"] = min(p.clearance, dl.spec.detent_gap)
     for name, mf in res.pieces.items():
         if name == "torso":
             continue
         inter = (mf ^ torso).volume()
         gap = mf.min_gap(torso, 5.0)
         out["gaps"][name] = round(float(gap), 4)
+        need_gap = clearance_of.get(name, p.clearance)
         if inter > 1e-6:
             out["problems"].append(f"{name}: interpenetra el torso ({inter:.4f} mm³)")
-        elif gap < p.clearance - 0.1 * p.clearance - 1e-6 and gap < 5.0:
-            out["problems"].append(f"{name}: holgura mínima {gap:.3f} mm < {p.clearance:.3f} mm")
+        elif gap < need_gap - 0.1 * need_gap - 1e-6 and gap < 5.0:
+            out["problems"].append(f"{name}: holgura mínima {gap:.3f} mm < {need_gap:.3f} mm")
     names = [n for n in res.pieces if n != "torso"]
     for i, a in enumerate(names):
         for b in names[i + 1:]:
@@ -276,12 +334,14 @@ def validate(res: BuildResult, p: Params, limbs: list[LimbSpec], sit: bool = Tru
         if a1 <= a0:
             continue
         worst = 0.0
+        ref = res.detent_ref if (name in res.detent and res.detent_ref is not None) else torso   # sin la deflexión elástica de las lengüetas
         for ang in np.arange(a0, a1 + 1e-9, sweep_check_step):
-            worst = max(worst, (S.rotate_about_axis(limb0, center, axis, ang) ^ torso).volume())
+            worst = max(worst, (S.rotate_about_axis(limb0, center, axis, ang) ^ ref).volume())
         out["recorrido"][name] = round(float(worst), 5)
         if worst > 1e-4:
             out["problems"].append(f"{name}: interfiere con el torso durante el giro ({worst:.4f} mm³)")
     out["cadera"] = _validate_hip_pin(res, p, limbs, out)
+    out["detent"] = _validate_detent(res, p, out, detent_free_step)
     out["articulaciones"] = _validate_joints(res, p, joints, out, sweep_check_step)
     out["cadena"] = _validate_chain(res, p, out)
     out["ok"] = not out["problems"]
@@ -320,7 +380,9 @@ def _validate_hip_pin(res: BuildResult, p: Params, limbs: list[LimbSpec], out: d
         if spec.kind != "leg" or r is None:
             continue
         pin = _pin_spec(spec, p)
-        w = hip_pin_walls(pin, r["pin_center"], r["pin_dir"], p.clearance)
+        d = np.asarray(r["pin_dir"], float)
+        shift = r.get("pin_shift_mm", 0.0)          # con clic el hongo queda `disc_h` mm más adentro
+        w = hip_pin_walls(pin, np.asarray(r["pin_center"], float) + d / np.linalg.norm(d) * shift, r["pin_dir"], p.clearance)
         info[spec.name] = {k: round(float(v), 3) for k, v in w.items()}
         if w["pared_mm"] < p.min_wall - 1e-9:
             out["problems"].append(f"{spec.name}: la pared tras la cabeza del pasador queda en {w['pared_mm']:.2f} mm "
@@ -336,6 +398,69 @@ def _validate_hip_pin(res: BuildResult, p: Params, limbs: list[LimbSpec], out: d
 
 RETENTION_MM = 1.0
 JOINT_TOL_MM3 = 1e-4
+
+
+def _validate_detent(res: BuildResult, p: Params, out: dict, step: float) -> dict:
+    """Mecanismo de clic (plan de clic §6): deformación de la lengüeta, pared sobre ella y raíz lejos del plano de
+    simetría, lengüetas dentro de la piel, clic en la pose impresa, giro libre y clics alcanzables, par estimado."""
+    info: dict = {}
+    for lname, dl in res.detent.items():
+        sp = dl.spec
+        rec = DT.summary(dl)
+        rec.pop("spec", None)
+        eps = DT.tongue_strain(sp)
+        if eps > sp.max_strain:
+            out["problems"].append(f"{lname}: lengüeta del clic con deformación {100 * eps:.2f} % > {100 * sp.max_strain:.1f} % "
+                                   "(alargala, afinala o bajá la profundidad de la muesca)")
+        if sp.notch_depth <= sp.detent_gap:
+            out["problems"].append(f"{lname}: profundidad de muesca ({sp.notch_depth}) ≤ holgura punta/muesca ({sp.detent_gap}): no hace clic")
+        if sp.slit_w < 2 * p.nozzle * 0.5 - 1e-9:
+            out["avisos"].append(f"{lname}: ranura del clic de {sp.slit_w} mm < 1 línea de boquilla ({p.nozzle} mm): se puede fusionar")
+        if sp.finger_t < 3 * p.nozzle - 1e-9:
+            out["avisos"].append(f"{lname}: lengüeta de {sp.finger_t} mm < 3 líneas de boquilla")
+        torque = DT.hold_torque(sp)
+        if torque < sp.hold_torque_min:
+            out["avisos"].append(f"{lname}: par de retención estimado {torque:.1f} N·mm < {sp.hold_torque_min:g} (estimación: "
+                                 "subí finger_w o notch_depth y calibrá con probetas)")
+        elif torque > sp.move_torque_max:
+            out["avisos"].append(f"{lname}: par de retención estimado {torque:.1f} N·mm > {sp.move_torque_max:g}: cuesta mover la pose")
+        if rec.get("ajuste_lengueta"):
+            out["avisos"].append(f"{lname}: {rec['ajuste_lengueta']}")
+        if rec["lado_torso"] < 0 and rec["raiz_x"] < p.min_wall - 1e-6:
+            out["problems"].append(f"{lname}: la raíz de la lengüeta queda a {rec['raiz_x']:.2f} mm del plano de simetría (< {p.min_wall:g} mm)")
+        wall = res.report["detent"][lname].get("pared_sobre_lengueta_mm")
+        rec["pared_sobre_lengueta_mm"] = wall
+        if wall is None:
+            out["avisos"].append(f"{lname}: no se pudo medir la pared sobre la lengüeta")
+        elif wall < 2 * p.nozzle:
+            out["problems"].append(f"{lname}: la pared de torso sobre la lengüeta es de {wall:.2f} mm < 2 líneas de boquilla")
+        elif wall < p.min_wall:
+            out["avisos"].append(f"{lname}: la pared de torso sobre la lengüeta es de {wall:.2f} mm < {p.min_wall:g} mm")
+        prot = dl.info.get("protrusion_mm3", 0.0)
+        rec["protrusion_mm3"] = prot
+        if prot > 1e-3:
+            out["avisos"].append(f"{lname}: las lengüetas sobresalen de la piel original ({prot:.3f} mm³): se verá un bulto")
+        dm = res.report["limbs"][lname].get("disc_margin_mm")
+        if dm is not None and dm < 0:
+            out["avisos"].append(f"{lname}: el disco del clic sobresale {-dm:.2f} mm de la cara de contacto del miembro")
+        rec["clic_por_giro"] = DT.click_table(dl)
+        at_print = rec["clic_por_giro"].get(f"{0.0:g}")
+        if at_print and (at_print["interf_punta_disco_mm3"] > 1e-3 or at_print["dist_punta_disco_mm"] < 0.9 * sp.detent_gap):
+            out["problems"].append(f"{lname}: la punta no queda libre en la muesca de la pose impresa "
+                                   f"(interferencia {at_print['interf_punta_disco_mm3']} mm³, distancia {at_print['dist_punta_disco_mm']} mm)")
+        own = {f"{pn}{side}" for pn in _limb_piece_names(res, lname) for side in ("_izq", "_der")}
+        blockers = {"torso": res.detent_ref if res.detent_ref is not None else res.pieces["torso"]}
+        blockers.update({n: mf for n, mf in res.pieces.items() if n != "torso" and n not in own})
+        fr = DT.free_range(dl, blockers, step)
+        rec["giro_libre"] = fr
+        if dl.print_angle in fr["clics_descartados"] or any(abs(a - dl.print_angle) < 1e-6 for a in fr["clics_descartados"]):
+            out["problems"].append(f"{lname}: el clic de la pose impresa ({dl.print_angle:g}°) cae fuera del giro libre")
+        for a in fr["clics_descartados"]:
+            if abs(a - dl.print_angle) > 1e-6:
+                hit = fr["interferencias"].get(f"{a:g}", {})
+                out["avisos"].append(f"{lname}: clic a {a:g}° descartado (toca {', '.join(hit) or 'otra pieza'})")
+        info[lname] = rec
+    return info
 
 
 def posed_pieces(res: BuildResult, hip_angle: float, flex: dict | None = None,
@@ -574,15 +699,21 @@ def flat_for_print(res: BuildResult, depth: float = 1.0, p: Params | None = None
     depth = float(depth)
     pieces = dict(res.pieces)
     info: dict = {"corte_sobre_cola_mm": depth, "avisos": []}
-    arm_limbs = [n for n, (_l, _c, _a, (a0, a1)) in res.motion.items() if n != HEAD_NAME and a1 <= a0]
+    arm_limbs = [n for n, (_l, _c, _a, (a0, a1)) in res.motion.items() if n != HEAD_NAME and a1 <= a0 and n not in res.detent]
+    for n in res.detent:
+        if n in res.motion and res.motion[n][3][1] <= res.motion[n][3][0]:
+            info["avisos"].append(f"{n}: el brazo con clic ya está en una muesca: sin soportes no lo gira (si queda en el aire, "
+                                  "cambiá `DetentSpec.print_angle` para que el clic coincida con la pose de apoyo)")
     arm_pieces = {f"{pn}{side}" for n in arm_limbs for pn in _limb_piece_names(res, n) for side in ("_izq", "_der")}
+    protected = arm_pieces | {f"{pn}{side}" for n in res.detent if res.motion[n][3][1] <= res.motion[n][3][0]
+                              for pn in _limb_piece_names(res, n) for side in ("_izq", "_der")}
     z_cut = pieces["torso"].bounding_box()[2] + depth
     info["altura_corte_z"] = round(float(z_cut), 3)
     # 1. aplanar piernas y cola (todo menos brazos y cabeza)
     above = S.Manifold.cube((1e4, 1e4, 1e4)).translate((-5e3, -5e3, z_cut))
     removed: dict = {}
     for name, mf in list(pieces.items()):
-        if name in arm_pieces or name == HEAD_NAME or mf.bounding_box()[2] >= z_cut:
+        if name in protected or name == HEAD_NAME or mf.bounding_box()[2] >= z_cut:
             continue
         before_parts = len(mf.decompose())
         cut = S.intersection(mf, above)
@@ -686,7 +817,8 @@ def export(res: BuildResult, outdir: str, name: str = "figura", orient: bool | s
     info: dict = {}
     if flat is not None:
         pieces, rep = flat_for_print(res, flat, params)
-        res = BuildResult(pieces=pieces, report=res.report, motion=res.motion, joints=res.joints)
+        res = BuildResult(pieces=pieces, report=res.report, motion=res.motion, joints=res.joints, detent=res.detent,
+                          detent_ref=res.detent_ref)
         info["sin_soportes"] = rep
     if orient:
         o = print_orientation(res, max_angle, extra_tilts, mode="auto" if orient == "auto" else "pose")
