@@ -27,6 +27,9 @@ _Plan de referencia: `PLAN_herramienta_stl_articulable.md` y `PLAN_mecanismo_cli
 ---
 
 ## Current Focus (anterior)
+**Sin soportes con rodillas: piernas estiradas (2026-10-19):** al activar «Modificar para imprimir sin soportes» o al usar «Ajustar la altura del corte», la rodilla va a 0° (muslo y pantorrilla alineados y horizontales sobre el plano) en la vista de pose y en la exportación. Pendiente: probar en la GUI real con Güemes.
+
+**Anterior:**
 **Mecanismo de clic print-in-place en hombro y cadera implementado (2026-10-19)** (plan de clic, fases 0–6 de código): falta imprimir las probetas (Fase 0 física), el banco de ciclos (Fase 7) y calibrar medidas.
 
 ## Todo List
@@ -39,6 +42,7 @@ _Plan de referencia: `PLAN_herramienta_stl_articulable.md` y `PLAN_mecanismo_cli
 ### [/] In Progress
 - [/] Calibración con probetas físicas.
 ### [x] Done
+- [x] Sin soportes con rodilla (2026-10-19): `pipeline.straight_leg_flex` + paso 0 de `flat_for_print` (pantorrilla a flexión 0°, `print_hip` en el informe de la articulación); `Controller.legs_straight/set_flat_print` y casilla conectada en la ventana; la vista de pose muestra las piernas estiradas con la casilla o mientras se ajusta el corte. Tests nuevos en `test_flat_print.py` y `test_gui_flat_plane.py` (82 pasan en flat/GUI/joints).
 - [x] `DetentSpec`, `Params.shoulder_detent/hip_detent`, `LimbSpec.mechanism/detent` (los `.proyecto` viejos siguen como hongo).
 - [x] `src/afm/detent.py`: disco con muescas, lengüetas, barrido de 360° como sólido de revolución, ajuste del largo al espacio, giro libre y clics descartados.
 - [x] `pipeline.build/validate`: hombro (vuelta completa, 4 clics desde la pose impresa) y cadera (0–95°, clics 0° y 90°); validación de ε, pared, protrusión, clic en pose impresa, par y juego.

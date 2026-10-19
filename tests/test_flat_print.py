@@ -120,3 +120,58 @@ def test_cli_flag_parses(tmp_path, monkeypatch):
     assert seen["flat"] == 2.5
     cli.main(["build", str(stl), str(proj), "--out", str(tmp_path / "o")])
     assert seen["flat"] is None
+
+
+# ---------------------------------------------------------------- rodillas estiradas (muslo y pantorrilla horizontales)
+@pytest.fixture(scope="module")
+def knee_doll():
+    import dataclasses
+
+    from afm.planes import Plane
+    from afm.joints import JointSpec
+    from afm.project import demo_project
+    from afm.testfigure import make_doll
+
+    proj = demo_project()
+    params = dataclasses.replace(proj.params, decimate=0)
+    joint = JointSpec(name="rodilla", limb="pierna", kind="knee", plane=Plane.from_normal((0, 0, 14.0), (0, 0, 1), "art"),
+                      axis_center=(9.0, 0.0, 17.4))
+    res = P.build(S.to_manifold(make_doll()), proj.limbs, params, proj.symmetry, head=proj.head, joints=[joint])
+    return res, params
+
+
+def extent(mf):
+    b = mf.bounding_box()
+    return b[3] - b[0], b[4] - b[1], b[5] - b[2]
+
+
+def test_straight_leg_flex_only_covers_leg_joints(knee_doll):
+    res, _p = knee_doll
+    assert P.straight_leg_flex(res) == {"rodilla": 0.0}
+    assert res.report["joints"]["rodilla"]["print_hip"] == 90.0
+
+
+def test_posed_leg_with_zero_flex_is_horizontal_like_the_thigh(knee_doll):
+    res, params = knee_doll
+    bent = P.posed_pieces(res, params.sit_angle)
+    straight = P.posed_pieces(res, params.sit_angle, P.straight_leg_flex(res))
+    _dx, dy, dz = extent(bent["pantorrilla_izq"])
+    assert dz > dy                                    # flexionada 85°: la pantorrilla cuelga (vertical)
+    _dx, dy, dz = extent(straight["pantorrilla_izq"])
+    assert dy > dz                                    # estirada: horizontal, como el muslo
+    mt, ms = straight["muslo_izq"].bounding_box(), straight["pantorrilla_izq"].bounding_box()
+    assert ms[2] >= mt[2] - 1e-6 and ms[5] <= mt[5] + 1e-6          # dentro de la altura del muslo
+    assert ms[4] > mt[4] - 1e-6                                       # sigue hacia adelante (+Y), no vuelve
+
+
+def test_flat_print_stretches_knees_and_both_leg_pieces_rest_on_the_plane(knee_doll):
+    res, params = knee_doll
+    pieces, info = P.flat_for_print(res, 1.0, params)
+    assert info["rodillas_estiradas"] == {"rodilla": {"flexion_grados": 0.0, "flexion_impresa_grados": params.knee_print_angle}}
+    z_cut = info["altura_corte_z"]
+    for side in ("izq", "der"):
+        assert zmin(pieces[f"muslo_{side}"]) == pytest.approx(z_cut, abs=1e-3)
+        assert zmin(pieces[f"pantorrilla_{side}"]) == pytest.approx(z_cut, abs=1e-3)      # antes colgaba por debajo del plano
+        dx, dy, dz = extent(pieces[f"pantorrilla_{side}"])
+        assert dy > dz
+    assert not any("pantorrilla" in a and "sueltas" in a for a in info["avisos"])
