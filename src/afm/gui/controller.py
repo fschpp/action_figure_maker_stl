@@ -698,37 +698,66 @@ class Controller:
                       scene=False)
         return True
 
-    def export_probes(self, outdir: str, which: str = "hip", clearances=None, shaft_deltas=None) -> dict | None:
-        """Escribe la placa de probetas (`probetas.stl` + `probetas.txt`) con los parámetros actuales.
+    def begin_export_probes(self, outdir: str, which: str = "hip", clearances=None, shaft_deltas=None):
+        """Valida y devuelve el trabajo pesado ``job(progress=None) -> dict`` que escribe la placa de probetas
+        (`probetas.stl` + `probetas.txt`), apto para un hilo; después hay que llamar `finish_export_probes`.
         `which`: «hip» (cadera), «shoulder» (hombro) o «hinge» (bisagra de rodilla/codo) a variar."""
-        import os
-        from .. import probes, solids as S
+        if self.busy:
+            return None
+        self.busy = True
+        self._changed("Generando las probetas… puede tardar.", scene=False)
         p = self.session.project.params
-        kw = {}
-        if clearances is not None:
-            kw["clearances"] = clearances
-        if which == "hinge":      # rodilla / codo: `shaft_deltas` varía el Ø del bulón
-            if shaft_deltas is not None:
-                kw["pin_deltas"] = shaft_deltas
-            cells = probes.hinge_probe_cells(p, **kw)
-            mesh, text = probes.build_hinge_probe(p, cells), probes.hinge_labels_text(cells)
-        else:
-            base = p.hip_pin if which == "hip" else p.shoulder_pin
-            if shaft_deltas is not None:
-                kw["shaft_deltas"] = shaft_deltas
-            cells = probes.probe_cells(p, base=base, **kw)
-            mesh, text = probes.build_probe(p, cells), probes.labels_text(cells)
-        os.makedirs(outdir, exist_ok=True)
-        stl = os.path.join(outdir, "probetas.stl")
-        S.to_trimesh(mesh).export(stl)
-        txt = os.path.join(outdir, "probetas.txt")
-        with open(txt, "w") as f:
-            f.write(text + "\n")
+
+        def job(progress=None) -> dict:
+            import os
+            from .. import probes, solids as S
+            kw = {}
+            if clearances is not None:
+                kw["clearances"] = clearances
+            if which == "hinge":      # rodilla / codo: `shaft_deltas` varía el Ø del bulón
+                if shaft_deltas is not None:
+                    kw["pin_deltas"] = shaft_deltas
+                cells = probes.hinge_probe_cells(p, **kw)
+                mesh, text = probes.build_hinge_probe(p, cells), probes.hinge_labels_text(cells)
+            else:
+                base = p.hip_pin if which == "hip" else p.shoulder_pin
+                if shaft_deltas is not None:
+                    kw["shaft_deltas"] = shaft_deltas
+                cells = probes.probe_cells(p, base=base, **kw)
+                mesh, text = probes.build_probe(p, cells), probes.labels_text(cells)
+            os.makedirs(outdir, exist_ok=True)
+            stl = os.path.join(outdir, "probetas.stl")
+            S.to_trimesh(mesh).export(stl)
+            txt = os.path.join(outdir, "probetas.txt")
+            with open(txt, "w") as f:
+                f.write(text + "\n")
+            return {"stl": stl, "tabla": txt, "celdas": len(cells)}
+
+        return job
+
+    def finish_export_probes(self, info: dict | None, outdir: str, which: str = "hip",
+                             error: Exception | None = None) -> dict | None:
+        self.busy = False
+        if error is not None:
+            self._changed(f"Falló la generación de probetas: {error}", scene=False)
+            return None
         kind = {"hip": "cadera", "shoulder": "hombro", "hinge": "bisagra de rodilla/codo"}.get(which, which)
-        self._changed(f"Probetas ({len(cells)} articulaciones, pasador de {kind}) "
+        self._changed(f"Probetas ({info['celdas']} articulaciones, pasador de {kind}) "
                       f"en {outdir}. Imprimilas, cargá en «Parámetros» la combinación elegida y guardala en el perfil.",
                       scene=False)
-        return {"stl": stl, "tabla": txt, "celdas": len(cells)}
+        return info
+
+    def export_probes(self, outdir: str, which: str = "hip", clearances=None, shaft_deltas=None) -> dict | None:
+        """Escribe la placa de probetas con los parámetros actuales (sin hilos: pruebas y uso programático)."""
+        job = self.begin_export_probes(outdir, which, clearances, shaft_deltas)
+        if job is None:
+            return None
+        try:
+            info = job()
+        except Exception:
+            self.busy = False
+            raise
+        return self.finish_export_probes(info, outdir, which)
 
     def apply_probe_result(self, clearance: float, shaft_d: float, which: str = "both") -> None:
         """Guarda en los parámetros la combinación holgura / Ø de vástago elegida con las probetas."""
@@ -1758,12 +1787,24 @@ class Controller:
         self.finish_generate(outcome)
         return outcome
 
-    def export(self, outdir: str, orient: bool = True, flat: bool = False) -> dict | None:
-        """Escribe las piezas, el ensamblado, el informe y el proyecto en `outdir`."""
+    def begin_export(self, outdir: str, orient: bool = True, flat: bool = False):
+        """Como `begin_generate`: valida y devuelve el trabajo pesado ``job(progress=None) -> dict`` (apto para un hilo).
+        Al terminar hay que llamar `finish_export` desde el hilo de la interfaz. None (con el motivo en `message`) si no se puede."""
+        if self.busy:
+            return None
         if self.session.outcome is None:
             self._changed("Primero generá la figura (los cambios posteriores invalidan el resultado).", scene=False)
             return None
-        info = self.session.export(outdir, orient=orient, max_angle=self.overhang_angle, flat=flat)
+        self.busy = True
+        self._changed("Exportando las piezas… puede tardar.", scene=False)
+        sess, angle = self.session, self.overhang_angle
+        return lambda progress=None: sess.export(outdir, orient=orient, max_angle=angle, flat=flat)
+
+    def finish_export(self, info: dict | None, outdir: str, error: Exception | None = None) -> dict | None:
+        self.busy = False
+        if error is not None:
+            self._changed(f"Falló la exportación: {error}", scene=False)
+            return None
         files = info["archivos"]
         msg = f"Exportado en {outdir}: ensamblada + {len(files['piezas'])} piezas."
         ori = files.get("orientacion")
@@ -1778,6 +1819,18 @@ class Controller:
                 msg += " AVISO: " + "; ".join(ss["avisos"])
         self._changed(msg, scene=False)
         return info
+
+    def export(self, outdir: str, orient: bool = True, flat: bool = False) -> dict | None:
+        """Escribe las piezas, el ensamblado, el informe y el proyecto en `outdir` (sin hilos: pruebas y uso programático)."""
+        job = self.begin_export(outdir, orient=orient, flat=flat)
+        if job is None:
+            return None
+        try:
+            info = job()
+        except Exception:
+            self.busy = False
+            raise
+        return self.finish_export(info, outdir)
 
     # ---------------------------------------------------------------- escena
     def sync(self, scene) -> None:

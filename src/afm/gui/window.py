@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import threading
+import time
 
 import gi
 
@@ -42,6 +43,7 @@ _CSS = b"""
             border-radius: 4px; padding: 6px 8px; }
 .afm-help-icon { opacity: 0.55; }
 .afm-help-text { font-size: 0.9em; font-style: italic; opacity: 0.75; }
+.afm-task { font-weight: 600; }
 .afm-cube-btn { color: #e6e8ec; background: alpha(#000, 0.35); border-radius: 6px; padding: 2px 10px; min-height: 0; }
 .afm-cube-btn:hover { background: alpha(#00ae42, 0.8); }
 """
@@ -135,10 +137,12 @@ class MainWindow(Gtk.ApplicationWindow):
 
     def _build_header(self) -> Gtk.HeaderBar:
         bar = Gtk.HeaderBar()
+        self.btn_open = []
         for label, cb in (("Abrir STL…", self._on_open_stl), ("Abrir proyecto…", self._on_open_project)):
             b = Gtk.Button(label=label)
             b.connect("clicked", cb)
             bar.pack_start(b)
+            self.btn_open.append(b)
         self.btn_save = Gtk.Button(label="Guardar proyecto…")
         self.btn_save.connect("clicked", self._on_save_project)
         bar.pack_end(self.btn_save)
@@ -221,7 +225,16 @@ class MainWindow(Gtk.ApplicationWindow):
         scroller.set_max_content_height(height)
         scroller.set_size_request(-1, height)
         scroller.set_child(self.status_view)
-        frame = Gtk.Frame(label="Estado")
+        self._task: dict | None = None                       # tarea larga en curso (ver `_run_task`)
+        self.spinner = Gtk.Spinner(visible=False)
+        self.lbl_task = Gtk.Label(xalign=0)
+        self.lbl_task.add_css_class("afm-task")
+        head = Gtk.Box(spacing=6)
+        head.append(Gtk.Label(label="Estado"))
+        head.append(self.spinner)
+        head.append(self.lbl_task)
+        frame = Gtk.Frame()
+        frame.set_label_widget(head)
         for side in ("start", "end", "bottom"):
             getattr(frame, f"set_margin_{side}")(6)
         frame.set_child(scroller)
@@ -528,9 +541,12 @@ class MainWindow(Gtk.ApplicationWindow):
             mode_title = "  ·  dibujando recorte" if ctrl.mode == Mode.POLYGON and ctrl.trim_cfg else _MODE_TITLES[ctrl.mode]
             self.set_title(title + mode_title)
             loaded = ctrl.loaded
-            for b in (self.btn_crown, self.btn_sym, self.btn_sym_auto, self.btn_save, self.dd_front, self.chk_side,
+            for b in (self.btn_crown, self.btn_sym, self.btn_sym_auto, self.dd_front, self.chk_side,
                       self.chk_over, self.spin_over):
                 b.set_sensitive(loaded)
+            self.btn_save.set_sensitive(loaded and not ctrl.busy)
+            for b in self.btn_open:
+                b.set_sensitive(not ctrl.busy)          # no se cambia de archivo en medio de una tarea
             has_sym = ctrl.session.project.symmetry is not None
             self.btn_arm.set_sensitive(loaded and has_sym)
             self.btn_leg.set_sensitive(loaded and has_sym)
@@ -894,29 +910,59 @@ class MainWindow(Gtk.ApplicationWindow):
 
         dlg.open(self, None, finished)
 
-    def _on_generate(self) -> None:
-        """Corre la generación en un hilo (la interfaz sigue viva) y vuelve al hilo principal para informar."""
-        job = self.ctrl.begin_generate()
-        if job is None:
-            return
+    # ------------------------------------------------------- tareas largas
+    @staticmethod
+    def _fmt_elapsed(sec: float) -> str:
+        sec = int(sec)
+        h, rem = divmod(sec, 3600)
+        m, sc = divmod(rem, 60)
+        return f"{h}:{m:02d}:{sc:02d}" if h else f"{m}:{sc:02d}"
+
+    def _run_task(self, label: str, job, done, done_label: str = "Terminado") -> None:
+        """Corre `job(progress)` en un hilo (la interfaz sigue viva) y llama `done(resultado, error)` en el hilo principal.
+
+        Mientras tanto el panel Estado muestra un spinner y un cronómetro con el tiempo transcurrido, para que se vea
+        que el programa trabaja y no está colgado."""
+        self._task = {"label": label, "done": done_label, "t0": time.monotonic()}
+        self.spinner.set_visible(True)
+        self.spinner.start()
+        self._task_tick()
+        GLib.timeout_add(200, self._task_tick)
 
         def work() -> None:
             try:
-                outcome = job(lambda text: GLib.idle_add(self._progress_idle, text))
+                result = job(lambda text: GLib.idle_add(self._progress_idle, text))
             except Exception as e:          # noqa: BLE001 — se informa en el estado
-                GLib.idle_add(self._finish_idle, None, e)
+                GLib.idle_add(self._task_done_idle, done, None, e)
             else:
-                GLib.idle_add(self._finish_idle, outcome, None)
+                GLib.idle_add(self._task_done_idle, done, result, None)
 
-        threading.Thread(target=work, daemon=True, name="afm-generate").start()
+        threading.Thread(target=work, daemon=True, name="afm-task").start()
+
+    def _task_tick(self) -> bool:
+        t = self._task
+        if t is None:
+            return False                    # terminó: se corta el temporizador
+        self.lbl_task.set_text(f"{t['label']} · {self._fmt_elapsed(time.monotonic() - t['t0'])}")
+        return True
+
+    def _task_done_idle(self, done, result, error) -> bool:
+        t, self._task = self._task, None
+        self.spinner.stop()
+        self.spinner.set_visible(False)
+        took = self._fmt_elapsed(time.monotonic() - t["t0"]) if t else ""
+        self.lbl_task.set_text((f"✗ Falló a los {took}" if error else f"✓ {t['done']} en {took}") if t else "")
+        done(result, error)
+        return False
 
     def _progress_idle(self, text: str) -> bool:
         self.ctrl.report_progress(text)
         return False                        # no repetir
 
-    def _finish_idle(self, outcome, error) -> bool:
-        self.ctrl.finish_generate(outcome, error)
-        return False
+    def _on_generate(self) -> None:
+        job = self.ctrl.begin_generate()
+        if job is not None:
+            self._run_task("Generando la figura", job, lambda outcome, err: self.ctrl.finish_generate(outcome, err), "Figura generada")
 
     def _on_export(self) -> None:
         dlg = Gtk.FileDialog(title="Carpeta donde exportar las piezas")
@@ -926,10 +972,17 @@ class MainWindow(Gtk.ApplicationWindow):
                 f = d.select_folder_finish(res)
             except GLib.Error:
                 return
-            try:
-                self.ctrl.export(f.get_path(), orient=self.chk_orient.get_active(), flat=self.chk_flat.get_active())
-            except Exception as e:          # noqa: BLE001
-                self._error(e)
+            outdir = f.get_path()
+            job = self.ctrl.begin_export(outdir, orient=self.chk_orient.get_active(), flat=self.chk_flat.get_active())
+            if job is None:
+                return
+
+            def done(info, err) -> None:
+                self.ctrl.finish_export(info, outdir, err)
+                if err is not None:
+                    self._error(err)
+
+            self._run_task("Exportando las piezas", job, done, "Piezas exportadas")
 
         dlg.select_folder(self, None, finished)
 
@@ -967,10 +1020,17 @@ class MainWindow(Gtk.ApplicationWindow):
                 f = d.select_folder_finish(res)
             except GLib.Error:
                 return
-            try:
-                self.ctrl.export_probes(f.get_path(), which=which)
-            except Exception as e:          # noqa: BLE001
-                self._error(e)
+            outdir = f.get_path()
+            job = self.ctrl.begin_export_probes(outdir, which=which)
+            if job is None:
+                return
+
+            def done(info, err) -> None:
+                self.ctrl.finish_export_probes(info, outdir, which, err)
+                if err is not None:
+                    self._error(err)
+
+            self._run_task("Generando las probetas", job, done, "Probetas generadas")
 
         dlg.select_folder(self, None, finished)
 
