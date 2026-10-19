@@ -3,6 +3,30 @@
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md` y `PLAN_mecanismo_clic_hombro_cadera.md`_
 
 ## Current Focus
+**Cintura articulada (2026-10-19, rama `cintura-giro`):** corte del torso por un plano de 3 puntos (`src/afm/waist.py`) y pasador de hongo robusto (`Params.waist_pin`: vástago Ø6, cabeza Ø10 × 3, pared 2 mm tras la cabeza) para que la figura gire a los costados. Falta imprimir y calibrar el pasador y probar con Güemes real.
+
+## Todo List
+### [ ] Todo
+- [ ] Probar la cintura con una figura real (Güemes / Link) y en GTK real (botón «Agregar cintura…», fila «Cintura (giro)»).
+- [ ] Imprimir el pasador de cintura (probeta específica: hoy `probes.py` no la tiene) y calibrar Ø / holgura; decidir si hace falta un anillo-guía anti-cabeceo (un solo pasador central deja algo de juego a flexión).
+- [ ] Botón/campo en la GUI para `pin_on` («upper»/«lower»), `twist_deg` y centro del pasador de la cintura (hoy solo en el `.proyecto`; el centro se propone solo).
+- [ ] Confirmar con el cliente: giro pedido por defecto (45° a cada lado) y si el pasador sale de la pelvis (hoy) o del pecho.
+### [/] In Progress
+- [/] Verificación de la suite completa con la cintura.
+### [x] Done
+- [x] `WaistSpec`, `build_waist` (corte con holgura `clearance`, pasador sobre el eje = normal del plano simetrizado, cavidad dilatada, ajuste del pasador a la cara), `Params.waist_pin/waist_twist`, `Project.waist` (los `.proyecto` viejos cargan igual).
+- [x] `pipeline.build(..., waist=)`: `torso` = pecho, `pelvis` = pelvis; `report["waist"]` con qué piezas giran con el pecho; `body_ref(res)` (pecho + pelvis) para medir los miembros; `validate` → `cintura` (pasador, pared, cautivo, giro libre cada 5°); «sin soportes» usa la pelvis como pieza más baja.
+- [x] GUI: `Mode.WAIST_PLANE`, botón, fila de plano, parámetros «Cintura: …», vista de pose con pecho y pelvis. Tutorial §7.2e.
+- [x] `tests/test_waist.py` (21) y `tests/test_gui_waist.py` (8).
+
+## Latest Blockers/Discoveries
+- Un plano de corte perpendicular al eje del pasador deja las dos mitades del torso separadas por una losa de `clearance`: ningún giro las acerca, así que la cintura no necesita barrido; lo único que puede chocar al girar son los miembros que cuelgan del pecho (brazos) contra pelvis/piernas, y eso se valida con el giro pedido.
+- El pasador sale de la pelvis hacia arriba: con la figura sentada y cabeza arriba, la cavidad del pecho queda techada por un puente corto; al revés la cabeza del hongo quedaría flotando.
+- Muñeco: cintura a z = 55 → `ok`, holgura pecho–pelvis 0,477 mm, 45° libres a cada lado, pasador achicado ×0,96 (cara angosta). Las aristas de 4 caras del torso/pelvis (26/149) ya existían en el torso sin cortar (187).
+
+---
+
+## Current Focus (anterior)
 **Sin soportes con rodillas: piernas estiradas (2026-10-19):** al activar «Modificar para imprimir sin soportes» o al usar «Ajustar la altura del corte», la rodilla va a 0° (muslo y pantorrilla alineados y horizontales sobre el plano) en la vista de pose y en la exportación. Pendiente: probar en la GUI real con Güemes.
 
 **Anterior:**

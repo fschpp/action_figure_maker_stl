@@ -70,6 +70,9 @@ class Params:
     shoulder_pin: PinSpec = field(default_factory=lambda: PinSpec(4.1, 2.5, 6.6, 1.65))
     hip_pin: PinSpec = field(default_factory=lambda: PinSpec(5.0, 4.1, 6.6, 2.5))
     neck_pin: PinSpec = field(default_factory=lambda: PinSpec(4.1, 2.5, 6.6, 1.65))   # cabeza: misma tecnología que el hombro
+    # Cintura (waist.py): mismo hongo que el hombro pero más robusto (vástago Ø6, cabeza Ø10 × 3, pared ≥ 2 mm tras la cabeza)
+    waist_pin: PinSpec = field(default_factory=lambda: PinSpec(6.0, 3.0, 10.0, 3.0))
+    waist_twist: float = 45.0        # giro a cada lado de la cintura que se valida contra brazos/piernas (°)
     sit_angle: float = 90.0          # pose sentada (hacia adelante)
     hip_margin: float = 5.0          # recorte del límite de cadera hasta sit_angle + margen
     sweep_step: float = 5.0          # paso angular del volumen barrido
@@ -113,7 +116,7 @@ class Params:
     @classmethod
     def from_dict(cls, d: dict) -> "Params":
         d = dict(d)
-        for k in ("shoulder_pin", "hip_pin", "neck_pin"):
+        for k in ("shoulder_pin", "hip_pin", "neck_pin", "waist_pin"):
             if k in d and isinstance(d[k], dict):
                 d[k] = PinSpec(**d[k])
         if isinstance(d.get("detent"), dict):
