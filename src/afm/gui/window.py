@@ -484,6 +484,11 @@ class MainWindow(Gtk.ApplicationWindow):
         self.btn_flat_plane.set_tooltip_text("Muestra la figura generada sentada, de costado, con el plano horizontal del corte «sin soportes». "
                                              "Clic a la altura que querés, o ↑ ↓ (Mayús = 1 mm). Esc termina.")
         sub.append(self.btn_flat_plane)
+        self.btn_flat_click = self._button("Ajustar el clic del brazo para que apoye sin soportes (hay que generar de nuevo)",
+                                           lambda *_: self._on_flat_click())
+        self.btn_flat_click.set_tooltip_text("El brazo con clic no se puede girar después de generar: su pose la fija la fase de los clics. "
+                                             "Pone «Clic: ángulo del brazo al imprimir» en el ángulo en que el brazo apoya en el plano del corte.")
+        sub.append(self.btn_flat_click)
         _help(sec, "Las piezas se exportan con el botón «Exportar piezas…» de la barra superior, junto a «Guardar proyecto…».")
 
         self.sidebar_box = self.tabs                  # lo que se desactiva mientras se genera
@@ -576,6 +581,7 @@ class MainWindow(Gtk.ApplicationWindow):
             self.btn_generate.set_sensitive(loaded and not ctrl.busy)
             self.btn_export.set_sensitive(ctrl.session.outcome is not None and not ctrl.busy)
             self.btn_flat_plane.set_sensitive(ctrl.session.outcome is not None and not ctrl.busy)
+            self.btn_flat_click.set_sensitive(ctrl.session.outcome is not None and not ctrl.busy)
             editing = ctrl.mode == Mode.POLYGON
             for b in (self.btn_close_poly, self.btn_propose, self.btn_outline, self.btn_clear_poly, self.btn_end_poly):
                 b.set_sensitive(editing)
@@ -857,6 +863,10 @@ class MainWindow(Gtk.ApplicationWindow):
     # ------------------------------------------------------------------ acciones
     def _on_flat_toggled(self, on: bool) -> None:
         self.ctrl.set_flat_print(on)
+        self.gl.queue_render()
+
+    def _on_flat_click(self) -> None:
+        self.ctrl.apply_flat_click_angle()
         self.gl.queue_render()
 
     def _on_flat_plane(self) -> None:

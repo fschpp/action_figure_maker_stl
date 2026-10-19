@@ -1119,6 +1119,34 @@ class Controller:
         self._pose_cache = (out, angle, straight, pieces)
         return pieces
 
+    def flat_click_advice(self) -> dict:
+        """Brazos con clic que no apoyan en el plano del corte actual (ver `pipeline.flat_click_advice`). {} sin figura."""
+        out = self.session.outcome
+        if out is None:
+            return {}
+        from ..pipeline import flat_click_advice
+        return flat_click_advice(out.result, float(self.session.project.params.flat_depth))
+
+    def apply_flat_click_angle(self) -> bool:
+        """Pone «Clic: ángulo del brazo al imprimir» en el ángulo en que el brazo apoya en el plano del corte «sin
+        soportes». Cambia la fase de los clics: invalida la figura y hay que generar de nuevo."""
+        adv = {n: a for n, a in self.flat_click_advice().items() if a["angulo_apoyo"] is not None}
+        if not adv:
+            self._changed("Ningún brazo con clic necesita otro ángulo para apoyar en el plano del corte.", scene=False)
+            return False
+        angle = max(a["angulo_apoyo"] for a in adv.values())            # hoy hay un solo brazo con clic: el parámetro es global
+        return self.set_param("detent.print_angle", round(angle))
+
+    def flat_click_note(self) -> str:
+        adv = self.flat_click_advice()
+        if not adv:
+            return ""
+        a = next(iter(adv.values()))
+        if a["angulo_apoyo"] is None:
+            return f" El brazo con clic cuelga {a['cuelga_mm']:.1f} mm bajo el plano y no llega a apoyar."
+        return (f" El brazo con clic cuelga {a['cuelga_mm']:.1f} mm bajo el plano: para que apoye, el clic tiene que quedar a "
+                f"{a['angulo_apoyo']:.0f}° (ahora {a['angulo_actual']:.0f}°): usá «Ajustar el clic del brazo» y generá de nuevo.")
+
     def set_flat_print(self, on: bool) -> None:
         """Casilla «Modificar para imprimir sin soportes»: al activarla la figura generada se muestra sentada y con las
         piernas estiradas (es como se exporta); al apagarla vuelve la rodilla a la flexión de la pose impresa."""
@@ -1133,8 +1161,10 @@ class Controller:
             if not on:
                 return
             self.set_pose_view(True)                 # ya calcula el informe con las piernas estiradas
-            return
-        self._pose_update()
+        else:
+            self._pose_update()
+        if on and (note := self.flat_click_note()):
+            self._changed(self.message + note, scene=False)
 
     def pose_check(self, angle: float | None = None) -> dict | None:
         """Interferencias de la figura generada con las piernas giradas `angle` grados (None = el de la vista previa).
