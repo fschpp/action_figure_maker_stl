@@ -38,6 +38,10 @@ PARAM_GROUPS = ("Generales", "Pasador de hombro", "Pasador de cadera", "Mecanism
 _CSS = b"""
 .afm-section-title { font-weight: 700; padding: 4px 0; border-bottom: 1px solid alpha(currentColor, 0.2); }
 .afm-sub-title { font-weight: 600; opacity: 0.85; padding: 2px 0; }
+.afm-help { background: alpha(currentColor, 0.06); border-left: 3px solid alpha(currentColor, 0.30);
+            border-radius: 4px; padding: 6px 8px; }
+.afm-help-icon { opacity: 0.55; }
+.afm-help-text { font-size: 0.9em; font-style: italic; opacity: 0.75; }
 .afm-cube-btn { color: #e6e8ec; background: alpha(#000, 0.35); border-radius: 6px; padding: 2px 10px; min-height: 0; }
 .afm-cube-btn:hover { background: alpha(#00ae42, 0.8); }
 """
@@ -75,11 +79,18 @@ def _collapsible(parent: Gtk.Box, title: str, expanded: bool = True, sub: bool =
 
 
 def _help(parent: Gtk.Box, text: str) -> None:
-    """Texto de ayuda largo, plegado por defecto para no recargar la pantalla."""
-    body = _collapsible(parent, "Ayuda", expanded=False, sub=True)
-    lab = Gtk.Label(label=text, xalign=0, wrap=True)
-    lab.add_css_class("dim-label")
-    body.append(lab)
+    """Nota de ayuda: texto fijo (no se pliega ni se puede accionar), con ícono de información, fondo tenue y
+    borde lateral para distinguirla de los controles que configuran algo."""
+    box = Gtk.Box(spacing=8)
+    box.add_css_class("afm-help")
+    icon = Gtk.Image.new_from_icon_name("dialog-information-symbolic")
+    icon.set_valign(Gtk.Align.START)
+    icon.add_css_class("afm-help-icon")
+    lab = Gtk.Label(label=text, xalign=0, wrap=True, hexpand=True)
+    lab.add_css_class("afm-help-text")
+    box.append(icon)
+    box.append(lab)
+    parent.append(box)
 
 
 class MainWindow(Gtk.ApplicationWindow):
