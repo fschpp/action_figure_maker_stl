@@ -699,6 +699,28 @@ class Session:
                 spec.replacement_rx, spec.replacement_ry, spec.replacement_scale, spec.replacement_cut_points,
                 spec.plane.origin.tobytes(), spec.plane.normal.tobytes())
 
+    # ------------------------------------------------------------ mano estándar
+    def extract_hand(self, points, invert: bool = False):
+        """Corta la mano de la figura de trabajo por el plano de muñeca (3 puntos del marco de trabajo).
+
+        Devuelve (mano en el marco local de la mano estándar, `WristSplit`). No cambia el proyecto."""
+        from ..hand import extract_standard_hand
+
+        if self.work is None:
+            raise ValueError("Primero abrí una figura.")
+        return extract_standard_hand(S.to_manifold(self.work), points, invert=invert)
+
+    def save_hand(self, path: str, hand_local, split) -> dict:
+        """Guarda la mano estándar (STL + `.mano.json`) con la altura de figura y el nombre del STL de origen."""
+        import os
+
+        from ..hand import hand_meta, save_standard_hand
+
+        meta = hand_meta(split, height_mm=self.project.params.ref_height,
+                         source=os.path.basename(self.stl_path) if self.stl_path else "")
+        save_standard_hand(path, hand_local, meta)
+        return meta
+
     def head_replacement_preview(self):
         """(malla de la cabeza de reemplazo ya escalada y apoyada en el cuello, info del ajuste) o None.
 

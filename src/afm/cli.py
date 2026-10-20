@@ -32,6 +32,30 @@ def run(stl_path: str, project: Project, outdir: str, name: str, progress=print,
     return info
 
 
+def run_extract_hand(stl_path: str, project: Project, points, out_dir: str, name: str = "mano",
+                     invert: bool = False, progress=print) -> dict:
+    """Corta la mano de la figura por el plano de muñeca (3 puntos en el marco de trabajo de la GUI) y la guarda
+    como mano estándar (`<out>/<name>.stl` + `<name>.mano.json`). Usa la misma carga que `run`: altura, frente y
+    simetría del proyecto, así los puntos elegidos en la GUI valen tal cual."""
+    from . import hand as H
+
+    mesh, rep = meshio.load_figure(stl_path, project.params.ref_height, project.crown_z)
+    for w in rep.warnings:
+        progress(f"AVISO: {w}")
+    if project.front == "-Y":
+        mesh.apply_transform([[-1, 0, 0, 0], [0, -1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]])
+    mesh = P.align_to_symmetry(mesh, project.symmetry)
+    hand, split = H.extract_standard_hand(S.to_manifold(mesh), points, invert=invert)
+    meta = H.hand_meta(split, height_mm=project.params.ref_height, source=os.path.basename(stl_path))
+    path = os.path.join(out_dir, f"{name}.stl")
+    H.save_standard_hand(path, hand, meta)
+    meta["archivo"] = path
+    if abs(project.params.ref_height - H.LINE_HEIGHT_MM) > 0.5:
+        meta["aviso_altura"] = (f"la figura está a {project.params.ref_height:g} mm y la línea usa {H.LINE_HEIGHT_MM:g} mm: "
+                                "la mano estándar quedó medida a otra escala")
+    return meta
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="afm", description=__doc__)
     ap.add_argument("--version", action="version", version=f"afm {__version__}")
@@ -65,6 +89,15 @@ def main(argv=None) -> int:
     b.add_argument("--cadera-referencia", action="store_true",
                    help="usar el pasador de cadera de la figura de referencia (Ø4,8 / cabeza Ø9,25 × 2,44, mm absolutos)")
     b.add_argument("--max-angle", type=float, default=45.0, help="ángulo de voladizo tolerado (grados desde la vertical)")
+    e = sub.add_parser("extraer-mano", help="cortar la mano de una figura por un plano de muñeca de 3 puntos y guardarla como mano estándar")
+    e.add_argument("stl")
+    e.add_argument("proyecto", help="proyecto de la figura (altura, frente y simetría: los puntos se miden en ese marco)")
+    e.add_argument("--puntos", type=float, nargs=9, required=True, metavar="N",
+                   help="x1 y1 z1 x2 y2 z2 x3 y3 z3 de la muñeca izquierda (+X). El punto 1 es la referencia de giro: "
+                        "marcalo siempre en el mismo lugar (p. ej. lado del pulgar)")
+    e.add_argument("--out", default="out/mano")
+    e.add_argument("--name", default="mano")
+    e.add_argument("--invertir", action="store_true", help="la mano es el lado grande del corte (por defecto es el chico)")
     pr = sub.add_parser("probe", help="generar placa de probetas de articulación (§8.11)")
     pr.add_argument("--out", default="out/probetas")
     pr.add_argument("--clearances", default=None, help="holguras radiales a probar (mm)")
@@ -79,6 +112,20 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO)
     os.makedirs(args.out, exist_ok=True)
+    if args.cmd == "extraer-mano":
+        from .hand import HandError
+        try:
+            meta = run_extract_hand(args.stl, Project.load(args.proyecto), tuple(tuple(args.puntos[i:i + 3]) for i in (0, 3, 6)),
+                                    args.out, args.name, invert=args.invertir)
+        except HandError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
+        print(f"Mano estándar guardada en {meta['archivo']}")
+        print(f"  lado de origen: {meta['lado_origen']} · muñeca Ø{2 * meta['radio_muneca_mm']:.2f} mm · "
+              f"largo {meta['largo_mm']:.1f} mm · figura a {meta['altura_figura_mm']:g} mm")
+        if meta.get("aviso_altura"):
+            print("  AVISO:", meta["aviso_altura"])
+        return 0
     if args.cmd == "probe":
         from . import probes
         from .params import Params

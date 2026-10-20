@@ -42,6 +42,7 @@ class Mode(Enum):
     LIMB_PLANE = "plano_miembro"
     NECK_PLANE = "plano_cuello"
     HEAD_CUT_PLANE = "plano_corte_cabeza"   # 3 clics sobre la cabeza de reemplazo (naranja): plano que corta su base
+    HAND_EXTRACT = "extraer_mano"   # 3 clics en la muñeca izquierda: corta la mano y la deja lista para guardar como mano estándar
     WAIST_PLANE = "plano_cintura"   # 3 clics: corta el torso en pecho y pelvis con un pasador robusto (giro a los costados)
     POLYGON = "silueta"
     PIN = "pasador"
@@ -86,6 +87,7 @@ class PlaneEntry:
 
 _MIRROR_COLOR = (0.70, 0.78, 0.92, 1.0)      # el espejo se ve con un tinte azul para no confundirlo con el lado real
 _REPLACEMENT_HEAD_COLOR = (0.95, 0.62, 0.25, 1.0)      # cabeza de reemplazo en la vista 3D (naranja)
+_EXTRACTED_HAND_COLOR = (0.25, 0.85, 0.55, 1.0)         # mano extraída (aún sin guardar) en la vista 3D (verde)
 FLAT_NUDGE_MM = 0.1            # paso de las flechas al ajustar el plano de corte «sin soportes» (Mayús = 10 veces más)
 NUDGE_MM = 0.1                 # paso de las flechas al ajustar el pasador (Mayús = 10 veces más)
 
@@ -191,6 +193,8 @@ class Controller:
         self.edit_trim: int | None = None            # índice en project.trims del polígono de recorte en edición
         self._guide_cache: tuple | None = None       # (work, bounds, plano) -> contornos de la figura en el plano
         self._overhang_cache: tuple | None = None    # (work, bounds, ángulo, máscara, OrientResult)
+        self.hand_extract: dict | None = None        # mano extraída sin guardar: hand (local), split, points, invert
+        self._hand_mesh = None                       # (split, malla de la mano en el mundo) para dibujarla en verde
         self.scene_dirty = True
         self.on_change = None                        # callable() para refrescar la barra lateral
         if self.session.loaded:
@@ -229,6 +233,7 @@ class Controller:
         self.session = Session()
         self.joint_guides = {}
         self.hidden.clear()
+        self.hand_extract = self._hand_mesh = None
         rep = self.session.load(path, crown_z)
         self._after_load()
         msg = f"Cargado {path.split('/')[-1]}"
@@ -240,6 +245,7 @@ class Controller:
         self.session = Session.open_project(path, stl_path)
         self.joint_guides = {}
         self.hidden.clear()
+        self.hand_extract = self._hand_mesh = None
         self._after_load()
         self._changed(f"Proyecto abierto: {path.split('/')[-1]}")
 
@@ -1569,8 +1575,8 @@ class Controller:
     def hover_active(self) -> bool:
         """True en los modos en que se eligen puntos sobre la figura (planos de 3 puntos, guías de 4)."""
         return (self.picker is not None and not self.busy and
-                self.mode in (Mode.SYMMETRY, Mode.LIMB_PLANE, Mode.NECK_PLANE, Mode.HEAD_CUT_PLANE, Mode.WAIST_PLANE, Mode.JOINT_PLANE,
-                              Mode.JOINT_LINES, Mode.JOINT_SIDE))
+                self.mode in (Mode.SYMMETRY, Mode.LIMB_PLANE, Mode.NECK_PLANE, Mode.HEAD_CUT_PLANE, Mode.WAIST_PLANE, Mode.HAND_EXTRACT,
+                              Mode.JOINT_PLANE, Mode.JOINT_LINES, Mode.JOINT_SIDE))
 
     def update_hover(self, px: float, py: float, width: float, height: float) -> bool:
         """Marca (en rojo) el vértice de la figura que el puntero tiene cerca; lo suelta al alejarse. Devuelve True si
@@ -1645,6 +1651,8 @@ class Controller:
                 self._finish_head_cut_plane()
             elif self.mode == Mode.WAIST_PLANE:
                 self._finish_waist_plane()
+            elif self.mode == Mode.HAND_EXTRACT:
+                self._finish_hand_extract()
             elif self.mode == Mode.JOINT_PLANE:
                 self._finish_joint_plane()
             else:
@@ -1695,6 +1703,73 @@ class Controller:
         self.mode = Mode.VIEW
         self._changed("Plano de la cintura definido: el torso se corta en pecho y pelvis, unidos por un pasador robusto; "
                       "la figura gira a los costados sobre la cintura.")
+
+    # ------------------------------------------------------------ mano estándar (extraer)
+    def start_hand_extract(self) -> None:
+        if not self._need_loaded():
+            return
+        if self.session.project.symmetry is None:
+            self._changed("Primero definí el plano de simetría.", scene=False)
+            return
+        self.cancel(quiet=True)
+        self.hand_extract = self._hand_mesh = None
+        self.mode = Mode.HAND_EXTRACT
+        self._changed("Mano estándar: elegí 3 puntos en la muñeca IZQUIERDA (+X). Marcá el punto 1 siempre en el mismo "
+                      "lugar (p. ej. el lado del pulgar) y los otros dos a ambos lados de la muñeca: así la mano queda "
+                      "orientada igual en todos los modelos. Lo de la mano se corta y se guarda aparte.")
+
+    def _finish_hand_extract(self) -> None:
+        pts, self.pending = self.pending, []
+        self._run_hand_extract([tuple(map(float, q)) for q in pts], invert=False)
+
+    def _run_hand_extract(self, points, invert: bool) -> bool:
+        try:
+            hand, split = self.session.extract_hand(points, invert=invert)
+        except ValueError as e:
+            self.mode = Mode.VIEW
+            self.hand_extract = self._hand_mesh = None
+            self._changed(f"No sirve: {e}. Probá de nuevo con «Extraer mano estándar».")
+            return False
+        self.hand_extract = {"hand": hand, "split": split, "points": points, "invert": invert}
+        self._hand_mesh = None
+        self.mode = Mode.VIEW
+        side = "izquierda" if split.frame.center[0] > 0 else "derecha"
+        self._changed(f"Mano {side} cortada (verde): muñeca Ø{2 * split.face_radius:.1f} mm, "
+                      f"{split.hand_volume:.0f} mm³. Si no es la mano, usá «Invertir lado»; si está bien, «Guardar mano estándar…».")
+        return True
+
+    def invert_hand_extract(self) -> None:
+        """Vuelve a cortar con los mismos 3 puntos tomando el otro lado del plano como mano."""
+        if self.hand_extract is None:
+            self._changed("Primero extraé una mano.", scene=False)
+            return
+        self._run_hand_extract(self.hand_extract["points"], invert=not self.hand_extract["invert"])
+
+    def discard_hand_extract(self) -> None:
+        self.hand_extract = self._hand_mesh = None
+        self._changed("Mano extraída descartada.")
+
+    def save_hand_extract(self, path: str) -> dict | None:
+        """Guarda la mano extraída como mano estándar (STL + `.mano.json` al lado)."""
+        if self.hand_extract is None:
+            self._changed("Primero extraé una mano.", scene=False)
+            return None
+        meta = self.session.save_hand(path, self.hand_extract["hand"], self.hand_extract["split"])
+        msg = f"Mano estándar guardada: {path.split('/')[-1]} (figura a {meta['altura_figura_mm']:g} mm)."
+        from ..hand import LINE_HEIGHT_MM
+        if abs(float(meta["altura_figura_mm"]) - LINE_HEIGHT_MM) > 0.5:
+            msg += f" AVISO: la línea usa figuras de {LINE_HEIGHT_MM:g} mm."
+        self._changed(msg, scene=False)
+        return meta
+
+    def hand_preview(self):
+        """Malla de la mano extraída en el marco de trabajo (para dibujarla), o None."""
+        if self.hand_extract is None:
+            return None
+        split = self.hand_extract["split"]
+        if self._hand_mesh is None or self._hand_mesh[0] is not split:
+            self._hand_mesh = (split, S.to_trimesh(split.hand))
+        return self._hand_mesh[1]
 
     def set_head_replacement(self, path: str, yaw: float | None = None, up: str | None = None,
                              rx: float | None = None, ry: float | None = None,
@@ -2011,6 +2086,11 @@ class Controller:
                 drawn = [("figura", self._work_without_head(), _MIRROR_COLOR)]
         else:
             scene.remove("cabeza:reemplazo")
+        hand = self.hand_preview()
+        if hand is not None:
+            scene.set_mesh("mano:extraida", hand, color=_EXTRACTED_HAND_COLOR, clip_x=clip)
+        else:
+            scene.remove("mano:extraida")
         hs = self.plane_half_size
         palette = {"symmetry": (1.0, 0.55, 0.2, 0.18), "arm": (0.3, 0.6, 1.0, 0.22), "leg": (0.4, 0.85, 0.5, 0.22),
                    "head": (0.9, 0.5, 0.9, 0.22), "joint": (1.0, 0.85, 0.2, 0.22),

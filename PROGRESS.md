@@ -3,6 +3,32 @@
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md` y `PLAN_mecanismo_clic_hombro_cadera.md`_
 
 ## Current Focus
+**Mano de reemplazo (2026-10-20, rama `mano-reemplazo`):** una mano estándar (STL) compartida por toda la línea (por defecto la de Güemes a 13 cm) que se pega en otros modelos (Belgrano…) sobre un plano de muñeca de 3 puntos, como la cabeza de reemplazo. Hecho el motor (`src/afm/hand.py`), el comando `afm extraer-mano` y la extracción en la GUI (3 clics, invertir lado, guardar); falta el pegado con espiga y probar en GTK real.
+
+## Todo List
+### [ ] Todo
+- [ ] Probar en GTK real la sección «Mano estándar» (`window.py`: `btn_hand`, `btn_hand_invert`, `btn_hand_save`, `btn_hand_drop`, `_on_save_hand`) y que el verde de la mano se distinga; en este entorno no hay GTK y solo se verificó que compila.
+- [ ] Pegado: `Session`/`HeadSpec`-like `HandSpec` (ruta del STL, 3 puntos, giro en grados) guardado en el `.proyecto` (los viejos deben cargar igual) y botón «Mano de reemplazo (STL)…» con vista previa resaltada y estado claro («aplicada», cobertura del corte).
+- [ ] Unión con espiga: cilindro mínimo entre la mano (`place_hand`) y el antebrazo cortado (`split_at_wrist`), ajustado al radio del corte; se aplica a ambos brazos (el otro lado con `solids.mirror_x`).
+- [ ] Pruebas con Güemes real (extraer) y Belgrano (pegar); la mano viaja con el antebrazo en `brazo_der`/`brazo_izq`.
+- [ ] Futuro cercano (no cerrar la puerta): articulación de giro print-in-place sobre el mismo plano de muñeca; resolvería que el brazo y la muñeca importada no coincidan. Por eso la unión debe ser intercambiable (`espiga` hoy, `giro` mañana).
+### [/] In Progress
+- [/] Verificación de la suite completa (tests de `hand.py` y GUI relacionados pasan; la suite entera no llegó a terminar en el entorno de la sesión, correrla local).
+### [x] Done
+- [x] `WristFrame.from_points` (centro, eje hacia la mano, referencia de giro = punto 1), `split_at_wrist` (mano = lado de menor volumen, `invert` para el otro; ambas mitades cerradas), `extract_standard_hand` / `to_local` / `place_hand` (mm reales, sin escalar), `save_standard_hand` / `load_standard_hand` (STL + `<nombre>.mano.json`, formato `afm-mano-1`).
+- [x] CLI `afm extraer-mano figura.stl proyecto.proyecto --puntos x1 y1 z1 x2 y2 z2 x3 y3 z3 [--invertir] [--out] [--name]`: carga la figura como `afm build` (altura, frente y simetría del proyecto), así los puntos valen en el marco de trabajo de la GUI; avisa si la figura no está a 130 mm.
+- [x] GUI sin GTK: `Mode.HAND_EXTRACT`, `Controller.start_hand_extract / invert_hand_extract / discard_hand_extract / save_hand_extract / hand_preview` (la mano cortada se dibuja en verde como `mano:extraida`), `Session.extract_hand / save_hand`, sección «Mano estándar» en la barra lateral (necesita simetría); abrir otro STL o proyecto descarta la mano extraída. `tests/test_gui_hand.py` (8).
+- [x] `tests/test_hand.py` (15): marco, puntos alineados, lado de la mano, cierre de malla, plano fuera / por la mitad, marco local, ida y vuelta de `place_hand`, espejo, guardar/cargar, CLI.
+
+## Latest Blockers/Discoveries
+- Decisiones del usuario: mano idéntica en toda la línea (sin reescalar a la muñeca del modelo); giro axial opcional a futuro; mano espejada para el lado derecho; plano de 3 puntos en la GUI; si no se articula la muñeca, queda solo el reemplazo.
+- El centro del marco es el centroide de la cara del corte (no el de los 3 puntos), igual que la cabeza alinea centroide con centroide; la referencia de giro sí sale del punto 1.
+- La extracción ya se hace con 3 clics en la GUI (el comando `afm extraer-mano` queda para scripts). Este entorno no tiene GTK: lo de la ventana solo se compiló.
+- En la GUI la mano se guarda a la altura de figura del proyecto (`params.ref_height`); se avisa si no son 130 mm, la altura de la línea por defecto.
+
+---
+
+## Current Focus (anterior)
 **Controles de la cabeza importada como los del modelo (2026-10-20, rama `cabeza-controles`):** la cabeza de reemplazo (STL) ahora tiene orientación completa (eje «arriba» + giros X, Y, Z), escala manual (factor sobre el ajuste automático) y corte de la base con un plano de 3 puntos elegidos sobre la cabeza naranja (modo `HEAD_CUT_PLANE`). Falta probarlo en GTK real con Güemes.
 
 ## Todo List
