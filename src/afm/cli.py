@@ -55,6 +55,12 @@ def main(argv=None) -> int:
     b.add_argument("--cabeza-giro", type=float, default=None, metavar="GRADOS", help="girar la cabeza importada sobre su eje vertical")
     b.add_argument("--cabeza-arriba", default=None, choices=("+Z", "-Z", "+Y", "-Y", "+X", "-X"),
                    help="eje de la cabeza importada que apunta hacia arriba (por defecto +Z)")
+    b.add_argument("--cabeza-rx", type=float, default=None, metavar="GRADOS", help="girar la cabeza importada sobre X (tras --cabeza-arriba)")
+    b.add_argument("--cabeza-ry", type=float, default=None, metavar="GRADOS", help="girar la cabeza importada sobre Y")
+    b.add_argument("--cabeza-escala", type=float, default=None, metavar="FACTOR",
+                   help="factor manual sobre la escala automática (1 = base igual a la del cuello; 0,2–5)")
+    b.add_argument("--cabeza-corte", type=float, default=None, metavar="PORCENTAJE",
+                   help="cortar este %% del alto de la cabeza importada desde abajo con un plano horizontal (0–60; 0 = automático)")
     b.add_argument("--cadera-referencia", action="store_true",
                    help="usar el pasador de cadera de la figura de referencia (Ø4,8 / cabeza Ø9,25 × 2,44, mm absolutos)")
     b.add_argument("--max-angle", type=float, default=45.0, help="ángulo de voladizo tolerado (grados desde la vertical)")
@@ -119,14 +125,20 @@ def main(argv=None) -> int:
     else:
         name = args.name or os.path.splitext(os.path.basename(args.stl))[0]
         project = Project.load(args.proyecto)
-        if args.cabeza or args.cabeza_giro is not None or args.cabeza_arriba:
+        head_opts = (args.cabeza, args.cabeza_giro, args.cabeza_arriba, args.cabeza_rx, args.cabeza_ry,
+                     args.cabeza_escala, args.cabeza_corte)
+        if any(o is not None and o != "" for o in head_opts):
             if project.head is None:
                 ap.error("el proyecto no tiene cabeza (plano del cuello): --cabeza necesita definirla primero")
             import dataclasses
             project.head = dataclasses.replace(
                 project.head, replacement_path=args.cabeza or project.head.replacement_path,
                 replacement_yaw=project.head.replacement_yaw if args.cabeza_giro is None else args.cabeza_giro,
-                replacement_up=args.cabeza_arriba or project.head.replacement_up)
+                replacement_up=args.cabeza_arriba or project.head.replacement_up,
+                replacement_rx=project.head.replacement_rx if args.cabeza_rx is None else args.cabeza_rx,
+                replacement_ry=project.head.replacement_ry if args.cabeza_ry is None else args.cabeza_ry,
+                replacement_scale=project.head.replacement_scale if args.cabeza_escala is None else args.cabeza_escala,
+                replacement_cut=project.head.replacement_cut if args.cabeza_corte is None else args.cabeza_corte)
         if args.cadera_referencia:
             project.params = project.params.with_hip_reference()
         flat = args.sin_soportes

@@ -15,7 +15,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
 from gi.repository import Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 
-from ..head import MIN_BASE_IOU, REPLACEMENT_UPS  # noqa: E402
+from ..head import MIN_BASE_IOU, REPLACEMENT_CUT_RANGE, REPLACEMENT_SCALE_RANGE, REPLACEMENT_UPS  # noqa: E402
 from .controller import JOINT_PREFIX, PARAM_FIELDS, TRIM_OP_LABELS, TRIM_SHAPE_LABELS, TRIM_SHAPES, Controller, Mode  # noqa: E402
 from .render import SceneRenderer  # noqa: E402
 from .session import Session  # noqa: E402
@@ -36,6 +36,17 @@ _TRIM_OPS = ("subtract", "union")
 TAB_FIGURA, TAB_PLANOS, TAB_MIEMBROS, TAB_RECORTES, TAB_PARAMS, TAB_GENERAR = range(6)
 CUBE_PX = 120
 VIEW_ANIM_S = 0.25            # duración de la animación al elegir una vista en el cubo
+# Controles de la cabeza de reemplazo: (clave de Controller.set_head_adjust, rótulo, mín, máx, paso, decimales)
+HEAD_ADJUST_FIELDS = (
+    ("rx", "Cabeza de reemplazo: giro X (°)", -180.0, 180.0, 5.0, 1),
+    ("ry", "Cabeza de reemplazo: giro Y (°)", -180.0, 180.0, 5.0, 1),
+    ("yaw", "Cabeza de reemplazo: giro Z, sobre el cuello (°)", -360.0, 360.0, 15.0, 1),
+    ("scale", "Cabeza de reemplazo: escala (× base del cuello)", *REPLACEMENT_SCALE_RANGE, 0.05, 2),
+    ("cut", "Cabeza de reemplazo: cortar la base (% del alto)", *REPLACEMENT_CUT_RANGE, 1.0, 1),
+)
+HEAD_ADJUST_ATTR = {"rx": "replacement_rx", "ry": "replacement_ry", "yaw": "replacement_yaw",
+                    "scale": "replacement_scale", "cut": "replacement_cut"}
+HEAD_ADJUST_DEFAULTS = {"rx": 0.0, "ry": 0.0, "yaw": 0.0, "scale": 1.0, "cut": 0.0}
 PARAM_GROUPS = ("Generales", "Pasador de hombro", "Pasador de cadera", "Mecanismo de clic", "Rodilla / codo", "Cintura")
 _CSS = b"""
 .afm-section-title { font-weight: 700; padding: 4px 0; border-bottom: 1px solid alpha(currentColor, 0.2); }
@@ -354,16 +365,26 @@ class MainWindow(Gtk.ApplicationWindow):
         self.dd_head_up.connect("notify::selected", self._on_head_up)
         row.append(self.dd_head_up)
         sec.append(row)
-        row = Gtk.Box(spacing=6)
-        row.append(Gtk.Label(label="Cabeza de reemplazo: giro sobre el cuello (°)", xalign=0, hexpand=True))
-        self.spin_head_yaw = Gtk.SpinButton.new_with_range(-360, 360, 15)
-        self.spin_head_yaw.connect("value-changed", self._on_head_yaw)
-        row.append(self.spin_head_yaw)
-        sec.append(row)
+        # (clave de HeadSpec/set_head_adjust, rótulo, mínimo, máximo, paso, decimales)
+        self.head_spins: dict[str, Gtk.SpinButton] = {}
+        for key, label, lo, hi, step, digits in HEAD_ADJUST_FIELDS:
+            row = Gtk.Box(spacing=6)
+            row.append(Gtk.Label(label=label, xalign=0, hexpand=True))
+            spin = Gtk.SpinButton.new_with_range(lo, hi, step)
+            spin.set_digits(digits)
+            spin.set_value(HEAD_ADJUST_DEFAULTS[key])
+            spin.connect("value-changed", lambda b, k=key: self._on_head_adjust(k, b))
+            self.head_spins[key] = spin
+            row.append(spin)
+            sec.append(row)
+        self.spin_head_yaw = self.head_spins["yaw"]
         self.lbl_head_fit = Gtk.Label(label="", xalign=0, wrap=True)
         sec.append(self.lbl_head_fit)
-        _help(sec, "La cabeza de reemplazo se ve en naranja sobre el cuello (la original se oculta). Si la base coincide "
-                   "poco con la del cuello, probá otro eje «arriba» o girala de a 15°: el ajuste se recalcula al instante.")
+        _help(sec, "La cabeza de reemplazo se ve en naranja sobre el cuello (la original se oculta). Orientación: eje «arriba» "
+                   "y giros X / Y / Z (los giros se aplican en ese orden). Escala: 1,00 deja la base igual a la del cuello; "
+                   "más o menos agranda o achica la cabeza entera. Corte de la base: plano horizontal que quita ese % del alto "
+                   "desde abajo (0 = automático). Si la base coincide poco con la del cuello, probá otro giro o corte: "
+                   "el ajuste se recalcula al instante.")
 
         sec = _collapsible(box, "Lista de planos")
         _help(sec, "Durante la selección: Retroceso deshace el último punto, Esc cancela.")
@@ -588,12 +609,14 @@ class MainWindow(Gtk.ApplicationWindow):
             self.btn_head_stl.set_sensitive(loaded and head is not None)
             self.btn_head_orig.set_sensitive(loaded and head is not None and head.replacement_path is not None)
             rep = loaded and head is not None and head.replacement_path is not None
-            for b in (self.dd_head_up, self.spin_head_yaw):
+            for b in (self.dd_head_up, *self.head_spins.values()):
                 b.set_sensitive(bool(rep))
             if rep:
                 self.dd_head_up.set_selected(REPLACEMENT_UPS.index(head.replacement_up))
-                if abs(self.spin_head_yaw.get_value() - head.replacement_yaw) > 1e-9:
-                    self.spin_head_yaw.set_value(head.replacement_yaw)
+                for key, spin in self.head_spins.items():
+                    val = getattr(head, HEAD_ADJUST_ATTR[key])
+                    if abs(spin.get_value() - val) > 1e-9:
+                        spin.set_value(val)
                 prev = ctrl.head_preview()
                 self.lbl_head_fit.set_text("" if prev is None else
                                            f"Base coincide {100 * prev[1]['coincidencia_base']:.0f} % "
@@ -948,12 +971,12 @@ class MainWindow(Gtk.ApplicationWindow):
         if up != head.replacement_up:
             self.ctrl.set_head_orientation(up=up)
 
-    def _on_head_yaw(self, spin: Gtk.SpinButton) -> None:
+    def _on_head_adjust(self, key: str, spin: Gtk.SpinButton) -> None:
         head = self.ctrl.session.project.head
         if self._updating or head is None or not head.replacement_path:
             return
-        if abs(spin.get_value() - head.replacement_yaw) > 1e-9:
-            self.ctrl.set_head_orientation(yaw=spin.get_value())
+        if abs(spin.get_value() - getattr(head, HEAD_ADJUST_ATTR[key])) > 1e-9:
+            self.ctrl.set_head_adjust(**{key: spin.get_value()})
 
     def _on_front(self, dd: Gtk.DropDown, _p) -> None:
         if self._updating:

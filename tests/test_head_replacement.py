@@ -147,3 +147,74 @@ def test_project_roundtrip(tmp_path):
     for k in ("replacement_path", "replacement_yaw", "replacement_up"):
         old["head"].pop(k)
     assert Project.from_dict(old).head.replacement_path is None
+
+
+# ------------------------------------------------- orientación X/Y, escala manual y corte de la base
+def test_rx_ry_match_the_up_axis_rotations(assets):
+    """Con rx/ry = 180°/90° se obtiene lo mismo que los ejes «arriba» -Z / +X (el orden de giros no cambia lo anterior)."""
+    base, _ = load_replacement(assets["asym"], up="-Z")
+    rx, _ = load_replacement(assets["asym"], rx_deg=180.0)
+    assert np.allclose(base.bounds, rx.bounds, atol=1e-6)
+    base, _ = load_replacement(assets["asym"], up="+X")
+    ry, _ = load_replacement(assets["asym"], ry_deg=90.0)
+    assert np.allclose(base.bounds, ry.bounds, atol=1e-6)
+    same, _ = load_replacement(assets["asym"], rx_deg=0.0, ry_deg=0.0)
+    ref, _ = load_replacement(assets["asym"])
+    assert np.allclose(same.bounds, ref.bounds, atol=1e-9)
+
+
+def test_ry_flips_the_nose_to_the_other_side(body, params, assets):
+    a = split_head(body, _neck(replacement_path=assets["asym"]), params).head.bounding_box()
+    b = split_head(body, _neck(replacement_path=assets["asym"], replacement_ry=180.0), params).head.bounding_box()
+    assert a[3] > abs(a[0]) + 1.0                       # nariz del lado +X
+    assert b[0] < -(abs(b[3]) + 1.0)                    # girada 180° sobre Y: pasa al lado −X
+
+
+def test_manual_scale_multiplies_the_auto_fit(body, params, assets):
+    one = split_head(body, _neck(replacement_path=assets["asym"]), params)
+    big = split_head(body, _neck(replacement_path=assets["asym"], replacement_scale=1.5), params)
+    assert big.replacement["escala"] == pytest.approx(1.5 * one.replacement["escala"], rel=1e-9)
+    assert big.replacement["alto_mm"] == pytest.approx(1.5 * one.replacement["alto_mm"], rel=1e-9)
+    assert big.replacement["escala_manual"] == 1.5
+    assert big.replacement["coincidencia_base"] < one.replacement["coincidencia_base"]   # la base ya no iguala a la del cuello
+    small = split_head(body, _neck(replacement_path=assets["asym"], replacement_scale=0.5), params)
+    assert small.head.volume() == pytest.approx(0.5 ** 3 * one.head.volume(), rel=0.03)
+    with pytest.raises(ValueError, match="escala"):
+        split_head(body, _neck(replacement_path=assets["asym"], replacement_scale=9.0), params)
+
+
+def test_base_cut_plane_removes_the_lower_part(body, params, assets):
+    one = split_head(body, _neck(replacement_path=assets["asym"]), params)
+    cut = split_head(body, _neck(replacement_path=assets["asym"], replacement_cut=20.0), params)
+    rep = cut.replacement
+    assert rep["base_cortada"] and rep["corte_pct"] == 20.0 and not one.replacement["base_cortada"]
+    assert cut.head.bounding_box()[2] == pytest.approx(80.0, abs=1e-3)           # la nueva base sigue sobre el plano del cuello
+    assert rep["alto_mm"] == pytest.approx(20.0 * rep["escala"], rel=0.03)       # 25 mm del archivo − 20 % = 20 mm
+    assert rep["escala"] < one.replacement["escala"]                              # a esa altura la bola es más ancha → k menor
+    assert cut.head.volume() < one.head.volume()
+    assert rep["coincidencia_base"] > 0.7        # el corte pasa por la nariz: la base ya no es un círculo perfecto
+    with pytest.raises(ValueError, match="corte"):
+        split_head(body, _neck(replacement_path=assets["asym"], replacement_cut=80.0), params)
+
+
+def test_cut_head_builds_a_valid_piece(body, params, assets):
+    spec = _neck(replacement_path=assets["asym"], replacement_cut=15.0, replacement_scale=1.1, replacement_rx=10.0)
+    res = P.build(body, [], params, head=spec)
+    val = P.validate(res, params, [])
+    assert val["pieces"][HEAD_NAME]["componentes"] == 1 and val["pieces"][HEAD_NAME]["variedad_ok"]
+
+
+def test_new_fields_roundtrip_and_old_projects_load(tmp_path):
+    p = demo_project()
+    p.head = dataclasses.replace(p.head, replacement_path="/x/c.stl", replacement_rx=12.5, replacement_ry=-30.0,
+                                 replacement_scale=1.25, replacement_cut=8.0)
+    f = tmp_path / "p.proyecto"
+    p.save(str(f))
+    q = Project.load(str(f))
+    h = q.head
+    assert (h.replacement_rx, h.replacement_ry, h.replacement_scale, h.replacement_cut) == (12.5, -30.0, 1.25, 8.0)
+    old = p.to_dict()
+    for k in ("replacement_rx", "replacement_ry", "replacement_scale", "replacement_cut"):
+        old["head"].pop(k)
+    h = Project.from_dict(old).head
+    assert (h.replacement_rx, h.replacement_ry, h.replacement_scale, h.replacement_cut) == (0.0, 0.0, 1.0, 0.0)

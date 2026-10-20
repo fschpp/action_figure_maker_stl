@@ -1691,34 +1691,51 @@ class Controller:
         self._changed("Plano de la cintura definido: el torso se corta en pecho y pelvis, unidos por un pasador robusto; "
                       "la figura gira a los costados sobre la cintura.")
 
-    def set_head_replacement(self, path: str, yaw: float | None = None, up: str | None = None) -> bool:
-        """Cabeza de reemplazo (STL): descarta la original, sin simetría, base escalada a la del cuello."""
+    def set_head_replacement(self, path: str, yaw: float | None = None, up: str | None = None,
+                             rx: float | None = None, ry: float | None = None,
+                             scale: float | None = None, cut: float | None = None) -> bool:
+        """Cabeza de reemplazo (STL): descarta la original, sin simetría, base escalada a la del cuello.
+
+        Controles (None = conservar el valor actual): `up` (eje «arriba»), `rx`/`ry`/`yaw` (giros en °),
+        `scale` (factor manual sobre la escala automática) y `cut` (% del alto que se corta desde la base)."""
         if not self._need_loaded():
             return False
         cur = self.session.project.head
-        yaw = (cur.replacement_yaw if cur else 0.0) if yaw is None else yaw
-        up = (cur.replacement_up if cur else "+Z") if up is None else up
+
+        def keep(new, attr, default):
+            return (getattr(cur, attr) if cur else default) if new is None else new
+
+        yaw, up = keep(yaw, "replacement_yaw", 0.0), keep(up, "replacement_up", "+Z")
+        rx, ry = keep(rx, "replacement_rx", 0.0), keep(ry, "replacement_ry", 0.0)
+        scale, cut = keep(scale, "replacement_scale", 1.0), keep(cut, "replacement_cut", 0.0)
         try:
-            info = self.session.set_head_replacement(path, yaw, up)
+            info = self.session.set_head_replacement(path, yaw, up, rx, ry, scale, cut)
         except Exception as e:                     # archivo ilegible, malla irreparable, plano sin cabeza…
             self._changed(f"No se pudo usar esa cabeza: {e}", scene=False)
             return False
         msg = (f"Cabeza de reemplazo lista (se ve en naranja, apoyada en el cuello): escala ×{info['escala']:.3f} "
                f"(uniforme), alto {info['alto_mm']:.1f} mm, base coincide {100 * info['coincidencia_base']:.0f} %.")
         if info["base_cortada"]:
-            msg += " No traía base plana: se cortó una fracción baja para apoyarla."
+            msg += (f" Se cortó el {info['corte_pct']:g} % inferior con un plano." if info["corte_pct"] > 0
+                    else " No traía base plana: se cortó una fracción baja para apoyarla.")
         if info["coincidencia_base"] < MIN_BASE_IOU:
-            msg += " AVISO: la base se parece poco a la del cuello; probá otro giro o eje «arriba» (controles en Planos → Cabeza)."
+            msg += " AVISO: la base se parece poco a la del cuello; probá otro giro, eje «arriba», escala o corte (Planos → Cabeza)."
         self._changed(msg)
         return True
 
-    def set_head_orientation(self, up: str | None = None, yaw: float | None = None) -> bool:
-        """Cambia el eje «arriba» y/o el giro de la cabeza de reemplazo ya cargada y la vuelve a ajustar."""
+    def set_head_adjust(self, up: str | None = None, yaw: float | None = None, rx: float | None = None,
+                        ry: float | None = None, scale: float | None = None, cut: float | None = None) -> bool:
+        """Cambia orientación (`up`, `rx`, `ry`, `yaw`), escala manual y/o corte de la base de la cabeza de
+        reemplazo ya cargada y la vuelve a ajustar. Si el valor no vale, no cambia nada y deja el motivo en `message`."""
         cur = self.session.project.head
         if cur is None or not cur.replacement_path:
             self._changed("Primero cargá una cabeza de reemplazo (STL).", scene=False)
             return False
-        return self.set_head_replacement(cur.replacement_path, yaw, up)
+        return self.set_head_replacement(cur.replacement_path, yaw, up, rx, ry, scale, cut)
+
+    def set_head_orientation(self, up: str | None = None, yaw: float | None = None) -> bool:
+        """Cambia el eje «arriba» y/o el giro de la cabeza de reemplazo ya cargada y la vuelve a ajustar."""
+        return self.set_head_adjust(up=up, yaw=yaw)
 
     def head_preview(self):
         """(malla, info) de la cabeza de reemplazo para dibujarla, o None si no hay."""

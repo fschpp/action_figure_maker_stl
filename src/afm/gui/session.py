@@ -644,10 +644,13 @@ class Session:
         self.outcome = None
         return spec
 
-    def set_head_replacement(self, path: str, yaw: float = 0.0, up: str = "+Z") -> dict:
+    def set_head_replacement(self, path: str, yaw: float = 0.0, up: str = "+Z", rx: float = 0.0, ry: float = 0.0,
+                             scale: float = 1.0, cut: float = 0.0) -> dict:
         """Usa otra cabeza (STL) en lugar de la original. Se descarta la original, no se simetriza nada y la nueva se
-        escala (uniforme) para que su base iguale la del cuello. Valida ajustándola ya sobre el cuerpo actual y
-        devuelve los datos del ajuste (escala, coincidencia de base, alto…). Si falla no cambia nada."""
+        escala (uniforme) para que su base iguale la del cuello. Controles: eje «arriba» + giros `rx`, `ry`, `yaw` (°),
+        `scale` (factor manual sobre la escala automática) y `cut` (% del alto que se corta desde abajo con un plano
+        horizontal). Valida ajustándola ya sobre el cuerpo actual y devuelve los datos del ajuste (escala,
+        coincidencia de base, alto…). Si falla no cambia nada."""
         head = self.project.head
         if head is None:
             raise ValueError("Primero definí el plano del cuello (la cabeza que se reemplaza)")
@@ -656,7 +659,9 @@ class Session:
         path = os.path.abspath(path)
         if not os.path.isfile(path):
             raise ValueError(f"No existe el archivo «{path}»")
-        spec = dataclasses.replace(head, replacement_path=path, replacement_yaw=float(yaw), replacement_up=up)
+        spec = dataclasses.replace(head, replacement_path=path, replacement_yaw=float(yaw), replacement_up=up,
+                                  replacement_rx=float(rx), replacement_ry=float(ry),
+                                  replacement_scale=float(scale), replacement_cut=float(cut))
         split = split_head(S.to_manifold(self.work), spec, self.project.params)
         self.project.head = spec
         self._head_fit = (self._head_fit_key(spec), S.to_trimesh(split.head), split.replacement)
@@ -665,6 +670,7 @@ class Session:
 
     def _head_fit_key(self, spec: HeadSpec):
         return (id(self.work), spec.replacement_path, spec.replacement_yaw, spec.replacement_up,
+                spec.replacement_rx, spec.replacement_ry, spec.replacement_scale, spec.replacement_cut,
                 spec.plane.origin.tobytes(), spec.plane.normal.tobytes())
 
     def head_replacement_preview(self):
@@ -690,7 +696,9 @@ class Session:
         head = self.project.head
         if head is None or head.replacement_path is None:
             return False
-        self.project.head = dataclasses.replace(head, replacement_path=None, replacement_yaw=0.0, replacement_up="+Z")
+        self.project.head = dataclasses.replace(head, replacement_path=None, replacement_yaw=0.0, replacement_up="+Z",
+                                                replacement_rx=0.0, replacement_ry=0.0, replacement_scale=1.0,
+                                                replacement_cut=0.0)
         self.outcome = None
         self._head_fit = None
         return True
