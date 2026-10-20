@@ -126,30 +126,72 @@ def _cut_face(mf: S.Manifold, frame: WristFrame):
     return (tri.mean(axis=1) * area[:, None]).sum(axis=0) / area.sum(), float(area.sum())
 
 
+def _face_triangles(mf: S.Manifold, frame: WristFrame) -> np.ndarray:
+    tri = S.to_trimesh(mf).triangles
+    d = np.abs((tri.reshape(-1, 3) - frame.center) @ frame.axis).reshape(-1, 3)
+    return tri[(d < FACE_TOL).all(axis=1)]
+
+
+def _dist_to_face(tri: np.ndarray, p: np.ndarray) -> float:
+    """Distancia de `p` (sobre el plano) a los triángulos de la cara del corte: 0 si cae dentro de alguno."""
+    if len(tri) == 0:
+        return float("inf")
+    a, b, c = tri[:, 0], tri[:, 1], tri[:, 2]
+    v0, v1, v2 = c - a, b - a, p - a
+    d00, d01, d11 = (v0 * v0).sum(1), (v0 * v1).sum(1), (v1 * v1).sum(1)
+    d20, d21 = (v2 * v0).sum(1), (v2 * v1).sum(1)
+    den = d00 * d11 - d01 * d01
+    ok = np.abs(den) > 1e-18
+    safe = np.where(ok, den, 1.0)
+    u = np.where(ok, (d11 * d20 - d01 * d21) / safe, -1.0)
+    v = np.where(ok, (d00 * d21 - d01 * d20) / safe, -1.0)
+    if (ok & (u >= -1e-9) & (v >= -1e-9) & (u + v <= 1 + 1e-9)).any():
+        return 0.0
+    return float(np.linalg.norm(tri.mean(axis=1) - p, axis=1).min())
+
+
+def _component_at_wrist(half: S.Manifold, frame: WristFrame):
+    """Pieza conectada de `half` cuya cara del corte contiene (o queda más cerca de) el centro de los 3 puntos.
+
+    El plano es infinito: corta TODA la figura (con los brazos colgando, también piernas y pelvis). Lo que importa de
+    cada lado es solo la pieza que toca la cara del corte en la muñeca."""
+    best = None
+    for part in half.decompose():
+        dist = _dist_to_face(_face_triangles(part, frame), frame.center)
+        if np.isfinite(dist) and (best is None or dist < best[0]):
+            best = (dist, part)
+    return None if best is None else best[1]
+
+
 def split_at_wrist(body: S.Manifold, frame: WristFrame, invert: bool = False) -> WristSplit:
     """Corta `body` por el plano de muñeca y separa la mano del resto.
 
-    La mano es el lado de menor volumen (`invert=True`: el de mayor). Ambas mitades quedan cerradas (la cara del
-    corte es plana). Devuelve el marco con `axis` apuntando a la mano y `center` en el centroide de la cara."""
+    De cada lado del plano se toma solo la pieza conectada que toca la cara del corte en la muñeca (el plano es
+    infinito y también corta lo que no es del brazo). La mano es la de menor volumen (`invert=True`: la de mayor).
+    La mano y el resto quedan cerrados (la cara del corte es plana). Devuelve el marco con `axis` apuntando a la mano
+    y `center` en el centroide de la cara.
+
+    Limitación: si la mano está fundida con otra parte del cuerpo (p. ej. apoyada sobre el muslo y soldada), esa parte
+    viaja con ella: el aviso de «casi por la mitad» o el tamaño de la mano lo delatan."""
     pos = S.intersection(body, S.halfspace(Plane.from_normal(frame.center, frame.axis)))
     neg = S.intersection(body, S.halfspace(Plane.from_normal(frame.center, -frame.axis)))
-    vp = 0.0 if pos.is_empty() else float(pos.volume())
-    vn = 0.0 if neg.is_empty() else float(neg.volume())
-    if min(vp, vn) < MIN_HAND_VOLUME:
+    cp = None if pos.is_empty() else _component_at_wrist(pos, frame)
+    cn = None if neg.is_empty() else _component_at_wrist(neg, frame)
+    if cp is None or cn is None or min(cp.volume(), cn.volume()) < MIN_HAND_VOLUME:
         raise HandError("el plano de muñeca no atraviesa la figura (¿quedó fuera de la malla?)")
-    small, big = (pos, neg) if vp <= vn else (neg, pos)
+    vp, vn = float(cp.volume()), float(cn.volume())
     vs, vb = min(vp, vn), max(vp, vn)
     if not invert and vs / vb > MAX_SIDE_RATIO:
-        raise HandError(f"el plano de muñeca parte la figura casi por la mitad ({vs / vb:.0%}): no separa una mano; "
+        raise HandError(f"el plano de muñeca parte la pieza casi por la mitad ({vs / vb:.0%}): no separa una mano; "
                         "elegí 3 puntos en la muñeca (o usá «invertir» si la mano es el lado grande)")
-    hand, rest = (big, small) if invert else (small, big)
-    sign = 1.0 if (hand is pos) else -1.0
-    oriented = frame.with_axis_sign(sign)
-    hand = S.drop_small_components(hand, 0.01)
+    hand_is_pos = (vp <= vn) != invert
+    hand = cp if hand_is_pos else cn
+    oriented = frame.with_axis_sign(1.0 if hand_is_pos else -1.0)
     face = _cut_face(hand, oriented)
     if face is None:
         raise HandError("el plano de muñeca no deja una cara de corte en la mano (¿pasa por una cavidad?)")
     centroid, area = face
+    rest = S.difference(body, hand)
     return WristSplit(hand=hand, rest=rest, frame=oriented.with_center(centroid), face_area=area,
                       face_radius=float(np.sqrt(area / np.pi)), hand_volume=float(hand.volume()),
                       rest_volume=float(rest.volume()))

@@ -187,3 +187,38 @@ def test_cli_extract_hand_reports_bad_plane(tmp_path, body, capsys):
     bad = [0, 0, 70, 0, -2, 60, 0, 2, 60]               # plano de simetría
     rc = main(["extraer-mano", stl, proj, "--puntos", *map(str, bad), "--out", str(tmp_path / "o")])
     assert rc == 2 and "ERROR" in capsys.readouterr().err
+
+
+# ------------------------------------------------------------------ brazos colgando (el plano es infinito)
+def _hanging_figure():
+    """Como Güemes: brazos colgando a los costados, con la mano (separada de las piernas por un hueco) más abajo."""
+    parts = [M.cube((30, 16, 50), center=True).translate((0, 0, 55)),            # torso z 30..80
+             M.cube((24, 14, 30), center=True).translate((0, 0, 15)),            # piernas z 0..30
+             M.sphere(10, 48).translate((0, 0, 90))]
+    for sx in (+1, -1):
+        arm = M.cylinder(34.0, ARM_R, ARM_R, 32).translate((sx * 24.0, 0, 40))   # brazo z 40..74, a 9 mm del torso
+        hand = M.sphere(HAND_R, 32).translate((sx * 24.0, 0, 37))
+        parts += [arm, hand, M.cylinder(4, 5, 5, 32).translate((sx * 24.0, 0, 70))]   # puño de la manga: hombro conectado
+        parts.append(M.cube((10, 4, 4), center=True).translate((sx * 19.5, 0, 72)))    # hombro: une brazo y torso
+    return S.union(*parts)
+
+
+HANG_PTS = [(24.0, 3.0, 41.5), (21.5, -2.0, 41.5), (26.5, -2.0, 41.5)]       # plano z = 41.5, horizontal
+
+
+def test_hanging_arm_horizontal_plane_isolates_only_the_hand():
+    fig = _hanging_figure()
+    sp = split_at_wrist(fig, WristFrame.from_points(HANG_PTS))
+    assert sp.frame.axis @ np.array([0.0, 0.0, -1.0]) > 0.99                   # la mano está ABAJO del plano
+    assert sp.hand_volume < 0.03 * fig.volume()                                # no arrastra piernas ni pelvis
+    hb = sp.hand.bounding_box()
+    assert hb[3] < 30.0 and hb[0] > 18.0 and hb[5] <= 41.5 + 1e-3              # solo la mano izquierda
+    assert S.to_trimesh(sp.hand).is_watertight and S.to_trimesh(sp.rest).is_watertight
+    assert sp.hand_volume + sp.rest_volume == pytest.approx(fig.volume(), rel=1e-4)
+
+
+def test_hanging_arm_standard_hand_has_fingers_toward_plus_z():
+    hand, sp = extract_standard_hand(_hanging_figure(), HANG_PTS)
+    b = hand.bounding_box()
+    assert b[2] == pytest.approx(0.0, abs=1e-3) and b[5] > 4.0
+    assert hand.volume() == pytest.approx(sp.hand_volume, rel=1e-9)
