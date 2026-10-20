@@ -15,6 +15,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
 from gi.repository import Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 
+from ..head import MIN_BASE_IOU, REPLACEMENT_UPS  # noqa: E402
 from .controller import JOINT_PREFIX, PARAM_FIELDS, TRIM_OP_LABELS, TRIM_SHAPE_LABELS, TRIM_SHAPES, Controller, Mode  # noqa: E402
 from .render import SceneRenderer  # noqa: E402
 from .session import Session  # noqa: E402
@@ -347,6 +348,22 @@ class MainWindow(Gtk.ApplicationWindow):
         self.btn_head_orig = self._button("Volver a la cabeza original", lambda *_: self.ctrl.clear_head_replacement())
         for b in (self.btn_neck, self.btn_head_stl, self.btn_head_orig):
             sec.append(b)
+        row = Gtk.Box(spacing=6)
+        row.append(Gtk.Label(label="Cabeza de reemplazo: eje «arriba» del STL", xalign=0, hexpand=True))
+        self.dd_head_up = Gtk.DropDown.new_from_strings(list(REPLACEMENT_UPS))
+        self.dd_head_up.connect("notify::selected", self._on_head_up)
+        row.append(self.dd_head_up)
+        sec.append(row)
+        row = Gtk.Box(spacing=6)
+        row.append(Gtk.Label(label="Cabeza de reemplazo: giro sobre el cuello (°)", xalign=0, hexpand=True))
+        self.spin_head_yaw = Gtk.SpinButton.new_with_range(-360, 360, 15)
+        self.spin_head_yaw.connect("value-changed", self._on_head_yaw)
+        row.append(self.spin_head_yaw)
+        sec.append(row)
+        self.lbl_head_fit = Gtk.Label(label="", xalign=0, wrap=True)
+        sec.append(self.lbl_head_fit)
+        _help(sec, "La cabeza de reemplazo se ve en naranja sobre el cuello (la original se oculta). Si la base coincide "
+                   "poco con la del cuello, probá otro eje «arriba» o girala de a 15°: el ajuste se recalcula al instante.")
 
         sec = _collapsible(box, "Lista de planos")
         _help(sec, "Durante la selección: Retroceso deshace el último punto, Esc cancela.")
@@ -570,6 +587,19 @@ class MainWindow(Gtk.ApplicationWindow):
             head = ctrl.session.project.head
             self.btn_head_stl.set_sensitive(loaded and head is not None)
             self.btn_head_orig.set_sensitive(loaded and head is not None and head.replacement_path is not None)
+            rep = loaded and head is not None and head.replacement_path is not None
+            for b in (self.dd_head_up, self.spin_head_yaw):
+                b.set_sensitive(bool(rep))
+            if rep:
+                self.dd_head_up.set_selected(REPLACEMENT_UPS.index(head.replacement_up))
+                if abs(self.spin_head_yaw.get_value() - head.replacement_yaw) > 1e-9:
+                    self.spin_head_yaw.set_value(head.replacement_yaw)
+                prev = ctrl.head_preview()
+                self.lbl_head_fit.set_text("" if prev is None else
+                                           f"Base coincide {100 * prev[1]['coincidencia_base']:.0f} % "
+                                           f"(conviene ≥ {100 * MIN_BASE_IOU:.0f} %) · alto {prev[1]['alto_mm']:.1f} mm")
+            else:
+                self.lbl_head_fit.set_text("")
             off_limb = ctrl.offset_limb() if loaded else None
             self.spin_cut.set_sensitive(off_limb is not None)
             if off_limb is not None:
@@ -909,6 +939,21 @@ class MainWindow(Gtk.ApplicationWindow):
         if self.ctrl.loaded:
             self.ctrl.camera.frame(self.ctrl.session.work.bounds)
             self.gl.queue_render()
+
+    def _on_head_up(self, dd: Gtk.DropDown, _p) -> None:
+        head = self.ctrl.session.project.head
+        if self._updating or head is None or not head.replacement_path:
+            return
+        up = REPLACEMENT_UPS[dd.get_selected()]
+        if up != head.replacement_up:
+            self.ctrl.set_head_orientation(up=up)
+
+    def _on_head_yaw(self, spin: Gtk.SpinButton) -> None:
+        head = self.ctrl.session.project.head
+        if self._updating or head is None or not head.replacement_path:
+            return
+        if abs(spin.get_value() - head.replacement_yaw) > 1e-9:
+            self.ctrl.set_head_orientation(yaw=spin.get_value())
 
     def _on_front(self, dd: Gtk.DropDown, _p) -> None:
         if self._updating:

@@ -163,6 +163,28 @@ _UP_ROTATIONS = {            # rotación que lleva el eje «arriba» de la malla
 }
 
 
+_REPAIR_CACHE: dict = {}
+REPLACEMENT_VOXEL_RES = 160     # remallado por voxelización si la cabeza importada no es estanca (el cuerpo usa 700: pide GB de RAM)
+
+
+def _repaired(path: str, pre: float, mesh):
+    """Malla reparada de la cabeza importada, en caché por (archivo, fecha, tamaño).
+
+    Reparar puede remallar por voxelización (lento y con mucha RAM); girar o cambiar el eje «arriba» no cambia la
+    reparación, así que se hace una sola vez por archivo. Una cabeza no necesita la resolución de 700 del cuerpo."""
+    import os
+
+    from . import meshio
+
+    st = os.stat(path)
+    key = (os.path.abspath(path), st.st_mtime_ns, st.st_size)
+    hit = _REPAIR_CACHE.get(key)
+    if hit is None:
+        _REPAIR_CACHE.clear()                      # una sola cabeza en memoria
+        hit = _REPAIR_CACHE[key] = meshio.repair(mesh, voxel_res=REPLACEMENT_VOXEL_RES)
+    return hit.copy()
+
+
 def load_replacement(path: str, up: str = "+Z", yaw_deg: float = 0.0):
     """Carga y repara el STL de la cabeza importada y la deja con Z arriba (según `up`) y girada `yaw_deg`.
 
@@ -184,7 +206,7 @@ def load_replacement(path: str, up: str = "+Z", yaw_deg: float = 0.0):
         raise ValueError(f"«{path}» tiene tamaño cero")
     pre = 30.0 / ext
     mesh.apply_scale(pre)
-    mesh = meshio.repair(mesh)
+    mesh = _repaired(path, pre, mesh)
     a = np.radians(yaw_deg)
     Rz = np.array([[np.cos(a), -np.sin(a), 0], [np.sin(a), np.cos(a), 0], [0, 0, 1]])
     T = np.eye(4)
