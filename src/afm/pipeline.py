@@ -810,6 +810,61 @@ def _carve_torso_for_arm(torso: S.Manifold, arm_parts: list, center, axis, theta
     return best[0], {"holgura_factor": best[1][0], "voxel_mm": best[1][1], "paso_grados": 3.0, "aristas_no_variedad": best[2]}
 
 
+def _arm_turn_to_plane(pts: np.ndarray, center, axis, z_cut: float, fwd: float) -> tuple[float, float, str]:
+    """Giro mínimo (signo, grados, estado) del brazo hacia adelante para que su punto más bajo apoye en z_cut.
+    estado: «ok», «no_sube» (girando hacia adelante no se despega del plano) o «no_llega» (ni con FLAT_ANGLE_MAX)."""
+    best = None
+    for sgn in (1.0, -1.0):
+        probe = _rotate_pts(pts, center, axis, sgn * 10.0)
+        low = pts[:, 2] < pts[:, 2].min() + 1.0
+        moved = (probe[low, 1] - pts[low, 1]).mean() * fwd
+        rises = probe[:, 2].min() - pts[:, 2].min()
+        if rises > 0 and moved > 0:
+            best = sgn
+    if best is None:
+        return 1.0, 0.0, "no_sube"
+    lo, hi = 0.0, FLAT_ANGLE_MAX
+    if _rotate_pts(pts, center, axis, best * hi)[:, 2].min() < z_cut:
+        return best, hi, "no_llega"
+    for _ in range(40):
+        mid = (lo + hi) / 2
+        if _rotate_pts(pts, center, axis, best * mid)[:, 2].min() < z_cut:
+            lo = mid
+        else:
+            hi = mid
+    return best, hi, "ok"
+
+
+def _forward_sign(res: BuildResult, pieces: dict) -> float:
+    legs = [m for n, m in pieces.items() if n != "torso" and n != HEAD_NAME
+            and n.rsplit("_", 1)[0] in {pn for ln, (_l, _c, _a, (a0, a1)) in res.motion.items() if a1 > a0
+                                        for pn in _limb_piece_names(res, ln)}]
+    if not legs:
+        return 1.0
+    ly = np.mean([(m.bounding_box()[1] + m.bounding_box()[4]) / 2 for m in legs])
+    ty = (pieces["torso"].bounding_box()[1] + pieces["torso"].bounding_box()[4]) / 2
+    return 1.0 if ly >= ty else -1.0
+
+
+def flat_click_advice(res: BuildResult, depth: float = 1.0) -> dict:
+    """Brazos con clic que no apoyan en el plano del corte «sin soportes»: {miembro: {...}}. El clic fija la pose del brazo\n    (la punta cae en una muesca solo cada 360/n°), así que no se lo puede girar después sin fundir la punta con el disco:\n    hay que generar la figura con `DetentSpec.print_angle` igual al ángulo en que el brazo apoya. Devuelve el ángulo\n    actual, el de apoyo, cuánto cuelga por debajo del plano (mm) y el estado de `_arm_turn_to_plane`."""
+    out: dict = {}
+    z_cut = float(res.pieces["torso"].bounding_box()[2]) + float(depth)
+    fwd = _forward_sign(res, res.pieces)
+    for n, dl in res.detent.items():
+        if n not in res.motion or res.motion[n][3][1] > res.motion[n][3][0]:
+            continue
+        _l, center, axis, _r = res.motion[n]
+        pts = np.vstack([S.to_trimesh(res.pieces[f"{pn}_izq"]).vertices for pn in _limb_piece_names(res, n)])
+        low = float(pts[:, 2].min())
+        if low >= z_cut - 1e-6:
+            continue
+        sgn, theta, status = _arm_turn_to_plane(pts, center, axis, z_cut, fwd)
+        out[n] = {"angulo_actual": float(dl.print_angle), "cuelga_mm": round(z_cut - low, 2), "estado": status,
+                  "angulo_apoyo": round(float(dl.print_angle + sgn * theta), 1) if status == "ok" else None}
+    return out
+
+
 def flat_for_print(res: BuildResult, depth: float = 1.0, p: Params | None = None) -> tuple[dict, dict]:
     """Prepara la figura sentada para imprimirla sin soportes: devuelve (piezas nuevas, informe).
 
@@ -843,10 +898,15 @@ def flat_for_print(res: BuildResult, depth: float = 1.0, p: Params | None = None
         stretched[jn] = {"flexion_grados": fl, "flexion_impresa_grados": r["print_flex"]}
     info["rodillas_estiradas"] = stretched
     arm_limbs = [n for n, (_l, _c, _a, (a0, a1)) in res.motion.items() if n != HEAD_NAME and a1 <= a0 and n not in res.detent]
-    for n in res.detent:
-        if n in res.motion and res.motion[n][3][1] <= res.motion[n][3][0]:
-            info["avisos"].append(f"{n}: el brazo con clic ya está en una muesca: sin soportes no lo gira (si queda en el aire, "
-                                  "cambiá `DetentSpec.print_angle` para que el clic coincida con la pose de apoyo)")
+    info["clic_brazos"] = flat_click_advice(res, depth)
+    for n, a in info["clic_brazos"].items():
+        if a["angulo_apoyo"] is None:
+            info["avisos"].append(f"{n}: el brazo con clic cuelga {a['cuelga_mm']:.1f} mm bajo el plano y no llega a apoyar girando hacia adelante; "
+                                  "queda así (el clic fija su pose)")
+        else:
+            info["avisos"].append(f"{n}: el brazo con clic cuelga {a['cuelga_mm']:.1f} mm bajo el plano (el clic fija su pose, no se lo gira): "
+                                  f"generá la figura con «Clic: ángulo del brazo al imprimir» = {a['angulo_apoyo']:g}° (ahora {a['angulo_actual']:g}°) "
+                                  "para que apoye")
     arm_pieces = {f"{pn}{side}" for n in arm_limbs for pn in _limb_piece_names(res, n) for side in ("_izq", "_der")}
     protected = arm_pieces | {f"{pn}{side}" for n in res.detent if res.motion[n][3][1] <= res.motion[n][3][0]
                               for pn in _limb_piece_names(res, n) for side in ("_izq", "_der")}
@@ -880,31 +940,13 @@ def flat_for_print(res: BuildResult, depth: float = 1.0, p: Params | None = None
         if pts[:, 2].min() >= z_cut - 1e-6:
             angles[limb] = 0.0
             continue
-        best = None
-        for sgn in (1.0, -1.0):
-            probe = _rotate_pts(pts, center, axis, sgn * 10.0)
-            low = pts[:, 2] < pts[:, 2].min() + 1.0
-            moved = (probe[low, 1] - pts[low, 1]).mean() * fwd
-            rises = probe[:, 2].min() - pts[:, 2].min()
-            if rises > 0 and moved > 0:
-                best = sgn
-        sgn = best if best is not None else 1.0
-        if best is None:
+        sgn, theta, status = _arm_turn_to_plane(pts, center, axis, z_cut, fwd)
+        if status == "no_sube":
             info["avisos"].append(f"{limb}: el brazo no sube al girar hacia adelante; no se gira")
             angles[limb] = 0.0
             continue
-        lo, hi = 0.0, FLAT_ANGLE_MAX
-        if _rotate_pts(pts, center, axis, sgn * hi)[:, 2].min() < z_cut:
-            info["avisos"].append(f"{limb}: ni girando {hi:.0f}° llega al plano del corte; queda en el aire")
-            theta = hi
-        else:
-            for _ in range(40):
-                mid = (lo + hi) / 2
-                if _rotate_pts(pts, center, axis, sgn * mid)[:, 2].min() < z_cut:
-                    lo = mid
-                else:
-                    hi = mid
-            theta = hi
+        if status == "no_llega":
+            info["avisos"].append(f"{limb}: ni girando {FLAT_ANGLE_MAX:.0f}° llega al plano del corte; queda en el aire")
         angles[limb] = round(float(theta), 2)
         for pn, mf in left.items():
             rot = S.rotate_about_axis(mf, center, axis, sgn * theta)

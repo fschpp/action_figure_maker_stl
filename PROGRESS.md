@@ -14,6 +14,7 @@ _Plan de referencia: `PLAN_herramienta_stl_articulable.md` y `PLAN_mecanismo_cli
 ### [/] In Progress
 - [/] Verificación de la suite completa con la cintura.
 ### [x] Done
+- [x] Sin soportes con rodilla y brazo con clic (2026-10-19): rodillas a 0° en la vista de pose y la exportación; para el brazo con clic, `pipeline.flat_click_advice` + aviso con el `print_angle` que lo apoya + botón «Ajustar el clic del brazo» (hay que generar de nuevo; no se gira después porque la punta se fundiría con el disco). Pendiente: regenerar Güemes con ese ángulo y verificar.
 - [x] `WaistSpec`, `build_waist` (corte con holgura `clearance`, pasador sobre el eje = normal del plano simetrizado, cavidad dilatada, ajuste del pasador a la cara), `Params.waist_pin/waist_twist`, `Project.waist` (los `.proyecto` viejos cargan igual).
 - [x] `pipeline.build(..., waist=)`: `torso` = pecho, `pelvis` = pelvis; `report["waist"]` con qué piezas giran con el pecho; `body_ref(res)` (pecho + pelvis) para medir los miembros; `validate` → `cintura` (pasador, pared, cautivo, giro libre cada 5°); «sin soportes» usa la pelvis como pieza más baja.
 - [x] GUI: `Mode.WAIST_PLANE`, botón, fila de plano, parámetros «Cintura: …», vista de pose con pecho y pelvis. Tutorial §7.2e.

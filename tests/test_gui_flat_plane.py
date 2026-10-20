@@ -116,6 +116,12 @@ def test_legs_are_straight_while_adjusting_the_cut_and_after_if_the_checkbox_is_
     assert not c.legs_straight()
 
 
+def test_click_arm_advice_is_empty_without_click_and_apply_says_so(c):
+    assert c.flat_click_advice() == {} and c.flat_click_note() == ""
+    assert c.apply_flat_click_angle() is False and "Ningún brazo con clic" in c.message
+    assert c.session.outcome is not None                          # no invalidó la figura
+
+
 def test_changing_flat_depth_in_parameters_keeps_the_generated_figure(c):
     assert c.set_param("flat_depth", 2.5)
     assert c.session.outcome is not None

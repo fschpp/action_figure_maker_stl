@@ -260,3 +260,24 @@ def test_guemes_shoulder_and_hip_with_detent(tmp_path):
     assert val["ok"], val["problems"]
     assert val["pieces"]["torso"]["componentes"] == 1
     assert set(val["detent"]) == {"brazo", "pierna"}
+
+
+def test_flat_print_tells_the_click_angle_that_rests_the_arm_on_the_plane(doll_arm):
+    """El brazo con clic no se gira al aplanar (se fundiría la punta con el disco): el informe dice con qué
+    `print_angle` hay que generar para que apoye en el plano del corte."""
+    res, _val, p = doll_arm
+    low = float(S.to_trimesh(res.pieces["brazo_izq"]).vertices[:, 2].min())
+    depth = low + 2.0 - float(res.pieces["torso"].bounding_box()[2])           # el plano queda 2 mm sobre el punto más bajo
+    adv = P.flat_click_advice(res, depth)
+    assert set(adv) == {"brazo"}
+    a = adv["brazo"]
+    assert a["cuelga_mm"] == pytest.approx(2.0, abs=1e-2) and a["angulo_actual"] == p.detent.print_angle
+    assert a["estado"] == "ok" and a["angulo_apoyo"] != a["angulo_actual"]
+    _l, center, axis, _r = res.motion["brazo"]
+    pts = np.vstack([S.to_trimesh(res.pieces["brazo_izq"]).vertices])
+    turned = P._rotate_pts(pts, center, axis, a["angulo_apoyo"] - a["angulo_actual"])
+    assert turned[:, 2].min() == pytest.approx(low + 2.0, abs=0.05)             # justo apoyado
+    assert P.flat_click_advice(res, depth - 3.0) == {}                           # plano por debajo del brazo: ya apoya, sin aviso
+    pieces, info = P.flat_for_print(res, depth, p)
+    assert pieces["brazo_izq"] is res.pieces["brazo_izq"] and info["giro_brazos_grados"] == {}
+    assert any("ángulo del brazo al imprimir" in av for av in info["avisos"])
