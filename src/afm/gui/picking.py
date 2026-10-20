@@ -62,6 +62,34 @@ class Picker:
         return PickResult(verts[k].copy() if snapped else hit.copy(), hit.copy(), face,
                           self.mesh.face_normals[face].copy(), snapped)
 
+    def nearest_vertex(self, camera, px: float, py: float, width: float, height: float,
+                       radius_px: float = 12.0) -> tuple[int, np.ndarray] | None:
+        """Vértice de la malla más cercano al puntero (píxeles, y hacia abajo) si queda a `radius_px` o menos en pantalla.
+        Solo cuenta lo visible: se parte del primer impacto del rayo y se buscan vértices a su alrededor. Devuelve
+        (índice, posición) o None si el puntero no está sobre la figura o no hay ningún vértice cerca."""
+        o, d = camera.ray(px, py, width, height)
+        r = ray_first_hit(self._tris, o, d)
+        if r is None:
+            return None
+        hit = o + r[1] * d
+        base = camera.project(hit, width, height)[0, :2]
+        ppm = max(float(np.linalg.norm(camera.project(hit + e, width, height)[0, :2] - base)) for e in np.eye(3))
+        if ppm < 1e-9:
+            return None
+        if getattr(self, "_tree", None) is None:
+            from scipy.spatial import cKDTree
+            self._tree = cKDTree(np.asarray(self.mesh.vertices, float))
+        idx = np.asarray(self._tree.query_ball_point(hit, 1.6 * radius_px / ppm), dtype=int)
+        if idx.size == 0:
+            return None
+        pix = camera.project(self.mesh.vertices[idx], width, height)[:, :2]
+        dpx = np.linalg.norm(pix - np.array([px, py]), axis=1)
+        ok = dpx <= radius_px
+        if not ok.any():
+            return None
+        k = int(idx[ok][np.argmin(dpx[ok])])
+        return k, np.asarray(self.mesh.vertices[k], float).copy()
+
     def pick_pixel(self, camera, px: float, py: float, width: float, height: float,
                    snap_radius: float = 1.5) -> PickResult | None:
         o, d = camera.ray(px, py, width, height)

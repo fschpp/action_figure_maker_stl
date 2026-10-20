@@ -32,6 +32,9 @@ SYMMETRY_ID = "simetria"
 _KIND_BASE = {"arm": "brazo", "leg": "pierna"}
 
 
+HOVER_RADIUS_PX = 12.0       # distancia en pantalla a la que un vértice se marca en rojo al pasar el puntero
+
+
 class Mode(Enum):
     VIEW = "ver"
     CROWN = "coronilla"
@@ -160,6 +163,7 @@ class Controller:
         self.picker: Picker | None = None
         self.mode = Mode.VIEW
         self.pending: list[np.ndarray] = []
+        self.hover_vertex: np.ndarray | None = None  # vértice bajo el puntero (se pinta de rojo; un clic lo elige)
         self.pending_kind: str | None = None        # "arm" | "leg" mientras se elige el plano de un miembro
         self.message = "Abrí un STL para empezar."
         self.one_side = False                        # trabajar un solo lado (oculta x < 0)
@@ -563,6 +567,7 @@ class Controller:
     def cancel(self, quiet: bool = False) -> None:
         was = self.mode
         self.mode, self.pending, self.pending_kind = Mode.VIEW, [], None
+        self.clear_hover()
         self.draft, self.edit_limb, self.edit_cross = None, None, False
         self.pin_limb, self.pin_prev = None, None
         self.joint_limb, self.joint_name = None, None
@@ -1556,6 +1561,34 @@ class Controller:
         self.overhang_angle = float(np.clip(angle, 10.0, 80.0))
         self._changed(self._overhang_message() if self.show_overhangs and self.loaded else None)
 
+    # ----------------------------------------------------------------- vértice bajo el puntero
+    def hover_active(self) -> bool:
+        """True en los modos en que se eligen puntos sobre la figura (planos de 3 puntos, guías de 4)."""
+        return (self.picker is not None and not self.busy and
+                self.mode in (Mode.SYMMETRY, Mode.LIMB_PLANE, Mode.NECK_PLANE, Mode.WAIST_PLANE, Mode.JOINT_PLANE,
+                              Mode.JOINT_LINES, Mode.JOINT_SIDE))
+
+    def update_hover(self, px: float, py: float, width: float, height: float) -> bool:
+        """Marca (en rojo) el vértice de la figura que el puntero tiene cerca; lo suelta al alejarse. Devuelve True si
+        cambió lo que hay que dibujar."""
+        if not self.hover_active():
+            return self.clear_hover()
+        found = self.picker.nearest_vertex(self.camera, px, py, width, height, HOVER_RADIUS_PX)
+        new = None if found is None else found[1]
+        old = self.hover_vertex
+        if (new is None) == (old is None) and (new is None or np.allclose(new, old)):
+            return False
+        self.hover_vertex = new
+        self.scene_dirty = True
+        return True
+
+    def clear_hover(self) -> bool:
+        if self.hover_vertex is None:
+            return False
+        self.hover_vertex = None
+        self.scene_dirty = True
+        return True
+
     # ----------------------------------------------------------------- clics
     def click(self, px: float, py: float, width: float, height: float) -> PickResult | None:
         """Clic sobre el visor (píxeles, y hacia abajo). Devuelve el punto elegido si hubo impacto."""
@@ -1573,6 +1606,10 @@ class Controller:
         if self.picker is None or self.mode == Mode.VIEW:
             return None
         hit = self.picker.pick_pixel(self.camera, px, py, width, height)
+        if self.hover_active() and (v := self.picker.nearest_vertex(self.camera, px, py, width, height, HOVER_RADIUS_PX)) is not None:
+            base = hit if hit is not None else self.picker.pick_pixel(self.camera, px, py, width, height, 1e9)
+            hit = PickResult(v[1], base.hit.copy(), base.face, base.normal.copy(), True)    # el vértice en rojo es el punto elegido
+            self.clear_hover()
         if hit is None:
             self._changed("El clic no tocó la figura.", scene=False)
             return None
@@ -1904,6 +1941,10 @@ class Controller:
         for key in [k for k in scene.items if k.startswith("plano:") and not k.endswith(":borde")]:
             if key not in wanted:
                 scene.remove(key)
+        if self.hover_vertex is not None and self.hover_active():
+            scene.set_points("hover:vertice", self.hover_vertex[None], (1.0, 0.0, 0.0, 1.0), 18.0, on_top=True)
+        else:
+            scene.remove("hover:vertice")
         if self.pending and self.mode != Mode.JOINT_LINES:
             pts = np.array(self.pending)
             scene.set_points("pendientes", pts, (1.0, 0.25, 0.25, 1.0), 12.0)
