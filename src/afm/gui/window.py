@@ -170,6 +170,13 @@ class MainWindow(Gtk.ApplicationWindow):
         drag.connect("drag-end", self._on_drag_end)
         self.gl.add_controller(drag)
 
+        hover = Gtk.EventControllerMotion()
+        hover.connect("motion", self._on_gl_motion)
+        hover.connect("leave", self._on_gl_leave)
+        self.gl.add_controller(hover)
+        self._hover_pos: tuple[float, float] | None = None
+        self._hover_timer = 0
+
         scroll = Gtk.EventControllerScroll(flags=Gtk.EventControllerScrollFlags.VERTICAL)
         scroll.connect("scroll", self._on_scroll)
         self.gl.add_controller(scroll)
@@ -757,6 +764,7 @@ class MainWindow(Gtk.ApplicationWindow):
         if not d["moved"] and (dx * dx + dy * dy) ** 0.5 < DRAG_THRESHOLD_PX:
             return
         d["moved"] = True
+        self.ctrl.clear_hover()
         ddx, ddy = dx - d["last"][0], dy - d["last"][1]
         d["last"] = (dx, dy)
         cam = self.ctrl.camera
@@ -766,9 +774,29 @@ class MainWindow(Gtk.ApplicationWindow):
             cam.orbit(ddx, ddy)
         self.gl.queue_render()
 
+    def _on_gl_motion(self, _c, x: float, y: float) -> None:
+        """Marca el vértice cercano al puntero (modos de elegir puntos). Se agrupan los eventos: la búsqueda traza un rayo."""
+        self._hover_pos = (x, y)
+        if self.ctrl.hover_active() and not self._hover_timer:
+            self._hover_timer = GLib.timeout_add(30, self._hover_tick)
+
+    def _hover_tick(self) -> bool:
+        self._hover_timer = 0
+        pos = self._hover_pos
+        if pos is not None and not self._drag["moved"] and self.ctrl.update_hover(
+                pos[0], pos[1], max(self.gl.get_width(), 1), max(self.gl.get_height(), 1)):
+            self.gl.queue_render()
+        return False
+
+    def _on_gl_leave(self, _c) -> None:
+        self._hover_pos = None
+        if self.ctrl.clear_hover():
+            self.gl.queue_render()
+
     def _on_drag_end(self, _g, _dx: float, _dy: float) -> None:
         d = self._drag
-        if d["moved"] or d["button"] != 1:
+        moved, d["moved"] = d["moved"], False          # el hover vuelve a andar al terminar el arrastre
+        if moved or d["button"] != 1:
             return
         x, y = d["start"]
         self.ctrl.click(x, y, max(self.gl.get_width(), 1), max(self.gl.get_height(), 1))
