@@ -56,7 +56,7 @@ def _closed_manifold(mesh: trimesh.Trimesh) -> bool:
         return False
 
 
-def repair(mesh: trimesh.Trimesh, report: LoadReport | None = None) -> trimesh.Trimesh:
+def repair(mesh: trimesh.Trimesh, report: LoadReport | None = None, voxel_res: int = 700) -> trimesh.Trimesh:
     """Repara lo básico; si sigue sin ser variedad, remalla por voxelización.
 
     Se prueban dos variantes y se queda la primera que acepta manifold3d: (1) limpiando triángulos
@@ -77,7 +77,7 @@ def repair(mesh: trimesh.Trimesh, report: LoadReport | None = None) -> trimesh.T
             report.repaired = not was_wt
             return cand
     mesh = _drop_loose(cleaned, report)
-    pitch = max(mesh.extents.max() / 700.0, 1e-6)
+    pitch = max(mesh.extents.max() / float(voxel_res), 1e-6)
     vox = mesh.voxelized(pitch).fill()
     mesh = vox.marching_cubes
     mesh.apply_transform(vox.transform)
