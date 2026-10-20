@@ -59,8 +59,9 @@ def main(argv=None) -> int:
     b.add_argument("--cabeza-ry", type=float, default=None, metavar="GRADOS", help="girar la cabeza importada sobre Y")
     b.add_argument("--cabeza-escala", type=float, default=None, metavar="FACTOR",
                    help="factor manual sobre la escala automática (1 = base igual a la del cuello; 0,2–5)")
-    b.add_argument("--cabeza-corte", type=float, default=None, metavar="PORCENTAJE",
-                   help="cortar este %% del alto de la cabeza importada desde abajo con un plano horizontal (0–60; 0 = automático)")
+    b.add_argument("--cabeza-corte", type=float, nargs=9, default=None, metavar="N",
+                   help="plano de 3 puntos que corta la base de la cabeza importada: x1 y1 z1 x2 y2 z2 x3 y3 z3, "
+                        "en coordenadas del STL de la cabeza (lo de abajo del plano se descarta)")
     b.add_argument("--cadera-referencia", action="store_true",
                    help="usar el pasador de cadera de la figura de referencia (Ø4,8 / cabeza Ø9,25 × 2,44, mm absolutos)")
     b.add_argument("--max-angle", type=float, default=45.0, help="ángulo de voladizo tolerado (grados desde la vertical)")
@@ -138,7 +139,8 @@ def main(argv=None) -> int:
                 replacement_rx=project.head.replacement_rx if args.cabeza_rx is None else args.cabeza_rx,
                 replacement_ry=project.head.replacement_ry if args.cabeza_ry is None else args.cabeza_ry,
                 replacement_scale=project.head.replacement_scale if args.cabeza_escala is None else args.cabeza_escala,
-                replacement_cut=project.head.replacement_cut if args.cabeza_corte is None else args.cabeza_corte)
+                replacement_cut_points=project.head.replacement_cut_points if args.cabeza_corte is None
+                else tuple(tuple(args.cabeza_corte[i:i + 3]) for i in (0, 3, 6)))
         if args.cadera_referencia:
             project.params = project.params.with_hip_reference()
         flat = args.sin_soportes

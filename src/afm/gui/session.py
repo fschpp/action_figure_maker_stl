@@ -645,11 +645,11 @@ class Session:
         return spec
 
     def set_head_replacement(self, path: str, yaw: float = 0.0, up: str = "+Z", rx: float = 0.0, ry: float = 0.0,
-                             scale: float = 1.0, cut: float = 0.0) -> dict:
+                             scale: float = 1.0, cut_points=None) -> dict:
         """Usa otra cabeza (STL) en lugar de la original. Se descarta la original, no se simetriza nada y la nueva se
         escala (uniforme) para que su base iguale la del cuello. Controles: eje «arriba» + giros `rx`, `ry`, `yaw` (°),
-        `scale` (factor manual sobre la escala automática) y `cut` (% del alto que se corta desde abajo con un plano
-        horizontal). Valida ajustándola ya sobre el cuerpo actual y devuelve los datos del ajuste (escala,
+        `scale` (factor manual sobre la escala automática) y `cut_points` (3 puntos, en coordenadas del STL, del plano
+        que corta la base). Valida ajustándola ya sobre el cuerpo actual y devuelve los datos del ajuste (escala,
         coincidencia de base, alto…). Si falla no cambia nada."""
         head = self.project.head
         if head is None:
@@ -660,17 +660,43 @@ class Session:
         if not os.path.isfile(path):
             raise ValueError(f"No existe el archivo «{path}»")
         spec = dataclasses.replace(head, replacement_path=path, replacement_yaw=float(yaw), replacement_up=up,
-                                  replacement_rx=float(rx), replacement_ry=float(ry),
-                                  replacement_scale=float(scale), replacement_cut=float(cut))
-        split = split_head(S.to_manifold(self.work), spec, self.project.params)
+                                   replacement_rx=float(rx), replacement_ry=float(ry), replacement_scale=float(scale),
+                                   replacement_cut_points=None if cut_points is None else
+                                   tuple(tuple(map(float, q)) for q in cut_points))
+        return self._apply_head_spec(spec)
+
+    def _apply_head_spec(self, spec: HeadSpec) -> dict:
+        split = split_head(S.to_manifold(self.work), spec, self.project.params)     # si falla no cambia nada
         self.project.head = spec
         self._head_fit = (self._head_fit_key(spec), S.to_trimesh(split.head), split.replacement)
         self.outcome = None
         return split.replacement
 
+    def set_head_cut_plane(self, world_points) -> dict:
+        """Corta la base de la cabeza de reemplazo con el plano de 3 puntos elegidos sobre ella (coordenadas del
+        mundo, es decir sobre la cabeza ya apoyada en el cuello). Se guardan en coordenadas del STL importado, así el
+        plano acompaña a la malla si después se cambia la orientación o la escala. Si no sirve no cambia nada."""
+        head = self.project.head
+        prev = self.head_replacement_preview()
+        if head is None or prev is None:
+            raise ValueError("Primero cargá una cabeza de reemplazo (STL)")
+        pts = np.asarray(world_points, float)
+        if pts.shape != (3, 3):
+            raise ValueError("Se necesitan 3 puntos")
+        inv = np.linalg.inv(np.asarray(prev[1]["raw_a_mundo"], float))     # mundo -> coordenadas del STL
+        raw = (inv[:3, :3] @ pts.T).T + inv[:3, 3]
+        return self._apply_head_spec(dataclasses.replace(head, replacement_cut_points=tuple(map(tuple, raw))))
+
+    def clear_head_cut_plane(self) -> bool:
+        head = self.project.head
+        if head is None or head.replacement_cut_points is None:
+            return False
+        self._apply_head_spec(dataclasses.replace(head, replacement_cut_points=None))
+        return True
+
     def _head_fit_key(self, spec: HeadSpec):
         return (id(self.work), spec.replacement_path, spec.replacement_yaw, spec.replacement_up,
-                spec.replacement_rx, spec.replacement_ry, spec.replacement_scale, spec.replacement_cut,
+                spec.replacement_rx, spec.replacement_ry, spec.replacement_scale, spec.replacement_cut_points,
                 spec.plane.origin.tobytes(), spec.plane.normal.tobytes())
 
     def head_replacement_preview(self):
@@ -698,7 +724,7 @@ class Session:
             return False
         self.project.head = dataclasses.replace(head, replacement_path=None, replacement_yaw=0.0, replacement_up="+Z",
                                                 replacement_rx=0.0, replacement_ry=0.0, replacement_scale=1.0,
-                                                replacement_cut=0.0)
+                                                replacement_cut_points=None)
         self.outcome = None
         self._head_fit = None
         return True

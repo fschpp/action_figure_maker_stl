@@ -43,7 +43,7 @@ MIN_BASE_IOU = 0.80       # por debajo, la base nueva se parece poco a la del cu
 MIN_UP = 0.3          # |n·Z| mínimo del plano del cuello (un plano casi vertical no separa cabeza de cuerpo)
 MAX_SIDE = 0.5        # |n·X| máximo antes de simetrizar (el plano tiene que contener el eje izquierda-derecha)
 REPLACEMENT_SCALE_RANGE = (0.2, 5.0)   # factor manual sobre la escala automática
-REPLACEMENT_CUT_RANGE = (0.0, 60.0)    # % del alto de la malla que se puede cortar desde la base
+MIN_CUT_UP = 0.3      # |n·Z| mínimo del plano de corte de la base de la cabeza importada (casi vertical no sirve)
 
 
 @dataclass
@@ -63,7 +63,8 @@ class HeadSpec:
     replacement_rx: float = 0.0           # giro fino (°) de la malla importada sobre X, tras el eje «arriba»
     replacement_ry: float = 0.0           # idem sobre Y
     replacement_scale: float = 1.0        # factor manual sobre la escala automática (1 = base igual a la del cuello)
-    replacement_cut: float = 0.0          # % del alto que se corta desde abajo con un plano horizontal (0 = automático)
+    replacement_cut_points: tuple | None = None   # 3 puntos (x, y, z) del plano que corta la base, en coordenadas del STL
+                                                  # importado (sin girar ni escalar); None = base plana propia o corte automático
 
     def to_dict(self) -> dict:
         return {"name": self.name, "plane": self.plane.to_dict(),
@@ -71,7 +72,9 @@ class HeadSpec:
                 "auto": self.auto, "replacement_path": self.replacement_path,
                 "replacement_yaw": self.replacement_yaw, "replacement_up": self.replacement_up,
                 "replacement_rx": self.replacement_rx, "replacement_ry": self.replacement_ry,
-                "replacement_scale": self.replacement_scale, "replacement_cut": self.replacement_cut}
+                "replacement_scale": self.replacement_scale,
+                "replacement_cut_points": None if self.replacement_cut_points is None
+                else [list(map(float, q)) for q in self.replacement_cut_points]}
 
     @classmethod
     def from_dict(cls, d: dict) -> "HeadSpec":
@@ -83,7 +86,8 @@ class HeadSpec:
                    replacement_rx=float(d.get("replacement_rx", 0.0)),
                    replacement_ry=float(d.get("replacement_ry", 0.0)),
                    replacement_scale=float(d.get("replacement_scale", 1.0)),
-                   replacement_cut=float(d.get("replacement_cut", 0.0)))
+                   replacement_cut_points=None if d.get("replacement_cut_points") is None
+                   else tuple(tuple(map(float, q)) for q in d["replacement_cut_points"]))
 
 
 @dataclass
@@ -197,17 +201,49 @@ def _repaired(path: str, pre: float, mesh):
     return hit.copy()
 
 
-def load_replacement(path: str, up: str = "+Z", yaw_deg: float = 0.0, rx_deg: float = 0.0, ry_deg: float = 0.0):
-    """Carga y repara el STL de la cabeza importada y la deja con Z arriba (según `up`) y girada.
+def _rot_z(deg: float) -> np.ndarray:
+    a = np.radians(deg)
+    return np.array([[np.cos(a), -np.sin(a), 0], [np.sin(a), np.cos(a), 0], [0, 0, 1]])
 
-    Orden de giros: primero el eje «arriba» (`up`), luego `rx_deg` sobre X, `ry_deg` sobre Y y por último
-    `yaw_deg` sobre Z (con rx = ry = 0 es exactamente el comportamiento anterior). No se centra ni se escala
-    (eso lo hace `fit_replacement`). Se pre-escala a ~30 mm solo para que las tolerancias absolutas de la
-    reparación sean razonables. Devuelve (malla, pre_escala): la malla ya multiplicada por `pre_escala`
-    respecto de las unidades del archivo."""
+
+def _orientation(up: str, rx_deg: float, ry_deg: float) -> np.ndarray:
+    """Rotación 3×3 «eje arriba» → Rx → Ry (sin el giro Z, que va al final)."""
+    b, c = np.radians(ry_deg), np.radians(rx_deg)
+    Ry = np.array([[np.cos(b), 0, np.sin(b)], [0, 1, 0], [-np.sin(b), 0, np.cos(b)]])
+    Rx = np.array([[1, 0, 0], [0, np.cos(c), -np.sin(c)], [0, np.sin(c), np.cos(c)]])
+    return Ry @ Rx @ _UP_ROTATIONS[up]
+
+
+def _cut_rotation(points: np.ndarray):
+    """(rotación 3×3 que deja horizontal el plano de `points`, un punto del plano, normal «hacia arriba»).
+
+    La normal se toma con n·Z > 0: lo que queda del lado de arriba es la cabeza y lo de abajo se descarta."""
+    p0, p1, p2 = (np.asarray(q, float) for q in points)
+    n = np.cross(p1 - p0, p2 - p0)
+    if np.linalg.norm(n) < 1e-9 * max(1.0, np.linalg.norm(p1 - p0) * np.linalg.norm(p2 - p0)):
+        raise ValueError("los 3 puntos del corte están alineados: elegí 3 puntos que formen un triángulo")
+    n = n / np.linalg.norm(n)
+    if n[2] < 0:
+        n = -n
+    if n[2] < MIN_CUT_UP:
+        raise ValueError(f"el plano de corte de la base está casi vertical (|n·Z| = {n[2]:.2f} < {MIN_CUT_UP}): "
+                         "elegí 3 puntos en la base de la cabeza, con la cabeza ya apoyada en el cuello")
+    axis = np.cross(n, [0.0, 0.0, 1.0])
+    s_, c_ = float(np.linalg.norm(axis)), float(n[2])
+    if s_ < 1e-12:
+        return np.eye(3), p0, n
+    axis = axis / s_
+    K = np.array([[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]])
+    return np.eye(3) + s_ * K + (1 - c_) * (K @ K), p0, n
+
+
+def _oriented_replacement(path: str, up: str, yaw_deg: float, rx_deg: float, ry_deg: float, cut_points=None):
+    """Carga y repara el STL y lo deja orientado. Devuelve (malla, pre_escala, T_raw 4×4, z_corte o None).
+
+    `T_raw` lleva las coordenadas del archivo a las de la malla devuelta (pre-escala, orientación, giro del
+    corte y giro Z); sirve para pasar puntos del mundo a coordenadas del STL y que el plano de corte
+    acompañe a la malla cuando se cambia la orientación. `z_corte` es la cota (horizontal) del plano de corte."""
     import trimesh
-
-    from . import meshio
 
     if up not in _UP_ROTATIONS:
         raise ValueError(f"replacement_up debe ser uno de {REPLACEMENT_UPS}, no {up!r}")
@@ -221,15 +257,39 @@ def load_replacement(path: str, up: str = "+Z", yaw_deg: float = 0.0, rx_deg: fl
     pre = 30.0 / ext
     mesh.apply_scale(pre)
     mesh = _repaired(path, pre, mesh)
-    a, b, c = np.radians(yaw_deg), np.radians(ry_deg), np.radians(rx_deg)
-    Rz = np.array([[np.cos(a), -np.sin(a), 0], [np.sin(a), np.cos(a), 0], [0, 0, 1]])
-    Ry = np.array([[np.cos(b), 0, np.sin(b)], [0, 1, 0], [-np.sin(b), 0, np.cos(b)]])
-    Rx = np.array([[1, 0, 0], [0, np.cos(c), -np.sin(c)], [0, np.sin(c), np.cos(c)]])
-    T = np.eye(4)
-    T[:3, :3] = Rz @ Ry @ Rx @ _UP_ROTATIONS[up]
+    R4 = np.eye(4)
+    R4[:3, :3] = _orientation(up, rx_deg, ry_deg)
+    Q4 = np.eye(4)
+    z_cut = None
+    if cut_points is not None:
+        pts = np.asarray(cut_points, float)
+        if pts.shape != (3, 3):
+            raise ValueError("el plano de corte necesita 3 puntos")
+        pr = (R4[:3, :3] @ (pre * pts).T).T                     # los 3 puntos en el marco orientado y pre-escalado
+        Q, p0, _n = _cut_rotation(pr)
+        Q4[:3, :3] = Q
+        Q4[:3, 3] = p0 - Q @ p0                                  # gira alrededor de un punto del plano de corte
+        z_cut = float(p0[2])                                     # el plano queda horizontal a esta cota
+    Yaw = np.eye(4)
+    Yaw[:3, :3] = _rot_z(yaw_deg)
+    apply = Yaw @ Q4 @ R4                                        # sobre la malla ya pre-escalada
     mesh = mesh.copy()
-    mesh.apply_transform(T)
-    return mesh, float(pre)
+    mesh.apply_transform(apply)
+    return mesh, float(pre), apply @ np.diag([pre, pre, pre, 1.0]), z_cut
+
+
+def load_replacement(path: str, up: str = "+Z", yaw_deg: float = 0.0, rx_deg: float = 0.0, ry_deg: float = 0.0,
+                     cut_points=None):
+    """Carga y repara el STL de la cabeza importada y la deja con Z arriba (según `up`) y girada.
+
+    Orden de giros: primero el eje «arriba» (`up`), luego `rx_deg` sobre X, `ry_deg` sobre Y y por último
+    `yaw_deg` sobre Z (con rx = ry = 0 es exactamente el comportamiento anterior). Con `cut_points` (3 puntos en
+    coordenadas del STL) la malla se inclina además para que ese plano quede horizontal (el giro Z va después).
+    No se centra ni se escala (eso lo hace `fit_replacement`). Se pre-escala a ~30 mm solo para que las
+    tolerancias absolutas de la reparación sean razonables. Devuelve (malla, pre_escala): la malla ya
+    multiplicada por `pre_escala` respecto de las unidades del archivo."""
+    mesh, pre, _T, _z = _oriented_replacement(path, up, yaw_deg, rx_deg, ry_deg, cut_points)
+    return mesh, pre
 
 
 def _section_shape(mf: S.Manifold, z: float):
@@ -260,19 +320,19 @@ def fit_replacement(spec: HeadSpec, plane: Plane, face: ContactFace):
     No se espeja ni simetriza nada. Si la malla no trae base plana se corta una fracción baja de su alto
     (`BASE_SLICE_FRAC`) para tener una cara plana donde apoyar y poner el pasador."""
     lo_s, hi_s = REPLACEMENT_SCALE_RANGE
-    lo_c, hi_c = REPLACEMENT_CUT_RANGE
     if not (lo_s <= spec.replacement_scale <= hi_s):
         raise ValueError(f"la escala de la cabeza tiene que estar entre ×{lo_s:g} y ×{hi_s:g}")
-    if not (lo_c <= spec.replacement_cut <= hi_c):
-        raise ValueError(f"el corte de la base tiene que estar entre {lo_c:g} y {hi_c:g} % del alto")
-    mesh, pre = load_replacement(spec.replacement_path, spec.replacement_up, spec.replacement_yaw,
-                                 spec.replacement_rx, spec.replacement_ry)
+    mesh, pre, T_raw, z_cut = _oriented_replacement(spec.replacement_path, spec.replacement_up, spec.replacement_yaw,
+                                                    spec.replacement_rx, spec.replacement_ry,
+                                                    spec.replacement_cut_points)
     mf = S.to_manifold(mesh)
     z0 = float(mesh.bounds[0, 2])
     height = float(mesh.extents[2])
     tol = 1e-3 * height
-    if spec.replacement_cut > 0:                              # corte pedido: plano horizontal sobre la base
-        z_base, cut = z0 + spec.replacement_cut / 100.0 * height, True
+    if z_cut is not None:                                     # corte pedido: plano de 3 puntos, ya horizontal
+        if not (z0 + 2 * tol < z_cut < z0 + height - 2 * tol):
+            raise ValueError("el plano de corte no atraviesa la cabeza (¿quedó fuera de la malla?)")
+        z_base, cut = z_cut, True
         base = _section_shape(mf, z_base + 2 * tol)
     else:
         sec_f = _section_shape(mf, z0 + BASE_SLICE_FRAC * height)
@@ -310,7 +370,8 @@ def fit_replacement(spec: HeadSpec, plane: Plane, face: ContactFace):
     # "escala" es respecto de las unidades del archivo importado (k es respecto de la malla ya pre-escalada)
     info = {"escala": k * pre, "base_igualada_mm2": float(orig.area), "coincidencia_base": iou,
             "base_cortada": bool(cut), "alto_mm": float((height - (z_base - z0)) * k),
-            "escala_manual": float(spec.replacement_scale), "corte_pct": float(spec.replacement_cut),
+            "escala_manual": float(spec.replacement_scale), "corte_plano": z_cut is not None,
+            "raw_a_mundo": (M @ T_raw).tolist(),
             "volumen_mm3": float(placed.volume()), "bbox": [list(map(float, b)) for b in
                                                            (bounds[:3], bounds[3:])]}
     if iou < MIN_BASE_IOU:

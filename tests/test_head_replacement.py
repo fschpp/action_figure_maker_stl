@@ -183,22 +183,68 @@ def test_manual_scale_multiplies_the_auto_fit(body, params, assets):
         split_head(body, _neck(replacement_path=assets["asym"], replacement_scale=9.0), params)
 
 
-def test_base_cut_plane_removes_the_lower_part(body, params, assets):
+# plano de corte de la base: 3 puntos en coordenadas del STL (la bola de r = 15, con base plana en z = -10, nariz en +X)
+HORIZ = ((0.0, 0.0, -5.0), (1.0, 0.0, -5.0), (0.0, 1.0, -5.0))                    # horizontal, 5 mm sobre la base
+TILTED = ((0.0, 0.0, -5.0), (1.0, 0.0, -5.0), (0.0, 1.0, -5.0 + np.tan(np.radians(20))))   # inclinado 20° sobre X
+
+
+def test_three_point_horizontal_cut_removes_the_lower_part(body, params, assets):
     one = split_head(body, _neck(replacement_path=assets["asym"]), params)
-    cut = split_head(body, _neck(replacement_path=assets["asym"], replacement_cut=20.0), params)
+    cut = split_head(body, _neck(replacement_path=assets["asym"], replacement_cut_points=HORIZ), params)
     rep = cut.replacement
-    assert rep["base_cortada"] and rep["corte_pct"] == 20.0 and not one.replacement["base_cortada"]
+    assert rep["base_cortada"] and rep["corte_plano"] and not one.replacement["base_cortada"]
     assert cut.head.bounding_box()[2] == pytest.approx(80.0, abs=1e-3)           # la nueva base sigue sobre el plano del cuello
-    assert rep["alto_mm"] == pytest.approx(20.0 * rep["escala"], rel=0.03)       # 25 mm del archivo − 20 % = 20 mm
+    assert rep["alto_mm"] == pytest.approx(20.0 * rep["escala"], rel=0.03)       # 25 mm del archivo − 5 mm = 20 mm
     assert rep["escala"] < one.replacement["escala"]                              # a esa altura la bola es más ancha → k menor
     assert cut.head.volume() < one.head.volume()
     assert rep["coincidencia_base"] > 0.7        # el corte pasa por la nariz: la base ya no es un círculo perfecto
-    with pytest.raises(ValueError, match="corte"):
-        split_head(body, _neck(replacement_path=assets["asym"], replacement_cut=80.0), params)
+
+
+def test_three_point_order_does_not_matter(body, params, assets):
+    a = split_head(body, _neck(replacement_path=assets["asym"], replacement_cut_points=HORIZ), params)
+    b = split_head(body, _neck(replacement_path=assets["asym"], replacement_cut_points=HORIZ[::-1]), params)
+    assert a.head.volume() == pytest.approx(b.head.volume(), rel=1e-6)           # la normal siempre apunta hacia arriba
+
+
+def test_tilted_cut_plane_becomes_the_base(body, params, assets):
+    one = split_head(body, _neck(replacement_path=assets["asym"]), params)
+    tilt = split_head(body, _neck(replacement_path=assets["asym"], replacement_cut_points=TILTED), params)
+    assert tilt.replacement["corte_plano"] and tilt.head.bounding_box()[2] == pytest.approx(80.0, abs=1e-3)
+    flat = split_head(body, _neck(replacement_path=assets["asym"], replacement_cut_points=HORIZ), params)
+    assert tilt.head.volume() != pytest.approx(flat.head.volume(), rel=0.02)      # no es el mismo corte que el horizontal
+    assert 0 < tilt.head.volume() < one.head.volume() * 1.5
+    # la cara del cuello es plana y está sobre el plano del cuello
+    assert tilt.face.area > 0 and np.allclose(tilt.face.triangles[:, :, 2], 80.0, atol=1e-3)
+
+
+def test_cut_plane_follows_the_mesh_when_yaw_changes(body, params, assets):
+    a = split_head(body, _neck(replacement_path=assets["asym"], replacement_cut_points=TILTED), params)
+    b = split_head(body, _neck(replacement_path=assets["asym"], replacement_cut_points=TILTED, replacement_yaw=90.0), params)
+    assert a.head.volume() == pytest.approx(b.head.volume(), rel=0.01)           # girar sobre el cuello no cambia el corte
+    assert a.replacement["escala"] == pytest.approx(b.replacement["escala"], rel=1e-6)
+
+
+def test_raw_to_world_matrix_maps_cut_points_onto_the_neck_plane(body, params, assets):
+    sp = split_head(body, _neck(replacement_path=assets["asym"], replacement_cut_points=TILTED), params)
+    W = np.array(sp.replacement["raw_a_mundo"])
+    world = (W[:3, :3] @ np.array(TILTED).T).T + W[:3, 3]
+    assert np.allclose(world[:, 2], 80.0, atol=1e-6)                              # los 3 puntos quedan en el plano del cuello
+
+
+def test_bad_cut_planes_are_rejected(body, params, assets):
+    vertical = ((0.0, 0.0, -5.0), (0.0, 1.0, -5.0), (0.0, 0.0, 5.0))
+    with pytest.raises(ValueError, match="casi vertical"):
+        split_head(body, _neck(replacement_path=assets["asym"], replacement_cut_points=vertical), params)
+    line = ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (2.0, 0.0, 0.0))
+    with pytest.raises(ValueError, match="alineados"):
+        split_head(body, _neck(replacement_path=assets["asym"], replacement_cut_points=line), params)
+    outside = ((0.0, 0.0, 40.0), (1.0, 0.0, 40.0), (0.0, 1.0, 40.0))
+    with pytest.raises(ValueError, match="no atraviesa"):
+        split_head(body, _neck(replacement_path=assets["asym"], replacement_cut_points=outside), params)
 
 
 def test_cut_head_builds_a_valid_piece(body, params, assets):
-    spec = _neck(replacement_path=assets["asym"], replacement_cut=15.0, replacement_scale=1.1, replacement_rx=10.0)
+    spec = _neck(replacement_path=assets["asym"], replacement_cut_points=TILTED, replacement_scale=1.1, replacement_rx=10.0)
     res = P.build(body, [], params, head=spec)
     val = P.validate(res, params, [])
     assert val["pieces"][HEAD_NAME]["componentes"] == 1 and val["pieces"][HEAD_NAME]["variedad_ok"]
@@ -207,14 +253,16 @@ def test_cut_head_builds_a_valid_piece(body, params, assets):
 def test_new_fields_roundtrip_and_old_projects_load(tmp_path):
     p = demo_project()
     p.head = dataclasses.replace(p.head, replacement_path="/x/c.stl", replacement_rx=12.5, replacement_ry=-30.0,
-                                 replacement_scale=1.25, replacement_cut=8.0)
+                                 replacement_scale=1.25,
+                                 replacement_cut_points=TILTED)
     f = tmp_path / "p.proyecto"
     p.save(str(f))
     q = Project.load(str(f))
     h = q.head
-    assert (h.replacement_rx, h.replacement_ry, h.replacement_scale, h.replacement_cut) == (12.5, -30.0, 1.25, 8.0)
+    assert (h.replacement_rx, h.replacement_ry, h.replacement_scale) == (12.5, -30.0, 1.25)
+    assert np.allclose(h.replacement_cut_points, TILTED)
     old = p.to_dict()
-    for k in ("replacement_rx", "replacement_ry", "replacement_scale", "replacement_cut"):
+    for k in ("replacement_rx", "replacement_ry", "replacement_scale", "replacement_cut_points"):
         old["head"].pop(k)
     h = Project.from_dict(old).head
-    assert (h.replacement_rx, h.replacement_ry, h.replacement_scale, h.replacement_cut) == (0.0, 0.0, 1.0, 0.0)
+    assert (h.replacement_rx, h.replacement_ry, h.replacement_scale, h.replacement_cut_points) == (0.0, 0.0, 1.0, None)

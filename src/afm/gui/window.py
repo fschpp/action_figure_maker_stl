@@ -15,7 +15,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
 from gi.repository import Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 
-from ..head import MIN_BASE_IOU, REPLACEMENT_CUT_RANGE, REPLACEMENT_SCALE_RANGE, REPLACEMENT_UPS  # noqa: E402
+from ..head import MIN_BASE_IOU, REPLACEMENT_SCALE_RANGE, REPLACEMENT_UPS  # noqa: E402
 from .controller import JOINT_PREFIX, PARAM_FIELDS, TRIM_OP_LABELS, TRIM_SHAPE_LABELS, TRIM_SHAPES, Controller, Mode  # noqa: E402
 from .render import SceneRenderer  # noqa: E402
 from .session import Session  # noqa: E402
@@ -25,7 +25,7 @@ DRAG_THRESHOLD_PX = 4.0
 # flechas -> (derecha, arriba) sobre la cara de contacto vista de frente
 _ARROWS = {Gdk.KEY_Left: (-1, 0), Gdk.KEY_Right: (1, 0), Gdk.KEY_Up: (0, 1), Gdk.KEY_Down: (0, -1)}
 _MODE_TITLES = {Mode.VIEW: "", Mode.CROWN: "  ·  marcando coronilla", Mode.SYMMETRY: "  ·  plano de simetría",
-                Mode.LIMB_PLANE: "  ·  plano de un miembro", Mode.NECK_PLANE: "  ·  plano del cuello", Mode.WAIST_PLANE: "  ·  plano de la cintura", Mode.POLYGON: "  ·  dibujando silueta",
+                Mode.LIMB_PLANE: "  ·  plano de un miembro", Mode.NECK_PLANE: "  ·  plano del cuello", Mode.HEAD_CUT_PLANE: "  ·  corte de la base de la cabeza", Mode.WAIST_PLANE: "  ·  plano de la cintura", Mode.POLYGON: "  ·  dibujando silueta",
                 Mode.PIN: "  ·  colocando pasador", Mode.TRIM_PICK: "  ·  colocando recorte",
                 Mode.JOINT_PLANE: "  ·  plano de articulación", Mode.JOINT_AXIS: "  ·  colocando eje de bisagra",
                 Mode.JOINT_LINES: "  ·  codo con 2 líneas (de frente)", Mode.JOINT_SIDE: "  ·  guías de la articulación (de costado)",
@@ -42,11 +42,10 @@ HEAD_ADJUST_FIELDS = (
     ("ry", "Cabeza de reemplazo: giro Y (°)", -180.0, 180.0, 5.0, 1),
     ("yaw", "Cabeza de reemplazo: giro Z, sobre el cuello (°)", -360.0, 360.0, 15.0, 1),
     ("scale", "Cabeza de reemplazo: escala (× base del cuello)", *REPLACEMENT_SCALE_RANGE, 0.05, 2),
-    ("cut", "Cabeza de reemplazo: cortar la base (% del alto)", *REPLACEMENT_CUT_RANGE, 1.0, 1),
 )
 HEAD_ADJUST_ATTR = {"rx": "replacement_rx", "ry": "replacement_ry", "yaw": "replacement_yaw",
-                    "scale": "replacement_scale", "cut": "replacement_cut"}
-HEAD_ADJUST_DEFAULTS = {"rx": 0.0, "ry": 0.0, "yaw": 0.0, "scale": 1.0, "cut": 0.0}
+                    "scale": "replacement_scale"}
+HEAD_ADJUST_DEFAULTS = {"rx": 0.0, "ry": 0.0, "yaw": 0.0, "scale": 1.0}
 PARAM_GROUPS = ("Generales", "Pasador de hombro", "Pasador de cadera", "Mecanismo de clic", "Rodilla / codo", "Cintura")
 _CSS = b"""
 .afm-section-title { font-weight: 700; padding: 4px 0; border-bottom: 1px solid alpha(currentColor, 0.2); }
@@ -357,7 +356,9 @@ class MainWindow(Gtk.ApplicationWindow):
         self.btn_neck = self._button("Agregar plano del cuello / cabeza (3 puntos)", lambda *_: self.ctrl.start_neck_plane())
         self.btn_head_stl = self._button("Cabeza de reemplazo (STL)…", self._on_head_replacement)
         self.btn_head_orig = self._button("Volver a la cabeza original", lambda *_: self.ctrl.clear_head_replacement())
-        for b in (self.btn_neck, self.btn_head_stl, self.btn_head_orig):
+        self.btn_head_cut = self._button("Cortar la base de la cabeza de reemplazo (3 puntos)", lambda *_: self.ctrl.start_head_cut_plane())
+        self.btn_head_uncut = self._button("Quitar el corte de la base", lambda *_: self.ctrl.clear_head_cut_plane())
+        for b in (self.btn_neck, self.btn_head_stl, self.btn_head_orig, self.btn_head_cut, self.btn_head_uncut):
             sec.append(b)
         row = Gtk.Box(spacing=6)
         row.append(Gtk.Label(label="Cabeza de reemplazo: eje «arriba» del STL", xalign=0, hexpand=True))
@@ -382,9 +383,9 @@ class MainWindow(Gtk.ApplicationWindow):
         sec.append(self.lbl_head_fit)
         _help(sec, "La cabeza de reemplazo se ve en naranja sobre el cuello (la original se oculta). Orientación: eje «arriba» "
                    "y giros X / Y / Z (los giros se aplican en ese orden). Escala: 1,00 deja la base igual a la del cuello; "
-                   "más o menos agranda o achica la cabeza entera. Corte de la base: plano horizontal que quita ese % del alto "
-                   "desde abajo (0 = automático). Si la base coincide poco con la del cuello, probá otro giro o corte: "
-                   "el ajuste se recalcula al instante.")
+                   "más o menos agranda o achica la cabeza entera. Corte de la base: elegí 3 puntos sobre la cabeza naranja; el plano "
+                   "que forman pasa a ser la base (lo de abajo se descarta) y acompaña a la malla si después la girás. "
+                   "Si la base coincide poco con la del cuello, probá otro giro, escala o corte: el ajuste se recalcula al instante.")
 
         sec = _collapsible(box, "Lista de planos")
         _help(sec, "Durante la selección: Retroceso deshace el último punto, Esc cancela.")
@@ -609,8 +610,9 @@ class MainWindow(Gtk.ApplicationWindow):
             self.btn_head_stl.set_sensitive(loaded and head is not None)
             self.btn_head_orig.set_sensitive(loaded and head is not None and head.replacement_path is not None)
             rep = loaded and head is not None and head.replacement_path is not None
-            for b in (self.dd_head_up, *self.head_spins.values()):
+            for b in (self.dd_head_up, self.btn_head_cut, *self.head_spins.values()):
                 b.set_sensitive(bool(rep))
+            self.btn_head_uncut.set_sensitive(bool(rep) and head.replacement_cut_points is not None)
             if rep:
                 self.dd_head_up.set_selected(REPLACEMENT_UPS.index(head.replacement_up))
                 for key, spin in self.head_spins.items():

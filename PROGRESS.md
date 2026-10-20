@@ -3,24 +3,25 @@
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md` y `PLAN_mecanismo_clic_hombro_cadera.md`_
 
 ## Current Focus
-**Controles de la cabeza importada como los del modelo (2026-10-20, rama `cabeza-controles`):** la cabeza de reemplazo (STL) ahora tiene orientación completa (eje «arriba» + giros X, Y, Z), escala manual (factor sobre el ajuste automático) y corte de la base con un plano horizontal (% del alto). Falta probarlo en GTK real con Güemes.
+**Controles de la cabeza importada como los del modelo (2026-10-20, rama `cabeza-controles`):** la cabeza de reemplazo (STL) ahora tiene orientación completa (eje «arriba» + giros X, Y, Z), escala manual (factor sobre el ajuste automático) y corte de la base con un plano de 3 puntos elegidos sobre la cabeza naranja (modo `HEAD_CUT_PLANE`). Falta probarlo en GTK real con Güemes.
 
 ## Todo List
 ### [ ] Todo
-- [ ] Probar en GTK real los 5 spins nuevos de Planos → Cabeza (`window.py`: `head_spins`, `_on_head_adjust`); en este entorno no hay GTK y solo se verificó que compila.
-- [ ] Decidir si el corte de la base debe poder inclinarse con 3 puntos (hoy: plano horizontal; para inclinarlo se usan los giros X/Y antes de cortar) y si conviene un campo «alto final (mm)» además del factor de escala.
+- [ ] Probar en GTK real los 4 spins y los botones «Cortar la base… (3 puntos)» / «Quitar el corte» de Planos → Cabeza (`window.py`: `head_spins`, `_on_head_adjust`, `btn_head_cut`); en este entorno no hay GTK y solo se verificó que compila.
+- [ ] Decidir si conviene un campo «alto final (mm)» además del factor de escala y dibujar el plano de corte en la vista 3D (hoy solo se ven los 3 puntos pendientes).
 - [ ] Mover la cabeza (desplazar en X/Y sobre el cuello) a mano: hoy el centroide de la base se alinea solo.
 ### [/] In Progress
 - [/] Validación en la GUI real con la cabeza del Güemes.
 ### [x] Done
-- [x] `HeadSpec.replacement_rx/ry/scale/cut` (los `.proyecto` viejos cargan con 0/0/1/0), `load_replacement(rx_deg, ry_deg)` (orden Up → Rx → Ry → Rz; con rx = ry = 0 es el comportamiento anterior), `fit_replacement` con escala manual y corte (`corte_pct`, `escala_manual` en el informe; `alto_mm` descuenta lo cortado).
-- [x] `Session.set_head_replacement(..., rx, ry, scale, cut)`, `Controller.set_head_adjust(...)` (`set_head_orientation` queda como atajo), spins en la ventana, flags de CLI `--cabeza-rx/-ry/-escala/-corte`, manual corto.
-- [x] Tests: 8 nuevos en `tests/test_head_replacement.py` y 4 en `tests/test_gui_head.py`; regresión `-k "gui or head or project or cli or params"`: 229 pasan, 7 skip.
+- [x] `HeadSpec.replacement_rx/ry/scale/cut_points` (los `.proyecto` viejos cargan con 0/0/1/None), `load_replacement(rx_deg, ry_deg, cut_points)` (orden Up → Rx → Ry → inclinación del corte → Rz; con rx = ry = 0 y sin corte es el comportamiento anterior), `fit_replacement` con escala manual y plano de corte de 3 puntos (`corte_plano`, `escala_manual`, `raw_a_mundo` en el informe; `alto_mm` descuenta lo cortado).
+- [x] `Session.set_head_replacement(..., rx, ry, scale, cut_points)`, `set_head_cut_plane(puntos del mundo)` / `clear_head_cut_plane`, `Controller.set_head_adjust/start_head_cut_plane` (el picker apunta a la cabeza naranja durante el corte), spins y botones en la ventana, flags de CLI `--cabeza-rx/-ry/-escala/-corte x1 y1 z1 …`, manual corto.
+- [x] Tests: 49 de cabeza/GUI-cabeza pasan (plano horizontal e inclinado, orden de puntos, plano pegado a la malla al girar, rechazo de plano vertical / alineado / fuera, flujo de 3 clics).
 
 ## Latest Blockers/Discoveries
 - `rx=180` ≡ `up=-Z` y `ry=90` ≡ `up=+X` (mismas matrices): el menú «arriba» sigue sirviendo como atajo de 90°.
 - La escala manual multiplica el ajuste por área de base: con factor ≠ 1 la coincidencia de base baja a propósito (la cabeza ya no iguala el cuello) y salta el aviso < 80 %.
 - Con corte, la escala automática se mide en la sección del corte (no en la base original), así que cortar más arriba cambia `escala`.
+- Los 3 puntos se guardan en coordenadas del STL importado (no del mundo): `raw_a_mundo` (4×4) los convierte al elegirlos sobre la cabeza ya apoyada, y el plano sigue a la malla si cambian eje «arriba», giros o escala. La normal se toma hacia arriba (n·Z > 0): se conserva lo de arriba; un plano casi vertical (|n·Z| < 0,3) se rechaza.
 - El entorno de esta sesión no tiene PyGObject: la ventana solo se compiló, no se ejecutó.
 
 ---
