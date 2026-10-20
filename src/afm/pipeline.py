@@ -254,6 +254,11 @@ def body_ref(res: BuildResult) -> S.Manifold:
     torso = res.pieces["torso"]
     return S.union(torso, res.pieces[PELVIS_NAME]) if PELVIS_NAME in res.pieces else torso
 
+def body_base_z(pieces: dict) -> float:
+    """Altura del punto más bajo del cuerpo (la cola): con cintura es la pelvis, no el pecho (`torso`), que queda arriba."""
+    return float(min(pieces[n].bounding_box()[2] for n in ("torso", PELVIS_NAME) if n in pieces))
+
+
 def _print_angle(spec: LimbSpec, p: Params, dspec, sit: bool) -> float:
     """Ángulo del miembro en la pose impresa: la pose sentada de la cadera, o el del brazo (`DetentSpec.print_angle`)."""
     if spec.kind == "leg":
@@ -849,7 +854,7 @@ def _forward_sign(res: BuildResult, pieces: dict) -> float:
 def flat_click_advice(res: BuildResult, depth: float = 1.0) -> dict:
     """Brazos con clic que no apoyan en el plano del corte «sin soportes»: {miembro: {...}}. El clic fija la pose del brazo\n    (la punta cae en una muesca solo cada 360/n°), así que no se lo puede girar después sin fundir la punta con el disco:\n    hay que generar la figura con `DetentSpec.print_angle` igual al ángulo en que el brazo apoya. Devuelve el ángulo\n    actual, el de apoyo, cuánto cuelga por debajo del plano (mm) y el estado de `_arm_turn_to_plane`."""
     out: dict = {}
-    z_cut = float(res.pieces["torso"].bounding_box()[2]) + float(depth)
+    z_cut = body_base_z(res.pieces) + float(depth)
     fwd = _forward_sign(res, res.pieces)
     for n, dl in res.detent.items():
         if n not in res.motion or res.motion[n][3][1] > res.motion[n][3][0]:
@@ -910,7 +915,7 @@ def flat_for_print(res: BuildResult, depth: float = 1.0, p: Params | None = None
     arm_pieces = {f"{pn}{side}" for n in arm_limbs for pn in _limb_piece_names(res, n) for side in ("_izq", "_der")}
     protected = arm_pieces | {f"{pn}{side}" for n in res.detent if res.motion[n][3][1] <= res.motion[n][3][0]
                               for pn in _limb_piece_names(res, n) for side in ("_izq", "_der")}
-    z_cut = min(pieces[n].bounding_box()[2] for n in ("torso", PELVIS_NAME) if n in pieces) + depth
+    z_cut = body_base_z(pieces) + depth
     info["altura_corte_z"] = round(float(z_cut), 3)
     # 1. aplanar piernas y cola (todo menos brazos y cabeza)
     above = S.Manifold.cube((1e4, 1e4, 1e4)).translate((-5e3, -5e3, z_cut))

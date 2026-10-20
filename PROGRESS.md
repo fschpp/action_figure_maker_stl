@@ -14,6 +14,7 @@ _Plan de referencia: `PLAN_herramienta_stl_articulable.md` y `PLAN_mecanismo_cli
 ### [/] In Progress
 - [/] Verificación de la suite completa con la cintura.
 ### [x] Done
+- [x] Sin soportes con cintura (2026-10-19): el corte se mide desde la pelvis (la cola), no desde el pecho (`pieces["torso"]`): `pipeline.body_base_z` usado en `flat_base_z`, `flat_for_print` y `flat_click_advice`. Test en `tests/test_gui_waist.py`.
 - [x] Selección de puntos por vértice (2026-10-19): en los modos de 3 puntos (simetría, plano de miembro/cuello/cintura/articulación) y en las guías de 4, el vértice a ≤12 px del puntero se pinta de rojo (`Picker.nearest_vertex`, `Controller.update_hover`) y un clic lo elige exacto. Sin vértice resaltado el clic sigue como antes (impacto con ajuste al vértice a 1,5 mm). Tests en `tests/test_gui_hover_vertex.py`; falta probar la sensación en GTK real (el hover agrupa eventos cada 30 ms).
 - [x] Sin soportes con rodilla y brazo con clic (2026-10-19): rodillas a 0° en la vista de pose y la exportación; para el brazo con clic, `pipeline.flat_click_advice` + aviso con el `print_angle` que lo apoya + botón «Ajustar el clic del brazo» (hay que generar de nuevo; no se gira después porque la punta se fundiría con el disco). Pendiente: regenerar Güemes con ese ángulo y verificar.
 - [x] `WaistSpec`, `build_waist` (corte con holgura `clearance`, pasador sobre el eje = normal del plano simetrizado, cavidad dilatada, ajuste del pasador a la cara), `Params.waist_pin/waist_twist`, `Project.waist` (los `.proyecto` viejos cargan igual).

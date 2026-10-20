@@ -17,7 +17,7 @@ import trimesh
 
 from .. import solids as S
 from ..head import HEAD_NAME, MIN_BASE_IOU
-from ..pipeline import body_ref
+from ..pipeline import body_base_z, body_ref
 from ..waist import PELVIS_NAME, WAIST_NAME
 from ..limbs import silhouette_on_plane
 from ..orient import OrientResult, overhang_mask, pose_orientation
@@ -1242,7 +1242,7 @@ class Controller:
     def flat_base_z(self) -> float | None:
         """Altura del punto más bajo del torso generado (la cola): desde ahí se mide `flat_depth`. None sin figura."""
         out = self.session.outcome
-        return None if out is None else float(out.result.pieces["torso"].bounding_box()[2])
+        return None if out is None else body_base_z(out.result.pieces)
 
     def flat_cut_z(self) -> float | None:
         base = self.flat_base_z()
