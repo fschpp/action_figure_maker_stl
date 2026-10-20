@@ -169,33 +169,75 @@ def test_adjust_needs_a_loaded_replacement(ctrl):
     assert "Primero cargá una cabeza de reemplazo" in ctrl.message
 
 
-def test_adjust_scale_cut_and_rotation(ctrl, new_head):
+def test_adjust_scale_and_rotation(ctrl, new_head):
     ctrl.session.set_head(ctrl.session.plane_from_points(NECK, "cabeza"))
     assert ctrl.set_head_replacement(new_head)
     base = ctrl.head_preview()[1]
     assert ctrl.set_head_adjust(scale=1.5)
-    h = ctrl.session.project.head
-    assert h.replacement_scale == 1.5 and h.replacement_cut == 0.0
+    assert ctrl.session.project.head.replacement_scale == 1.5
     assert ctrl.head_preview()[1]["alto_mm"] == pytest.approx(1.5 * base["alto_mm"], rel=1e-6)   # la vista previa se recalcula
-    assert ctrl.set_head_adjust(cut=20.0, rx=15.0, ry=-10.0)
+    assert ctrl.set_head_adjust(rx=15.0, ry=-10.0)
     h = ctrl.session.project.head
-    assert (h.replacement_scale, h.replacement_cut, h.replacement_rx, h.replacement_ry) == (1.5, 20.0, 15.0, -10.0)
-    assert "Se cortó el 20 % inferior" in ctrl.message and ctrl.session.outcome is None
+    assert (h.replacement_scale, h.replacement_rx, h.replacement_ry) == (1.5, 15.0, -10.0) and ctrl.session.outcome is None
     ctrl.clear_head_replacement()
     h = ctrl.session.project.head
-    assert (h.replacement_scale, h.replacement_cut, h.replacement_rx, h.replacement_ry) == (1.0, 0.0, 0.0, 0.0)
+    assert (h.replacement_scale, h.replacement_rx, h.replacement_ry, h.replacement_cut_points) == (1.0, 0.0, 0.0, None)
 
 
-def test_out_of_range_adjust_changes_nothing(ctrl, new_head):
+def test_out_of_range_scale_changes_nothing(ctrl, new_head):
     ctrl.session.set_head(ctrl.session.plane_from_points(NECK, "cabeza"))
     assert ctrl.set_head_replacement(new_head)
     assert ctrl.set_head_adjust(scale=50.0) is False and "escala" in ctrl.message
-    assert ctrl.set_head_adjust(cut=99.0) is False and "corte" in ctrl.message
+    assert ctrl.session.project.head.replacement_scale == 1.0
+
+
+def _on_head(ctrl, z):
+    """3 puntos del mundo sobre la cabeza naranja, en un plano horizontal a la cota z."""
+    return [(-3.0, 0.0, z), (3.0, 0.0, z), (0.0, 3.0, z)]
+
+
+def test_cut_needs_a_replacement(ctrl):
+    ctrl.session.set_head(ctrl.session.plane_from_points(NECK, "cabeza"))
+    ctrl.start_head_cut_plane()
+    assert ctrl.mode == Mode.VIEW and "Primero cargá una cabeza de reemplazo" in ctrl.message
+
+
+def test_three_clicks_cut_the_replacement_base(ctrl, new_head):
+    ctrl.session.set_head(ctrl.session.plane_from_points(NECK, "cabeza"))
+    assert ctrl.set_head_replacement(new_head)
+    before = ctrl.head_preview()
+    original_picker = ctrl.picker
+    ctrl.start_head_cut_plane()
+    assert ctrl.mode == Mode.HEAD_CUT_PLANE and ctrl.picker is not original_picker    # los clics caen sobre la cabeza naranja
+    assert ctrl.picker.mesh is before[0]
+    feed(ctrl, _on_head(ctrl, 85.0))
     h = ctrl.session.project.head
-    assert (h.replacement_scale, h.replacement_cut) == (1.0, 0.0)
+    assert ctrl.mode == Mode.VIEW and h.replacement_cut_points is not None
+    assert ctrl.picker is not None and ctrl.picker.mesh is ctrl.session.work               # vuelve a picar la figura
+    after = ctrl.head_preview()
+    assert after[1]["corte_plano"] and after[1]["alto_mm"] < before[1]["alto_mm"] - 1.0   # se cortó la base
+    assert after[0].bounds[0][2] == pytest.approx(80.0, abs=1e-3) and ctrl.session.outcome is None
+    assert "plano de 3 puntos" in ctrl.message
+    # girar la cabeza conserva el plano de corte (queda pegado a la malla)
+    assert ctrl.set_head_adjust(yaw=90.0)
+    assert ctrl.session.project.head.replacement_cut_points == h.replacement_cut_points
+    assert ctrl.head_preview()[1]["corte_plano"]
+    ctrl.clear_head_cut_plane()
+    assert ctrl.session.project.head.replacement_cut_points is None and not ctrl.head_preview()[1]["corte_plano"]
 
 
-def test_cli_head_scale_cut_and_tilt_are_saved(tmp_path, new_head):
+def test_bad_cut_plane_changes_nothing_and_asks_again(ctrl, new_head):
+    ctrl.session.set_head(ctrl.session.plane_from_points(NECK, "cabeza"))
+    assert ctrl.set_head_replacement(new_head)
+    ctrl.start_head_cut_plane()
+    feed(ctrl, [(0.0, 0.0, 85.0), (0.0, 3.0, 85.0), (0.0, 0.0, 90.0)])         # plano vertical
+    assert "casi vertical" in ctrl.message and ctrl.session.project.head.replacement_cut_points is None
+    assert ctrl.mode == Mode.HEAD_CUT_PLANE and ctrl.pending == []
+    ctrl.cancel(quiet=True)
+    assert ctrl.mode == Mode.VIEW and ctrl.picker.mesh is ctrl.session.work
+
+
+def test_cli_head_scale_cut_plane_and_tilt_are_saved(tmp_path, new_head):
     import json
     import os
 
@@ -204,7 +246,8 @@ def test_cli_head_scale_cut_and_tilt_are_saved(tmp_path, new_head):
     stl, proj, out = str(tmp_path / "m.stl"), str(tmp_path / "m.proyecto"), str(tmp_path / "out")
     make_doll().export(stl)
     demo_project().save(proj)
-    assert cli.main(["build", stl, proj, "--cabeza", new_head, "--cabeza-escala", "1.1", "--cabeza-corte", "10",
-                     "--cabeza-rx", "5", "--cabeza-ry", "-5", "--out", out, "--name", "toy"]) == 0
+    assert cli.main(["build", stl, proj, "--cabeza", new_head, "--cabeza-escala", "1.1", "--cabeza-rx", "5", "--cabeza-ry", "-5",
+                     "--cabeza-corte", "0", "0", "-5", "1", "0", "-5", "0", "1", "-5", "--out", out, "--name", "toy"]) == 0
     head = json.load(open(os.path.join(out, "toy.proyecto")))["head"]
-    assert (head["replacement_scale"], head["replacement_cut"], head["replacement_rx"], head["replacement_ry"]) == (1.1, 10.0, 5.0, -5.0)
+    assert (head["replacement_scale"], head["replacement_rx"], head["replacement_ry"]) == (1.1, 5.0, -5.0)
+    assert head["replacement_cut_points"] == [[0.0, 0.0, -5.0], [1.0, 0.0, -5.0], [0.0, 1.0, -5.0]]

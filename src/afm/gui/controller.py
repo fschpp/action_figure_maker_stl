@@ -41,6 +41,7 @@ class Mode(Enum):
     SYMMETRY = "simetria"
     LIMB_PLANE = "plano_miembro"
     NECK_PLANE = "plano_cuello"
+    HEAD_CUT_PLANE = "plano_corte_cabeza"   # 3 clics sobre la cabeza de reemplazo (naranja): plano que corta su base
     WAIST_PLANE = "plano_cintura"   # 3 clics: corta el torso en pecho y pelvis con un pasador robusto (giro a los costados)
     POLYGON = "silueta"
     PIN = "pasador"
@@ -568,6 +569,8 @@ class Controller:
     def cancel(self, quiet: bool = False) -> None:
         was = self.mode
         self.mode, self.pending, self.pending_kind = Mode.VIEW, [], None
+        if was == Mode.HEAD_CUT_PLANE:
+            self._rebuild_picker()           # durante el corte el picker apuntaba a la cabeza de reemplazo
         self.clear_hover()
         self.draft, self.edit_limb, self.edit_cross = None, None, False
         self.pin_limb, self.pin_prev = None, None
@@ -1566,7 +1569,7 @@ class Controller:
     def hover_active(self) -> bool:
         """True en los modos en que se eligen puntos sobre la figura (planos de 3 puntos, guías de 4)."""
         return (self.picker is not None and not self.busy and
-                self.mode in (Mode.SYMMETRY, Mode.LIMB_PLANE, Mode.NECK_PLANE, Mode.WAIST_PLANE, Mode.JOINT_PLANE,
+                self.mode in (Mode.SYMMETRY, Mode.LIMB_PLANE, Mode.NECK_PLANE, Mode.HEAD_CUT_PLANE, Mode.WAIST_PLANE, Mode.JOINT_PLANE,
                               Mode.JOINT_LINES, Mode.JOINT_SIDE))
 
     def update_hover(self, px: float, py: float, width: float, height: float) -> bool:
@@ -1638,6 +1641,8 @@ class Controller:
                 self._finish_symmetry()
             elif self.mode == Mode.NECK_PLANE:
                 self._finish_neck_plane()
+            elif self.mode == Mode.HEAD_CUT_PLANE:
+                self._finish_head_cut_plane()
             elif self.mode == Mode.WAIST_PLANE:
                 self._finish_waist_plane()
             elif self.mode == Mode.JOINT_PLANE:
@@ -1693,11 +1698,12 @@ class Controller:
 
     def set_head_replacement(self, path: str, yaw: float | None = None, up: str | None = None,
                              rx: float | None = None, ry: float | None = None,
-                             scale: float | None = None, cut: float | None = None) -> bool:
+                             scale: float | None = None, cut_points="keep") -> bool:
         """Cabeza de reemplazo (STL): descarta la original, sin simetría, base escalada a la del cuello.
 
-        Controles (None = conservar el valor actual): `up` (eje «arriba»), `rx`/`ry`/`yaw` (giros en °),
-        `scale` (factor manual sobre la escala automática) y `cut` (% del alto que se corta desde la base)."""
+        Controles (None = conservar el valor actual): `up` (eje «arriba»), `rx`/`ry`/`yaw` (giros en °) y `scale`
+        (factor manual sobre la escala automática). `cut_points` es el plano de corte de la base (3 puntos en
+        coordenadas del STL): «keep» conserva el actual, None lo quita."""
         if not self._need_loaded():
             return False
         cur = self.session.project.head
@@ -1707,31 +1713,67 @@ class Controller:
 
         yaw, up = keep(yaw, "replacement_yaw", 0.0), keep(up, "replacement_up", "+Z")
         rx, ry = keep(rx, "replacement_rx", 0.0), keep(ry, "replacement_ry", 0.0)
-        scale, cut = keep(scale, "replacement_scale", 1.0), keep(cut, "replacement_cut", 0.0)
+        scale = keep(scale, "replacement_scale", 1.0)
+        if isinstance(cut_points, str) and cut_points == "keep":
+            cut_points = cur.replacement_cut_points if cur else None
         try:
-            info = self.session.set_head_replacement(path, yaw, up, rx, ry, scale, cut)
+            info = self.session.set_head_replacement(path, yaw, up, rx, ry, scale, cut_points)
         except Exception as e:                     # archivo ilegible, malla irreparable, plano sin cabeza…
             self._changed(f"No se pudo usar esa cabeza: {e}", scene=False)
             return False
-        msg = (f"Cabeza de reemplazo lista (se ve en naranja, apoyada en el cuello): escala ×{info['escala']:.3f} "
-               f"(uniforme), alto {info['alto_mm']:.1f} mm, base coincide {100 * info['coincidencia_base']:.0f} %.")
-        if info["base_cortada"]:
-            msg += (f" Se cortó el {info['corte_pct']:g} % inferior con un plano." if info["corte_pct"] > 0
-                    else " No traía base plana: se cortó una fracción baja para apoyarla.")
-        if info["coincidencia_base"] < MIN_BASE_IOU:
-            msg += " AVISO: la base se parece poco a la del cuello; probá otro giro, eje «arriba», escala o corte (Planos → Cabeza)."
-        self._changed(msg)
+        self._changed(self._head_fit_message(info))
         return True
 
+    @staticmethod
+    def _head_fit_message(info: dict) -> str:
+        msg = (f"Cabeza de reemplazo lista (se ve en naranja, apoyada en el cuello): escala ×{info['escala']:.3f} "
+               f"(uniforme), alto {info['alto_mm']:.1f} mm, base coincide {100 * info['coincidencia_base']:.0f} %.")
+        if info["corte_plano"]:
+            msg += " La base se cortó con el plano de 3 puntos."
+        elif info["base_cortada"]:
+            msg += " No traía base plana: se cortó una fracción baja para apoyarla."
+        if info["coincidencia_base"] < MIN_BASE_IOU:
+            msg += " AVISO: la base se parece poco a la del cuello; probá otro giro, eje «arriba», escala o plano de corte (Planos → Cabeza)."
+        return msg
+
     def set_head_adjust(self, up: str | None = None, yaw: float | None = None, rx: float | None = None,
-                        ry: float | None = None, scale: float | None = None, cut: float | None = None) -> bool:
-        """Cambia orientación (`up`, `rx`, `ry`, `yaw`), escala manual y/o corte de la base de la cabeza de
-        reemplazo ya cargada y la vuelve a ajustar. Si el valor no vale, no cambia nada y deja el motivo en `message`."""
+                        ry: float | None = None, scale: float | None = None) -> bool:
+        """Cambia orientación (`up`, `rx`, `ry`, `yaw`) y/o escala manual de la cabeza de reemplazo ya cargada y la
+        vuelve a ajustar (el plano de corte de la base, si hay, acompaña a la malla). Si el valor no vale, no cambia
+        nada y deja el motivo en `message`."""
         cur = self.session.project.head
         if cur is None or not cur.replacement_path:
             self._changed("Primero cargá una cabeza de reemplazo (STL).", scene=False)
             return False
-        return self.set_head_replacement(cur.replacement_path, yaw, up, rx, ry, scale, cut)
+        return self.set_head_replacement(cur.replacement_path, yaw, up, rx, ry, scale)
+
+    # ---- corte de la base de la cabeza de reemplazo con un plano de 3 puntos
+    def start_head_cut_plane(self) -> None:
+        """Pide 3 puntos sobre la cabeza de reemplazo (la naranja) que definen el plano que corta su base."""
+        prev = self.head_preview()
+        if prev is None:
+            self._changed("Primero cargá una cabeza de reemplazo (STL).", scene=False)
+            return
+        self.cancel(quiet=True)
+        self.mode = Mode.HEAD_CUT_PLANE
+        self.picker = Picker(prev[0])                # los clics caen sobre la cabeza nueva, no sobre la figura
+        self._changed("Corte de la base: elegí 3 puntos sobre la cabeza naranja (2 a los lados y 1 al frente, a la altura donde "
+                      "querés cortar). Se descarta lo de abajo del plano; Retroceso deshace el último punto, Esc cancela.")
+
+    def _finish_head_cut_plane(self) -> None:
+        pts, self.pending = self.pending, []
+        try:
+            info = self.session.set_head_cut_plane(pts)
+        except Exception as e:
+            self._changed(f"No sirve: {e}. Elegí 3 puntos de nuevo.")
+            return
+        self.mode = Mode.VIEW
+        self._rebuild_picker()
+        self._changed(self._head_fit_message(info))
+
+    def clear_head_cut_plane(self) -> None:
+        self._changed("Se quitó el plano de corte de la base de la cabeza." if self.session.clear_head_cut_plane()
+                      else "La cabeza no tenía plano de corte.")
 
     def set_head_orientation(self, up: str | None = None, yaw: float | None = None) -> bool:
         """Cambia el eje «arriba» y/o el giro de la cabeza de reemplazo ya cargada y la vuelve a ajustar."""
