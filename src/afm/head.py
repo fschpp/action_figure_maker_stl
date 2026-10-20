@@ -42,6 +42,8 @@ BASE_SLICE_FRAC = 0.03    # si la cabeza nueva no trae base plana, se corta a es
 MIN_BASE_IOU = 0.80       # por debajo, la base nueva se parece poco a la del cuello: aviso
 MIN_UP = 0.3          # |n·Z| mínimo del plano del cuello (un plano casi vertical no separa cabeza de cuerpo)
 MAX_SIDE = 0.5        # |n·X| máximo antes de simetrizar (el plano tiene que contener el eje izquierda-derecha)
+REPLACEMENT_SCALE_RANGE = (0.2, 5.0)   # factor manual sobre la escala automática
+REPLACEMENT_CUT_RANGE = (0.0, 60.0)    # % del alto de la malla que se puede cortar desde la base
 
 
 @dataclass
@@ -58,12 +60,18 @@ class HeadSpec:
     replacement_path: str | None = None   # STL de la cabeza de reemplazo; None = la cabeza original del modelo
     replacement_yaw: float = 0.0          # giro (°) sobre el eje vertical de la cabeza importada (+ = antihorario)
     replacement_up: str = "+Z"            # eje de la malla importada que apunta hacia arriba
+    replacement_rx: float = 0.0           # giro fino (°) de la malla importada sobre X, tras el eje «arriba»
+    replacement_ry: float = 0.0           # idem sobre Y
+    replacement_scale: float = 1.0        # factor manual sobre la escala automática (1 = base igual a la del cuello)
+    replacement_cut: float = 0.0          # % del alto que se corta desde abajo con un plano horizontal (0 = automático)
 
     def to_dict(self) -> dict:
         return {"name": self.name, "plane": self.plane.to_dict(),
                 "pin_center": None if self.pin_center is None else list(self.pin_center),
                 "auto": self.auto, "replacement_path": self.replacement_path,
-                "replacement_yaw": self.replacement_yaw, "replacement_up": self.replacement_up}
+                "replacement_yaw": self.replacement_yaw, "replacement_up": self.replacement_up,
+                "replacement_rx": self.replacement_rx, "replacement_ry": self.replacement_ry,
+                "replacement_scale": self.replacement_scale, "replacement_cut": self.replacement_cut}
 
     @classmethod
     def from_dict(cls, d: dict) -> "HeadSpec":
@@ -71,7 +79,11 @@ class HeadSpec:
                    pin_center=None if d.get("pin_center") is None else tuple(d["pin_center"]),
                    auto=d.get("auto", True), replacement_path=d.get("replacement_path"),
                    replacement_yaw=float(d.get("replacement_yaw", 0.0)),
-                   replacement_up=d.get("replacement_up", "+Z"))
+                   replacement_up=d.get("replacement_up", "+Z"),
+                   replacement_rx=float(d.get("replacement_rx", 0.0)),
+                   replacement_ry=float(d.get("replacement_ry", 0.0)),
+                   replacement_scale=float(d.get("replacement_scale", 1.0)),
+                   replacement_cut=float(d.get("replacement_cut", 0.0)))
 
 
 @dataclass
@@ -185,12 +197,14 @@ def _repaired(path: str, pre: float, mesh):
     return hit.copy()
 
 
-def load_replacement(path: str, up: str = "+Z", yaw_deg: float = 0.0):
-    """Carga y repara el STL de la cabeza importada y la deja con Z arriba (según `up`) y girada `yaw_deg`.
+def load_replacement(path: str, up: str = "+Z", yaw_deg: float = 0.0, rx_deg: float = 0.0, ry_deg: float = 0.0):
+    """Carga y repara el STL de la cabeza importada y la deja con Z arriba (según `up`) y girada.
 
-    No se centra ni se escala (eso lo hace `fit_replacement`). Se pre-escala a ~30 mm solo para que las
-    tolerancias absolutas de la reparación sean razonables. Devuelve (malla, pre_escala): la malla ya
-    multiplicada por `pre_escala` respecto de las unidades del archivo."""
+    Orden de giros: primero el eje «arriba» (`up`), luego `rx_deg` sobre X, `ry_deg` sobre Y y por último
+    `yaw_deg` sobre Z (con rx = ry = 0 es exactamente el comportamiento anterior). No se centra ni se escala
+    (eso lo hace `fit_replacement`). Se pre-escala a ~30 mm solo para que las tolerancias absolutas de la
+    reparación sean razonables. Devuelve (malla, pre_escala): la malla ya multiplicada por `pre_escala`
+    respecto de las unidades del archivo."""
     import trimesh
 
     from . import meshio
@@ -207,10 +221,12 @@ def load_replacement(path: str, up: str = "+Z", yaw_deg: float = 0.0):
     pre = 30.0 / ext
     mesh.apply_scale(pre)
     mesh = _repaired(path, pre, mesh)
-    a = np.radians(yaw_deg)
+    a, b, c = np.radians(yaw_deg), np.radians(ry_deg), np.radians(rx_deg)
     Rz = np.array([[np.cos(a), -np.sin(a), 0], [np.sin(a), np.cos(a), 0], [0, 0, 1]])
+    Ry = np.array([[np.cos(b), 0, np.sin(b)], [0, 1, 0], [-np.sin(b), 0, np.cos(b)]])
+    Rx = np.array([[1, 0, 0], [0, np.cos(c), -np.sin(c)], [0, np.sin(c), np.cos(c)]])
     T = np.eye(4)
-    T[:3, :3] = Rz @ _UP_ROTATIONS[up]
+    T[:3, :3] = Rz @ Ry @ Rx @ _UP_ROTATIONS[up]
     mesh = mesh.copy()
     mesh.apply_transform(T)
     return mesh, float(pre)
@@ -243,23 +259,35 @@ def fit_replacement(spec: HeadSpec, plane: Plane, face: ContactFace):
     importada mira hacia +v del plano (hacia adelante, +Y en un plano horizontal), como el frente de la figura.
     No se espeja ni simetriza nada. Si la malla no trae base plana se corta una fracción baja de su alto
     (`BASE_SLICE_FRAC`) para tener una cara plana donde apoyar y poner el pasador."""
-    mesh, pre = load_replacement(spec.replacement_path, spec.replacement_up, spec.replacement_yaw)
+    lo_s, hi_s = REPLACEMENT_SCALE_RANGE
+    lo_c, hi_c = REPLACEMENT_CUT_RANGE
+    if not (lo_s <= spec.replacement_scale <= hi_s):
+        raise ValueError(f"la escala de la cabeza tiene que estar entre ×{lo_s:g} y ×{hi_s:g}")
+    if not (lo_c <= spec.replacement_cut <= hi_c):
+        raise ValueError(f"el corte de la base tiene que estar entre {lo_c:g} y {hi_c:g} % del alto")
+    mesh, pre = load_replacement(spec.replacement_path, spec.replacement_up, spec.replacement_yaw,
+                                 spec.replacement_rx, spec.replacement_ry)
     mf = S.to_manifold(mesh)
     z0 = float(mesh.bounds[0, 2])
     height = float(mesh.extents[2])
     tol = 1e-3 * height
-    sec_f = _section_shape(mf, z0 + BASE_SLICE_FRAC * height)
-    flat_area = _flat_bottom_area(mesh, z0, tol)
-    if flat_area >= 0.85 * sec_f.area and flat_area > 0:
-        z_base, cut = z0, False                              # ya trae una base plana: se usa entera
-        base = _section_shape(mf, z0 + 2 * tol)
+    if spec.replacement_cut > 0:                              # corte pedido: plano horizontal sobre la base
+        z_base, cut = z0 + spec.replacement_cut / 100.0 * height, True
+        base = _section_shape(mf, z_base + 2 * tol)
     else:
-        z_base, cut = z0 + BASE_SLICE_FRAC * height, True
-        base = sec_f
+        sec_f = _section_shape(mf, z0 + BASE_SLICE_FRAC * height)
+        flat_area = _flat_bottom_area(mesh, z0, tol)
+        if flat_area >= 0.85 * sec_f.area and flat_area > 0:
+            z_base, cut = z0, False                          # ya trae una base plana: se usa entera
+            base = _section_shape(mf, z0 + 2 * tol)
+        else:
+            z_base, cut = z0 + BASE_SLICE_FRAC * height, True
+            base = sec_f
     if base.is_empty or base.area <= 1e-9:
         raise ValueError("no se pudo medir la base de la cabeza importada (¿está vacía o al revés? probá otro «arriba»)")
     orig = _face_shape_in(plane, face)
-    k = float(np.sqrt(orig.area / base.area))
+    k_auto = float(np.sqrt(orig.area / base.area))
+    k = k_auto * float(spec.replacement_scale)          # la escala manual multiplica el ajuste automático
     c_new, c_old = np.array(base.centroid.coords[0]), np.array(orig.centroid.coords[0])
     # local (malla) -> plano: centroide de la base al de la original, base sobre el plano, escala k
     A = np.eye(4)
@@ -281,7 +309,8 @@ def fit_replacement(spec: HeadSpec, plane: Plane, face: ContactFace):
     bounds = placed.bounding_box()
     # "escala" es respecto de las unidades del archivo importado (k es respecto de la malla ya pre-escalada)
     info = {"escala": k * pre, "base_igualada_mm2": float(orig.area), "coincidencia_base": iou,
-            "base_cortada": bool(cut), "alto_mm": float(height * k),
+            "base_cortada": bool(cut), "alto_mm": float((height - (z_base - z0)) * k),
+            "escala_manual": float(spec.replacement_scale), "corte_pct": float(spec.replacement_cut),
             "volumen_mm3": float(placed.volume()), "bbox": [list(map(float, b)) for b in
                                                            (bounds[:3], bounds[3:])]}
     if iou < MIN_BASE_IOU:

@@ -3,6 +3,29 @@
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md` y `PLAN_mecanismo_clic_hombro_cadera.md`_
 
 ## Current Focus
+**Controles de la cabeza importada como los del modelo (2026-10-20, rama `cabeza-controles`):** la cabeza de reemplazo (STL) ahora tiene orientación completa (eje «arriba» + giros X, Y, Z), escala manual (factor sobre el ajuste automático) y corte de la base con un plano horizontal (% del alto). Falta probarlo en GTK real con Güemes.
+
+## Todo List
+### [ ] Todo
+- [ ] Probar en GTK real los 5 spins nuevos de Planos → Cabeza (`window.py`: `head_spins`, `_on_head_adjust`); en este entorno no hay GTK y solo se verificó que compila.
+- [ ] Decidir si el corte de la base debe poder inclinarse con 3 puntos (hoy: plano horizontal; para inclinarlo se usan los giros X/Y antes de cortar) y si conviene un campo «alto final (mm)» además del factor de escala.
+- [ ] Mover la cabeza (desplazar en X/Y sobre el cuello) a mano: hoy el centroide de la base se alinea solo.
+### [/] In Progress
+- [/] Validación en la GUI real con la cabeza del Güemes.
+### [x] Done
+- [x] `HeadSpec.replacement_rx/ry/scale/cut` (los `.proyecto` viejos cargan con 0/0/1/0), `load_replacement(rx_deg, ry_deg)` (orden Up → Rx → Ry → Rz; con rx = ry = 0 es el comportamiento anterior), `fit_replacement` con escala manual y corte (`corte_pct`, `escala_manual` en el informe; `alto_mm` descuenta lo cortado).
+- [x] `Session.set_head_replacement(..., rx, ry, scale, cut)`, `Controller.set_head_adjust(...)` (`set_head_orientation` queda como atajo), spins en la ventana, flags de CLI `--cabeza-rx/-ry/-escala/-corte`, manual corto.
+- [x] Tests: 8 nuevos en `tests/test_head_replacement.py` y 4 en `tests/test_gui_head.py`; regresión `-k "gui or head or project or cli or params"`: 229 pasan, 7 skip.
+
+## Latest Blockers/Discoveries
+- `rx=180` ≡ `up=-Z` y `ry=90` ≡ `up=+X` (mismas matrices): el menú «arriba» sigue sirviendo como atajo de 90°.
+- La escala manual multiplica el ajuste por área de base: con factor ≠ 1 la coincidencia de base baja a propósito (la cabeza ya no iguala el cuello) y salta el aviso < 80 %.
+- Con corte, la escala automática se mide en la sección del corte (no en la base original), así que cortar más arriba cambia `escala`.
+- El entorno de esta sesión no tiene PyGObject: la ventana solo se compiló, no se ejecutó.
+
+---
+
+## Current Focus (anterior)
 **Cabeza de reemplazo visible en la vista 3D (2026-10-20):** al cargar el STL de la cabeza se dibuja en naranja sobre el cuello (la original se recorta por el plano del cuello) y se puede reorientar desde Planos → Cabeza (eje «arriba» y giro) con la coincidencia de base recalculada al instante. Falta probar en GTK real con Güemes.
 
 ## Todo List

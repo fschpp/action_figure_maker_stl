@@ -160,3 +160,51 @@ def test_cli_build_with_replacement_exports_the_toy(tmp_path, new_head):
     assert asm.bounds[1][2] == pytest.approx(head.bounds[1][2], abs=1e-3)
     saved = open(os.path.join(out, "toy.proyecto")).read()
     assert "otra_cabeza.stl" in saved                                         # el proyecto guardado recuerda la cabeza
+
+
+# ------------------------------------------------- orientación X/Y, escala y corte de la base de la cabeza importada
+def test_adjust_needs_a_loaded_replacement(ctrl):
+    ctrl.session.set_head(ctrl.session.plane_from_points(NECK, "cabeza"))
+    assert ctrl.set_head_adjust(scale=1.2) is False
+    assert "Primero cargá una cabeza de reemplazo" in ctrl.message
+
+
+def test_adjust_scale_cut_and_rotation(ctrl, new_head):
+    ctrl.session.set_head(ctrl.session.plane_from_points(NECK, "cabeza"))
+    assert ctrl.set_head_replacement(new_head)
+    base = ctrl.head_preview()[1]
+    assert ctrl.set_head_adjust(scale=1.5)
+    h = ctrl.session.project.head
+    assert h.replacement_scale == 1.5 and h.replacement_cut == 0.0
+    assert ctrl.head_preview()[1]["alto_mm"] == pytest.approx(1.5 * base["alto_mm"], rel=1e-6)   # la vista previa se recalcula
+    assert ctrl.set_head_adjust(cut=20.0, rx=15.0, ry=-10.0)
+    h = ctrl.session.project.head
+    assert (h.replacement_scale, h.replacement_cut, h.replacement_rx, h.replacement_ry) == (1.5, 20.0, 15.0, -10.0)
+    assert "Se cortó el 20 % inferior" in ctrl.message and ctrl.session.outcome is None
+    ctrl.clear_head_replacement()
+    h = ctrl.session.project.head
+    assert (h.replacement_scale, h.replacement_cut, h.replacement_rx, h.replacement_ry) == (1.0, 0.0, 0.0, 0.0)
+
+
+def test_out_of_range_adjust_changes_nothing(ctrl, new_head):
+    ctrl.session.set_head(ctrl.session.plane_from_points(NECK, "cabeza"))
+    assert ctrl.set_head_replacement(new_head)
+    assert ctrl.set_head_adjust(scale=50.0) is False and "escala" in ctrl.message
+    assert ctrl.set_head_adjust(cut=99.0) is False and "corte" in ctrl.message
+    h = ctrl.session.project.head
+    assert (h.replacement_scale, h.replacement_cut) == (1.0, 0.0)
+
+
+def test_cli_head_scale_cut_and_tilt_are_saved(tmp_path, new_head):
+    import json
+    import os
+
+    from afm import cli
+    from afm.project import demo_project
+    stl, proj, out = str(tmp_path / "m.stl"), str(tmp_path / "m.proyecto"), str(tmp_path / "out")
+    make_doll().export(stl)
+    demo_project().save(proj)
+    assert cli.main(["build", stl, proj, "--cabeza", new_head, "--cabeza-escala", "1.1", "--cabeza-corte", "10",
+                     "--cabeza-rx", "5", "--cabeza-ry", "-5", "--out", out, "--name", "toy"]) == 0
+    head = json.load(open(os.path.join(out, "toy.proyecto")))["head"]
+    assert (head["replacement_scale"], head["replacement_cut"], head["replacement_rx"], head["replacement_ry"]) == (1.1, 10.0, 5.0, -5.0)
