@@ -97,3 +97,20 @@ def test_generate_waist_only_and_pose_view_shows_both_halves(ctrl):
     assert ctrl._torso_meshes(out).keys() == {"torso", PELVIS_NAME}
     rep = ctrl.pose_check(90.0)
     assert rep["ok"]                                   # pecho y pelvis no cuentan como interferencia entre sí
+
+
+def test_flat_cut_is_measured_from_the_pelvis_not_the_chest(ctrl):
+    """Con cintura, `torso` es el pecho (arriba): el corte «sin soportes» se mide desde la cola, o sea la pelvis."""
+    sess = ctrl.session
+    sess.project.params = dataclasses.replace(sess.project.params, decimate=0)
+    sess.set_waist(sess.plane_from_points(WAIST, "cintura"))
+    out = sess.build()
+    sess.outcome = out
+    pelvis_z = out.result.pieces[PELVIS_NAME].bounding_box()[2]
+    chest_z = out.result.pieces["torso"].bounding_box()[2]
+    assert pelvis_z < chest_z - 1.0
+    assert ctrl.flat_base_z() == pytest.approx(pelvis_z)
+    sess.project.params.flat_depth = 2.0
+    assert ctrl.flat_cut_z() == pytest.approx(pelvis_z + 2.0)
+    ctrl.start_flat_plane()
+    assert "z = %.1f" % (pelvis_z + 2.0) in ctrl.message
