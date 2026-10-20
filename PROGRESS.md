@@ -3,6 +3,24 @@
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md` y `PLAN_mecanismo_clic_hombro_cadera.md`_
 
 ## Current Focus
+**Cabeza de reemplazo visible en la vista 3D (2026-10-20):** al cargar el STL de la cabeza se dibuja en naranja sobre el cuello (la original se recorta por el plano del cuello) y se puede reorientar desde Planos → Cabeza (eje «arriba» y giro) con la coincidencia de base recalculada al instante. Falta probar en GTK real con Güemes.
+
+## Todo List
+### [ ] Todo
+- [ ] Probar en GTK real: `dd_head_up`, `spin_head_yaw` y la etiqueta de coincidencia (`window.py`), y que el naranja se distinga bien (hoy opaco, el renderer no mezcla mallas).
+- [ ] Decidir si la cabeza de reemplazo debe poder moverse/escalarse a mano (hoy: escala uniforme para igualar el área de la base).
+### [/] In Progress
+- [/] Validación en la GUI real con la cabeza del Güemes (base coincidía 44 %).
+### [x] Done
+- [x] `Session.head_replacement_preview` (caché por malla, plano, STL, giro y «arriba»), `Controller.head_preview/set_head_orientation`, dibujo `cabeza:reemplazo` en `sync`, espejo sin la cabeza original (`_work_without_head`), controles en `window.py`. `tests/test_gui_head_preview.py` (6) y regresión GUI/cabeza (105 pasan, 4 skip).
+
+## Latest Blockers/Discoveries
+- Antes la GUI solo guardaba `replacement_path` en el proyecto y dibujaba siempre `sess.work`: la cabeza nueva recién existía al generar. El aviso «probá otro giro o eje arriba» no tenía controles en la GUI (solo en el `.proyecto`).
+- `neck_plane(...).normal` apunta hacia la cabeza: sirve para recortar la original con `clip_plane`. El espejo no puede usar ese recorte (un solo plano por item), por eso usa una malla ya cortada.
+
+---
+
+## Current Focus (anterior)
 **Cintura articulada (2026-10-19, rama `cintura-giro`):** corte del torso por un plano de 3 puntos (`src/afm/waist.py`) y pasador de hongo robusto (`Params.waist_pin`: vástago Ø6, cabeza Ø10 × 3, pared 2 mm tras la cabeza) para que la figura gire a los costados. Falta imprimir y calibrar el pasador y probar con Güemes real.
 
 ## Todo List

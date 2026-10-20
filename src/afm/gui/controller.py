@@ -16,7 +16,7 @@ import numpy as np
 import trimesh
 
 from .. import solids as S
-from ..head import HEAD_NAME, MIN_BASE_IOU
+from ..head import HEAD_NAME, MIN_BASE_IOU, REPLACEMENT_UPS, neck_plane
 from ..pipeline import body_base_z, body_ref
 from ..waist import PELVIS_NAME, WAIST_NAME
 from ..limbs import silhouette_on_plane
@@ -84,6 +84,7 @@ class PlaneEntry:
 
 
 _MIRROR_COLOR = (0.70, 0.78, 0.92, 1.0)      # el espejo se ve con un tinte azul para no confundirlo con el lado real
+_REPLACEMENT_HEAD_COLOR = (0.95, 0.62, 0.25, 1.0)      # cabeza de reemplazo en la vista 3D (naranja)
 FLAT_NUDGE_MM = 0.1            # paso de las flechas al ajustar el plano de corte «sin soportes» (Mayús = 10 veces más)
 NUDGE_MM = 0.1                 # paso de las flechas al ajustar el pasador (Mayús = 10 veces más)
 
@@ -1702,14 +1703,26 @@ class Controller:
         except Exception as e:                     # archivo ilegible, malla irreparable, plano sin cabeza…
             self._changed(f"No se pudo usar esa cabeza: {e}", scene=False)
             return False
-        msg = (f"Cabeza de reemplazo lista: escala ×{info['escala']:.3f} (uniforme), alto {info['alto_mm']:.1f} mm, "
-               f"base coincide {100 * info['coincidencia_base']:.0f} %.")
+        msg = (f"Cabeza de reemplazo lista (se ve en naranja, apoyada en el cuello): escala ×{info['escala']:.3f} "
+               f"(uniforme), alto {info['alto_mm']:.1f} mm, base coincide {100 * info['coincidencia_base']:.0f} %.")
         if info["base_cortada"]:
             msg += " No traía base plana: se cortó una fracción baja para apoyarla."
         if info["coincidencia_base"] < MIN_BASE_IOU:
-            msg += " AVISO: la base se parece poco a la del cuello; probá otro giro o eje «arriba»."
+            msg += " AVISO: la base se parece poco a la del cuello; probá otro giro o eje «arriba» (controles en Planos → Cabeza)."
         self._changed(msg)
         return True
+
+    def set_head_orientation(self, up: str | None = None, yaw: float | None = None) -> bool:
+        """Cambia el eje «arriba» y/o el giro de la cabeza de reemplazo ya cargada y la vuelve a ajustar."""
+        cur = self.session.project.head
+        if cur is None or not cur.replacement_path:
+            self._changed("Primero cargá una cabeza de reemplazo (STL).", scene=False)
+            return False
+        return self.set_head_replacement(cur.replacement_path, yaw, up)
+
+    def head_preview(self):
+        """(malla, info) de la cabeza de reemplazo para dibujarla, o None si no hay."""
+        return self.session.head_replacement_preview() if self.loaded else None
 
     def clear_head_replacement(self) -> None:
         self._changed("Se vuelve a usar la cabeza original del modelo." if self.session.clear_head_replacement()
@@ -1912,8 +1925,13 @@ class Controller:
         for key in [k for k in scene.items if k.startswith("pose:")]:
             scene.remove(key)
         clip = 0.0 if (self.one_side and sess.project.symmetry is not None) else -1e9
-        cplane = self._pin_clip_plane()
-        extra = {} if cplane is None else {"clip_plane": cplane}      # solo en el modo PIN
+        cplane = pin_plane = self._pin_clip_plane()
+        hprev = self.head_preview()
+        if cplane is None and hprev is not None:                     # la cabeza original se oculta: va la de reemplazo
+            n = neck_plane(self.session.project.head).normal
+            cplane = (float(n[0]), float(n[1]), float(n[2]),
+                      float(n @ self.session.project.head.plane.origin) + 1e-3)
+        extra = {} if cplane is None else {"clip_plane": cplane}      # modo PIN o cabeza de reemplazo
         found = self.overhang_faces() if self.show_overhangs else None
         drawn = []                                                   # (nombre, malla, color) para dibujar su espejo
         if found is not None and found[0].any():
@@ -1928,6 +1946,12 @@ class Controller:
             scene.set_mesh("figura", sess.work, clip_x=clip, **extra)
             scene.remove("voladizos")
             drawn = [("figura", sess.work, _MIRROR_COLOR)]
+        if hprev is not None:
+            scene.set_mesh("cabeza:reemplazo", hprev[0], color=_REPLACEMENT_HEAD_COLOR, clip_x=clip)
+            if pin_plane is None:                      # el espejo no lleva la cabeza original (la nueva no se simetriza)
+                drawn = [("figura", self._work_without_head(), _MIRROR_COLOR)]
+        else:
+            scene.remove("cabeza:reemplazo")
         hs = self.plane_half_size
         palette = {"symmetry": (1.0, 0.55, 0.2, 0.18), "arm": (0.3, 0.6, 1.0, 0.22), "leg": (0.4, 0.85, 0.5, 0.22),
                    "head": (0.9, 0.5, 0.9, 0.22), "joint": (1.0, 0.85, 0.2, 0.22),
@@ -1965,7 +1989,19 @@ class Controller:
         self._sync_pins(scene)
         self._sync_joints(scene)
         self._sync_trims(scene)
-        self._sync_mirror(scene, drawn, cplane)
+        self._sync_mirror(scene, drawn, pin_plane)
+
+    def _work_without_head(self) -> trimesh.Trimesh:
+        """La malla de trabajo sin la cabeza original (lado del cuello hacia arriba), en caché: solo para el espejo."""
+        head = self.session.project.head
+        key = (id(self.session.work), head.plane.origin.tobytes(), head.plane.normal.tobytes())
+        cache = getattr(self, "_headless_cache", None)
+        if cache is None or cache[0] != key:
+            n = neck_plane(head).normal
+            mesh = trimesh.intersections.slice_mesh_plane(self.session.work, plane_normal=-n,
+                                                          plane_origin=head.plane.origin - n * 1e-3, cap=False)
+            cache = self._headless_cache = (key, mesh)
+        return cache[1]
 
     def _sync_pose(self, scene) -> None:
         """Vista previa de la pose: torso generado + miembros girados al ángulo elegido (rojo = interfiere)."""

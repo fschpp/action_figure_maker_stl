@@ -657,10 +657,34 @@ class Session:
         if not os.path.isfile(path):
             raise ValueError(f"No existe el archivo «{path}»")
         spec = dataclasses.replace(head, replacement_path=path, replacement_yaw=float(yaw), replacement_up=up)
-        info = split_head(S.to_manifold(self.work), spec, self.project.params).replacement
+        split = split_head(S.to_manifold(self.work), spec, self.project.params)
         self.project.head = spec
+        self._head_fit = (self._head_fit_key(spec), S.to_trimesh(split.head), split.replacement)
         self.outcome = None
-        return info
+        return split.replacement
+
+    def _head_fit_key(self, spec: HeadSpec):
+        return (id(self.work), spec.replacement_path, spec.replacement_yaw, spec.replacement_up,
+                spec.plane.origin.tobytes(), spec.plane.normal.tobytes())
+
+    def head_replacement_preview(self):
+        """(malla de la cabeza de reemplazo ya escalada y apoyada en el cuello, info del ajuste) o None.
+
+        Es lo que se dibuja en la vista 3D: la figura generada usa exactamente esta cabeza. Se guarda en caché
+        mientras no cambien la malla, el plano del cuello, el STL, el giro ni el eje «arriba»."""
+        head = self.project.head
+        if head is None or not head.replacement_path or self.work is None:
+            return None
+        key = self._head_fit_key(head)
+        cache = getattr(self, "_head_fit", None)
+        if cache is None or cache[0] != key:
+            try:
+                split = split_head(S.to_manifold(self.work), head, self.project.params)
+            except Exception:                      # archivo borrado o plano movido a un lugar sin cabeza
+                self._head_fit = None
+                return None
+            cache = self._head_fit = (key, S.to_trimesh(split.head), split.replacement)
+        return cache[1], cache[2]
 
     def clear_head_replacement(self) -> bool:
         head = self.project.head
@@ -668,6 +692,7 @@ class Session:
             return False
         self.project.head = dataclasses.replace(head, replacement_path=None, replacement_yaw=0.0, replacement_up="+Z")
         self.outcome = None
+        self._head_fit = None
         return True
 
     def remove_head(self) -> None:
