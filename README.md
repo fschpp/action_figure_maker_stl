@@ -52,3 +52,6 @@ afm build figura.stl proyecto.json --out out/figura
   la holgura y el clic son medidas absolutas y no se escalan).
 * Ejes: Z arriba, X izquierda-derecha, Y atrás-adelante (frente = +Y).
 * Se trabaja el lado **izquierdo (+X)** y se espeja; el torso sale soldado en una sola pieza.
+  Si el torso tiene un diseño asimétrico (banda cruzada, condecoraciones de un solo lado), poné
+  `torso_mirror = 0` («Parámetros → Torso espejado» en la GUI): el torso conserva ambos lados del STL y solo
+  los miembros se espejan (la cabeza ya sale entera del STL).
