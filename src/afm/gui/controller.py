@@ -2307,8 +2307,8 @@ class Controller:
             scene.remove("hover:vertice")
         if self.pending and self.mode != Mode.JOINT_LINES:
             pts = np.array(self.pending)
-            scene.set_points("pendientes", pts, (1.0, 0.25, 0.25, 1.0), 12.0)
-            scene.set_lines("pendientes:lineas", pts, (1.0, 0.25, 0.25, 1.0), closed=len(pts) == 3)
+            scene.set_points("pendientes", pts, (1.0, 0.25, 0.25, 1.0), 14.0, on_top=True)     # sin prueba de profundidad: no quedan tapados
+            scene.set_lines("pendientes:lineas", pts, (1.0, 0.25, 0.25, 1.0), closed=len(pts) == 3, on_top=True)
         else:
             scene.remove("pendientes")
             scene.remove("pendientes:lineas")
