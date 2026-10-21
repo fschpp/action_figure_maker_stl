@@ -3,6 +3,9 @@
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md` y `PLAN_mecanismo_clic_hombro_cadera.md`_
 
 ## Current Focus
+**Pegar la mano estándar en otro modelo (2026-10-21, rama `mano-pegar`, rebaseada sobre `main` 63860d5):** ya se puede **importar la mano estándar** en un modelo: `HandSpec` (STL + 3 puntos de muñeca + giro + lado) guardada en el `.proyecto`, `pipeline.build(hand=)`, `afm build --mano …` y botón «Mano de reemplazo (STL)…» en la GUI (3 clics, vista previa turquesa, giro, invertir, volver a la original). Falta probar con Güemes/Belgrano reales y en GTK real.
+
+## Current Focus (anterior)
 **Pasador del cuello elegido desde la vista de costado (2026-10-20, rama `cabeza-pasador-vista-costado`):** `Mode.HEAD_PIN` (botón en Planos → Cabeza): vista Derecha, clic = el pasador se desliza adelante/atrás sobre la cara del cuello (proyección sobre el plano, x = 0), flechas 0,1 mm, contorno de costado dibujado, restablecer a automático, `--cabeza-pasador Y Z` en la CLI. Motor: `head.HeadPinPreview`; `Session.head_pin_preview/set_head_pin`. 9 tests nuevos en `test_gui_head.py`. Falta probar en GTK real.
 
 ## Current Focus (anterior)
@@ -10,20 +13,24 @@ _Plan de referencia: `PLAN_herramienta_stl_articulable.md` y `PLAN_mecanismo_cli
 
 ## Todo List
 ### [ ] Todo
-- [ ] Probar en GTK real la sección «Mano estándar» (`window.py`: `btn_hand`, `btn_hand_invert`, `btn_hand_save`, `btn_hand_drop`, `_on_save_hand`) y que el verde de la mano se distinga; en este entorno no hay GTK y solo se verificó que compila.
-- [ ] Pegado: `Session`/`HeadSpec`-like `HandSpec` (ruta del STL, 3 puntos, giro en grados) guardado en el `.proyecto` (los viejos deben cargar igual) y botón «Mano de reemplazo (STL)…» con vista previa resaltada y estado claro («aplicada», cobertura del corte).
-- [ ] Unión con espiga: cilindro mínimo entre la mano (`place_hand`) y el antebrazo cortado (`split_at_wrist`), ajustado al radio del corte; se aplica a ambos brazos (el otro lado con `solids.mirror_x`).
-- [ ] Pruebas con Güemes real (extraer) y Belgrano (pegar); la mano viaja con el antebrazo en `brazo_der`/`brazo_izq`.
-- [ ] Futuro cercano (no cerrar la puerta): articulación de giro print-in-place sobre el mismo plano de muñeca; resolvería que el brazo y la muñeca importada no coincidan. Por eso la unión debe ser intercambiable (`espiga` hoy, `giro` mañana).
+- [ ] Probar con figuras reales: extraer la mano de Güemes (`afm extraer-mano`) y pegarla en Belgrano (`afm build … --mano`); revisar escalón de muñeca, «cobertura» (≥ 98 %) y que el punto 1 en el pulgar la deje orientada sin giro.
+- [ ] Probar en GTK real: sección «Mano estándar» (extraer: `btn_hand*`, `_on_save_hand`; pegar: `btn_hand_stl`, `btn_hand_flip`, `btn_hand_orig`, `spin_hand_yaw`, `lbl_hand_fit`, `_on_hand_replacement`, `_on_hand_yaw`) y que verde (extraída) y turquesa (pegada) se distingan. Aquí no hay GTK: solo `py_compile` + pyflakes.
+- [ ] Unión alternativa: hoy solo `solape` (la base se hunde 0,5 mm en el brazo). Si el escalón de muñeca es grande (> 1 mm) falta una espiga/anillo de transición; el campo `HandSpec.join` queda listo para sumar `espiga` y, después, `giro` (articulación print-in-place sobre el mismo plano).
+- [ ] Con codo (`antebrazo`): comprobar con un modelo real que la mano viaja con el antebrazo y que el barrido del codo la incluye (el barrido sale del distal ya con la mano nueva).
+- [ ] La vista de pose / voladizos dibuja la figura tal cual (con voladizos activados se ve la mano original, no la nueva): decidir si se arregla.
 ### [/] In Progress
-- [/] Verificación de la suite completa (tests de `hand.py` y GUI relacionados pasan; la suite entera no llegó a terminar en el entorno de la sesión, correrla local).
+- [/] Suite completa: pasan 55 (mano motor/GUI/CLI) + 159 de regresión (GUI, pipeline, cabeza, cintura); no se corrieron `test_guemes/belgrano/azurduy/mickey/detent/joints/flat_print` (tardan minutos cada uno).
 ### [x] Done
+- [x] **Pegado de la mano (2026-10-21):** `hand.HandSpec` / `HandBuild` / `apply_hand` (corta por la muñeca del modelo, descarta su mano, pone la estándar centroide con centroide sin escalar, la hunde `overlap` mm; informe con radios, escalón y avisos; puntos en el otro brazo se espejan a +X), `WristFrame.twisted`; `Project.hand` (viejos cargan igual; `scale_geometry` escala solo los puntos); `pipeline.build(hand=)` pega sobre la mitad +X antes de cortar los miembros (`report["hand"]` con `cobertura`) y `validate` avisa de escalón, tamaño, altura de origen distinta, silueta que corta la mano y mano sin brazo; CLI `afm build --mano/--mano-puntos/--mano-giro/--mano-invertir/--mano-solape` (error claro con código 2 si el plano no sirve); GUI `Mode.HAND_PLACE`, `Session.set_hand/adjust_hand/clear_hand/hand_replacement_preview`, `Controller.start_hand_place/set_hand_adjust/invert_hand_place/clear_hand/hand_fit`, `problems()` avisa si el STL de la mano ya no existe, espejo en vivo con la mano nueva. Tutorial §7.2f. Tests: `tests/test_hand_place.py` (18), `tests/test_gui_hand_place.py` (11).
 - [x] `WristFrame.from_points` (centro, eje hacia la mano, referencia de giro = punto 1), `split_at_wrist` (mano = lado de menor volumen, `invert` para el otro; ambas mitades cerradas), `extract_standard_hand` / `to_local` / `place_hand` (mm reales, sin escalar), `save_standard_hand` / `load_standard_hand` (STL + `<nombre>.mano.json`, formato `afm-mano-1`).
 - [x] CLI `afm extraer-mano figura.stl proyecto.proyecto --puntos x1 y1 z1 x2 y2 z2 x3 y3 z3 [--invertir] [--out] [--name]`: carga la figura como `afm build` (altura, frente y simetría del proyecto), así los puntos valen en el marco de trabajo de la GUI; avisa si la figura no está a 130 mm.
 - [x] GUI sin GTK: `Mode.HAND_EXTRACT`, `Controller.start_hand_extract / invert_hand_extract / discard_hand_extract / save_hand_extract / hand_preview` (la mano cortada se dibuja en verde como `mano:extraida`), `Session.extract_hand / save_hand`, sección «Mano estándar» en la barra lateral (necesita simetría); abrir otro STL o proyecto descarta la mano extraída. `tests/test_gui_hand.py` (8).
 - [x] `tests/test_hand.py` (17, con brazos colgando como Güemes): marco, puntos alineados, lado de la mano, cierre de malla, plano fuera / por la mitad, marco local, ida y vuelta de `place_hand`, espejo, guardar/cargar, CLI.
 
 ## Latest Blockers/Discoveries
+- (2026-10-21) El pegado va **antes** de cortar los miembros y sobre la mitad +X: la mano nueva queda soldada al brazo y `separate_limb` la lleva con la silueta; por eso hay que medir `cobertura` (si la silueta del brazo no llega a la mano, el resto de la mano se pierde sin error). Con la figura de prueba (brazo colgando, silueta desde z = 52 sobre una muñeca en z = 57) la cobertura baja a 37 % y `validate` avisa.
+- (2026-10-21) `split_at_wrist` exige que el plano separe una mano chica (< 50 % del volumen del otro lado): en el muñeco de prueba con el brazo pegado a la pelvis falló («87 %»). Con figuras reales con la mano apoyada en el cuerpo hay que usar «invertir» o elegir otra muñeca.
+- (2026-10-21) Entorno de la sesión: sin pytest ni GTK; se armó un venv fuera del repo (numpy, scipy, trimesh, manifold3d, shapely, mapbox_earcut, networkx, scikit-image, fast-simplification, pytest).
 - Decisiones del usuario: mano idéntica en toda la línea (sin reescalar a la muñeca del modelo); giro axial opcional a futuro; mano espejada para el lado derecho; plano de 3 puntos en la GUI; si no se articula la muñeca, queda solo el reemplazo.
 - El centro del marco es el centroide de la cara del corte (no el de los 3 puntos), igual que la cabeza alinea centroide con centroide; la referencia de giro sí sale del punto 1.
 - Bug de la primera versión (visto en Güemes real, «parte la figura casi por la mitad (52 %)»): el plano de muñeca es infinito y cortaba TODA la figura; con los brazos colgando el lado de la mano incluía piernas y pelvis. Ahora `split_at_wrist` toma de cada lado solo la pieza conectada que toca la cara del corte en la muñeca (`_component_at_wrist`). Limitación: si la mano está soldada a otra parte del cuerpo (p. ej. apoyada en el muslo), esa parte viaja con ella.

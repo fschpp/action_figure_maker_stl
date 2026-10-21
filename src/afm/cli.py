@@ -22,7 +22,8 @@ def run(stl_path: str, project: Project, outdir: str, name: str, progress=print,
     mesh = P.align_to_symmetry(mesh, project.symmetry)
     body = S.to_manifold(mesh)
     res = P.build(body, project.limbs, project.params, project.symmetry, progress=progress,
-                  trims=project.trims, head=project.head, joints=project.joints, waist=project.waist)
+                  trims=project.trims, head=project.head, joints=project.joints, waist=project.waist,
+                  hand=project.hand)
     val = P.validate(res, project.params, project.limbs, joints=project.joints)
     files = P.export(res, outdir, name, orient=orient, max_angle=max_angle, flat=flat, params=project.params)
     info = {"carga": rep.__dict__, "construccion": res.report, "validacion": val, "archivos": files}
@@ -89,6 +90,16 @@ def main(argv=None) -> int:
     b.add_argument("--cabeza-corte", type=float, nargs=9, default=None, metavar="N",
                    help="plano de 3 puntos que corta la base de la cabeza importada: x1 y1 z1 x2 y2 z2 x3 y3 z3, "
                         "en coordenadas del STL de la cabeza (lo de abajo del plano se descarta)")
+    b.add_argument("--mano", default=None, metavar="STL",
+                   help="mano estándar (guardada con `afm extraer-mano` o con la GUI) que reemplaza a la mano del modelo; "
+                        "usa los puntos de --mano-puntos o, si no se dan, los que ya tenga el proyecto")
+    b.add_argument("--mano-puntos", type=float, nargs=9, default=None, metavar="N",
+                   help="plano de muñeca del modelo: x1 y1 z1 x2 y2 z2 x3 y3 z3 (marco de la GUI, cualquiera de los dos brazos). "
+                        "El punto 1 va en el mismo lugar anatómico que al extraer la mano (p. ej. el lado del pulgar)")
+    b.add_argument("--mano-giro", type=float, default=None, metavar="GRADOS", help="giro extra de la mano alrededor de la muñeca")
+    b.add_argument("--mano-invertir", action="store_true", help="la mano del modelo es el lado grande del corte")
+    b.add_argument("--mano-solape", type=float, default=None, metavar="MM",
+                   help="cuánto se hunde la base de la mano en el brazo (por defecto 0,5 mm)")
     b.add_argument("--cadera-referencia", action="store_true",
                    help="usar el pasador de cadera de la figura de referencia (Ø4,8 / cabeza Ø9,25 × 2,44, mm absolutos)")
     b.add_argument("--max-angle", type=float, default=45.0, help="ángulo de voladizo tolerado (grados desde la vertical)")
@@ -198,13 +209,33 @@ def main(argv=None) -> int:
                 n, o = neck_plane(project.head).normal, neck_plane(project.head).origin
                 c = np.array([0.0, *args.cabeza_pasador])
                 project.head = dataclasses.replace(project.head, pin_center=tuple(c - ((c - o) @ n) * n))
+        hand_opts = (args.mano, args.mano_puntos, args.mano_giro, args.mano_solape)
+        if any(o is not None for o in hand_opts) or args.mano_invertir:
+            from .hand import DEFAULT_OVERLAP_MM, HandSpec
+            cur = project.hand
+            path = os.path.abspath(args.mano) if args.mano else (cur.path if cur else None)
+            pts = (tuple(tuple(args.mano_puntos[i:i + 3]) for i in (0, 3, 6)) if args.mano_puntos is not None
+                   else (cur.points if cur else None))
+            if path is None:
+                ap.error("el proyecto no tiene mano estándar: pasá --mano STL")
+            if pts is None:
+                ap.error("falta el plano de muñeca del modelo: pasá --mano-puntos x1 y1 z1 x2 y2 z2 x3 y3 z3")
+            yaw = args.mano_giro if args.mano_giro is not None else (cur.yaw if cur else 0.0)
+            overlap = args.mano_solape if args.mano_solape is not None else (cur.overlap if cur else DEFAULT_OVERLAP_MM)
+            project.hand = HandSpec(path=path, points=pts, yaw=yaw, overlap=overlap,
+                                    invert=bool(args.mano_invertir or (cur.invert if cur else False)))
         if args.cadera_referencia:
             project.params = project.params.with_hip_reference()
         flat = args.sin_soportes
         if flat is not None and flat < 0:
             flat = project.params.flat_depth
-        info = run(args.stl, project, args.out, name, orient="auto" if args.orient_auto else args.orient,
-                   max_angle=args.max_angle, flat=flat)
+        from .hand import HandError
+        try:
+            info = run(args.stl, project, args.out, name, orient="auto" if args.orient_auto else args.orient,
+                       max_angle=args.max_angle, flat=flat)
+        except HandError as exc:
+            print(f"ERROR (mano): {exc}", file=sys.stderr)
+            return 2
     val = info["validacion"]
     print("Validación:", "OK" if val["ok"] else "CON PROBLEMAS")
     for pr in val["problems"]:

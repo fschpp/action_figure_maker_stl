@@ -81,6 +81,14 @@ class WristFrame:
         c = np.asarray(center, float)
         return WristFrame(c.copy(), self.axis.copy(), self.ref.copy())
 
+    def twisted(self, deg: float) -> "WristFrame":
+        """Mismo marco con la referencia girada `deg` grados alrededor del eje (+ = antihorario mirando desde la mano)."""
+        if not deg:
+            return WristFrame(self.center.copy(), self.axis.copy(), self.ref.copy())
+        a = np.radians(float(deg))
+        ref = self.ref * np.cos(a) + np.cross(self.axis, self.ref) * np.sin(a)      # Rodrigues (ref ⟂ axis)
+        return WristFrame(self.center.copy(), self.axis.copy(), ref / np.linalg.norm(ref))
+
     @property
     def y(self) -> np.ndarray:
         return np.cross(self.axis, self.ref)
@@ -225,6 +233,114 @@ def hand_meta(split: WristSplit, height_mm: float | None = None, source: str = "
             "marco": "origen en el centroide del corte, +Z hacia la mano, +X = referencia (punto 1)",
             "largo_mm": length,
             "frame_en_figura": split.frame.to_dict(), "bbox_mundo": [list(map(float, b[:3])), list(map(float, b[3:]))]}
+
+
+# ------------------------------------------------------------------ pegar la mano estándar en otro modelo
+JOINS = ("solape",)            # «giro» (articulación print-in-place sobre el mismo plano) queda para más adelante
+DEFAULT_OVERLAP_MM = 0.5       # cuánto se hunde la base de la mano en el brazo: la unión tiene volumen, no solo una cara
+STEP_WARN_MM = 1.0             # diferencia de radio de muñeca (modelo vs mano estándar) a partir de la cual se avisa del escalón
+SIZE_WARN_RATIO = 3.0          # la mano estándar es tantas veces más grande / chica (en volumen) que la original del modelo
+
+
+@dataclass
+class HandSpec:
+    """Mano de reemplazo de un modelo: STL de la mano estándar + plano de muñeca de 3 puntos sobre el modelo.
+
+    `points` están en el marco de trabajo de la figura (el mismo en que se eligen en la GUI y en que `afm extraer-mano`
+    recibe los suyos) y pueden estar en cualquiera de los dos brazos: se espejan al lado +X (el otro lado sale por
+    espejo, como el resto de las piezas). El punto 1 es la referencia de giro: marcarlo en el mismo lugar anatómico que
+    al extraer la mano deja la mano orientada igual sin tocar `yaw`. La mano no se reescala (mm reales)."""
+
+    path: str
+    points: tuple
+    yaw: float = 0.0                 # giro extra (°) alrededor del eje de la muñeca
+    invert: bool = False             # la mano del modelo es el lado grande del corte
+    join: str = "solape"
+    overlap: float = DEFAULT_OVERLAP_MM
+
+    def to_dict(self) -> dict:
+        return {"path": self.path, "points": [list(map(float, q)) for q in self.points], "yaw": float(self.yaw),
+                "invert": bool(self.invert), "join": self.join, "overlap": float(self.overlap)}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "HandSpec":
+        return cls(path=d["path"], points=tuple(tuple(map(float, q)) for q in d["points"]),
+                   yaw=float(d.get("yaw", 0.0)), invert=bool(d.get("invert", False)),
+                   join=d.get("join", "solape"), overlap=float(d.get("overlap", DEFAULT_OVERLAP_MM)))
+
+
+@dataclass
+class HandBuild:
+    body: S.Manifold            # el cuerpo (lado +X) con la mano original cambiada por la estándar
+    hand: S.Manifold            # la mano estándar ya puesta en el modelo (mundo), con el solape
+    original: S.Manifold        # la mano original del modelo, la que se descarta (mundo)
+    frame: WristFrame           # marco de muñeca en el modelo (eje hacia la mano, con el giro aplicado)
+    info: dict
+
+
+def _local_face(hand_local: S.Manifold):
+    """(área, distancia del centroide al origen) de la cara plana de la mano estándar (z = 0); None si no tiene."""
+    tri = S.to_trimesh(hand_local).triangles
+    on = tri[(np.abs(tri[:, :, 2]) < FACE_TOL).all(axis=1)]
+    if len(on) == 0:
+        return None
+    area = 0.5 * np.linalg.norm(np.cross(on[:, 1] - on[:, 0], on[:, 2] - on[:, 0]), axis=1)
+    if area.sum() <= 0:
+        return None
+    c = (on.mean(axis=1) * area[:, None]).sum(axis=0) / area.sum()
+    return float(area.sum()), float(np.linalg.norm(c))
+
+
+def apply_hand(body: S.Manifold, spec: HandSpec, ref_height: float | None = None) -> HandBuild:
+    """Cambia la mano de `body` (la mitad de trabajo, lado +X) por la mano estándar de `spec`.
+
+    1. Corta por el plano de muñeca de `spec.points` y descarta la mano original (`split_at_wrist`).
+    2. Pone la mano estándar con su cara plana sobre la del corte (centroide con centroide, sin escalar) y la hunde
+       `spec.overlap` mm en el brazo, así la unión es un volumen y no un simple contacto de caras.
+    El informe trae los radios de muñeca (el escalón que queda si no coinciden) y avisos."""
+    if spec.join not in JOINS:
+        raise HandError(f"unión «{spec.join}» desconocida (las que hay: {', '.join(JOINS)})")
+    pts = np.asarray(spec.points, float)
+    if pts.shape != (3, 3):
+        raise HandError("el plano de muñeca necesita 3 puntos (x, y, z)")
+    mirrored = bool(pts[:, 0].mean() < 0)
+    if mirrored:
+        pts = pts * np.array([-1.0, 1.0, 1.0])               # la mano se pega en +X; el otro brazo sale por espejo
+    hand_local, meta = load_standard_hand(spec.path)
+    face = _local_face(hand_local)
+    if face is None:
+        raise HandError("la mano estándar no tiene una cara plana de unión en z = 0: usá un STL guardado con "
+                        "«Guardar mano estándar…» o `afm extraer-mano`")
+    face_area, face_off = face
+    if face_off > 0.5:
+        raise HandError(f"la cara de unión de la mano estándar no está centrada en el origen (a {face_off:.2f} mm): "
+                        "no es una mano estándar de esta herramienta")
+    split = split_at_wrist(body, WristFrame.from_points(pts), invert=spec.invert)
+    frame = split.frame.twisted(spec.yaw)
+    placed = place_hand(hand_local, frame)
+    overlap = max(0.0, float(spec.overlap))
+    if overlap:
+        placed = placed.translate(tuple(float(x) for x in -frame.axis * overlap))
+    new_body = S.union(split.rest, placed)
+    r_arm, r_hand = split.face_radius, float(np.sqrt(face_area / np.pi))
+    avisos: list[str] = []
+    if abs(r_arm - r_hand) > STEP_WARN_MM:
+        avisos.append(f"la muñeca del modelo (Ø{2 * r_arm:.1f} mm) y la de la mano estándar (Ø{2 * r_hand:.1f} mm) difieren "
+                      f"{abs(r_arm - r_hand):.1f} mm de radio: queda un escalón en la unión")
+    ratio = float(hand_local.volume()) / max(split.hand_volume, 1e-9)
+    if ratio > SIZE_WARN_RATIO or ratio < 1.0 / SIZE_WARN_RATIO:
+        avisos.append(f"la mano estándar tiene {ratio:.1f} veces el volumen de la mano original del modelo "
+                      "(¿el plano de muñeca está bien puesto?)")
+    src_h = None if meta is None else meta.get("altura_figura_mm")
+    if src_h and ref_height and abs(float(src_h) - float(ref_height)) > 0.5:
+        avisos.append(f"la mano estándar se midió en una figura de {float(src_h):g} mm y esta mide {float(ref_height):g} mm: "
+                      "la mano no se reescala, puede verse grande o chica")
+    info = {"archivo": spec.path, "puntos_espejados": mirrored, "radio_brazo_mm": round(r_arm, 3),
+            "radio_mano_mm": round(r_hand, 3), "escalon_mm": round(abs(r_arm - r_hand), 3), "solape_mm": overlap,
+            "giro_grados": float(spec.yaw), "union": spec.join,
+            "volumen_mano_mm3": round(float(placed.volume()), 2), "volumen_original_mm3": round(split.hand_volume, 2),
+            "centro": frame.center.tolist(), "eje": frame.axis.tolist(), "avisos": avisos}
+    return HandBuild(body=new_body, hand=placed, original=split.hand, frame=frame, info=info)
 
 
 def meta_path(stl_path: str) -> str:

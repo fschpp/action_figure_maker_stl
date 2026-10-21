@@ -43,6 +43,7 @@ class Mode(Enum):
     NECK_PLANE = "plano_cuello"
     HEAD_CUT_PLANE = "plano_corte_cabeza"   # 3 clics sobre la cabeza de reemplazo (naranja): plano que corta su base
     HAND_EXTRACT = "extraer_mano"   # 3 clics en la muñeca izquierda: corta la mano y la deja lista para guardar como mano estándar
+    HAND_PLACE = "pegar_mano"       # 3 clics en la muñeca de ESTE modelo: se descarta su mano y se pega la mano estándar (STL) elegida
     WAIST_PLANE = "plano_cintura"   # 3 clics: corta el torso en pecho y pelvis con un pasador robusto (giro a los costados)
     POLYGON = "silueta"
     PIN = "pasador"
@@ -89,6 +90,7 @@ class PlaneEntry:
 _MIRROR_COLOR = (0.70, 0.78, 0.92, 1.0)      # el espejo se ve con un tinte azul para no confundirlo con el lado real
 _REPLACEMENT_HEAD_COLOR = (0.95, 0.62, 0.25, 1.0)      # cabeza de reemplazo en la vista 3D (naranja)
 _EXTRACTED_HAND_COLOR = (0.25, 0.85, 0.55, 1.0)         # mano extraída (aún sin guardar) en la vista 3D (verde)
+_REPLACEMENT_HAND_COLOR = (0.25, 0.75, 0.85, 1.0)       # mano estándar pegada en el modelo (turquesa: no se confunde con la extraída)
 FLAT_NUDGE_MM = 0.1            # paso de las flechas al ajustar el plano de corte «sin soportes» (Mayús = 10 veces más)
 NUDGE_MM = 0.1                 # paso de las flechas al ajustar el pasador (Mayús = 10 veces más)
 
@@ -197,6 +199,7 @@ class Controller:
         self._overhang_cache: tuple | None = None    # (work, bounds, ángulo, máscara, OrientResult)
         self.hand_extract: dict | None = None        # mano extraída sin guardar: hand (local), split, points, invert
         self._hand_mesh = None                       # (split, malla de la mano en el mundo) para dibujarla en verde
+        self._hand_path_pending: str | None = None   # STL de la mano estándar elegida, a la espera de los 3 clics de la muñeca
         self.scene_dirty = True
         self.on_change = None                        # callable() para refrescar la barra lateral
         if self.session.loaded:
@@ -577,6 +580,7 @@ class Controller:
     def cancel(self, quiet: bool = False) -> None:
         was = self.mode
         self.mode, self.pending, self.pending_kind = Mode.VIEW, [], None
+        self._hand_path_pending = None
         if was == Mode.HEAD_CUT_PLANE:
             self._rebuild_picker()           # durante el corte el picker apuntaba a la cabeza de reemplazo
         self.clear_hover()
@@ -1659,7 +1663,7 @@ class Controller:
         """True en los modos en que se eligen puntos sobre la figura (planos de 3 puntos, guías de 4)."""
         return (self.picker is not None and not self.busy and
                 self.mode in (Mode.SYMMETRY, Mode.LIMB_PLANE, Mode.NECK_PLANE, Mode.HEAD_CUT_PLANE, Mode.WAIST_PLANE, Mode.HAND_EXTRACT,
-                              Mode.JOINT_PLANE, Mode.JOINT_LINES, Mode.JOINT_SIDE))
+                              Mode.HAND_PLACE, Mode.JOINT_PLANE, Mode.JOINT_LINES, Mode.JOINT_SIDE))
 
     def update_hover(self, px: float, py: float, width: float, height: float) -> bool:
         """Marca (en rojo) el vértice de la figura que el puntero tiene cerca; lo suelta al alejarse. Devuelve True si
@@ -1739,6 +1743,8 @@ class Controller:
                 self._finish_waist_plane()
             elif self.mode == Mode.HAND_EXTRACT:
                 self._finish_hand_extract()
+            elif self.mode == Mode.HAND_PLACE:
+                self._finish_hand_place()
             elif self.mode == Mode.JOINT_PLANE:
                 self._finish_joint_plane()
             else:
@@ -1856,6 +1862,70 @@ class Controller:
         if self._hand_mesh is None or self._hand_mesh[0] is not split:
             self._hand_mesh = (split, S.to_trimesh(split.hand))
         return self._hand_mesh[1]
+
+    # ------------------------------------------------------------ mano estándar (pegar en este modelo)
+    def start_hand_place(self, path: str) -> None:
+        """Mano de reemplazo: con el STL de la mano estándar elegido, pide los 3 puntos de la muñeca de este modelo."""
+        if not self._need_loaded():
+            return
+        if self.session.project.symmetry is None:
+            self._changed("Primero definí el plano de simetría.", scene=False)
+            return
+        from ..hand import load_standard_hand
+        try:
+            load_standard_hand(path)
+        except Exception as e:                                  # archivo ilegible, no es una malla, JSON de otra versión…
+            self._changed(f"No se pudo leer esa mano estándar: {e}", scene=False)
+            return
+        self.cancel(quiet=True)
+        self._hand_path_pending = path
+        self.mode = Mode.HAND_PLACE
+        self._changed("Mano de reemplazo: elegí 3 puntos en la muñeca de este modelo (vale cualquiera de los dos brazos). "
+                      "Marcá el punto 1 en el mismo lugar que al extraer la mano (p. ej. el lado del pulgar) y los otros dos a "
+                      "ambos lados de la muñeca. Se descarta la mano del modelo y se pega la estándar, sin escalarla.")
+
+    def _finish_hand_place(self) -> None:
+        pts, self.pending = self.pending, []
+        path, self._hand_path_pending = self._hand_path_pending, None
+        self.mode = Mode.VIEW
+        try:
+            info = self.session.set_hand(path, [tuple(map(float, q)) for q in pts])
+        except ValueError as e:
+            self._changed(f"No sirve: {e}. Probá de nuevo con «Mano de reemplazo (STL)…».")
+            return
+        self._changed(self._hand_fit_message(info))
+
+    @staticmethod
+    def _hand_fit_message(info: dict) -> str:
+        msg = (f"Mano estándar pegada (turquesa): muñeca del modelo Ø{2 * info['radio_brazo_mm']:.1f} mm, de la mano "
+               f"Ø{2 * info['radio_mano_mm']:.1f} mm. Si no cae bien usá «Invertir lado» o el giro.")
+        for a in info["avisos"]:
+            msg += f" AVISO: {a}."
+        return msg
+
+    def set_hand_adjust(self, yaw: float | None = None, invert: bool | None = None) -> bool:
+        """Cambia el giro (°) y/o el lado de la mano de reemplazo ya pegada. Si no sirve, no cambia nada."""
+        if not self._need_loaded():
+            return False
+        try:
+            info = self.session.adjust_hand(yaw, invert)
+        except ValueError as e:
+            self._changed(f"No sirve: {e}", scene=False)
+            return False
+        self._changed(self._hand_fit_message(info))
+        return True
+
+    def invert_hand_place(self) -> bool:
+        cur = self.session.project.hand
+        return self.set_hand_adjust(invert=None if cur is None else not cur.invert)
+
+    def clear_hand(self) -> None:
+        self._changed("Se vuelve a usar la mano original del modelo." if self.session.clear_hand()
+                      else "No había mano de reemplazo.")
+
+    def hand_fit(self):
+        """{"figure", "hand", "info"} de la mano de reemplazo para dibujarla, o None si no hay."""
+        return self.session.hand_replacement_preview() if self.loaded else None
 
     def set_head_replacement(self, path: str, yaw: float | None = None, up: str | None = None,
                              rx: float | None = None, ry: float | None = None,
@@ -2153,6 +2223,8 @@ class Controller:
                       float(n @ self.session.project.head.plane.origin) + 1e-3)
         extra = {} if cplane is None else {"clip_plane": cplane}      # modo PIN o cabeza de reemplazo
         found = self.overhang_faces() if self.show_overhangs else None
+        hfit = self.hand_fit() if not (found is not None and found[0].any()) else None   # con voladizos se ve la figura tal cual
+        base = sess.work if hfit is None else hfit["figure"]          # con mano de reemplazo, sin la mano original
         drawn = []                                                   # (nombre, malla, color) para dibujar su espejo
         if found is not None and found[0].any():
             mask = found[0]
@@ -2163,13 +2235,18 @@ class Controller:
             scene.set_mesh("voladizos", over_mesh, color=(0.95, 0.25, 0.25, 1.0), clip_x=clip, **extra)
             drawn = [("figura", ok_mesh, _MIRROR_COLOR), ("voladizos", over_mesh, (0.95, 0.45, 0.45, 1.0))]
         else:
-            scene.set_mesh("figura", sess.work, clip_x=clip, **extra)
+            scene.set_mesh("figura", base, clip_x=clip, **extra)
             scene.remove("voladizos")
-            drawn = [("figura", sess.work, _MIRROR_COLOR)]
+            drawn = [("figura", base, _MIRROR_COLOR)]
+        if hfit is not None:
+            scene.set_mesh("mano:reemplazo", hfit["hand"], color=_REPLACEMENT_HAND_COLOR, clip_x=clip)
+            drawn.append(("mano:reemplazo", hfit["hand"], _MIRROR_COLOR))
+        else:
+            scene.remove("mano:reemplazo")
         if hprev is not None:
             scene.set_mesh("cabeza:reemplazo", hprev[0], color=_REPLACEMENT_HEAD_COLOR, clip_x=clip)
             if pin_plane is None:                      # el espejo no lleva la cabeza original (la nueva no se simetriza)
-                drawn = [("figura", self._work_without_head(), _MIRROR_COLOR)]
+                drawn = [("figura", self._work_without_head(), _MIRROR_COLOR)] + [d for d in drawn if d[0] == "mano:reemplazo"]
         else:
             scene.remove("cabeza:reemplazo")
         hand = self.hand_preview()
