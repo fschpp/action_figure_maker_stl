@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import logging
 import os
@@ -74,6 +75,9 @@ def main(argv=None) -> int:
     b.add_argument("--sin-soportes", nargs="?", type=float, const=-1.0, default=None, metavar="MM",
                    help="aplanar piernas y cola con un corte horizontal a MM sobre la cola (por defecto Params.flat_depth) y "
                         "girar los brazos hacia adelante hasta apoyar en ese plano")
+    b.add_argument("--rellenar-muslos", action="store_true",
+                   help="con --sin-soportes: el muslo se queda con la loncha de pelvis que saca el corte plano y la pelvis "
+                        "se talla de nuevo alrededor (Params.flat_fill_hip)")
     b.add_argument("--orient-auto", action="store_true", help="exportar en la orientación de menor voladizo (puede dar vuelta la figura)")
     b.add_argument("--cabeza", default=None, metavar="STL",
                    help="usar esta cabeza en lugar de la original (el proyecto debe tener el plano del cuello)")
@@ -229,6 +233,8 @@ def main(argv=None) -> int:
                                     join=args.mano_union or (cur.join if cur else "solape"))
         if args.cadera_referencia:
             project.params = project.params.with_hip_reference()
+        if args.rellenar_muslos:
+            project.params = dataclasses.replace(project.params, flat_fill_hip=True)
         flat = args.sin_soportes
         if flat is not None and flat < 0:
             flat = project.params.flat_depth

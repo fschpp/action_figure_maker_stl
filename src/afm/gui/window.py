@@ -578,6 +578,12 @@ En naranja se ve el contorno del pasador (vástago y cabeza); en verde, la posic
                                        "pantorrilla horizontales sobre el plano. Los brazos no se modifican.")
         self.chk_flat.connect("toggled", lambda b: None if self._updating else self._on_flat_toggled(b.get_active()))
         sub.append(self.chk_flat)
+        self.chk_fill_hip = Gtk.CheckButton(label="Rellenar los muslos hasta la pelvis recortada")
+        self.chk_fill_hip.set_tooltip_text("El corte plano le saca a la pelvis una loncha y de pie queda un hueco contra el muslo. Con esto el muslo se \
+queda con esa loncha y la pelvis se talla de nuevo alrededor (el muslo gira libre hasta el límite de cadera). Se nota al \
+exportar; tarda un poco más.")
+        self.chk_fill_hip.connect("toggled", lambda b: None if self._updating else self.ctrl.set_flat_fill_hip(b.get_active()))
+        sub.append(self.chk_fill_hip)
         self.btn_flat_plane = self._button("Ajustar la altura del corte (vista Derecha, figura sentada)", lambda *_: self._on_flat_plane())
         self.btn_flat_plane.set_tooltip_text("Muestra la figura generada sentada, de costado, con el plano horizontal del corte «sin soportes». "
                                              "Clic a la altura que querés, o ↑ ↓ (Mayús = 1 mm). Esc termina.")
@@ -723,6 +729,8 @@ En naranja se ve el contorno del pasador (vástago y cabeza); en verde, la posic
             for b in (self.btn_pin_reset, self.btn_pin_face, self.btn_pin_end):
                 b.set_sensitive(placing)
             self.spin_over.set_value(ctrl.overhang_angle)
+            self.chk_fill_hip.set_active(ctrl.session.project.params.flat_fill_hip)
+            self.chk_fill_hip.set_sensitive(self.chk_flat.get_active())
             self.dd_front.set_selected(0 if ctrl.session.project.front == "+Y" else 1)
             self._rebuild_plane_list()
             self._rebuild_trim_ui()
@@ -1020,6 +1028,7 @@ En naranja se ve el contorno del pasador (vástago y cabeza); en verde, la posic
 
     # ------------------------------------------------------------------ acciones
     def _on_flat_toggled(self, on: bool) -> None:
+        self.chk_fill_hip.set_sensitive(on)
         self.ctrl.set_flat_print(on)
         self.gl.queue_render()
 

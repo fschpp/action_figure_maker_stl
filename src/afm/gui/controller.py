@@ -1289,6 +1289,12 @@ class Controller:
         return (f" El brazo con clic cuelga {a['cuelga_mm']:.1f} mm bajo el plano: para que apoye, el clic tiene que quedar a "
                 f"{a['angulo_apoyo']:.0f}° (ahora {a['angulo_actual']:.0f}°): usá «Ajustar el clic del brazo» y generá de nuevo.")
 
+    def set_flat_fill_hip(self, on: bool) -> None:
+        """Casilla «Rellenar los muslos hasta la pelvis recortada»: solo cambia la exportación sin soportes (no invalida la figura)."""
+        self.session.project.params.flat_fill_hip = bool(on)
+        self._changed("Muslos rellenos hasta la pelvis recortada al exportar sin soportes." if on
+                      else "Los muslos se exportan sin relleno.", scene=False)
+
     def set_flat_print(self, on: bool) -> None:
         """Casilla «Modificar para imprimir sin soportes»: al activarla la figura generada se muestra sentada y con las
         piernas estiradas (es como se exporta); al apagarla vuelve la rodilla a la flexión de la pose impresa."""
