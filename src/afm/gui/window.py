@@ -430,6 +430,16 @@ En naranja se ve el contorno del pasador (vástago y cabeza); en verde, la posic
 
         sec = _collapsible(box, "Lista de planos")
         _help(sec, "Durante la selección: Retroceso deshace el último punto, Esc cancela.")
+        self.chk_show: dict[str, Gtk.CheckButton] = {}
+        for group, label, tip in (
+                ("planes", "Mostrar todos los planos", "Interruptor general: se combina con el de cada plano de la lista"),
+                ("pins", "Mostrar todos los pines de articulación",
+                 "Marcas de los pasadores (hombro, cadera, cuello) y ejes de las bisagras (rodilla, codo)"),
+                ("contours", "Mostrar todos los contornos", "Siluetas de los miembros (1.º y 2.º corte) y recortes manuales")):
+            chk = Gtk.CheckButton(label=label, active=True, tooltip_text=tip)
+            chk.connect("toggled", lambda b, g=group: None if self._updating else self.ctrl.set_group_visible(g, b.get_active()))
+            sec.append(chk)
+            self.chk_show[group] = chk
         self.planes_box = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
         self.planes_box.add_css_class("boxed-list")
         sec.append(self.planes_box)
@@ -689,6 +699,8 @@ En naranja se ve el contorno del pasador (vástago y cabeza); en verde, la posic
                 self.spin_cut.set_value(ctrl.session.limb_offset(off_limb))
             self.chk_side.set_sensitive(loaded and has_sym)
             self.chk_side.set_active(ctrl.one_side)
+            for group, chk in self.chk_show.items():
+                chk.set_active(ctrl.group_visible(group))
             self.chk_over.set_active(ctrl.show_overhangs)
             self.chk_mirror.set_sensitive(loaded and has_sym)
             self.chk_mirror.set_active(ctrl.mirror_live)

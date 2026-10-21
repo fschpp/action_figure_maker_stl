@@ -470,6 +470,12 @@ Después de **Generar**, la casilla **Ver la figura generada en la pose de cader
 
 Debajo de los botones aparece la lista de planos creados: **Simetría**, uno por cada miembro, la **cabeza** (cuello), la **cintura** y las articulaciones.
 
+* Arriba de la lista hay tres **interruptores generales**: **Mostrar todos los planos**, **Mostrar todos los pines de
+  articulación** (las marcas de los pasadores de hombro, cadera y cuello y los ejes de las bisagras de rodilla y codo)
+  y **Mostrar todos los contornos** (las siluetas de los miembros, 1.º y 2.º corte, y los recortes manuales). Sirven
+  para despejar la vista de una vez; también ocultan lo que se ve en el espejo en vivo. Se combinan con la casilla de
+  cada plano: algo se ve solo si los dos lo permiten, y volver a activar un interruptor no revive lo que ocultaste a
+  mano. Los pines y contornos que estás editando en ese momento se ven siempre.
 * La **casilla** muestra u oculta el plano en el visor.
 * El **tachito** lo quita. Quitar la **Simetría** quita también todos los miembros, porque dependen
   de ella.
