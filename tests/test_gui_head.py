@@ -251,3 +251,113 @@ def test_cli_head_scale_cut_plane_and_tilt_are_saved(tmp_path, new_head):
     head = json.load(open(os.path.join(out, "toy.proyecto")))["head"]
     assert (head["replacement_scale"], head["replacement_rx"], head["replacement_ry"]) == (1.1, 5.0, -5.0)
     assert head["replacement_cut_points"] == [[0.0, 0.0, -5.0], [1.0, 0.0, -5.0], [0.0, 1.0, -5.0]]
+
+
+# ---------------------------------------------------------------- pasador del cuello desde el costado
+def _side_click(c, y, z):
+    """Clic en la vista de costado (cámara en +X, ortográfica) sobre el punto (y, z) del plano de simetría."""
+    c.camera.look_along((1.0, 0.0, 0.0))
+    c.camera.ray = lambda *a, **k: (np.array([50.0, y, z]), np.array([-1.0, 0.0, 0.0]))
+    c.click(10, 10, 100, 100)
+
+
+def _head_ctrl(ctrl):
+    ctrl.session.set_head(ctrl.session.plane_from_points(NECK, "cabeza"))
+    ctrl.start_head_pin()
+    return ctrl
+
+
+def test_head_pin_needs_the_neck_plane(ctrl):
+    ctrl.start_head_pin()
+    assert ctrl.mode == Mode.VIEW and "cuello" in ctrl.message
+
+
+def test_head_pin_mode_looks_from_the_side(ctrl):
+    _head_ctrl(ctrl)
+    assert ctrl.mode == Mode.HEAD_PIN
+    assert abs(ctrl.camera.eye()[0]) > abs(ctrl.camera.eye()[1])        # cámara sobre el eje X
+    assert ctrl.session.project.head.pin_center is None and "automática" in ctrl.message
+
+
+def test_side_click_moves_pin_along_the_neck_plane(ctrl):
+    _head_ctrl(ctrl)
+    auto = ctrl.head_pin_prev.default_center.copy()
+    _side_click(ctrl, auto[1] + 0.8, auto[2] + 30.0)         # la altura del clic no importa: va al plano
+    spec = ctrl.session.project.head
+    n = ctrl.head_pin_prev.plane.normal
+    c = np.asarray(spec.pin_center)
+    assert c[0] == 0.0 and abs((c - ctrl.head_pin_prev.plane.origin) @ n) < 1e-9
+    assert abs(c[1] - (auto[1] + 0.8)) < 1e-9 and "elegida" in ctrl.message
+
+
+def test_arrows_nudge_and_reset(ctrl):
+    _head_ctrl(ctrl)
+    auto = ctrl.head_pin_prev.default_center.copy()
+    ctrl.nudge_head_pin(1, 0)
+    ctrl.nudge_head_pin(0, 1, big=True)
+    off = (np.asarray(ctrl.session.project.head.pin_center) - auto) @ ctrl.head_pin_prev.along
+    assert abs(off - 1.1) < 1e-9                                       # 0,1 + 1,0 mm hacia adelante
+    ctrl.nudge_head_pin(-1, 0)
+    assert abs((np.asarray(ctrl.session.project.head.pin_center) - auto) @ ctrl.head_pin_prev.along - 1.0) < 1e-9
+    ctrl.reset_head_pin()
+    assert ctrl.session.project.head.pin_center is None
+
+
+def test_pin_far_from_the_face_is_rejected(ctrl):
+    _head_ctrl(ctrl)
+    _side_click(ctrl, 500.0, 80.0)
+    assert ctrl.session.project.head.pin_center is None and "No se movió" in ctrl.message
+
+
+def test_edge_on_view_message(ctrl):
+    _head_ctrl(ctrl)
+    ctrl.camera.ray = lambda *a, **k: (np.array([0.0, 50.0, 80.0]), np.array([0.0, -1.0, 0.0]))
+    ctrl.click(10, 10, 100, 100)
+    assert ctrl.session.project.head.pin_center is None and "costado" in ctrl.message
+
+
+def test_chosen_pin_is_used_and_survives_save(ctrl, tmp_path):
+    sess = ctrl.session
+    sess.project.params = dataclasses.replace(sess.project.params, decimate=0,
+                                              neck_pin=dataclasses.replace(sess.project.params.neck_pin,
+                                                                           shaft_d=3.2, head_d=5.2))
+    _head_ctrl(ctrl)
+    auto = ctrl.head_pin_prev.default_center.copy()
+    ctrl.nudge_head_pin(1, 0, big=True)
+    ctrl.nudge_head_pin(1, 0, big=True)                                # 2 mm hacia adelante
+    want = np.asarray(sess.project.head.pin_center)
+    out = sess.build()
+    assert out.validation["ok"], out.validation["problems"]
+    n, o = ctrl.head_pin_prev.plane.normal, ctrl.head_pin_prev.plane.origin
+    from afm import solids as S
+    sec = S.to_trimesh(out.result.pieces["cabeza"]).section(plane_origin=want - n * 1.0, plane_normal=n)
+    pts = np.asarray(sec.vertices)                                     # a 1 mm de la cara solo corta el vástago
+    assert np.allclose(pts.mean(axis=0), want - n * 1.0, atol=0.15)
+    assert abs((want - auto) @ ctrl.head_pin_prev.along - 2.0) < 1e-9
+    from afm.project import Project
+    path = str(tmp_path / "p.proyecto")
+    sess.project.save(path)
+    assert np.allclose(Project.load(path).head.pin_center, want)
+
+
+def test_new_neck_plane_discards_the_chosen_pin(ctrl):
+    _head_ctrl(ctrl)
+    ctrl.nudge_head_pin(1, 0)
+    assert ctrl.session.project.head.pin_center is not None
+    ctrl.session.set_head(ctrl.session.plane_from_points([(-5, -5, 81.0), (5, -5, 81.0), (0, 5, 81.0)], "cabeza"))
+    assert ctrl.session.project.head.pin_center is None
+
+
+def test_scene_draws_side_profile(ctrl):
+    _head_ctrl(ctrl)
+    class Fake:
+        items = {}
+        def set_lines(self, k, *a, **kw): self.items[k] = a
+        def set_points(self, k, *a, **kw): self.items[k] = a
+        def remove(self, k): self.items.pop(k, None)
+    f = Fake()
+    ctrl._sync_head_pin(f)
+    assert {"pasador_cabeza:cara", "pasador_cabeza:perfil", "pasador_cabeza:centro"} <= set(f.items)
+    ctrl.cancel(quiet=True)
+    ctrl._sync_head_pin(f)
+    assert not f.items
