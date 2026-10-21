@@ -1147,8 +1147,12 @@ class Controller:
             self._changed("El pasador del cuello ya está en la posición automática.", scene=False)
             return
         self.session.set_head_pin(None)
-        self._changed("Pasador del cuello restablecido" + (": " + self._head_pin_status() if self.head_pin_prev else ".")
-                      + " Hay que generar de nuevo.")
+        if self.mode != Mode.HEAD_PIN:
+            self.start_head_pin()                  # vuelve a la vista de costado para ver y reposicionar el pasador
+            self._changed("Pasador del cuello restablecido: " + self._head_pin_status()
+                          + " Clic = mover; flechas ←/↓ atrás y →/↑ adelante; Esc termina. Hay que generar de nuevo.")
+            return
+        self._changed("Pasador del cuello restablecido: " + self._head_pin_status() + " Hay que generar de nuevo.")
 
     def face_view(self) -> None:
         """Vuelve a mirar de frente la cara de contacto (por si se orbitó la cámara)."""
