@@ -83,6 +83,9 @@ def main(argv=None) -> int:
     b.add_argument("--cabeza-ry", type=float, default=None, metavar="GRADOS", help="girar la cabeza importada sobre Y")
     b.add_argument("--cabeza-escala", type=float, default=None, metavar="FACTOR",
                    help="factor manual sobre la escala automática (1 = base igual a la del cuello; 0,2–5)")
+    b.add_argument("--cabeza-pasador", type=float, nargs=2, default=None, metavar=("Y", "Z"),
+                   help="centro del pasador del cuello visto de costado (y, z en el marco de trabajo, x = 0); "
+                        "se proyecta sobre el plano del cuello")
     b.add_argument("--cabeza-corte", type=float, nargs=9, default=None, metavar="N",
                    help="plano de 3 puntos que corta la base de la cabeza importada: x1 y1 z1 x2 y2 z2 x3 y3 z3, "
                         "en coordenadas del STL de la cabeza (lo de abajo del plano se descarta)")
@@ -174,7 +177,7 @@ def main(argv=None) -> int:
         name = args.name or os.path.splitext(os.path.basename(args.stl))[0]
         project = Project.load(args.proyecto)
         head_opts = (args.cabeza, args.cabeza_giro, args.cabeza_arriba, args.cabeza_rx, args.cabeza_ry,
-                     args.cabeza_escala, args.cabeza_corte)
+                     args.cabeza_escala, args.cabeza_corte, args.cabeza_pasador)
         if any(o is not None and o != "" for o in head_opts):
             if project.head is None:
                 ap.error("el proyecto no tiene cabeza (plano del cuello): --cabeza necesita definirla primero")
@@ -188,6 +191,13 @@ def main(argv=None) -> int:
                 replacement_scale=project.head.replacement_scale if args.cabeza_escala is None else args.cabeza_escala,
                 replacement_cut_points=project.head.replacement_cut_points if args.cabeza_corte is None
                 else tuple(tuple(args.cabeza_corte[i:i + 3]) for i in (0, 3, 6)))
+            if args.cabeza_pasador is not None:
+                import numpy as np
+
+                from .head import neck_plane
+                n, o = neck_plane(project.head).normal, neck_plane(project.head).origin
+                c = np.array([0.0, *args.cabeza_pasador])
+                project.head = dataclasses.replace(project.head, pin_center=tuple(c - ((c - o) @ n) * n))
         if args.cadera_referencia:
             project.params = project.params.with_hip_reference()
         flat = args.sin_soportes

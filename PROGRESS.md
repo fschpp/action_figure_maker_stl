@@ -3,6 +3,9 @@
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md` y `PLAN_mecanismo_clic_hombro_cadera.md`_
 
 ## Current Focus
+**Pasador del cuello elegido desde la vista de costado (2026-10-20, rama `cabeza-pasador-vista-costado`):** `Mode.HEAD_PIN` (botón en Planos → Cabeza): vista Derecha, clic = el pasador se desliza adelante/atrás sobre la cara del cuello (proyección sobre el plano, x = 0), flechas 0,1 mm, contorno de costado dibujado, restablecer a automático, `--cabeza-pasador Y Z` en la CLI. Motor: `head.HeadPinPreview`; `Session.head_pin_preview/set_head_pin`. 9 tests nuevos en `test_gui_head.py`. Falta probar en GTK real.
+
+## Current Focus (anterior)
 **Mano de reemplazo (2026-10-20, rama `mano-reemplazo`):** una mano estándar (STL) compartida por toda la línea (por defecto la de Güemes a 13 cm) que se pega en otros modelos (Belgrano…) sobre un plano de muñeca de 3 puntos, como la cabeza de reemplazo. Hecho el motor (`src/afm/hand.py`), el comando `afm extraer-mano` y la extracción en la GUI (3 clics, invertir lado, guardar); falta el pegado con espiga y probar en GTK real.
 
 ## Todo List

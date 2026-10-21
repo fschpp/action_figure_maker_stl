@@ -18,7 +18,7 @@ import numpy as np
 import trimesh
 
 from .. import meshio, pipeline as P, solids as S
-from ..head import HeadSpec, neck_plane, split_head
+from ..head import HeadPinPreview, HeadSpec, head_pin_preview, neck_plane, split_head
 from ..waist import WaistSpec, waist_plane
 from ..joints import JOINT_KIND_BY_LIMB, JointSpec, min_shoulder
 from ..limbs import CROSS_THICKNESS_MM, LimbCut, LimbSpec, PinPreview, check_limb_plane, contact_preview, effective_cut_offset, plane_is_lateral, plane_on_symmetry
@@ -693,6 +693,37 @@ class Session:
             return False
         self._apply_head_spec(dataclasses.replace(head, replacement_cut_points=None))
         return True
+
+    def head_pin_preview(self) -> HeadPinPreview:
+        """Cara del cuello y centro automático del pasador de la cabeza (en caché hasta que cambie el plano)."""
+        head = self.project.head
+        if head is None or self.work is None:
+            raise ValueError("Primero definí el plano del cuello")
+        key = (self._head_fit_key(head), head.auto)
+        cache = getattr(self, "_head_pin_cache", None)
+        if cache is not None and cache[0] == key:
+            return cache[1]
+        prev = head_pin_preview(split_head(S.to_manifold(self.work), head, self.project.params), head)
+        self._head_pin_cache = (key, prev)
+        return prev
+
+    def set_head_pin(self, point_world) -> None:
+        """Fija el centro del pasador de la cabeza en `point_world` (se proyecta sobre el plano del cuello, x = 0).
+        Falla con ValueError si el vástago no toca la cara (quedaría suelto); `None` vuelve al automático."""
+        head = self.project.head
+        if head is None:
+            raise ValueError("Primero definí el plano del cuello")
+        if point_world is None:
+            center = None
+        else:
+            prev = self.head_pin_preview()
+            c = prev.project(point_world)
+            shaft = self.project.params.neck_pin.shaft_d
+            if prev.fit(c, shaft)[1] <= -shaft:
+                raise ValueError("el vástago no toca la cara del cuello: el pasador quedaría suelto")
+            center = tuple(float(x) for x in c)
+        self.project.head = dataclasses.replace(head, pin_center=center)
+        self.outcome = None
 
     def _head_fit_key(self, spec: HeadSpec):
         return (id(self.work), spec.replacement_path, spec.replacement_yaw, spec.replacement_up,

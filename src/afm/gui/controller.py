@@ -51,6 +51,7 @@ class Mode(Enum):
     JOINT_SIDE = "guias_costado"          # 4 clics de costado: corrigen (y, z) de las mismas 4 guías y recalculan la articulación
     JOINT_AXIS = "eje_articulacion"      # un clic sobre la figura fija (y, z) del eje de la bisagra
     TRIM_PICK = "recorte_clic"      # un clic sobre la figura pone el centro de un recorte esfera / caja / cilindro
+    HEAD_PIN = "pasador_cabeza"     # vista de costado: un clic (o flechas) pone el pasador del cuello adelante / atrás sobre la cara
     FLAT_PLANE = "plano_sin_soportes"   # figura generada sentada, vista Derecha: un clic (o flechas) fija la altura del corte plano
 
 EXPORT_ONLY_PARAMS = frozenset({"flat_depth"})   # parámetros que no cambian las piezas generadas
@@ -179,6 +180,7 @@ class Controller:
         self.edit_limb: str | None = None
         self.edit_cross = False                     # el polígono en edición es el 2.º corte (frente) del miembro
         self.joint_limb: str | None = None          # miembro al que se le está definiendo la articulación (JOINT_PLANE)
+        self.head_pin_prev = None                   # HeadPinPreview mientras se coloca el pasador del cuello (HEAD_PIN)
         self.joint_name: str | None = None          # articulación cuyo eje se está colocando (JOINT_AXIS)
         self.joint_guides: dict[str, tuple] = {}    # articulación -> (línea del brazo 2×3, línea del antebrazo 2×3) dibujadas
         self.pin_limb: str | None = None            # miembro cuyo pasador se está colocando (modo PIN)
@@ -580,6 +582,7 @@ class Controller:
         self.clear_hover()
         self.draft, self.edit_limb, self.edit_cross = None, None, False
         self.pin_limb, self.pin_prev = None, None
+        self.head_pin_prev = None
         self.joint_limb, self.joint_name = None, None
         was_trim = self.trim_cfg is not None
         self.trim_cfg, self.edit_trim = None, None
@@ -588,7 +591,7 @@ class Controller:
         if not quiet:
             self._changed("Edición del recorte terminada." if was_trim
                           else "Edición de silueta terminada." if was == Mode.POLYGON
-                          else "Colocación del pasador terminada." if was == Mode.PIN
+                          else "Colocación del pasador terminada." if was in (Mode.PIN, Mode.HEAD_PIN)
                           else "Ajuste del plano de corte terminado." if was == Mode.FLAT_PLANE else "Cancelado.")
 
     def undo_point(self) -> None:
@@ -1070,6 +1073,82 @@ class Controller:
             return
         self.session.set_limb_pin(self.pin_limb, None)
         self._changed("Pasador restablecido: " + self._pin_status(self.pin_limb))
+
+    # ------------------------------------------------- pasador del cuello (vista de costado)
+    def start_head_pin(self) -> None:
+        """Elegir dónde va el pasador de giro de la cabeza mirando la figura de costado: el plano del cuello se ve
+        de canto y el pasador se desliza adelante / atrás sobre él (siempre en x = 0, como el cuello)."""
+        if not self._need_loaded():
+            return
+        if self.session.project.head is None:
+            self._changed("Primero definí el plano del cuello (Planos → Cabeza).", scene=False)
+            return
+        try:
+            prev = self.session.head_pin_preview()
+        except ValueError as e:
+            self._changed(f"No se puede colocar el pasador del cuello: {e}.", scene=False)
+            return
+        self.cancel(quiet=True)
+        self.mode, self.head_pin_prev = Mode.HEAD_PIN, prev
+        self.camera.look_along((1.0, 0.0, 0.0), self._head_pin_center(), 0.35 * self.session.project.params.ref_height)
+        self._changed("Pasador del cuello (vista de costado): " + self._head_pin_status()
+                      + " Clic = mover; flechas ←/↓ atrás y →/↑ adelante 0,1 mm (Mayús 1 mm); Esc termina.")
+
+    def _head_pin_center(self) -> np.ndarray:
+        """Centro del pasador que se usaría ahora: el elegido, o el automático."""
+        spec, prev = self.session.project.head, self.head_pin_prev
+        return prev.default_center if spec.pin_center is None else np.asarray(spec.pin_center, float)
+
+    def _head_pin_status(self) -> str:
+        spec, prev = self.session.project.head, self.head_pin_prev
+        c, shaft = self._head_pin_center(), self.session.project.params.neck_pin.shaft_d
+        inside, margin = prev.fit(c, shaft)
+        off = float((c - prev.default_center) @ prev.along)
+        txt = "posición automática" if spec.pin_center is None else (
+            f"posición elegida ({abs(off):.1f} mm {'adelante' if off > 0 else 'atrás'} de la automática)"
+            if abs(off) >= 0.05 else "posición elegida (igual a la automática)")
+        if not inside:
+            return txt + f"; centro fuera de la cara (vástago Ø{shaft:g} apoya {max(margin + shaft / 2, 0):.1f} mm)."
+        if margin < 0:
+            return txt + f"; el vástago sobresale {-margin:.1f} mm del borde."
+        if margin < self.session.project.params.min_wall:
+            return txt + f"; margen al borde {margin:.1f} mm (< {self.session.project.params.min_wall:g})."
+        return txt + f"; margen al borde {margin:.1f} mm."
+
+    def _place_head_pin(self, point, what: str = "Pasador del cuello movido") -> bool:
+        try:
+            self.session.set_head_pin(point)
+        except ValueError as e:
+            self._changed(f"No se movió: {e}.", scene=False)
+            return False
+        self._changed(f"{what}: " + self._head_pin_status() + " Hay que generar de nuevo.")
+        return True
+
+    def _click_head_pin(self, px: float, py: float, width: float, height: float) -> None:
+        """El clic se lleva al plano de simetría (x = 0), donde está el pasador, y de ahí al plano del cuello."""
+        origin, direction = self.camera.ray(px, py, width, height)
+        if abs(direction[0]) < 1e-6:
+            self._changed("Esta vista mira de canto el plano de simetría: usá «Derecha» o «Izquierda» (vista de costado).",
+                          scene=False)
+            return
+        self._place_head_pin(origin - origin[0] / direction[0] * direction)
+
+    def nudge_head_pin(self, du: float, dv: float, big: bool = False) -> None:
+        """Mueve el pasador del cuello `du + dv` pasos sobre la cara (+ = adelante)."""
+        if self.mode != Mode.HEAD_PIN or self.head_pin_prev is None:
+            return
+        step = NUDGE_MM * (10.0 if big else 1.0)
+        c = self._head_pin_center() + self.head_pin_prev.along * (du + dv) * step
+        self._place_head_pin(c, "Pasador del cuello ajustado")
+
+    def reset_head_pin(self) -> None:
+        """Descarta la posición elegida del pasador del cuello y vuelve a la automática."""
+        if self.session.project.head is None or self.session.project.head.pin_center is None:
+            self._changed("El pasador del cuello ya está en la posición automática.", scene=False)
+            return
+        self.session.set_head_pin(None)
+        self._changed("Pasador del cuello restablecido" + (": " + self._head_pin_status() if self.head_pin_prev else ".")
+                      + " Hay que generar de nuevo.")
 
     def face_view(self) -> None:
         """Vuelve a mirar de frente la cara de contacto (por si se orbitó la cámara)."""
@@ -1610,6 +1689,9 @@ class Controller:
         if self.mode == Mode.PIN and self.pin_prev is not None:
             self._click_pin(px, py, width, height)
             return None
+        if self.mode == Mode.HEAD_PIN and self.head_pin_prev is not None:
+            self._click_head_pin(px, py, width, height)
+            return None
         if self.mode == Mode.FLAT_PLANE:
             self._click_flat_plane(px, py, width, height)
             return None
@@ -2126,6 +2208,7 @@ class Controller:
             scene.remove(key)
         self._sync_polygons(scene)
         self._sync_pins(scene)
+        self._sync_head_pin(scene)
         self._sync_joints(scene)
         self._sync_trims(scene)
         self._sync_mirror(scene, drawn, pin_plane)
@@ -2289,6 +2372,32 @@ class Controller:
             scene.set_points("pasador:auto", prev.default_center[None], (0.6, 0.9, 0.6, 1.0), 7.0, on_top=True)
         else:
             scene.remove("pasador:auto")
+
+    def _sync_head_pin(self, scene) -> None:
+        """Pasador del cuello: un punto si se eligió a mano y, en el modo HEAD_PIN, la cara de canto, el contorno de
+        costado del pasador (vástago + cabeza), el centro y el punto automático."""
+        head = self.session.project.head
+        keys = ("pasador_cabeza:cara", "pasador_cabeza:perfil", "pasador_cabeza:centro", "pasador_cabeza:auto",
+                "pasador_cabeza:elegido")
+        prev = self.head_pin_prev if self.mode == Mode.HEAD_PIN else None
+        if head is None or prev is None:
+            for k in keys[:4]:
+                scene.remove(k)
+            if head is not None and head.pin_center is not None:
+                scene.set_points(keys[4], np.asarray(head.pin_center, float)[None], (1.0, 0.55, 0.1, 1.0), 10.0)
+            else:
+                scene.remove(keys[4])
+            return
+        scene.remove(keys[4])
+        c = self._head_pin_center()
+        scene.set_lines(keys[0], prev.trace(), (1.0, 1.0, 1.0, 1.0), closed=False, on_top=True)
+        scene.set_lines(keys[1], prev.profile(c, self.session.project.params.neck_pin), (1.0, 0.55, 0.1, 1.0),
+                        closed=True, on_top=True)
+        scene.set_points(keys[2], c[None], (1.0, 0.25, 0.25, 1.0), 9.0, on_top=True)
+        if head.pin_center is not None:
+            scene.set_points(keys[3], prev.default_center[None], (0.6, 0.9, 0.6, 1.0), 7.0, on_top=True)
+        else:
+            scene.remove(keys[3])
 
     @staticmethod
     def _face_mesh(prev):

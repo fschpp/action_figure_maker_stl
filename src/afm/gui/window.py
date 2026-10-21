@@ -29,7 +29,8 @@ _MODE_TITLES = {Mode.VIEW: "", Mode.CROWN: "  ·  marcando coronilla", Mode.SYMM
                 Mode.PIN: "  ·  colocando pasador", Mode.TRIM_PICK: "  ·  colocando recorte",
                 Mode.JOINT_PLANE: "  ·  plano de articulación", Mode.JOINT_AXIS: "  ·  colocando eje de bisagra",
                 Mode.JOINT_LINES: "  ·  codo con 2 líneas (de frente)", Mode.JOINT_SIDE: "  ·  guías de la articulación (de costado)",
-                Mode.FLAT_PLANE: "  ·  plano de corte sin soportes"}
+                Mode.FLAT_PLANE: "  ·  plano de corte sin soportes",
+                Mode.HEAD_PIN: "  ·  pasador del cuello (de costado)"}
 _TRIM_OPS = ("subtract", "union")
 
 
@@ -367,7 +368,10 @@ class MainWindow(Gtk.ApplicationWindow):
         self.btn_head_orig = self._button("Volver a la cabeza original", lambda *_: self.ctrl.clear_head_replacement())
         self.btn_head_cut = self._button("Cortar la base de la cabeza de reemplazo (3 puntos)", lambda *_: self.ctrl.start_head_cut_plane())
         self.btn_head_uncut = self._button("Quitar el corte de la base", lambda *_: self.ctrl.clear_head_cut_plane())
-        for b in (self.btn_neck, self.btn_head_stl, self.btn_head_orig, self.btn_head_cut, self.btn_head_uncut):
+        self.btn_head_pin = self._button("Elegir dónde va el pasador del cuello (vista de costado)", lambda *_: self.ctrl.start_head_pin())
+        self.btn_head_pin_reset = self._button("Pasador del cuello: volver a la posición automática", lambda *_: self.ctrl.reset_head_pin())
+        for b in (self.btn_neck, self.btn_head_stl, self.btn_head_orig, self.btn_head_cut, self.btn_head_uncut,
+                  self.btn_head_pin, self.btn_head_pin_reset):
             sec.append(b)
         row = Gtk.Box(spacing=6)
         row.append(Gtk.Label(label="Cabeza de reemplazo: eje «arriba» del STL", xalign=0, hexpand=True))
@@ -390,6 +394,9 @@ class MainWindow(Gtk.ApplicationWindow):
         self.spin_head_yaw = self.head_spins["yaw"]
         self.lbl_head_fit = Gtk.Label(label="", xalign=0, wrap=True)
         sec.append(self.lbl_head_fit)
+        _help(sec, "Pasador del cuello: «Elegir dónde va…» pone la vista de costado (el cuello se ve de canto). Un clic lo mueve \
+adelante o atrás sobre la cara del cuello (siempre centrado en x = 0); con flechas se ajusta de a 0,1 mm (Mayús, 1 mm). \
+En naranja se ve el contorno del pasador (vástago y cabeza); en verde, la posición automática.")
         _help(sec, "La cabeza de reemplazo se ve en naranja sobre el cuello (la original se oculta). Orientación: eje «arriba» "
                    "y giros X / Y / Z (los giros se aplican en ese orden). Escala: 1,00 deja la base igual a la del cuello; "
                    "más o menos agranda o achica la cabeza entera. Corte de la base: elegí 3 puntos sobre la cabeza naranja; el plano "
@@ -621,6 +628,8 @@ class MainWindow(Gtk.ApplicationWindow):
             self.btn_elbow_lines.set_sensitive(loaded and has_sym and bool(ctrl.session.project.limbs))
             head = ctrl.session.project.head
             self.btn_head_stl.set_sensitive(loaded and head is not None)
+            self.btn_head_pin.set_sensitive(loaded and head is not None)
+            self.btn_head_pin_reset.set_sensitive(loaded and head is not None and head.pin_center is not None)
             self.btn_head_orig.set_sensitive(loaded and head is not None and head.replacement_path is not None)
             rep = loaded and head is not None and head.replacement_path is not None
             for b in (self.dd_head_up, self.btn_head_cut, *self.head_spins.values()):
@@ -886,6 +895,10 @@ class MainWindow(Gtk.ApplicationWindow):
             return True
         if self.ctrl.mode == Mode.FLAT_PLANE and keyval in (Gdk.KEY_Up, Gdk.KEY_Down):
             self.ctrl.nudge_flat(1 if keyval == Gdk.KEY_Up else -1, big=bool(state & Gdk.ModifierType.SHIFT_MASK))
+            return True
+        if self.ctrl.mode == Mode.HEAD_PIN and keyval in _ARROWS:
+            du, dv = _ARROWS[keyval]
+            self.ctrl.nudge_head_pin(du, dv, big=bool(state & Gdk.ModifierType.SHIFT_MASK))
             return True
         if self.ctrl.mode == Mode.PIN and keyval in _ARROWS:
             du, dv = _ARROWS[keyval]

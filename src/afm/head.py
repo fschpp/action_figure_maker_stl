@@ -24,13 +24,13 @@ from __future__ import annotations
 
 import dataclasses
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
 from . import solids as S
 from .limbs import ContactFace, _face_shape, pin_fit
-from .params import Params
+from .params import Params, PinSpec
 from .pins import mushroom_pin
 from .planes import Plane
 
@@ -432,3 +432,70 @@ def head_fit(split: HeadSplit, uv, shaft_d: float) -> tuple[bool, float]:
     """(centro dentro de la cara, margen vástago–borde) para un centro (u, v) sobre el plano de la cara."""
     _plane, shape = _face_shape(split.face)
     return pin_fit(shape, uv, shaft_d)
+
+
+# ------------------------------------------------------- elegir el pasador desde la vista de costado
+@dataclass
+class HeadPinPreview:
+    """Cara del cuello + centro automático del pasador, para elegir el centro a mano mirando de costado.
+
+    El plano del cuello contiene el eje X (está simetrizado), así que de costado (mirando a lo largo de X) se ve de
+    canto, como una línea: el pasador solo se desplaza a lo largo de ella (adelante / atrás) y siempre en x = 0.
+    Un punto cualquiera de la vista de costado se lleva al pasador por proyección ortogonal sobre el plano."""
+
+    split: HeadSplit
+    default_center: np.ndarray       # el que usaría `build_head` sin `pin_center`
+    _shape: object = field(default=None, repr=False)
+
+    @property
+    def plane(self) -> Plane:
+        return self.split.plane
+
+    @property
+    def along(self) -> np.ndarray:
+        """Dirección sobre el plano del cuello, de costado (x = 0), apuntando hacia adelante (+Y)."""
+        n = self.plane.normal
+        t = np.array([0.0, n[2], -n[1]])
+        return t / np.linalg.norm(t)
+
+    def project(self, point) -> np.ndarray:
+        """Punto del mundo -> centro de pasador: sobre el plano del cuello y con x = 0."""
+        c = np.asarray(point, float).copy()
+        c = c - ((c - self.plane.origin) @ self.plane.normal) * self.plane.normal
+        c[0] = 0.0
+        return c
+
+    def _face(self):
+        if self._shape is None:
+            self._shape = _face_shape(self.split.face)
+        return self._shape
+
+    def fit(self, point, shaft_d: float) -> tuple[bool, float]:
+        """(centro dentro de la cara, margen vástago–borde) para un centro del mundo."""
+        plane, shape = self._face()
+        uv = plane.to_uv(np.asarray(point, float)[None])[0]
+        return pin_fit(shape, uv, shaft_d)
+
+    def trace(self) -> list[np.ndarray]:
+        """Tramos (2×3) donde la cara del cuello corta el plano x = 0: lo que se ve de canto de costado."""
+        from shapely.geometry import LineString
+
+        plane, shape = self._face()
+        c0, t = self.split.face.center, self.along
+        line = LineString(plane.to_uv(np.array([c0 - 1e3 * t, c0 + 1e3 * t])))
+        hit = shape.intersection(line)
+        parts = list(hit.geoms) if hasattr(hit, "geoms") else [hit]
+        return [plane.to_world(np.asarray(g.coords, float)) for g in parts if g.geom_type == "LineString" and not g.is_empty]
+
+    def profile(self, center, pin: PinSpec) -> np.ndarray:
+        """Contorno de costado del pasador (vástago + cabeza, sin chaflán), 8 puntos 3D en x = 0."""
+        c, t, a = np.asarray(center, float), self.along, self.split.face.outward
+        rs, rh, L, H = pin.shaft_d / 2, pin.head_d / 2, pin.shaft_len, pin.head_h
+        pts = [(-rs, 0), (rs, 0), (rs, L), (rh, L), (rh, L + H), (-rh, L + H), (-rh, L), (-rs, L)]
+        return np.array([c + x * t + y * a for x, y in pts])
+
+
+def head_pin_preview(split: HeadSplit, spec: HeadSpec) -> HeadPinPreview:
+    """Vista previa del pasador de la cabeza (misma regla de centro automático que `build_head`)."""
+    c = propose_pin_center(split.face) if spec.auto else split.face.center
+    return HeadPinPreview(split, np.asarray(c, float))
