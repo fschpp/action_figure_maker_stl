@@ -752,6 +752,79 @@ class Session:
         save_standard_hand(path, hand_local, meta)
         return meta
 
+    # ------------------------------------------------- mano estándar (pegarla en este modelo)
+    def set_hand(self, path: str, points, yaw: float = 0.0, invert: bool = False) -> dict:
+        """Reemplaza la mano de este modelo por la mano estándar (STL) con el plano de muñeca de 3 puntos (marco de
+        trabajo; vale cualquiera de los dos brazos). Valida pegándola ya sobre la figura y devuelve el informe del pegado
+        (radios de muñeca, escalón, avisos). Si falla (ValueError) no cambia nada."""
+        from ..hand import DEFAULT_OVERLAP_MM, HandSpec
+
+        if self.work is None:
+            raise ValueError("Primero abrí una figura.")
+        if self.project.symmetry is None:
+            raise ValueError("Primero definí el plano de simetría: la mano se pega en un brazo y el otro sale por espejo.")
+        path = os.path.abspath(path)
+        if not os.path.isfile(path):
+            raise ValueError(f"No existe el archivo «{path}»")
+        old = self.project.hand
+        spec = HandSpec(path=path, points=tuple(tuple(float(x) for x in q) for q in points), yaw=float(yaw),
+                        invert=bool(invert), overlap=old.overlap if old else DEFAULT_OVERLAP_MM)
+        return self._apply_hand_spec(spec)
+
+    def adjust_hand(self, yaw: float | None = None, invert: bool | None = None) -> dict:
+        """Cambia el giro (°) alrededor de la muñeca y/o el lado de la mano de la mano de reemplazo ya elegida."""
+        cur = self.project.hand
+        if cur is None:
+            raise ValueError("Primero elegí una mano de reemplazo (STL).")
+        return self._apply_hand_spec(dataclasses.replace(
+            cur, yaw=cur.yaw if yaw is None else float(yaw), invert=cur.invert if invert is None else bool(invert)))
+
+    def clear_hand(self) -> bool:
+        if self.project.hand is None:
+            return False
+        self.project.hand = None
+        self._hand_fit = None
+        self.outcome = None
+        return True
+
+    def _apply_hand_spec(self, spec) -> dict:
+        fit = self._fit_hand(spec)                         # si falla no cambia nada
+        self.project.hand = spec
+        self._hand_fit = (self._hand_fit_key(spec), fit)
+        self.outcome = None
+        return fit["info"]
+
+    def _fit_hand(self, spec) -> dict:
+        """Pega la mano en la figura de trabajo (como hace `pipeline.build` sobre el lado +X) y arma lo que se dibuja:
+        la figura sin la mano original, la mano nueva y el informe."""
+        from ..hand import apply_hand
+
+        full = S.to_manifold(self.work)
+        hb = apply_hand(full.trim_by_plane((1.0, 0.0, 0.0), 0.0), spec, self.project.params.ref_height)
+        return {"figure": S.to_trimesh(S.difference(full, hb.original)), "hand": S.to_trimesh(hb.hand), "info": hb.info}
+
+    def _hand_fit_key(self, spec):
+        return (id(self.work), spec.path, tuple(spec.points), spec.yaw, spec.invert, spec.overlap, spec.join,
+                self.project.params.ref_height)
+
+    def hand_replacement_preview(self):
+        """{"figure": figura sin la mano original, "hand": mano estándar puesta, "info": informe} o None.
+
+        Es lo que se dibuja en la vista 3D: la figura generada usa exactamente esta mano. Va en caché mientras no
+        cambien la malla, el STL, los puntos, el giro ni el lado."""
+        spec = self.project.hand
+        if spec is None or self.work is None:
+            return None
+        key = self._hand_fit_key(spec)
+        cache = getattr(self, "_hand_fit", None)
+        if cache is None or cache[0] != key:
+            try:
+                cache = self._hand_fit = (key, self._fit_hand(spec))
+            except Exception:                              # archivo borrado o plano movido a un lugar sin mano
+                self._hand_fit = None
+                return None
+        return cache[1]
+
     def head_replacement_preview(self):
         """(malla de la cabeza de reemplazo ya escalada y apoyada en el cuello, info del ajuste) o None.
 
@@ -860,6 +933,9 @@ class Session:
         for j in self.project.joints:
             if j.limb not in names:
                 out.append(f"{j.name}: su miembro «{j.limb}» ya no existe")
+        hand = self.project.hand
+        if hand is not None and not os.path.isfile(hand.path):
+            out.append(f"la mano estándar «{hand.path}» ya no existe: elegí otra o quitá la mano de reemplazo")
         return out
 
     def build(self, progress=None) -> BuildOutcome:
@@ -869,7 +945,7 @@ class Session:
         body = S.to_manifold(self.work)
         res = P.build(body, self.project.limbs, self.project.params, self.project.symmetry,
                       progress=progress, trims=self.project.trims, head=self.project.head,
-                      joints=self.project.joints, waist=self.project.waist)
+                      joints=self.project.joints, waist=self.project.waist, hand=self.project.hand)
         val = P.validate(res, self.project.params, self.project.limbs, joints=self.project.joints)
         self.outcome = BuildOutcome(res, val)
         return self.outcome

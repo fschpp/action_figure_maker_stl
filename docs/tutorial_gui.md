@@ -376,6 +376,30 @@ sobre la pelvis; las piernas quedan con la pelvis. Código: `src/afm/waist.py`.
   pasador es angosta, subí `waist_pin.shaft_len` / `shaft_d` antes de achicar la cabeza. Sin probetas todavía: las medidas son una
   estimación (el hongo del hombro engrosado) y hay que calibrarlas imprimiendo; falta una probeta específica de cintura.
 
+### 7.2f Mano estándar (extraer y pegar)
+
+Una línea de figuras comparte **una sola mano** (un STL). Se extrae una vez de una figura y se pega en las demás; la mano
+**no se reescala** (mm reales), así todas son idénticas. Código: `src/afm/hand.py`. Ambos pasos usan un plano de muñeca de
+**3 puntos**; el **punto 1 es la referencia de giro**: marcalo siempre en el mismo lugar anatómico (p. ej. el lado del pulgar)
+y la mano queda orientada igual en todos los modelos sin tocar grados.
+
+* **Extraer** (sección «Mano estándar»): «Extraer mano estándar…» → 3 clics en la muñeca **izquierda**. Se corta la mano (verde);
+  si salió el lado equivocado, «Invertir lado»; «Guardar mano estándar…» escribe el STL y un `.mano.json` con las medidas.
+  Por consola: `afm extraer-mano figura.stl proyecto.proyecto --puntos x1 y1 z1 x2 y2 z2 x3 y3 z3`.
+  Del plano solo cuenta la pieza conectada que toca el corte en la muñeca (el plano es infinito y también cortaría piernas).
+* **Pegar en otro modelo:** «Mano de reemplazo (STL)…» → elegí la mano estándar y marcá 3 puntos en la muñeca **de este modelo**
+  (vale cualquiera de los dos brazos; el otro sale por espejo). Se descarta la mano original y la estándar se ve en **turquesa**.
+  Controles: «Invertir lado de la mano del modelo», «Giro de la mano (°)» y «Volver a la mano original». Hace falta el plano de
+  simetría. Por consola: `afm build … --mano STL --mano-puntos x1 y1 z1 … [--mano-giro G] [--mano-invertir] [--mano-solape MM]`.
+* **Unión:** la base de la mano se hunde `solape` (0,5 mm) en el brazo, así la unión es un volumen y no un simple contacto de caras;
+  centroide con centroide. La mano viaja con el brazo (o con el antebrazo si hay codo), así que **la silueta del brazo tiene que
+  incluirla**: «Generar figura» avisa si menos del 98 % queda dentro del corte.
+* **Avisos:** escalón si el radio de muñeca del modelo y el de la mano difieren más de 1 mm; mano de tamaño muy distinto al de la
+  original del modelo (plano mal puesto); figura de otra altura que la de origen de la mano. El pegado se guarda en el `.proyecto`
+  (`hand`); los proyectos viejos cargan igual. Si el STL de la mano se mueve o se borra, el proyecto abre y «Generar» avisa.
+* **Límites:** hoy la unión es solo por solape (no hay espiga ni articulación de giro; el campo `join` deja la puerta abierta).
+  Si el modelo tiene la mano soldada a otra parte del cuerpo (apoyada en el muslo), esa parte viaja con ella.
+
 ### 7.3 Generar y exportar
 
 Con la simetría definida y cada miembro con su silueta, el Estado deja de listar pendientes y se puede:

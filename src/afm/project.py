@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 
+from .hand import HandSpec
 from .head import HeadSpec
 from .joints import JointSpec
 from .limbs import LimbSpec
@@ -24,6 +25,7 @@ class Project:
     joints: list[JointSpec] = field(default_factory=list)   # rodillas / codos (bisagras); vacío = miembro rígido
     head: HeadSpec | None = None          # cabeza articulada (plano del cuello + pasador); None = cabeza fija al torso
     waist: WaistSpec | None = None        # cintura articulada (plano de corte + pasador robusto); None = torso de una pieza
+    hand: HandSpec | None = None          # mano estándar (STL) pegada en la muñeca; None = la mano original del modelo
 
     def to_dict(self) -> dict:
         return {
@@ -36,6 +38,7 @@ class Project:
             "trims": [t.to_dict() for t in self.trims],
             "head": None if self.head is None else self.head.to_dict(),
             "waist": None if self.waist is None else self.waist.to_dict(),
+            "hand": None if self.hand is None else self.hand.to_dict(),
             "joints": [j.to_dict() for j in self.joints],
         }
 
@@ -50,6 +53,7 @@ class Project:
             trims=[Trim.from_dict(x) for x in d.get("trims", [])],
             head=None if d.get("head") is None else HeadSpec.from_dict(d["head"]),
             waist=None if d.get("waist") is None else WaistSpec.from_dict(d["waist"]),
+            hand=None if d.get("hand") is None else HandSpec.from_dict(d["hand"]),
             joints=[JointSpec.from_dict(x) for x in d.get("joints", [])],
         )
 
@@ -93,6 +97,8 @@ class Project:
         if self.waist is not None:
             self.waist.plane = pl(self.waist.plane)
             self.waist.pin_center = pt(self.waist.pin_center)
+        if self.hand is not None:
+            self.hand.points = tuple(pt(q) for q in self.hand.points)       # el STL de la mano y el solape son mm reales
 
     def save(self, path: str) -> None:
         with open(path, "w") as f:

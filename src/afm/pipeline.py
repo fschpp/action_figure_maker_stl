@@ -10,6 +10,7 @@ import trimesh
 
 from . import solids as S
 from . import detent as DT
+from .hand import HandSpec, apply_hand
 from .head import HEAD_NAME, MIN_BASE_IOU, HeadSpec, build_head, split_head
 from .joints import JointBuild, JointSpec, build_joint, flex_range, hinge_for, print_flex
 from .limbs import LimbSpec, ContactFace, check_limb_plane, pin_margin, separate_limb
@@ -22,6 +23,7 @@ from .waist import PELVIS_NAME, WAIST_NAME, WaistBuild, WaistSpec, build_waist
 log = logging.getLogger(__name__)
 
 DEFAULT_SWEEP = {"arm": (0.0, 0.0), "leg": None}  # leg: (0, sit_angle + margen)
+MIN_HAND_COVER = 0.98       # fracción de la mano estándar que tiene que quedar dentro del corte del brazo
 
 
 @dataclass
@@ -81,8 +83,11 @@ def _rotation_axis(face: ContactFace) -> np.ndarray:
 def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None = None,
           sit: bool = True, progress=None, trims: list[Trim] | None = None,
           head: HeadSpec | None = None, joints: list[JointSpec] | None = None,
-          waist: WaistSpec | None = None) -> BuildResult:
-    """Construye las piezas. `body` debe estar normalizado y con el plano de simetría en x = 0."""
+          waist: WaistSpec | None = None, hand: HandSpec | None = None) -> BuildResult:
+    """Construye las piezas. `body` debe estar normalizado y con el plano de simetría en x = 0.
+
+    `hand`: mano estándar (STL) que reemplaza a la del modelo; se pega en el lado +X antes de cortar los miembros, así
+    viaja con el brazo (o con el antebrazo, si hay codo) y el otro lado sale por espejo."""
     say = progress or (lambda *_: None)
     trims = trims or []
     joints = list(joints or [])
@@ -102,6 +107,12 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
         split = split_head(body, head, p)
         head_build = build_head(split, head, p, trims)
         half = split.body_half                                # los miembros se cortan del cuerpo sin cabeza
+    hand_build = None
+    hand_cover: dict[str, float] = {}
+    if hand is not None:
+        say("Pegando la mano estándar…")
+        hand_build = apply_hand(half, hand, p.ref_height)
+        half = hand_build.body                                # la mano nueva viaja con el brazo que se corta abajo
     torso_half = half
     built: dict[str, dict] = {}
     detents: dict[str, DT.DetentLimb] = {}
@@ -109,6 +120,8 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
         say(f"Separando {spec.name}…")
         limb_raw, face = separate_limb(half, spec, p.burr)
         limb_raw = apply_trims(limb_raw, trims, spec.name)
+        if hand_build is not None and spec.kind != "leg":
+            hand_cover[spec.name] = _hand_coverage(limb_raw, hand_build.hand)
         axis = _rotation_axis(face)
         dspec = DT.detent_spec_for(spec, p)
         if dspec is not None:
@@ -203,6 +216,9 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
             report["limbs"][name]["disc_margin_mm"] = None if (m := pin_margin(b["face"], dl.spec.disc_d)) is None else round(float(m), 3)
             report.setdefault("detent", {})[name] = DT.summary(dl)
     pieces["torso"] = S.union(torso_half, S.mirror_x(torso_half))
+    if hand_build is not None:
+        best = max(hand_cover, key=hand_cover.get) if hand_cover else None
+        report["hand"] = {**hand_build.info, "miembro": best, "cobertura": None if best is None else round(hand_cover[best], 4)}
     if head_build is not None:
         pieces[HEAD_NAME] = head_build.head
         report["head"] = {"pin_center": head_build.face.center.tolist(), "pin_dir": head_build.face.outward.tolist(),
@@ -235,6 +251,14 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
         report["waist"] = _waist_report(waist_build, built, by_limb, head_build is not None)
     return BuildResult(pieces=pieces, report=report, motion=res_motion, joints=res_joints, detent=detents, detent_ref=ref,
                        waist=waist_build)
+
+
+def _hand_coverage(limb: S.Manifold, hand: S.Manifold) -> float:
+    """Fracción del volumen de la mano (ya puesta en el modelo) que quedó dentro de la pieza del miembro."""
+    v = float(hand.volume())
+    if v <= 0:
+        return 0.0
+    return float(S.intersection(limb, hand).volume()) / v
 
 
 def _waist_report(wb: WaistBuild, built: dict, by_limb: dict, has_head: bool) -> dict:
@@ -321,6 +345,16 @@ def validate(res: BuildResult, p: Params, limbs: list[LimbSpec], sit: bool = Tru
     if rep is not None and rep["coincidencia_base"] < MIN_BASE_IOU:
         out["avisos"].append(f"{HEAD_NAME}: la base de la cabeza importada coincide solo un {100 * rep['coincidencia_base']:.0f} % "
                              f"con la del cuello (escala ×{rep['escala']:.3f}): puede quedar desalineada; probá otro giro o «arriba»")
+    hrep = res.report.get("hand")
+    if hrep is not None:
+        out["avisos"].extend(f"mano: {a}" for a in hrep.get("avisos", []))
+        cov = hrep.get("cobertura")
+        if cov is None:
+            out["avisos"].append("mano: no hay ningún brazo que la lleve (la mano queda pegada al torso): "
+                                 "definí el brazo con un plano de miembro")
+        elif cov < MIN_HAND_COVER:
+            out["avisos"].append(f"mano: solo el {100 * cov:.0f} % de la mano queda dentro del corte de «{hrep['miembro']}»; "
+                                 "el resto no sale en ninguna pieza. Ampliá la silueta (o el espesor) del brazo para que la incluya")
     if HEAD_NAME in res.pieces and p.neck_pin.shaft_d < p.min_pin_d:
         out["problems"].append(f"{HEAD_NAME}: vástago Ø{p.neck_pin.shaft_d} < {p.min_pin_d}")
     for name, mf in res.pieces.items():

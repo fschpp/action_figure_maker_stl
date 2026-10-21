@@ -25,7 +25,7 @@ DRAG_THRESHOLD_PX = 4.0
 # flechas -> (derecha, arriba) sobre la cara de contacto vista de frente
 _ARROWS = {Gdk.KEY_Left: (-1, 0), Gdk.KEY_Right: (1, 0), Gdk.KEY_Up: (0, 1), Gdk.KEY_Down: (0, -1)}
 _MODE_TITLES = {Mode.VIEW: "", Mode.CROWN: "  ·  marcando coronilla", Mode.SYMMETRY: "  ·  plano de simetría",
-                Mode.LIMB_PLANE: "  ·  plano de un miembro", Mode.NECK_PLANE: "  ·  plano del cuello", Mode.HEAD_CUT_PLANE: "  ·  corte de la base de la cabeza", Mode.WAIST_PLANE: "  ·  plano de la cintura", Mode.HAND_EXTRACT: "  ·  muñeca: extraer mano", Mode.POLYGON: "  ·  dibujando silueta",
+                Mode.LIMB_PLANE: "  ·  plano de un miembro", Mode.NECK_PLANE: "  ·  plano del cuello", Mode.HEAD_CUT_PLANE: "  ·  corte de la base de la cabeza", Mode.WAIST_PLANE: "  ·  plano de la cintura", Mode.HAND_EXTRACT: "  ·  muñeca: extraer mano", Mode.HAND_PLACE: "  ·  muñeca: pegar mano estándar", Mode.POLYGON: "  ·  dibujando silueta",
                 Mode.PIN: "  ·  colocando pasador", Mode.TRIM_PICK: "  ·  colocando recorte",
                 Mode.JOINT_PLANE: "  ·  plano de articulación", Mode.JOINT_AXIS: "  ·  colocando eje de bisagra",
                 Mode.JOINT_LINES: "  ·  codo con 2 líneas (de frente)", Mode.JOINT_SIDE: "  ·  guías de la articulación (de costado)",
@@ -361,6 +361,26 @@ class MainWindow(Gtk.ApplicationWindow):
         self.btn_hand_drop = self._button("Descartar la mano extraída", lambda *_: self.ctrl.discard_hand_extract())
         for b in (self.btn_hand, self.btn_hand_invert, self.btn_hand_save, self.btn_hand_drop):
             sec.append(b)
+        sec.append(Gtk.Label(label="Pegar la mano estándar en este modelo", xalign=0, margin_top=8))
+        self.btn_hand_stl = self._button("Mano de reemplazo (STL)… (3 puntos en la muñeca)", self._on_hand_replacement)
+        self.btn_hand_flip = self._button("Invertir lado de la mano del modelo", lambda *_: self.ctrl.invert_hand_place())
+        self.btn_hand_orig = self._button("Volver a la mano original", lambda *_: self.ctrl.clear_hand())
+        for b in (self.btn_hand_stl, self.btn_hand_flip):
+            sec.append(b)
+        row = Gtk.Box(spacing=6)
+        row.append(Gtk.Label(label="Giro de la mano (°)", xalign=0, hexpand=True))
+        self.spin_hand_yaw = Gtk.SpinButton.new_with_range(-180.0, 180.0, 1.0)
+        self.spin_hand_yaw.set_digits(0)
+        self.spin_hand_yaw.connect("value-changed", self._on_hand_yaw)
+        row.append(self.spin_hand_yaw)
+        sec.append(row)
+        sec.append(self.btn_hand_orig)
+        self.lbl_hand_fit = Gtk.Label(label="", xalign=0, wrap=True)
+        sec.append(self.lbl_hand_fit)
+        _help(sec, "Elegí el STL de la mano estándar y marcá 3 puntos en la muñeca de este modelo (cualquiera de los dos brazos). "
+                   "El punto 1 va en el mismo lugar que al extraer la mano (p. ej. el lado del pulgar): así queda orientada sin "
+                   "tocar el giro. La mano original del modelo se descarta y la estándar se pega sin escalarla (se ve en turquesa); "
+                   "el otro brazo sale por espejo. La silueta del brazo tiene que incluir la mano nueva: «Generar figura» avisa si no.")
 
         sec = _collapsible(box, "Cabeza")
         self.btn_neck = self._button("Agregar plano del cuello / cabeza (3 puntos)", lambda *_: self.ctrl.start_neck_plane())
@@ -623,6 +643,16 @@ En naranja se ve el contorno del pasador (vástago y cabeza); en verde, la posic
             has_hand = loaded and ctrl.hand_extract is not None
             for b in (self.btn_hand_invert, self.btn_hand_save, self.btn_hand_drop):
                 b.set_sensitive(has_hand)
+            self.btn_hand_stl.set_sensitive(loaded and has_sym)
+            placed = ctrl.session.project.hand if loaded else None
+            for b in (self.btn_hand_flip, self.btn_hand_orig, self.spin_hand_yaw):
+                b.set_sensitive(placed is not None)
+            if placed is not None and abs(self.spin_hand_yaw.get_value() - placed.yaw) > 1e-9:
+                self.spin_hand_yaw.set_value(placed.yaw)
+            fit = ctrl.hand_fit() if placed is not None else None
+            self.lbl_hand_fit.set_text("" if fit is None else
+                                       f"Muñeca del modelo Ø{2 * fit['info']['radio_brazo_mm']:.1f} mm · de la mano "
+                                       f"Ø{2 * fit['info']['radio_mano_mm']:.1f} mm (escalón {fit['info']['escalon_mm']:.1f} mm)")
             self.btn_knee.set_sensitive(loaded and has_sym and bool(ctrl.session.project.limbs))
             self.btn_elbow.set_sensitive(loaded and has_sym and bool(ctrl.session.project.limbs))
             self.btn_elbow_lines.set_sensitive(loaded and has_sym and bool(ctrl.session.project.limbs))
@@ -1005,6 +1035,16 @@ En naranja se ve el contorno del pasador (vástago y cabeza); en verde, la posic
             return
         if abs(spin.get_value() - getattr(head, HEAD_ADJUST_ATTR[key])) > 1e-9:
             self.ctrl.set_head_adjust(**{key: spin.get_value()})
+
+    def _on_hand_replacement(self, *_):
+        self._pick_file("Mano estándar (STL)", ["*.stl"], "Archivos STL", self.ctrl.start_hand_place)
+
+    def _on_hand_yaw(self, spin: Gtk.SpinButton) -> None:
+        hand = self.ctrl.session.project.hand
+        if self._updating or hand is None:
+            return
+        if abs(spin.get_value() - hand.yaw) > 1e-9:
+            self.ctrl.set_hand_adjust(yaw=spin.get_value())
 
     def _on_front(self, dd: Gtk.DropDown, _p) -> None:
         if self._updating:
