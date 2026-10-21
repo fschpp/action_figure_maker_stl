@@ -3,6 +3,9 @@
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md` y `PLAN_mecanismo_clic_hombro_cadera.md`_
 
 ## Current Focus
+**Puntos elegidos siempre visibles (2026-10-21, rama `puntos-pendientes-visibles`):** el hover rojo del vértice ya existía en todos los planos de 3 puntos (simetría, brazo, pierna, cintura, cuello, rodilla/codo, mano, corte de cabeza); se verificó en la ventana GTK real (Xvfb + xdotool). Lo que faltaba: los puntos YA elegidos se dibujaban de 12 px con prueba de profundidad y quedaban tapados (vértice de silueta o del otro lado). Ahora `pendientes` y `pendientes:lineas` se dibujan `on_top` (14 px). Tests: `test_every_three_point_plane_shows_the_red_hover` (5 modos) y `test_selected_points_are_drawn_on_top_so_they_are_never_hidden`.
+
+## Current Focus (anterior)
 **Carga de STL no estancos sin congelar la ventana (2026-10-21):** `belgrano_lq_rsized.stl` (9870 triángulos, 15 aristas abiertas + 1 arista no-variedad) caía en la voxelización a resolución 700 (minutos y GB de RAM, sin aviso) porque `fill_holes` solo tapa agujeros triangulares. Ahora `meshio.repair` prueba **pymeshfix** antes de voxelizar (0,17 s en ese STL, volumen ±0,0004 %), la voxelización de último recurso baja a 400 y la GUI abre el STL en un hilo (`Controller.begin_open_stl` / `finish_open_stl`, `MainWindow._open_stl_task` con `_run_task`: spinner, cronómetro y mensajes «leyendo / reparando / remallando…»).
 
 ## Current Focus (anterior)
