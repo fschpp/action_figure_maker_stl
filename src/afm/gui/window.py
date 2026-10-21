@@ -25,7 +25,7 @@ DRAG_THRESHOLD_PX = 4.0
 # flechas -> (derecha, arriba) sobre la cara de contacto vista de frente
 _ARROWS = {Gdk.KEY_Left: (-1, 0), Gdk.KEY_Right: (1, 0), Gdk.KEY_Up: (0, 1), Gdk.KEY_Down: (0, -1)}
 _MODE_TITLES = {Mode.VIEW: "", Mode.CROWN: "  ·  marcando coronilla", Mode.SYMMETRY: "  ·  plano de simetría",
-                Mode.LIMB_PLANE: "  ·  plano de un miembro", Mode.NECK_PLANE: "  ·  plano del cuello", Mode.HEAD_CUT_PLANE: "  ·  corte de la base de la cabeza", Mode.WAIST_PLANE: "  ·  plano de la cintura", Mode.POLYGON: "  ·  dibujando silueta",
+                Mode.LIMB_PLANE: "  ·  plano de un miembro", Mode.NECK_PLANE: "  ·  plano del cuello", Mode.HEAD_CUT_PLANE: "  ·  corte de la base de la cabeza", Mode.WAIST_PLANE: "  ·  plano de la cintura", Mode.HAND_EXTRACT: "  ·  muñeca: extraer mano", Mode.POLYGON: "  ·  dibujando silueta",
                 Mode.PIN: "  ·  colocando pasador", Mode.TRIM_PICK: "  ·  colocando recorte",
                 Mode.JOINT_PLANE: "  ·  plano de articulación", Mode.JOINT_AXIS: "  ·  colocando eje de bisagra",
                 Mode.JOINT_LINES: "  ·  codo con 2 líneas (de frente)", Mode.JOINT_SIDE: "  ·  guías de la articulación (de costado)",
@@ -352,6 +352,15 @@ class MainWindow(Gtk.ApplicationWindow):
                                       lambda *_: self.ctrl.start_waist_plane())
         sec.append(self.btn_waist)
 
+        sec = _collapsible(box, "Mano estándar")
+        self.btn_hand = self._button("Extraer mano estándar de esta figura (3 puntos en la muñeca izquierda)",
+                                     lambda *_: self.ctrl.start_hand_extract())
+        self.btn_hand_invert = self._button("Invertir lado de la mano", lambda *_: self.ctrl.invert_hand_extract())
+        self.btn_hand_save = self._button("Guardar mano estándar…", self._on_save_hand)
+        self.btn_hand_drop = self._button("Descartar la mano extraída", lambda *_: self.ctrl.discard_hand_extract())
+        for b in (self.btn_hand, self.btn_hand_invert, self.btn_hand_save, self.btn_hand_drop):
+            sec.append(b)
+
         sec = _collapsible(box, "Cabeza")
         self.btn_neck = self._button("Agregar plano del cuello / cabeza (3 puntos)", lambda *_: self.ctrl.start_neck_plane())
         self.btn_head_stl = self._button("Cabeza de reemplazo (STL)…", self._on_head_replacement)
@@ -603,6 +612,10 @@ class MainWindow(Gtk.ApplicationWindow):
             self.btn_leg.set_sensitive(loaded and has_sym)
             self.btn_neck.set_sensitive(loaded and has_sym)
             self.btn_waist.set_sensitive(loaded and has_sym)
+            self.btn_hand.set_sensitive(loaded and has_sym)
+            has_hand = loaded and ctrl.hand_extract is not None
+            for b in (self.btn_hand_invert, self.btn_hand_save, self.btn_hand_drop):
+                b.set_sensitive(has_hand)
             self.btn_knee.set_sensitive(loaded and has_sym and bool(ctrl.session.project.limbs))
             self.btn_elbow.set_sensitive(loaded and has_sym and bool(ctrl.session.project.limbs))
             self.btn_elbow_lines.set_sensitive(loaded and has_sym and bool(ctrl.session.project.limbs))
@@ -1150,6 +1163,22 @@ class MainWindow(Gtk.ApplicationWindow):
 
     def _on_open_project(self, *_):
         self._pick_file("Abrir proyecto", ["*.proyecto", "*.json"], "Proyectos", self.ctrl.open_project)
+
+    def _on_save_hand(self, *_):
+        dlg = Gtk.FileDialog(title="Guardar mano estándar")
+        dlg.set_initial_name("mano_estandar.stl")
+
+        def finished(d, res):
+            try:
+                f = d.save_finish(res)
+            except GLib.Error:
+                return
+            try:
+                self.ctrl.save_hand_extract(f.get_path())
+            except Exception as e:          # noqa: BLE001
+                self._error(e)
+
+        dlg.save(self, None, finished)
 
     def _on_save_project(self, *_):
         dlg = Gtk.FileDialog(title="Guardar proyecto")
