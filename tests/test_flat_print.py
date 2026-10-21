@@ -187,3 +187,14 @@ def test_thigh_fill_is_opt_in_and_never_collides():
         assert zmin(filled[leg]) >= info["altura_corte_z"] - 1e-3          # el relleno nunca baja del plano
     for rep in info.get("relleno_cadera", {}).values():
         assert rep.get("choque_max_mm3", 0.0) <= 1e-3
+
+
+def test_export_message_reports_the_thigh_fill():
+    from afm.gui.controller import fill_hip_message
+    ok = {"relleno_cadera": {"pierna": {"volumen_muslo_agregado_mm3": 30.8, "volumen_pelvis_tallado_mm3": 135.6,
+                                        "holgura_de_pie_mm": 0.434}}}
+    assert fill_hip_message(ok, False) == ""
+    msg = fill_hip_message(ok, True)
+    assert "+30.8 mm³" in msg and "135.6" in msg and "0.434" in msg
+    assert "no se aplicó" in fill_hip_message({}, True)
+    assert "no se aplicó" in fill_hip_message({"relleno_cadera": {"pierna": {"aviso": "choca"}}}, True)

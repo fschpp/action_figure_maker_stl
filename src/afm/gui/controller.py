@@ -35,6 +35,18 @@ _KIND_BASE = {"arm": "brazo", "leg": "pierna"}
 HOVER_RADIUS_PX = 12.0       # distancia en pantalla a la que un vértice se marca en rojo al pasar el puntero
 
 
+def fill_hip_message(ss: dict, wanted: bool) -> str:
+    """Resultado del relleno de muslos de la exportación sin soportes (vacío si no se pidió)."""
+    if not wanted:
+        return ""
+    done = {k: r for k, r in (ss.get("relleno_cadera") or {}).items() if "aviso" not in r}
+    if not done:
+        return " Relleno de muslos: no se aplicó (nada que rellenar o ver AVISO)."
+    return " Relleno de muslos: " + "; ".join(
+        f"{k} +{r['volumen_muslo_agregado_mm3']:g} mm³, pelvis tallada {r['volumen_pelvis_tallado_mm3']:g} mm³, "
+        f"holgura de pie {r['holgura_de_pie_mm']:g} mm" for k, r in done.items()) + "."
+
+
 class Mode(Enum):
     VIEW = "ver"
     CROWN = "coronilla"
@@ -2256,6 +2268,7 @@ class Controller:
             giro = ss["giro_brazos_grados"]
             msg += (f" Sin soportes: corte {ss['corte_sobre_cola_mm']:g} mm sobre la cola, brazos girados "
                     + (", ".join(f"{a:.0f}°" for a in giro.values()) or "0°") + " hacia adelante.")
+            msg += fill_hip_message(ss, self.session.project.params.flat_fill_hip)
             if ss["avisos"]:
                 msg += " AVISO: " + "; ".join(ss["avisos"])
         self._changed(msg, scene=False)
