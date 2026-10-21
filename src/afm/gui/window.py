@@ -1212,7 +1212,20 @@ En naranja se ve el contorno del pasador (vástago y cabeza); en verde, la posic
         self._pick_file("Cabeza de reemplazo (STL)", ["*.stl"], "Archivos STL", self.ctrl.set_head_replacement)
 
     def _on_open_stl(self, *_):
-        self._pick_file("Abrir STL", ["*.stl"], "Archivos STL", self.ctrl.open_stl)
+        self._pick_file("Abrir STL", ["*.stl"], "Archivos STL", self._open_stl_task)
+
+    def _open_stl_task(self, path: str) -> None:
+        """Abre el STL en un hilo: leer y reparar la malla puede tardar (y la interfaz no debe congelarse)."""
+        job = self.ctrl.begin_open_stl(path)
+        if job is None:
+            return
+
+        def done(session, err) -> None:
+            self.ctrl.finish_open_stl(path, session, err)
+            if err is not None:
+                self._error(err)
+
+        self._run_task("Abriendo el STL", job, done, "STL abierto")
 
     def _on_open_project(self, *_):
         self._pick_file("Abrir proyecto", ["*.proyecto", "*.json"], "Proyectos", self.ctrl.open_project)

@@ -19,6 +19,7 @@ dependencies = [
     "networkx",
     "scikit-image",
     "fast-simplification",
+    "pymeshfix",
 ]
 
 [project.optional-dependencies]
