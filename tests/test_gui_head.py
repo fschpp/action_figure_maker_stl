@@ -361,3 +361,13 @@ def test_scene_draws_side_profile(ctrl):
     ctrl.cancel(quiet=True)
     ctrl._sync_head_pin(f)
     assert not f.items
+
+
+def test_reset_outside_the_mode_reenters_it_and_shows_the_pin(ctrl):
+    _head_ctrl(ctrl)
+    ctrl.nudge_head_pin(1, 0)
+    ctrl.cancel()                                      # «ok»: termina el modo
+    assert ctrl.mode == Mode.VIEW
+    ctrl.reset_head_pin()
+    assert ctrl.mode == Mode.HEAD_PIN and ctrl.session.project.head.pin_center is None
+    assert "automática" in ctrl.message and "Clic" in ctrl.message
