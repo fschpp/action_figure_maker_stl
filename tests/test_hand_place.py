@@ -121,7 +121,7 @@ def test_warns_about_wrist_step_and_scale(standard):
 def test_rejects_bad_inputs(standard, target_half, tmp_path):
     path, _ = standard
     with pytest.raises(HandError, match="unión"):
-        apply_hand(target_half, HandSpec(path, tuple(PTS), join="giro"))
+        apply_hand(target_half, HandSpec(path, tuple(PTS), join="pegamento"))
     with pytest.raises(HandError, match="3 puntos"):
         apply_hand(target_half, HandSpec(path, tuple(PTS[:2])))
     with pytest.raises(HandError, match="alineados"):
@@ -277,3 +277,183 @@ def test_cli_build_needs_wrist_points(tmp_path, std_hand):
     Project(symmetry=SYM, limbs=[_arm(40.0)]).save(pf)
     with pytest.raises(SystemExit):
         main(["build", str(tmp_path / "x.stl"), pf, "--out", str(tmp_path / "o"), "--mano", std_hand])
+
+
+# ------------------------------------------------------------------ mano articulada («giro»): pieza aparte con pasador
+from afm.hand import HAND_NAME, fit_hand_pin  # noqa: E402
+from afm.joints import JointSpec  # noqa: E402
+from afm.params import HingeSpec  # noqa: E402
+
+SPIN_PARAMS = dataclasses.replace(Params(), decimate=0, shoulder_pin=PinSpec(3.2, 2.0, 5.2, 1.2),
+                                  clearance=0.3, min_wall=0.8)           # muñeca de Ø6: con 0,5 / 1,2 el pasador no llega a 2 mm
+
+
+def _swivel(path, **kw):
+    return HandSpec(path, tuple(ARM_PTS), join="giro", **kw)
+
+
+def test_split_rest_has_no_zero_thickness_skirt(target_half):
+    # restar la mano del cuerpo dejaba una «falda» de espesor cero pegada al corte (caras coincidentes de la pared del brazo)
+    sp = split_at_wrist(_armed(3.5).trim_by_plane((1.0, 0.0, 0.0), 0.0), WristFrame.from_points(ARM_PTS))
+    assert all(c.volume() > 1e-6 for c in sp.rest.decompose())
+    assert sp.rest.bounding_box()[2] == pytest.approx(0.0, abs=1e-6)                  # el pie del muñeco: nada más abajo
+    near_arm = S.to_trimesh(sp.rest).vertices
+    near_arm = near_arm[(near_arm[:, 0] > 17) & (near_arm[:, 0] < 25) & (near_arm[:, 2] > 30)]
+    assert near_arm[:, 2].min() > 56.9 or near_arm[:, 2].min() < 43.0                  # ni un vértice del brazo bajo la muñeca
+
+
+def test_swivel_hand_is_a_separate_piece_with_a_pin(std_hand):
+    half = _armed(3.5).trim_by_plane((1.0, 0.0, 0.0), 0.0)
+    hb = apply_hand(half, _swivel(std_hand), params=SPIN_PARAMS)
+    assert hb.pocket is not None and hb.pin is not None and hb.info["union"] == "giro"
+    assert len(hb.hand.decompose()) == 1                                                # mano + pasador, una sola pieza
+    z = hb.hand.bounding_box()
+    assert z[2] == pytest.approx(56.7 - 12.0, abs=0.1)                                  # la cara de la mano a `clearance` del corte (57)
+    assert z[5] == pytest.approx(56.7 + hb.pin.shaft_len + hb.pin.head_h, abs=0.1)      # el pasador entra en el brazo
+    assert hb.body.volume() == pytest.approx(split_at_wrist(half, WristFrame.from_points(ARM_PTS)).rest_volume, rel=1e-6)
+    assert hb.info["pasador"]["entra"] and hb.info["solape_mm"] == 0.0
+    assert hb.pin_origin == pytest.approx([21.0, 0.0, 56.7], abs=1e-6)
+
+
+def test_swivel_pin_shrinks_to_fit_a_thin_wrist(std_hand):
+    half = _armed(3.5).trim_by_plane((1.0, 0.0, 0.0), 0.0)
+    easy = apply_hand(half, _swivel(std_hand), params=dataclasses.replace(SPIN_PARAMS, clearance=0.2, min_wall=0.4))
+    tight = apply_hand(half, _swivel(std_hand), params=SPIN_PARAMS)
+    assert easy.info["pasador"]["escala"] > tight.info["pasador"]["escala"]            # pared más fina → pasador más grande
+    assert tight.info["pasador"]["escala"] < 1.0
+    assert any("se achicó" in a for a in tight.info["avisos"])
+    assert tight.pin.shaft_d / tight.pin.head_d == pytest.approx(SPIN_PARAMS.hand_pin.shaft_d / SPIN_PARAMS.hand_pin.head_d, rel=1e-6)
+
+
+def test_swivel_reports_when_the_pin_does_not_fit(std_hand):
+    half = _armed(3.5).trim_by_plane((1.0, 0.0, 0.0), 0.0)
+    hb = apply_hand(half, _swivel(std_hand), params=dataclasses.replace(SPIN_PARAMS, min_wall=3.0))   # pared imposible en un brazo de radio 3
+    assert hb.info["pasador"]["entra"] is False
+    assert any("no entra" in a for a in hb.info["avisos"])
+
+
+def test_swivel_pin_fit_is_cached_and_yaw_does_not_refit(std_hand):
+    half = _armed(3.5).trim_by_plane((1.0, 0.0, 0.0), 0.0)
+    cache: dict = {}
+    a = apply_hand(half, _swivel(std_hand), params=SPIN_PARAMS, pin_cache=cache)
+    assert len(cache) == 1
+    b = apply_hand(half, _swivel(std_hand, yaw=45.0), params=SPIN_PARAMS, pin_cache=cache)
+    assert len(cache) == 1 and a.pin == b.pin                                           # el giro de la mano no cambia el pasador
+
+
+def test_swivel_pin_fit_respects_the_skin_of_the_arm(std_hand):
+    half = _armed(3.5).trim_by_plane((1.0, 0.0, 0.0), 0.0)
+    sp = split_at_wrist(half, WristFrame.from_points(ARM_PTS))
+    spec, k, fits = fit_hand_pin(sp.rest, sp.frame, SPIN_PARAMS)
+    assert fits
+    # con ese pasador, la cavidad + pared queda dentro del brazo: no sobresale
+    from afm.pins import mushroom_pin
+    zone = S.dilate(mushroom_pin(sp.frame.center - sp.frame.axis * 0.0 + sp.frame.axis * 0.3, -sp.frame.axis, spec), 0.3 + 0.8)
+    arm_side = S.halfspace(Plane.from_normal(sp.frame.center, -sp.frame.axis))
+    assert S.difference(S.intersection(zone, arm_side), sp.rest).volume() <= 0.2
+
+
+@pytest.fixture(scope="module")
+def swivel_built(std_hand):
+    res = P.build(_armed(3.5), [_arm(40.0)], SPIN_PARAMS, SYM, hand=_swivel(std_hand))
+    return res, P.validate(res, SPIN_PARAMS, [_arm(40.0)])
+
+
+def test_swivel_build_makes_hand_pieces_that_spin_free(swivel_built):
+    res, val = swivel_built
+    assert val["ok"], val["problems"]
+    assert {"mano_izq", "mano_der", "brazo_izq", "brazo_der"} <= set(res.pieces)
+    assert res.report["hand"]["pieza"] == HAND_NAME and res.report["hand"]["cobertura"] == pytest.approx(1.0, abs=1e-3)
+    m = val["mano"]
+    assert m["giro_libre"] and m["cautiva"] and m["holgura_mm"] >= 0.9 * SPIN_PARAMS.clearance
+    assert val["pieces"]["brazo_izq"]["componentes"] == 1 and val["pieces"]["mano_izq"]["componentes"] == 1
+    bl, br = res.pieces["mano_izq"].bounding_box(), res.pieces["mano_der"].bounding_box()
+    assert bl[0] == pytest.approx(-br[3], abs=1e-6) and bl[2] == pytest.approx(br[2], abs=1e-6)   # el derecho es el espejo
+
+
+def test_swivel_arm_has_the_cavity_and_is_not_welded_to_the_hand(swivel_built, std_hand):
+    res, _ = swivel_built
+    solid = P.build(_armed(3.5), [_arm(40.0)], SPIN_PARAMS, SYM)                        # sin mano estándar: brazo con su mano
+    arm = res.pieces["brazo_izq"]
+    assert arm.bounding_box()[2] == pytest.approx(57.0, abs=0.05)                       # termina en el plano de muñeca
+    assert (arm ^ res.pieces["mano_izq"]).volume() < 1e-6
+    assert float(arm.min_gap(res.pieces["mano_izq"], 5.0)) >= 0.9 * SPIN_PARAMS.clearance
+    assert solid.pieces["brazo_izq"].bounding_box()[2] < 50.0                           # el brazo original sí llevaba la mano
+
+
+def test_swivel_spin_is_free_at_any_angle(swivel_built):
+    res, _ = swivel_built
+    h = res.hand
+    mano = res.pieces["mano_izq"]
+    arm = res.pieces["brazo_izq"]
+    for ang in (37.0, 90.0, 180.0, 271.0):
+        rot = S.rotate_about_axis(mano, h["center"], h["axis"], ang)
+        assert (rot ^ arm).volume() < 1e-6
+
+
+def test_swivel_hand_travels_in_posed_pieces_and_limb_names(swivel_built):
+    res, _ = swivel_built
+    assert P._limb_piece_names(res, "brazo") == ["brazo", HAND_NAME]
+    posed = P.posed_pieces(res, 0.0)
+    assert {"mano_izq", "mano_der"} <= set(posed)
+    assert posed["mano_izq"].bounding_box() == pytest.approx(res.pieces["mano_izq"].bounding_box(), abs=1e-6)
+
+
+def test_swivel_validate_flags_a_silhouette_that_cuts_the_pocket(std_hand):
+    arm = _arm(59.0)                                                                    # la silueta empieza arriba del pasador
+    res = P.build(_armed(3.5), [arm], SPIN_PARAMS, SYM, hand=_swivel(std_hand))
+    val = P.validate(res, SPIN_PARAMS, [arm])
+    assert res.report["hand"]["cobertura"] < 0.9
+    assert any(pr.startswith("mano:") and "cavidad" in pr for pr in val["problems"])
+
+
+def test_swivel_without_any_arm_is_a_problem(std_hand):
+    res = P.build(_armed(3.5), [], SPIN_PARAMS, SYM, hand=_swivel(std_hand))
+    val = P.validate(res, SPIN_PARAMS, [])
+    assert res.hand is None and "mano_izq" not in res.pieces
+    assert any("ningún brazo" in pr for pr in val["problems"])
+
+
+def test_swivel_default_params_flag_a_pin_too_thin_for_this_wrist(std_hand):
+    res = P.build(_armed(3.5), [_arm(40.0)], dataclasses.replace(SPIN_PARAMS, clearance=0.5, min_wall=1.2), SYM,
+                  hand=_swivel(std_hand))
+    val = P.validate(res, dataclasses.replace(SPIN_PARAMS, clearance=0.5, min_wall=1.2), [_arm(40.0)])
+    assert not val["ok"] and any("no se imprime" in pr for pr in val["problems"])        # vástago de Ø1,5: no se imprime
+
+
+def test_swivel_hand_rides_the_forearm_with_an_elbow(std_hand):
+    j = JointSpec(name="codo", limb="brazo", kind="elbow", plane=Plane.from_normal((0, 0, 66.0), (0, 0, 1), "art"),
+                  axis_center=(21.0, 0.0, 69.0), hinge=HingeSpec(pin_d=2.0, pin_len=0.6, tongue_t=2.0, end_r=3.0))
+    res = P.build(_armed(3.5), [_arm(40.0)], SPIN_PARAMS, SYM, joints=[j], hand=_swivel(std_hand))
+    val = P.validate(res, SPIN_PARAMS, [_arm(40.0)], joints=[j])
+    assert res.hand["limb"] == "brazo" and P._limb_piece_names(res, "brazo") == ["brazo", "antebrazo", HAND_NAME]
+    assert not [pr for pr in val["problems"] if pr.startswith("mano")], val["problems"]
+    assert val["mano"]["giro_libre"] and val["mano"]["cautiva"]
+    assert float(res.pieces["antebrazo_izq"].min_gap(res.pieces["mano_izq"], 5.0)) >= 0.9 * SPIN_PARAMS.clearance
+    posed = P.posed_pieces(res, 0.0, {"codo": 45.0})                                    # al flexionar, la mano acompaña al antebrazo
+    dist = posed["antebrazo_izq"]
+    assert float(dist.min_gap(posed["mano_izq"], 5.0)) >= 0.9 * SPIN_PARAMS.clearance
+
+
+def test_params_roundtrip_with_hand_pin():
+    p = dataclasses.replace(Params(), hand_pin=PinSpec(2.6, 2.4, 4.0, 1.0))
+    assert Params.from_dict(p.to_dict()).hand_pin == PinSpec(2.6, 2.4, 4.0, 1.0)
+    old = Params().to_dict()
+    old.pop("hand_pin")
+    assert Params.from_dict(old).hand_pin == Params().hand_pin                         # proyectos viejos sin hand_pin
+
+
+def test_cli_build_with_swivel_hand(tmp_path, std_hand):
+    from afm.cli import main
+
+    stl = str(tmp_path / "figura.stl")
+    S.to_trimesh(_armed(3.5)).export(stl)
+    pf = str(tmp_path / "f.proyecto")
+    Project(params=SPIN_PARAMS, symmetry=SYM, limbs=[_arm(40.0)]).save(pf)
+    flat = [c for q in ARM_PTS for c in q]
+    rc = main(["build", stl, pf, "--out", str(tmp_path / "o"), "--name", "fig", "--mano", std_hand, "--mano-puntos",
+               *map(str, flat), "--mano-union", "giro"])
+    assert rc == 0
+    assert Project.load(str(tmp_path / "o" / "fig.proyecto")).hand.join == "giro"
+    names = {f.name for f in (tmp_path / "o" / "piezas").iterdir()}
+    assert any("mano_izq" in n for n in names) and any("mano_der" in n for n in names)           # la mano sale como pieza aparte

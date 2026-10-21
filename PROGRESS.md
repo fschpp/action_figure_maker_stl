@@ -3,6 +3,9 @@
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md` y `PLAN_mecanismo_clic_hombro_cadera.md`_
 
 ## Current Focus
+**Mano articulada (2026-10-21, rama `mano-articulada`, sobre `mano-pegar`):** la mano estándar puede salir como pieza aparte con pasador de hongo dentro del brazo (gira libre y queda atrapada): `HandSpec.join="giro"`, `Params.hand_pin`, `afm build --mano-union giro`, casilla «Mano articulada» en la GUI. Probado en muñeco sintético; en Güemes real solo cabe con plano perpendicular al antebrazo a z≈53 (vástago Ø2,1–2,85 mm).
+
+## Current Focus (anterior)
 **Pegar la mano estándar en otro modelo (2026-10-21, rama `mano-pegar`, rebaseada sobre `main` 63860d5):** ya se puede **importar la mano estándar** en un modelo: `HandSpec` (STL + 3 puntos de muñeca + giro + lado) guardada en el `.proyecto`, `pipeline.build(hand=)`, `afm build --mano …` y botón «Mano de reemplazo (STL)…» en la GUI (3 clics, vista previa turquesa, giro, invertir, volver a la original). Falta probar con Güemes/Belgrano reales y en GTK real.
 
 ## Current Focus (anterior)
@@ -13,6 +16,8 @@ _Plan de referencia: `PLAN_herramienta_stl_articulable.md` y `PLAN_mecanismo_cli
 
 ## Todo List
 ### [ ] Todo
+- [ ] Probar la mano articulada con Güemes real (plano perpendicular al antebrazo, z≈53) y **imprimir** una prueba: holgura 0,3–0,5 mm del pasador, que gire libre sin bambolear.
+- [ ] Probar la casilla «Mano articulada» (`chk_hand_swivel`) en GTK real.
 - [ ] Probar con figuras reales: extraer la mano de Güemes (`afm extraer-mano`) y pegarla en Belgrano (`afm build … --mano`); revisar escalón de muñeca, «cobertura» (≥ 98 %) y que el punto 1 en el pulgar la deje orientada sin giro.
 - [ ] Probar en GTK real: sección «Mano estándar» (extraer: `btn_hand*`, `_on_save_hand`; pegar: `btn_hand_stl`, `btn_hand_flip`, `btn_hand_orig`, `spin_hand_yaw`, `lbl_hand_fit`, `_on_hand_replacement`, `_on_hand_yaw`) y que verde (extraída) y turquesa (pegada) se distingan. Aquí no hay GTK: solo `py_compile` + pyflakes.
 - [ ] Unión alternativa: hoy solo `solape` (la base se hunde 0,5 mm en el brazo). Si el escalón de muñeca es grande (> 1 mm) falta una espiga/anillo de transición; el campo `HandSpec.join` queda listo para sumar `espiga` y, después, `giro` (articulación print-in-place sobre el mismo plano).
@@ -28,6 +33,8 @@ _Plan de referencia: `PLAN_herramienta_stl_articulable.md` y `PLAN_mecanismo_cli
 - [x] `tests/test_hand.py` (17, con brazos colgando como Güemes): marco, puntos alineados, lado de la mano, cierre de malla, plano fuera / por la mitad, marco local, ida y vuelta de `place_hand`, espejo, guardar/cargar, CLI.
 
 ## Latest Blockers/Discoveries
+- (2026-10-21) Mano articulada en Güemes real: con plano horizontal z≈52 el pasador sale ×0,40–0,45 (vástago Ø1,2–1,35, no imprimible → `validate` lo rechaza); con plano perpendicular al eje del antebrazo (inclinado 3,9°): z≈51 Ø1,65 / z≈52 Ø1,65 / z≈53 Ø2,1 con holgura 0,5 y pared 1,2; con 0,3/0,8 llega a Ø2,4–2,85. Alternativa si no alcanza: invertir el diseño (pasador en el brazo, cavidad en el puño, que es más ancho).
+- (2026-10-21) `difference(cuerpo, mano)` con paredes cilíndricas coincidentes deja caras de espesor cero (faldón); `split_at_wrist` arma `rest` por construcción (mitad del brazo ∪ otros componentes) y descarta componentes degenerados.
 - (2026-10-21) El pegado va **antes** de cortar los miembros y sobre la mitad +X: la mano nueva queda soldada al brazo y `separate_limb` la lleva con la silueta; por eso hay que medir `cobertura` (si la silueta del brazo no llega a la mano, el resto de la mano se pierde sin error). Con la figura de prueba (brazo colgando, silueta desde z = 52 sobre una muñeca en z = 57) la cobertura baja a 37 % y `validate` avisa.
 - (2026-10-21) `split_at_wrist` exige que el plano separe una mano chica (< 50 % del volumen del otro lado): en el muñeco de prueba con el brazo pegado a la pelvis falló («87 %»). Con figuras reales con la mano apoyada en el cuerpo hay que usar «invertir» o elegir otra muñeca.
 - (2026-10-21) Entorno de la sesión: sin pytest ni GTK; se armó un venv fuera del repo (numpy, scipy, trimesh, manifold3d, shapely, mapbox_earcut, networkx, scikit-image, fast-simplification, pytest).

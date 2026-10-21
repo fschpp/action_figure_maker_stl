@@ -374,13 +374,18 @@ class MainWindow(Gtk.ApplicationWindow):
         self.spin_hand_yaw.connect("value-changed", self._on_hand_yaw)
         row.append(self.spin_hand_yaw)
         sec.append(row)
+        self.chk_hand_swivel = Gtk.CheckButton(label="Mano articulada (pieza aparte, gira libre dentro del brazo)")
+        self.chk_hand_swivel.connect("toggled", lambda b: None if self._updating else self.ctrl.set_hand_swivel(b.get_active()))
+        sec.append(self.chk_hand_swivel)
         sec.append(self.btn_hand_orig)
         self.lbl_hand_fit = Gtk.Label(label="", xalign=0, wrap=True)
         sec.append(self.lbl_hand_fit)
         _help(sec, "Elegí el STL de la mano estándar y marcá 3 puntos en la muñeca de este modelo (cualquiera de los dos brazos). "
                    "El punto 1 va en el mismo lugar que al extraer la mano (p. ej. el lado del pulgar): así queda orientada sin "
                    "tocar el giro. La mano original del modelo se descarta y la estándar se pega sin escalarla (se ve en turquesa); "
-                   "el otro brazo sale por espejo. La silueta del brazo tiene que incluir la mano nueva: «Generar figura» avisa si no.")
+                   "el otro brazo sale por espejo. La silueta del brazo tiene que incluir la mano nueva: «Generar figura» avisa si no. "
+                   "«Mano articulada»: en vez de soldarla, la mano sale como pieza aparte con un pasador que entra en el brazo y "
+                   "gira libre (se achica solo si la muñeca es fina; ver Parámetros → Mano articulada).")
 
         sec = _collapsible(box, "Cabeza")
         self.btn_neck = self._button("Agregar plano del cuello / cabeza (3 puntos)", lambda *_: self.ctrl.start_neck_plane())
@@ -645,8 +650,9 @@ En naranja se ve el contorno del pasador (vástago y cabeza); en verde, la posic
                 b.set_sensitive(has_hand)
             self.btn_hand_stl.set_sensitive(loaded and has_sym)
             placed = ctrl.session.project.hand if loaded else None
-            for b in (self.btn_hand_flip, self.btn_hand_orig, self.spin_hand_yaw):
+            for b in (self.btn_hand_flip, self.btn_hand_orig, self.spin_hand_yaw, self.chk_hand_swivel):
                 b.set_sensitive(placed is not None)
+            self.chk_hand_swivel.set_active(placed is not None and placed.join == "giro")
             if placed is not None and abs(self.spin_hand_yaw.get_value() - placed.yaw) > 1e-9:
                 self.spin_hand_yaw.set_value(placed.yaw)
             fit = ctrl.hand_fit() if placed is not None else None

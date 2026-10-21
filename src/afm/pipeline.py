@@ -10,7 +10,7 @@ import trimesh
 
 from . import solids as S
 from . import detent as DT
-from .hand import HandSpec, apply_hand
+from .hand import HAND_MIN_SHAFT_D, HAND_NAME, HandSpec, apply_hand
 from .head import HEAD_NAME, MIN_BASE_IOU, HeadSpec, build_head, split_head
 from .joints import JointBuild, JointSpec, build_joint, flex_range, hinge_for, print_flex
 from .limbs import LimbSpec, ContactFace, check_limb_plane, pin_margin, separate_limb
@@ -40,6 +40,7 @@ class BuildResult:
     joints: dict = field(default_factory=dict)   # nombre de la articulación -> JointBuild (rodilla, codo)
     detent: dict = field(default_factory=dict)   # nombre del miembro -> DetentLimb (mecanismo de clic)
     detent_ref: S.Manifold | None = None         # torso SIN lengüetas ni puntas: referencia para el giro libre del clic
+    hand: dict | None = None                     # mano articulada: {"limb", "piece0" (mano de pie, sin girar), "center", "axis" (de la pose impresa), "pin"}
     waist: WaistBuild | None = None              # cintura: `pieces["torso"]` es el pecho (arriba) y `pieces["pelvis"]` la pelvis
 
 
@@ -111,17 +112,27 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
     hand_cover: dict[str, float] = {}
     if hand is not None:
         say("Pegando la mano estándar…")
-        hand_build = apply_hand(half, hand, p.ref_height)
+        hand_build = apply_hand(half, hand, p.ref_height, p)
         half = hand_build.body                                # la mano nueva viaja con el brazo que se corta abajo
+    half_nocav = half                                         # con «giro» la cavidad del pasador se talla aparte (ver abajo)
+    pocket_in_body = 0.0
+    if hand_build is not None and hand_build.pocket is not None:
+        pocket_in_body = float(S.intersection(half_nocav, hand_build.pocket).volume())
+        half = S.difference(half_nocav, hand_build.pocket)
     torso_half = half
     built: dict[str, dict] = {}
     detents: dict[str, DT.DetentLimb] = {}
     for spec in limbs:
         say(f"Separando {spec.name}…")
-        limb_raw, face = separate_limb(half, spec, p.burr)
+        limb_raw, face = separate_limb(half_nocav, spec, p.burr)
         limb_raw = apply_trims(limb_raw, trims, spec.name)
         if hand_build is not None and spec.kind != "leg":
-            hand_cover[spec.name] = _hand_coverage(limb_raw, hand_build.hand)
+            if hand_build.pocket is None:
+                hand_cover[spec.name] = _hand_coverage(limb_raw, hand_build.hand)
+            else:           # «giro»: la mano es otra pieza; lo que importa es que el brazo contenga la cavidad del pasador
+                hand_cover[spec.name] = (float(S.intersection(limb_raw, hand_build.pocket).volume()) / pocket_in_body
+                                         if pocket_in_body > 0 else 0.0)
+                limb_raw = S.difference(limb_raw, hand_build.pocket)
         axis = _rotation_axis(face)
         dspec = DT.detent_spec_for(spec, p)
         if dspec is not None:
@@ -175,6 +186,10 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
     res_motion: dict = {}
     report: dict = {"limbs": {}}
     res_joints: dict[str, JointBuild] = {}
+    carrier = None
+    if hand_build is not None and hand_build.pocket is not None and hand_cover:
+        carrier = max(hand_cover, key=hand_cover.get)
+    hand_res = None
     for name, b in built.items():
         limb = b["limb"]
         hip_sit = sit and b["spec"].kind == "leg"
@@ -203,6 +218,8 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
                 "piezas": [pn, dn], "limb": name, "print_flex": print_flex(j, p), "print_hip": float(th)}
             if name in carved:
                 report["joints"][j.name]["torso_tallado_mm3"] = round(2 * carved[name], 3)     # ambos lados (espejo)
+        if carrier == name:
+            hand_res = _place_hand_piece(hand_build, jb, by_limb.get(name), b, th, p, pieces)
         report["limbs"][name] = {
             "pin_center": b["face"].center.tolist(), "pin_dir": b["face"].outward.tolist(),
             "contact_area": b["face"].area, "sweep": [b["angles"][0], b["angles"][-1]],
@@ -219,6 +236,8 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
     if hand_build is not None:
         best = max(hand_cover, key=hand_cover.get) if hand_cover else None
         report["hand"] = {**hand_build.info, "miembro": best, "cobertura": None if best is None else round(hand_cover[best], 4)}
+        if hand_res is not None:
+            report["hand"]["pieza"] = HAND_NAME
     if head_build is not None:
         pieces[HEAD_NAME] = head_build.head
         report["head"] = {"pin_center": head_build.face.center.tolist(), "pin_dir": head_build.face.outward.tolist(),
@@ -250,7 +269,26 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
         pieces["torso"], pieces[PELVIS_NAME] = waist_build.upper, waist_build.lower
         report["waist"] = _waist_report(waist_build, built, by_limb, head_build is not None)
     return BuildResult(pieces=pieces, report=report, motion=res_motion, joints=res_joints, detent=detents, detent_ref=ref,
-                       waist=waist_build)
+                       waist=waist_build, hand=hand_res)
+
+
+def _place_hand_piece(hb, jb, joint, b: dict, th: float, p: Params, pieces: dict) -> dict:
+    """Mano articulada: la pieza `mano` viaja con el miembro que la lleva (con codo, con el antebrazo a la flexión de la pose
+    impresa; luego con el giro de la pose impresa del miembro). Devuelve lo que necesita la validación y la pose."""
+    center = np.asarray(hb.pin_origin, float)
+    axis = -np.asarray(hb.frame.axis, float)                  # del lado de la mano hacia el brazo
+    ends = np.vstack([center, center + axis])
+    mano = hb.hand
+    if jb is not None:
+        flex = print_flex(joint, p)
+        mano = jb.rotate_distal(flex, mano)
+        ends = _rotate_pts(ends, jb.center, jb.axis, jb.raw(flex))
+    if th:
+        mano = S.rotate_about_axis(mano, b["face"].center, b["axis"], th)
+        ends = _rotate_pts(ends, b["face"].center, b["axis"], th)
+    pieces[f"{HAND_NAME}_izq"] = mano
+    pieces[f"{HAND_NAME}_der"] = S.mirror_x(mano)
+    return {"limb": b["spec"].name, "piece0": hb.hand, "center": ends[0], "axis": (ends[1] - ends[0]), "pin": hb.pin}
 
 
 def _hand_coverage(limb: S.Manifold, hand: S.Manifold) -> float:
@@ -349,9 +387,14 @@ def validate(res: BuildResult, p: Params, limbs: list[LimbSpec], sit: bool = Tru
     if hrep is not None:
         out["avisos"].extend(f"mano: {a}" for a in hrep.get("avisos", []))
         cov = hrep.get("cobertura")
-        if cov is None:
+        if cov is None and hrep.get("union") == "giro":
+            out["problems"].append("mano: la mano articulada es una pieza aparte y no hay ningún brazo que la lleve: "
+                                   "definí el brazo con un plano de miembro")
+        elif cov is None:
             out["avisos"].append("mano: no hay ningún brazo que la lleve (la mano queda pegada al torso): "
                                  "definí el brazo con un plano de miembro")
+        elif hrep.get("union") == "giro":
+            pass                       # la cobertura de la cavidad del pasador la valida `_validate_hand`
         elif cov < MIN_HAND_COVER:
             out["avisos"].append(f"mano: solo el {100 * cov:.0f} % de la mano queda dentro del corte de «{hrep['miembro']}»; "
                                  "el resto no sale en ninguna pieza. Ampliá la silueta (o el espesor) del brazo para que la incluya")
@@ -411,6 +454,7 @@ def validate(res: BuildResult, p: Params, limbs: list[LimbSpec], sit: bool = Tru
     out["articulaciones"] = _validate_joints(res, p, joints, out, sweep_check_step)
     out["cadena"] = _validate_chain(res, p, out)
     out["cintura"] = _validate_waist(res, p, out)
+    out["mano"] = _validate_hand(res, p, out)
     out["ok"] = not out["problems"]
     return out
 
@@ -564,8 +608,12 @@ def posed_pieces(res: BuildResult, hip_angle: float, flex: dict | None = None,
             jb = res.joints[jn]
             f = float(flex.get(jn, r["print_flex"]))
             parts = {r["piezas"][0]: jb.proximal, r["piezas"][1]: jb.rotate_distal(f)}
+            if res.hand is not None and res.hand["limb"] == name:
+                parts[HAND_NAME] = jb.rotate_distal(f, res.hand["piece0"])
         else:
             parts = {name: limb0}
+            if res.hand is not None and res.hand["limb"] == name:
+                parts[HAND_NAME] = res.hand["piece0"]
         for nm, mf in parts.items():
             if turns:
                 mf = S.rotate_about_axis(mf, center, axis, hip_angle)
@@ -611,6 +659,57 @@ def _validate_chain(res: BuildResult, p: Params, out: dict, hip_step: float = 15
         info[jn] = {k: {"mm3": round(v[0], 5), "cadera": v[1], "flexion": v[2]} for k, v in bad.items()}
         for k, (v, ha, fl) in bad.items():
             out["problems"].append(f"{jn}: {dist_nm}_izq choca con {k} (cadera {ha:.0f}°, flexión {fl:.0f}°, {v:.3f} mm³)")
+    return info
+
+
+HAND_SPIN_STEP_DEG = 30.0
+HAND_PULL_MM = 1.0          # cuánto se tira de la mano hacia afuera para comprobar que el pasador la retiene
+
+
+def _validate_hand(res: BuildResult, p: Params, out: dict) -> dict:
+    """Mano articulada (`join = "giro"`): pasador que entra, giro libre de 360° y mano cautiva.
+
+    * pasador: entra en el brazo con `min_wall` de pared (se achica solo; si ni así entra, es un problema) y el vástago
+      llega a `HAND_MIN_SHAFT_D`;
+    * giro libre: la mano gira alrededor del eje de la muñeca cada `HAND_SPIN_STEP_DEG`° sin tocar las piezas del miembro
+      ni el torso;
+    * cautiva: tirar 1 mm de la mano hacia afuera hace que la cabeza del pasador choque con el labio del brazo."""
+    h = res.hand
+    if h is None:
+        return {}
+    info: dict = {}
+    rep = res.report.get("hand", {})
+    pin = rep.get("pasador", {})
+    if not pin.get("entra", True):
+        out["problems"].append(f"{HAND_NAME}: el pasador no entra en el brazo con {p.min_wall:g} mm de pared (muñeca muy fina)")
+    if pin and pin["vastago_mm"] < HAND_MIN_SHAFT_D:
+        out["problems"].append(f"{HAND_NAME}: vástago Ø{pin['vastago_mm']:.1f} < {HAND_MIN_SHAFT_D:g} mm: no se imprime")
+    cov = rep.get("cobertura")
+    if cov is not None and cov < 0.98:
+        out["problems"].append(f"{HAND_NAME}: la silueta de «{h['limb']}» solo contiene el {100 * cov:.0f} % de la cavidad del "
+                               "pasador: ampliala para que el pasador quede dentro del brazo")
+    mano = res.pieces[f"{HAND_NAME}_izq"]
+    mates = [res.pieces[f"{pn}_izq"] for pn in _limb_piece_names(res, h["limb"]) if pn != HAND_NAME]
+    mates.append(body_ref(res))
+    center, axis = np.asarray(h["center"], float), np.asarray(h["axis"], float)
+    worst = 0.0
+    for ang in np.arange(0.0, 360.0, HAND_SPIN_STEP_DEG):
+        rot = S.rotate_about_axis(mano, center, axis, float(ang)) if ang else mano
+        worst = max(worst, max(float((rot ^ m).volume()) for m in mates))
+    info["giro_libre_peor_mm3"] = round(worst, 5)
+    info["giro_libre"] = worst <= 1e-4
+    if worst > 1e-4:
+        out["problems"].append(f"{HAND_NAME}: no gira libre alrededor de la muñeca ({worst:.4f} mm³ de interferencia)")
+    gap = min(float(mano.min_gap(m, 5.0)) for m in mates[:-1])
+    info["holgura_mm"] = round(gap, 4)
+    if gap < 0.9 * p.clearance - 1e-6:
+        out["problems"].append(f"{HAND_NAME}: holgura con el brazo {gap:.3f} mm < {p.clearance:.2f} mm (la mano toca el brazo)")
+    pulled = mano.translate(tuple(float(x) for x in -axis / np.linalg.norm(axis) * HAND_PULL_MM))
+    bite = max(float((pulled ^ m).volume()) for m in mates[:-1])
+    info["cautiva"] = bite > 1e-6
+    info["cautiva_mm3"] = round(bite, 5)
+    if not info["cautiva"]:
+        out["problems"].append(f"{HAND_NAME}: no queda cautiva (tirar {HAND_PULL_MM:g} mm de la mano no choca con el brazo)")
     return info
 
 
@@ -814,11 +913,15 @@ FLAT_ANGLE_MAX = 80.0       # tope del giro de los brazos hacia adelante (°)
 
 
 def _limb_piece_names(res: BuildResult, limb: str) -> list[str]:
-    """Piezas (sin sufijo de lado) que componen un miembro: una sola, o proximal + distal si tiene articulación."""
+    """Piezas (sin sufijo de lado) que componen un miembro: una sola, o proximal + distal si tiene articulación; con la mano
+    articulada, también la pieza `mano` en el miembro que la lleva."""
+    names = [limb]
     for r in res.report.get("joints", {}).values():
         if r["limb"] == limb:
-            return list(r["piezas"])
-    return [limb]
+            names = list(r["piezas"])
+    if res.hand is not None and res.hand["limb"] == limb:
+        names.append(HAND_NAME)
+    return names
 
 
 def _rotate_pts(pts: np.ndarray, origin, axis, angle_deg: float) -> np.ndarray:
