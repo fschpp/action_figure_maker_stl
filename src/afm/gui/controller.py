@@ -124,6 +124,7 @@ PARAM_FIELDS = (
     ("burr", "Rebaba a rebajar en la cara (mm)", 0.0, 3.0, 0.05, 2),
     ("sit_angle", "Ángulo de pose sentada (°)", 0.0, 180.0, 5.0, 0),
     ("flat_depth", "Sin soportes: corte plano sobre la cola (mm)", 0.2, 6.0, 0.1, 1),
+    ("torso_mirror", "Torso espejado (1 = sí, 0 = conserva el diseño asimétrico del STL)", 0.0, 1.0, 1.0, 0),
     ("hip_margin", "Margen del límite de cadera (°)", 0.0, 30.0, 1.0, 0),
     ("waist_pin.shaft_d", "Cintura: Ø vástago (mm)", 3.0, 14.0, 0.1, 1),
     ("waist_pin.shaft_len", "Cintura: largo vástago (mm; pared tras la cabeza = largo − 2·holgura)", 1.5, 15.0, 0.1, 1),

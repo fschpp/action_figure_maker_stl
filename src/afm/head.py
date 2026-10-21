@@ -147,6 +147,12 @@ def _face_from_head(head: S.Manifold, plane: Plane) -> ContactFace:
     return ContactFace(center=centroid, outward=-plane.normal.copy(), area=float(area_f.sum()), triangles=tri)
 
 
+def below_neck(body: S.Manifold, plane: Plane, p: Params) -> S.Manifold:
+    """El cuerpo por debajo del plano del cuello, bajado `clearance` mm (holgura de la cabeza)."""
+    below = Plane.from_normal(plane.origin - plane.normal * p.clearance, -plane.normal)
+    return S.intersection(body, S.halfspace(below))
+
+
 def split_head(body: S.Manifold, spec: HeadSpec, p: Params) -> HeadSplit:
     """Corta el cuerpo entero por el plano del cuello. El cuerpo se baja `clearance` mm (holgura).
 
@@ -156,8 +162,7 @@ def split_head(body: S.Manifold, spec: HeadSpec, p: Params) -> HeadSplit:
     head = S.largest_component(S.intersection(body, S.halfspace(plane)))
     if head.is_empty() or head.volume() < 1.0:
         raise ValueError("el plano del cuello no corta ninguna cabeza (¿está por encima de la figura?)")
-    below = Plane.from_normal(plane.origin - plane.normal * p.clearance, -plane.normal)
-    body_half = S.intersection(body, S.halfspace(below)).trim_by_plane((1.0, 0.0, 0.0), 0.0)
+    body_half = below_neck(body, plane, p).trim_by_plane((1.0, 0.0, 0.0), 0.0)
     if body_half.is_empty():
         raise ValueError("el plano del cuello deja la figura sin cuerpo (¿está por debajo de los pies?)")
     face = _face_from_head(head, plane)
