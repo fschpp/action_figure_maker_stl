@@ -63,11 +63,10 @@ class Session:
         self._zmin_file = 0.0
 
     # ------------------------------------------------------------------ carga
-    def load(self, path: str, crown_z: float | None = None) -> meshio.LoadReport:
+    def load(self, path: str, crown_z: float | None = None, progress=None) -> meshio.LoadReport:
         """Carga y repara el STL; ``crown_z`` en unidades del archivo (None = punto más alto)."""
-        mesh, rep = meshio.load_figure(path, self.project.params.ref_height, crown_z)
-        raw = meshio.orient_z_up(trimesh.load(path, force="mesh"))
-        self._zmin_file = float(raw.bounds[0, 2])
+        mesh, rep = meshio.load_figure(path, self.project.params.ref_height, crown_z, progress=progress)
+        self._zmin_file = rep.zmin_file
         self.stl_path, self.report, self.base = path, rep, mesh
         self.project.crown_z = crown_z
         self.outcome = None

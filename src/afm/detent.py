@@ -382,11 +382,13 @@ def finger_wall_mm(torso: m3.Manifold, dl: DetentLimb) -> float | None:
     return float(t[1] - t[0]) if len(t) >= 2 else float(t[0])
 
 
-def protrusion_mm3(dl: DetentLimb, body: m3.Manifold | None) -> float:
+def protrusion_mm3(dl: DetentLimb, body: m3.Manifold | None, per_side: bool = False) -> float:
     """Volumen de lengüetas y puntas fuera de la figura original (se vería como un bulto en la piel)."""
     if body is None:
         return 0.0
     both = S.union(*[g for f in dl.parts.fingers for g in (f.beam, f.ridge)])
+    if per_side:     # torso asimétrico: cada lado con su piel (la lengüeta de −X es el espejo de la de +X)
+        return float(S.difference(both, body).volume() + S.difference(both, S.mirror_x(body)).volume())
     return float(S.difference(both, body, S.mirror_x(body)).volume())
 
 

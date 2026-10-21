@@ -454,6 +454,8 @@ Para los ajustes propios de cada figura (la «esfera panza» de Mickey, una cola
 3. **Esfera, caja o cilindro:** elegí el **Radio / arista** y hacé clic en la figura donde va el centro (el clic del lado −X se pasa al +X). La esfera y el cilindro usan ese radio (el cilindro tiene el eje en X y el largo de la **Extrusión**); la caja es un cubo de esa arista.
 4. El recorte aparece en la lista (rojo = restar, verde = unir, también dibujado en el visor): el lápiz edita los vértices de un polígono, la flecha cambia entre restar y unir, el tachito lo quita.
 
+**Torso asimétrico.** Por defecto el torso sale del lado +X y su espejo, así que lo que solo tiene un lado (la banda cruzada, las condecoraciones) se pierde en el otro. Si la figura necesita respetar ese diseño, en **Parámetros** poné **«Torso espejado»** en 0 y **Generar**: el lado −X del torso sale del lado −X real del STL (con la cabeza cortada y la mano estándar igual que en +X), tallado con los mismos barridos de los miembros; brazos y piernas siguen siendo espejo. Ojo: como los barridos salen del lado +X, los brazos del STL deberían ser parecidos entre sí; los recortes del torso se aplican igual a los dos lados.
+
 Los recortes se aplican al **lado de trabajo (+X)** antes del espejado, así que salen iguales en los dos lados, y se guardan en el `.proyecto`. Cambiar o quitar uno invalida la figura generada. Ojo: un recorte **tiene que llegar a la superficie** de la pieza; si queda totalmente adentro deja un hueco cerrado y el programa lo descarta (no hay ningún efecto). Para ver el resultado hay que **Generar** de nuevo.
 
 ### 7.5 Pose sentada en vivo (y colisiones)

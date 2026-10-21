@@ -124,6 +124,7 @@ PARAM_FIELDS = (
     ("burr", "Rebaba a rebajar en la cara (mm)", 0.0, 3.0, 0.05, 2),
     ("sit_angle", "Ángulo de pose sentada (°)", 0.0, 180.0, 5.0, 0),
     ("flat_depth", "Sin soportes: corte plano sobre la cola (mm)", 0.2, 6.0, 0.1, 1),
+    ("torso_mirror", "Torso espejado (1 = sí, 0 = conserva el diseño asimétrico del STL)", 0.0, 1.0, 1.0, 0),
     ("hip_margin", "Margen del límite de cadera (°)", 0.0, 30.0, 1.0, 0),
     ("waist_pin.shaft_d", "Cintura: Ø vástago (mm)", 3.0, 14.0, 0.1, 1),
     ("waist_pin.shaft_len", "Cintura: largo vástago (mm; pared tras la cabeza = largo − 2·holgura)", 1.5, 15.0, 0.1, 1),
@@ -180,6 +181,7 @@ class Controller:
         self.one_side = False                        # trabajar un solo lado (oculta x < 0)
         self.hidden: set[str] = set()                # ids de planos ocultos
         self.busy = False                            # generando la figura (la ventana bloquea la edición)
+        self.progress_prefix = "Generando"           # encabezado de los mensajes de progreso de la tarea en curso
         self.show_overhangs = False                  # pintar de rojo los voladizos de impresión
         self.overhang_angle = 45.0                   # grados desde la vertical (como `--max-angle`)
         self.draft: PolygonDraft | None = None      # polígono de silueta en edición (modo POLYGON)
@@ -239,15 +241,47 @@ class Controller:
 
     # ------------------------------------------------------------- archivos
     def open_stl(self, path: str, crown_z: float | None = None) -> None:
-        self.session = Session()
+        """Abre un STL sin hilos (CLI, pruebas y uso programático); la ventana usa `begin_open_stl`."""
+        job = self.begin_open_stl(path, crown_z)
+        try:
+            session = job()
+        except Exception:
+            self.finish_open_stl(path, error=True)
+            raise
+        self.finish_open_stl(path, session)
+
+    def begin_open_stl(self, path: str, crown_z: float | None = None):
+        """Devuelve el trabajo pesado ``job(progress=None) -> Session`` (leer, reparar, normalizar).
+
+        No toca el estado del controlador: la ventana lo corre en un hilo y después llama a `finish_open_stl`
+        desde el hilo de la interfaz. Devuelve None si hay otra tarea en curso."""
+        if self.busy:
+            return None
+        self.busy = True
+        self.progress_prefix = "Abriendo"
+        self._changed(f"Abriendo {path.split('/')[-1]}…", scene=False)
+
+        def job(progress=None) -> Session:
+            session = Session()
+            session.load(path, crown_z, progress=progress)
+            return session
+        return job
+
+    def finish_open_stl(self, path: str, session: Session | None = None, error=None) -> None:
+        self.busy = False
+        self.progress_prefix = "Generando"
+        if error or session is None:
+            if isinstance(error, BaseException):
+                self._changed(f"No se pudo abrir {path.split('/')[-1]}: {error}", scene=False)
+            return
+        self.session = session
         self.joint_guides = {}
         self.hidden.clear()
         self.hand_extract = self._hand_mesh = None
-        rep = self.session.load(path, crown_z)
         self._after_load()
         msg = f"Cargado {path.split('/')[-1]}"
-        if rep.warnings:
-            msg += " — " + " ".join(rep.warnings)
+        if session.report.warnings:
+            msg += " — " + " ".join(session.report.warnings)
         self._changed(msg)
 
     def open_project(self, path: str, stl_path: str | None = None) -> None:
@@ -2146,7 +2180,7 @@ class Controller:
         return lambda progress=None: self.session.build(progress)
 
     def report_progress(self, text: str) -> None:
-        self._changed(f"Generando… {text}", scene=False)
+        self._changed(f"{self.progress_prefix}… {text}", scene=False)
 
     def finish_generate(self, outcome=None, error: Exception | None = None) -> None:
         self.busy = False
@@ -2286,8 +2320,8 @@ class Controller:
             scene.remove("hover:vertice")
         if self.pending and self.mode != Mode.JOINT_LINES:
             pts = np.array(self.pending)
-            scene.set_points("pendientes", pts, (1.0, 0.25, 0.25, 1.0), 12.0)
-            scene.set_lines("pendientes:lineas", pts, (1.0, 0.25, 0.25, 1.0), closed=len(pts) == 3)
+            scene.set_points("pendientes", pts, (1.0, 0.25, 0.25, 1.0), 14.0, on_top=True)     # sin prueba de profundidad: no quedan tapados
+            scene.set_lines("pendientes:lineas", pts, (1.0, 0.25, 0.25, 1.0), closed=len(pts) == 3, on_top=True)
         else:
             scene.remove("pendientes")
             scene.remove("pendientes:lineas")

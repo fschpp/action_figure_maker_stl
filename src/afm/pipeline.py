@@ -10,8 +10,8 @@ import trimesh
 
 from . import solids as S
 from . import detent as DT
-from .hand import HAND_MIN_SHAFT_D, HAND_NAME, HandSpec, apply_hand
-from .head import HEAD_NAME, MIN_BASE_IOU, HeadSpec, build_head, split_head
+from .hand import HAND_MIN_SHAFT_D, HAND_NAME, HandError, HandSpec, apply_hand
+from .head import HEAD_NAME, MIN_BASE_IOU, HeadSpec, below_neck, build_head, neck_plane, split_head
 from .joints import JointBuild, JointSpec, build_joint, flex_range, hinge_for, print_flex
 from .limbs import LimbSpec, ContactFace, check_limb_plane, pin_margin, separate_limb
 from .params import Params
@@ -120,6 +120,7 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
         pocket_in_body = float(S.intersection(half_nocav, hand_build.pocket).volume())
         half = S.difference(half_nocav, hand_build.pocket)
     torso_half = half
+    cutters: list[S.Manifold] = []        # lo que se resta del torso: se repite sobre el lado −X si el torso no se espeja
     built: dict[str, dict] = {}
     detents: dict[str, DT.DetentLimb] = {}
     for spec in limbs:
@@ -142,6 +143,7 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
             dl = DT.build_detent_limb(spec.name, limb_raw, face, axis, dspec, p, _pin_spec(spec, p), th, rng)
             detents[spec.name] = dl
             torso_half = S.difference(torso_half, dl.sweep)
+            cutters.append(dl.sweep)
             angles = np.arange(rng[0], rng[1] + 1e-9, p.sweep_step) if rng and rng[1] > rng[0] else [0.0]
             if len(angles) > 1 and angles[-1] < rng[1] - 1e-9:
                 angles = np.append(angles, rng[1])
@@ -159,6 +161,7 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
             angles = np.append(angles, a1)
         sweep = S.union(*[S.rotate_about_axis(grown, face.center, axis, a) for a in angles])
         torso_half = S.difference(torso_half, sweep)
+        cutters.append(sweep)
         built[spec.name] = {"limb": limb, "face": face, "axis": axis, "spec": spec,
                             "angles": [float(a) for a in angles],
                             "pin_margin": pin_margin(face, _pin_spec(spec, p).shaft_d)}
@@ -174,10 +177,12 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
         # Se talla también el barrido de la flexión (el mismo ensanchado que talla el brazo proximal).
         before = torso_half.volume()
         torso_half = S.difference(torso_half, jb.sweep)
+        cutters.append(jb.sweep)
         carved[lname] = before - torso_half.volume()
     if head_build is not None:
         say("Cavidad del cuello…")
         torso_half = S.difference(torso_half, head_build.pocket)
+        cutters.append(head_build.pocket)
     torso_half = apply_trims(torso_half, trims, "torso")
     torso_half = S.drop_small_components(torso_half, 0.02)
 
@@ -232,7 +237,21 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
             report["limbs"][name]["pin_shift_mm"] = dl.spec.disc_h          # el hongo queda `disc_h` detrás del disco
             report["limbs"][name]["disc_margin_mm"] = None if (m := pin_margin(b["face"], dl.spec.disc_d)) is None else round(float(m), 3)
             report.setdefault("detent", {})[name] = DT.summary(dl)
-    pieces["torso"] = S.union(torso_half, S.mirror_x(torso_half))
+    torso_other = None
+    if not p.torso_mirror:
+        say("Torso sin espejar: lado −X…")
+        other, why = _other_side_half(body, p, head, hand)
+        if other is None:
+            log.warning("Torso sin espejar: %s; se espeja el lado +X", why)
+            report["torso"] = {"espejado": True, "aviso": why}
+        else:
+            for c in cutters:
+                other = S.difference(other, c)
+            other = S.drop_small_components(apply_trims(other, trims, "torso"), 0.02)
+            torso_other = S.mirror_x(other)
+            report["torso"] = {"espejado": False, "volumen_der_mm3": round(float(torso_half.volume()), 2),
+                               "volumen_izq_mm3": round(float(other.volume()), 2)}
+    pieces["torso"] = S.union(torso_half, S.mirror_x(torso_half) if torso_other is None else torso_other)
     if hand_build is not None:
         best = max(hand_cover, key=hand_cover.get) if hand_cover else None
         report["hand"] = {**hand_build.info, "miembro": best, "cobertura": None if best is None else round(hand_cover[best], 4)}
@@ -258,7 +277,7 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
         ref = pieces["torso"]
         pieces["torso"] = DT.add_fingers(ref, list(detents.values()))
         for nm, dl in detents.items():
-            dl.info["protrusion_mm3"] = round(DT.protrusion_mm3(dl, body), 4)
+            dl.info["protrusion_mm3"] = round(DT.protrusion_mm3(dl, body, per_side=not p.torso_mirror), 4)
             report["detent"][nm]["protrusion_mm3"] = dl.info["protrusion_mm3"]
             wall = DT.finger_wall_mm(pieces["torso"], dl)
             report["detent"][nm]["pared_sobre_lengueta_mm"] = None if wall is None else round(wall, 3)
@@ -289,6 +308,24 @@ def _place_hand_piece(hb, jb, joint, b: dict, th: float, p: Params, pieces: dict
     pieces[f"{HAND_NAME}_izq"] = mano
     pieces[f"{HAND_NAME}_der"] = S.mirror_x(mano)
     return {"limb": b["spec"].name, "piece0": hb.hand, "center": ends[0], "axis": (ends[1] - ends[0]), "pin": hb.pin}
+
+
+def _other_side_half(body: S.Manifold, p: Params, head: HeadSpec | None, hand: HandSpec | None):
+    """Lado −X real del cuerpo llevado a +X (espejado), con la misma cabeza cortada y la misma mano que el lado de
+    trabajo, para tallarlo con los mismos barridos y volver a espejarlo: el torso conserva su diseño asimétrico.
+    Devuelve (mitad, None) o (None, motivo) si no se pudo armar y hay que espejar el lado +X."""
+    half = S.mirror_x(body)
+    if head is not None:
+        half = below_neck(half, neck_plane(head), p)
+    half = half.trim_by_plane((1.0, 0.0, 0.0), 0.0)
+    if half.is_empty():
+        return None, "el lado −X del cuerpo quedó vacío"
+    if hand is not None:
+        try:
+            half = apply_hand(half, hand, p.ref_height).body
+        except HandError as exc:
+            return None, f"no se pudo pegar la mano estándar en el lado −X ({exc})"
+    return half, None
 
 
 def _hand_coverage(limb: S.Manifold, hand: S.Manifold) -> float:

@@ -83,3 +83,39 @@ def test_hover_vertex_is_drawn_in_red(ctrl):
     ctrl.update_hover(2, 2, W, H)
     ctrl.sync(off.scene)
     assert "hover:vertice" not in off.scene.items
+
+
+_STARTERS = {
+    "simetria": lambda c: c.start_symmetry(),
+    "brazo": lambda c: c.start_limb_plane("arm"),
+    "pierna": lambda c: c.start_limb_plane("leg"),
+    "cintura": lambda c: c.start_waist_plane(),
+    "cuello": lambda c: c.start_neck_plane(),
+}
+
+
+@pytest.mark.parametrize("name", list(_STARTERS))
+def test_every_three_point_plane_shows_the_red_hover(ctrl, name):
+    """Cada plano de 3 puntos (simetría, brazo, pierna, cintura, cuello) pinta de rojo el vértice bajo el puntero."""
+    ctrl.auto_symmetry()
+    ctrl.camera.set_view("frente")
+    p, px, py = _front_vertex(ctrl)
+    _STARTERS[name](ctrl)
+    assert ctrl.mode != Mode.VIEW and ctrl.hover_active()
+    assert ctrl.update_hover(px, py, W, H) is True and ctrl.hover_vertex is not None
+    assert any(np.allclose(ctrl.hover_vertex, v) for v in ctrl.session.work.vertices)
+
+
+def test_selected_points_are_drawn_on_top_so_they_are_never_hidden(ctrl):
+    from afm.gui.render import OffscreenRenderer
+    try:
+        off = OffscreenRenderer(320, 400)
+    except Exception as e:
+        pytest.skip(f"sin contexto OpenGL fuera de pantalla: {e}")
+    p, px, py = _front_vertex(ctrl)
+    ctrl.start_symmetry()
+    ctrl.update_hover(px, py, W, H)
+    ctrl.click(px, py, W, H)
+    assert len(ctrl.pending) == 1
+    ctrl.sync(off.scene)
+    assert off.scene.items["pendientes"].on_top

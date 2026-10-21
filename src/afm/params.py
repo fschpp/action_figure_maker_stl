@@ -99,6 +99,9 @@ class Params:
     shoulder_detent: bool = False
     hip_detent: bool = False
     flat_depth: float = 1.0          # «imprimir sin soportes»: altura del corte plano sobre el punto más bajo de la cola (mm)
+    # Torso: True = se trabaja el lado +X y el torso sale por espejo (simétrico); False = el torso conserva el diseño
+    # asimétrico del STL (banda, condecoraciones…): cada lado sale de su mitad real y solo los miembros se espejan.
+    torso_mirror: bool = True
 
     def with_hip_reference(self) -> "Params":
         """Copia con el pasador de cadera de la figura de referencia (cabeza/vástago ≈ 1,9, mm absolutos)."""

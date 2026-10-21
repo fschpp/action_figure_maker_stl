@@ -20,6 +20,7 @@ class LoadReport:
     was_watertight: bool = False
     repaired: bool = False
     remeshed: bool = False
+    zmin_file: float = 0.0          # z mínimo de la malla orientada, en unidades del archivo
     warnings: list[str] = field(default_factory=list)
 
 
@@ -56,8 +57,40 @@ def _closed_manifold(mesh: trimesh.Trimesh) -> bool:
         return False
 
 
-def repair(mesh: trimesh.Trimesh, report: LoadReport | None = None, voxel_res: int = 700) -> trimesh.Trimesh:
-    """Repara lo básico; si sigue sin ser variedad, remalla por voxelización.
+VOXEL_FALLBACK_RES = 400       # 700 pedía varios GB de RAM; 400 (≈0,3 mm en una figura de 127 mm) alcanza como último recurso
+
+
+def _meshfix(mesh: trimesh.Trimesh) -> trimesh.Trimesh | None:
+    """Repara con pymeshfix (cierra agujeros de cualquier forma y arregla aristas no-variedad).
+
+    Devuelve None si pymeshfix no está instalado, si falla o si el resultado cambia el volumen de forma sospechosa
+    (más de 2 %: señal de que «reparó» borrando o inventando partes).
+    """
+    try:
+        import pymeshfix
+    except ImportError:
+        return None
+    try:
+        v, f = pymeshfix.clean_from_arrays(np.ascontiguousarray(mesh.vertices, dtype=np.float64),
+                                           np.ascontiguousarray(mesh.faces, dtype=np.int32))
+    except Exception:          # noqa: BLE001 — cualquier falla de pymeshfix = probar el siguiente método
+        return None
+    if len(f) == 0:
+        return None
+    fixed = trimesh.Trimesh(v, f, process=True)
+    if not fixed.is_watertight:
+        return None
+    ref = abs(mesh.volume) if mesh.is_volume else 0.0
+    if ref > 0 and abs(abs(fixed.volume) - ref) / ref > 0.02:
+        return None
+    return fixed
+
+
+def repair(mesh: trimesh.Trimesh, report: LoadReport | None = None, voxel_res: int = VOXEL_FALLBACK_RES,
+           progress=None) -> trimesh.Trimesh:
+    """Repara lo básico; si sigue sin ser variedad, prueba pymeshfix y, como último recurso, remalla por voxelización.
+
+    `progress(texto)` (opcional) informa qué paso se está haciendo.
 
     Se prueban dos variantes y se queda la primera que acepta manifold3d: (1) limpiando triángulos
     degenerados/duplicados, (2) sin limpiarlos. Hay STL (Belgrano, Azurduy) cuyos triángulos «degenerados»
@@ -65,6 +98,8 @@ def repair(mesh: trimesh.Trimesh, report: LoadReport | None = None, voxel_res: i
     innecesario (más de un millón de triángulos).
     """
     report = report or LoadReport()
+    say = progress or (lambda _t: None)
+    say("reparando la malla…")
     mesh = mesh.copy()
     mesh.merge_vertices()
     raw = mesh.copy()
@@ -77,6 +112,14 @@ def repair(mesh: trimesh.Trimesh, report: LoadReport | None = None, voxel_res: i
             report.repaired = not was_wt
             return cand
     mesh = _drop_loose(cleaned, report)
+    say("la malla no es estanca: cerrando agujeros (pymeshfix)…")
+    for cand in (mesh, _drop_loose(raw, report)):
+        fixed = _meshfix(cand)
+        if fixed is not None and _closed_manifold(fixed):
+            report.repaired = True
+            report.warnings.append("La malla tenía agujeros o aristas no-variedad: se reparó con pymeshfix.")
+            return fixed
+    say(f"no se pudo reparar: remallando por voxelización (resolución {voxel_res}; puede tardar y usar mucha memoria)…")
     pitch = max(mesh.extents.max() / float(voxel_res), 1e-6)
     vox = mesh.voxelized(pitch).fill()
     mesh = vox.marching_cubes
@@ -139,18 +182,21 @@ def normalize(mesh: trimesh.Trimesh, ref_height: float = 100.0, crown_z: float |
     return mesh
 
 
-def load_figure(path: str, ref_height: float = 100.0, crown_z: float | None = None
+def load_figure(path: str, ref_height: float = 100.0, crown_z: float | None = None, progress=None
                 ) -> tuple[trimesh.Trimesh, LoadReport]:
     report = LoadReport()
+    if progress:
+        progress("leyendo el STL…")
     mesh = trimesh.load(path, force="mesh")
     mesh = orient_z_up(mesh)
+    report.zmin_file = float(mesh.bounds[0, 2])
     # Las tolerancias de la reparación son absolutas: se escala a mm ANTES de reparar, para que un STL
     # en otras unidades (p. ej. Belgrano, ~1,16 de alto) no pierda triángulos finos y termine remallado.
     top = mesh.bounds[1, 2] if crown_z is None else crown_z
     pre = ref_height / (top - mesh.bounds[0, 2]) if top > mesh.bounds[0, 2] else 1.0
     mesh = mesh.copy()
     mesh.apply_scale(pre)
-    mesh = repair(mesh, report)
+    mesh = repair(mesh, report, progress=progress)
     mesh = normalize(mesh, ref_height, None if crown_z is None else crown_z * pre, report)
     report.original_height = float(report.original_height / pre)   # en unidades del archivo
     report.scale = float(report.scale * pre)
