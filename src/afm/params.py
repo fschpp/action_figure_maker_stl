@@ -102,6 +102,7 @@ class Params:
     # Torso: True = se trabaja el lado +X y el torso sale por espejo (simétrico); False = el torso conserva el diseño
     # asimétrico del STL (banda, condecoraciones…): cada lado sale de su mitad real y solo los miembros se espejan.
     torso_mirror: bool = True
+    flat_fill_hip: bool = False      # «imprimir sin soportes»: alarga los muslos con la loncha de pelvis que el corte plano saca (y talla la pelvis alrededor)
 
     def with_hip_reference(self) -> "Params":
         """Copia con el pasador de cadera de la figura de referencia (cabeza/vástago ≈ 1,9, mm absolutos)."""

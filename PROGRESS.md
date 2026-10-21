@@ -3,6 +3,9 @@
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md` y `PLAN_mecanismo_clic_hombro_cadera.md`_
 
 ## Current Focus
+**Sin soportes: muslos rellenos hasta la pelvis recortada (2026-10-21, rama `relleno-cadera-sin-soportes`):** `Params.flat_fill_hip` (casilla en Exportar → Impresión sin soportes, `--rellenar-muslos` en la CLI). `pipeline._extend_thighs`, en tres corridas dentro de `flat_for_print`: (1) z del plano = punto más bajo + profundidad; (2) el muslo se queda con la loncha de pelvis bajo el plano (sombra vertical del muslo, soldada 0,25 mm) y la pelvis se talla con el barrido de ese relleno entre 0° y el límite de cadera; (3) si el tallado movió el punto más bajo se repite con el plano nuevo, y recién entonces se corta todo. Verificado en Güemes con corte de 1 y de 3 mm: sin choques, holgura de pie ≈0,43 mm. Falta: redibujar a mano las siluetas del muslo (idea del cliente) si el relleno automático no alcanza.
+
+## Current Focus (anterior)
 **Mostrar / ocultar todo desde la lista de planos (2026-10-21, rama `mostrar-ocultar-todo`, sobre `main` 8726fa3):** tres casillas generales arriba de «Lista de planos» (`chk_show`): todos los planos, todos los pines de articulación (marcas de pasadores de miembros y cuello + ejes de bisagra `eje:*`) y todos los contornos (siluetas `silueta*` y recortes `recorte:*`). `Controller.show_groups` / `group_visible` / `set_group_visible` (`SHOW_GROUPS`), aplicados en `sync` y en el espejo en vivo; se combinan con `hidden` (por plano). Lo que se edita en el momento (modo PIN / HEAD_PIN / POLYGON) se sigue viendo. `tests/test_gui_show_groups.py` (7) + 241 de GUI. Verificado en la ventana GTK real (Xvfb).
 
 ## Current Focus (anterior)

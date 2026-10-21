@@ -1044,6 +1044,72 @@ def flat_click_advice(res: BuildResult, depth: float = 1.0) -> dict:
     return out
 
 
+HIP_FILL_BRIDGE = 0.25      # mm que el relleno se mete en el muslo para quedar soldado a él
+HIP_FILL_MIN_MM3 = 0.5      # relleno menor que esto no vale la pena
+_BIG = 1e4
+
+
+def _box(x0=-_BIG, x1=_BIG, y0=-_BIG, y1=_BIG, z0=-_BIG, z1=_BIG):
+    return S.Manifold.cube((x1 - x0, y1 - y0, z1 - z0)).translate((x0, y0, z0))
+
+
+def _extend_thighs(res: BuildResult, pieces: dict, z_cut: float, p: Params) -> tuple[dict, dict]:
+    """Un muslo se queda con la loncha de pelvis que el corte plano en `z_cut` le saca al cuerpo, y el hueco de cadera se
+    vuelve a tallar en la pelvis recortada alrededor del muslo ya alargado.
+
+    Sin esto, de pie queda entre el borde nuevo de la pelvis y el muslo un hueco del grosor del corte. La loncha pertenecía
+    a la pelvis (vino del STL junto con el resto), así que no se la puede devolver a la pelvis (queda bajo el plano de
+    impresión) ni agregar al muslo sin más (al girar choca con la pared del torso): se la pasa al muslo y se talla en la
+    pelvis el barrido del relleno entre 0° y el límite de cadera, ensanchado la holgura. Con la pelvis recortada esa
+    pared ya no existe de todos modos. Devuelve (piezas nuevas, informe); si algo choca o no hay nada que rellenar, las
+    mismas piezas."""
+    out, rep = dict(pieces), {}
+    body = [n for n in ("torso", PELVIS_NAME) if n in pieces]
+    for limb, (_l, c, ax, (a0, a1)) in res.motion.items():
+        if limb == HEAD_NAME or a1 <= a0 or limb in res.detent:
+            continue
+        key = f"{_limb_piece_names(res, limb)[0]}_izq"
+        if key not in out:
+            continue
+        r = next((r for r in res.report.get("joints", {}).values() if r["limb"] == limb), {})
+        th = float(r.get("print_hip", p.sit_angle))
+        cc, aa = np.asarray(c, float), np.asarray(ax, float) / np.linalg.norm(ax)
+        leg0 = S.rotate_about_axis(out[key], cc, aa, -th)                       # de pie (0°)
+        lx0, _a, _b, lx1, _c, _d = out[key].bounding_box()
+        slab = S.intersection(S.intersection(S.union(*[out[n] for n in body]), _box(z1=z_cut)), _box(lx0, lx1))
+        if slab.is_empty() or slab.volume() < HIP_FILL_MIN_MM3:
+            continue
+        thick = S.swept_offset([slab], cc, aa, 0.0, p.clearance + HIP_FILL_BRIDGE, 0.2, 3.0)
+        shadow = S.Manifold.extrude(leg0.project(), z_cut + 1.0 - leg0.bounding_box()[2]).translate((0, 0, leg0.bounding_box()[2]))
+        fill = S.intersection(S.intersection(thick, shadow), _box(lx0, lx1, z1=z_cut - p.clearance))
+        fill = S.drop_small_components(fill, 0.0)
+        if fill.is_empty() or fill.volume() < HIP_FILL_MIN_MM3:
+            continue
+        new0 = S.drop_small_components(S.union(leg0, fill), 0.01)
+        sweep = S.swept_offset([fill], cc, aa, float(a1), p.clearance, 0.2, 3.0)
+        carved = {n: S.difference(out[n], sweep, S.mirror_x(sweep)) for n in body}
+        for n in body:
+            if len(carved[n].decompose()) > len(out[n].decompose()):
+                rep[limb] = {"aviso": f"el tallado parte {n} en piezas sueltas; no se rellena el muslo"}
+        if limb in rep:
+            continue
+        rho = float(np.linalg.norm(np.cross(S.to_trimesh(fill).vertices - cc, aa), axis=1).max()) + 2.0
+        crop = S.intersection(S.union(*[carved[n] for n in body]), _box(lx0 - 1, lx1 + 1, cc[1] - rho, cc[1] + rho, cc[2] - rho, cc[2] + rho))
+        worst = max(float(S.intersection(S.rotate_about_axis(new0, cc, aa, a), crop).volume())
+                    for a in np.arange(0.0, a1 + 1e-6, 5.0))
+        gap = float(new0.min_gap(crop, 3.0))
+        rep[limb] = {"volumen_muslo_agregado_mm3": round(float(new0.volume() - leg0.volume()), 1),
+                     "volumen_pelvis_tallado_mm3": round(float(sum(out[n].volume() - carved[n].volume() for n in body)), 1),
+                     "choque_max_mm3": round(worst, 3), "holgura_de_pie_mm": round(gap, 3), "angulo_pose": th}
+        if worst > 1e-3:
+            rep[limb]["aviso"] = f"el relleno choca con la pelvis al girar ({worst:.2f} mm³); no se rellena el muslo"
+            continue
+        out.update(carved)
+        seated = S.rotate_about_axis(new0, cc, aa, th)
+        out[key], out[key.replace("_izq", "_der")] = seated, S.mirror_x(seated)
+    return out, rep
+
+
 def flat_for_print(res: BuildResult, depth: float = 1.0, p: Params | None = None) -> tuple[dict, dict]:
     """Prepara la figura sentada para imprimirla sin soportes: devuelve (piezas nuevas, informe).
 
@@ -1053,6 +1119,10 @@ def flat_for_print(res: BuildResult, depth: float = 1.0, p: Params | None = None
     2. Los brazos (sin tocarlos) quedan entonces por debajo del plano: giran hacia adelante alrededor del pasador del
        hombro, el mínimo necesario para que su punto más bajo apoye justo en ese plano (un brazo que cuelga sube al
        girar). Con articulación de codo gira la cadena entera.
+    El relleno de muslos (`_extend_thighs`, `Params.flat_fill_hip`) se hace antes del corte, en tres corridas: la altura del
+    plano sale del punto más bajo del cuerpo; se alarga cada muslo con la loncha de pelvis que ese plano sacaría y se talla
+    la pelvis alrededor; si el tallado cambió el punto más bajo (y con él el plano) se repite con el plano nuevo; y recién
+    después se corta todo por el plano final.
     3. El hueco del hombro en el torso se hizo para un brazo que no gira: se talla además con el barrido del brazo
        entre 0° y el giro (ensanchado la holgura), para que gire libre sobre el pasador.
     El conjunto queda apoyado en el plano del corte; la exportación lo baja a z = 0.
@@ -1089,6 +1159,16 @@ def flat_for_print(res: BuildResult, depth: float = 1.0, p: Params | None = None
     arm_pieces = {f"{pn}{side}" for n in arm_limbs for pn in _limb_piece_names(res, n) for side in ("_izq", "_der")}
     protected = arm_pieces | {f"{pn}{side}" for n in res.detent if res.motion[n][3][1] <= res.motion[n][3][0]
                               for pn in _limb_piece_names(res, n) for side in ("_izq", "_der")}
+    if p.flat_fill_hip:
+        z0 = body_base_z(pieces) + depth
+        filled, fill_rep = _extend_thighs(res, pieces, z0, p)
+        z1 = body_base_z(filled) + depth
+        if abs(z1 - z0) > 0.02 and fill_rep:           # el tallado movió el punto más bajo: segunda pasada con el plano nuevo
+            filled, fill_rep = _extend_thighs(res, pieces, z1, p)
+        if fill_rep:
+            info["relleno_cadera"] = fill_rep
+            info["avisos"] += [f"{k}: {v['aviso']}" for k, v in fill_rep.items() if "aviso" in v]
+        pieces = filled
     z_cut = body_base_z(pieces) + depth
     info["altura_corte_z"] = round(float(z_cut), 3)
     # 1. aplanar piernas y cola (todo menos brazos y cabeza)

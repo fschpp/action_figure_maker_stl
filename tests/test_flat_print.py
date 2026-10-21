@@ -175,3 +175,15 @@ def test_flat_print_stretches_knees_and_both_leg_pieces_rest_on_the_plane(knee_d
         dx, dy, dz = extent(pieces[f"pantorrilla_{side}"])
         assert dy > dz
     assert not any("pantorrilla" in a and "sueltas" in a for a in info["avisos"])
+
+
+def test_thigh_fill_is_opt_in_and_never_collides():
+    res = synthetic()
+    plain, info0 = P.flat_for_print(res, 1.0, Params())
+    assert "relleno_cadera" not in info0
+    import dataclasses
+    filled, info = P.flat_for_print(res, 1.0, dataclasses.replace(Params(), flat_fill_hip=True))
+    for leg in ("pierna_izq", "pierna_der"):
+        assert zmin(filled[leg]) >= info["altura_corte_z"] - 1e-3          # el relleno nunca baja del plano
+    for rep in info.get("relleno_cadera", {}).values():
+        assert rep.get("choque_max_mm3", 0.0) <= 1e-3
