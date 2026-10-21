@@ -42,7 +42,7 @@ BASE_SLICE_FRAC = 0.03    # si la cabeza nueva no trae base plana, se corta a es
 MIN_BASE_IOU = 0.80       # por debajo, la base nueva se parece poco a la del cuello: aviso
 MIN_UP = 0.3          # |n·Z| mínimo del plano del cuello (un plano casi vertical no separa cabeza de cuerpo)
 MAX_SIDE = 0.5        # |n·X| máximo antes de simetrizar (el plano tiene que contener el eje izquierda-derecha)
-REPLACEMENT_SCALE_RANGE = (0.2, 5.0)   # factor manual sobre la escala automática
+REPLACEMENT_SCALE_RANGE = (0.0, 5.0)   # factor manual sobre la escala automática: (mín, máx]; el mínimo es exclusivo (cualquier valor > 0)
 MIN_CUT_UP = 0.3      # |n·Z| mínimo del plano de corte de la base de la cabeza importada (casi vertical no sirve)
 
 
@@ -325,8 +325,8 @@ def fit_replacement(spec: HeadSpec, plane: Plane, face: ContactFace):
     No se espeja ni simetriza nada. Si la malla no trae base plana se corta una fracción baja de su alto
     (`BASE_SLICE_FRAC`) para tener una cara plana donde apoyar y poner el pasador."""
     lo_s, hi_s = REPLACEMENT_SCALE_RANGE
-    if not (lo_s <= spec.replacement_scale <= hi_s):
-        raise ValueError(f"la escala de la cabeza tiene que estar entre ×{lo_s:g} y ×{hi_s:g}")
+    if not (lo_s < spec.replacement_scale <= hi_s):
+        raise ValueError(f"la escala de la cabeza tiene que ser mayor que ×{lo_s:g} y no pasar de ×{hi_s:g}")
     mesh, pre, T_raw, z_cut = _oriented_replacement(spec.replacement_path, spec.replacement_up, spec.replacement_yaw,
                                                     spec.replacement_rx, spec.replacement_ry,
                                                     spec.replacement_cut_points)

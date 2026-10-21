@@ -2007,7 +2007,7 @@ class Controller:
 
     @staticmethod
     def _head_fit_message(info: dict) -> str:
-        msg = (f"Cabeza de reemplazo lista (se ve en naranja, apoyada en el cuello): escala ×{info['escala']:.3f} "
+        msg = (f"Cabeza de reemplazo lista (se ve en naranja, apoyada en el cuello): escala ×{info['escala']:.4g} "
                f"(uniforme), alto {info['alto_mm']:.1f} mm, base coincide {100 * info['coincidencia_base']:.0f} %.")
         if info["corte_plano"]:
             msg += " La base se cortó con el plano de 3 puntos."
