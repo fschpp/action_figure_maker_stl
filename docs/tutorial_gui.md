@@ -397,8 +397,19 @@ y la mano queda orientada igual en todos los modelos sin tocar grados.
 * **Avisos:** escalón si el radio de muñeca del modelo y el de la mano difieren más de 1 mm; mano de tamaño muy distinto al de la
   original del modelo (plano mal puesto); figura de otra altura que la de origen de la mano. El pegado se guarda en el `.proyecto`
   (`hand`); los proyectos viejos cargan igual. Si el STL de la mano se mueve o se borra, el proyecto abre y «Generar» avisa.
-* **Límites:** hoy la unión es solo por solape (no hay espiga ni articulación de giro; el campo `join` deja la puerta abierta).
-  Si el modelo tiene la mano soldada a otra parte del cuerpo (apoyada en el muslo), esa parte viaja con ella.
+* **Mano articulada (gira libre):** marcá «Mano articulada (pieza aparte, gira libre dentro del brazo)». La mano deja de soldarse:
+  sale como pieza `mano_izq` / `mano_der` con un **pasador de hongo** que entra en una cavidad del brazo (del antebrazo si hay
+  codo) y gira libre alrededor del eje de la muñeca, sin poder salirse. Por consola: `--mano-union giro`. Parámetros en
+  «Pasadores»: `hand_pin` (vástago Ø, largo del vástago, cabeza Ø, alto de cabeza; por defecto 3,0 / 2,4 / 4,6 / 1,2 mm).
+  Si el brazo es fino, los diámetros se **achican solos** (hasta 0,4 de escala) para que la cavidad deje `min_wall` de pared;
+  el informe y el mensaje dicen el vástago final, y `validate` rechaza un vástago < 2,0 mm (no se imprime) o una mano que no gira
+  libre, no queda atrapada o toca el brazo.
+* **Qué plano elegir para articular:** el pasador necesita pared. En Güemes real (muñeca de ≈ 2,7–3,8 mm de radio) un plano
+  horizontal alto de z≈52 solo deja un vástago de Ø1,2–1,35 mm (no imprimible); un plano **perpendicular al eje del antebrazo**
+  (que está inclinado ≈ 4°) a z≈53 deja Ø2,1 mm con los parámetros por defecto y Ø2,85 mm con holgura 0,3 y pared 0,8.
+  Conviene marcar los 3 puntos **sobre el antebrazo, perpendiculares a su eje**, un poco más arriba de la muñeca más fina.
+* **Límites:** sin articular, la unión es solo por solape. Si el modelo tiene la mano soldada a otra parte del cuerpo (apoyada en
+  el muslo), esa parte viaja con ella. La mano articulada no está probada en GTK real ni impresa.
 
 ### 7.3 Generar y exportar
 

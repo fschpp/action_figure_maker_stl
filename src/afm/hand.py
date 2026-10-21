@@ -31,6 +31,8 @@ from dataclasses import dataclass
 import numpy as np
 
 from . import solids as S
+from .params import Params, PinSpec
+from .pins import mushroom_pin
 from .planes import Plane
 
 log = logging.getLogger(__name__)
@@ -159,16 +161,30 @@ def _dist_to_face(tri: np.ndarray, p: np.ndarray) -> float:
 
 
 def _component_at_wrist(half: S.Manifold, frame: WristFrame):
-    """Pieza conectada de `half` cuya cara del corte contiene (o queda más cerca de) el centro de los 3 puntos.
+    """(pieza conectada de `half` cuya cara del corte contiene —o queda más cerca de— el centro de los 3 puntos, el resto de
+    los componentes de `half`); (None, []) si ninguno toca el plano.
 
     El plano es infinito: corta TODA la figura (con los brazos colgando, también piernas y pelvis). Lo que importa de
     cada lado es solo la pieza que toca la cara del corte en la muñeca."""
-    best = None
-    for part in half.decompose():
+    best, parts = None, half.decompose()
+    for i, part in enumerate(parts):
         dist = _dist_to_face(_face_triangles(part, frame), frame.center)
         if np.isfinite(dist) and (best is None or dist < best[0]):
-            best = (dist, part)
-    return None if best is None else best[1]
+            best = (dist, i)
+    if best is None:
+        return None, []
+    return parts[best[1]], [q for j, q in enumerate(parts) if j != best[1]]
+
+
+DEGENERATE_MM3 = 1e-6          # un componente con menos volumen que esto es una lámina sin espesor, no material
+
+
+def _drop_degenerate(mf: S.Manifold) -> S.Manifold:
+    """Quita los componentes sin volumen: restar la mano del cuerpo deja, donde las caras coinciden (la teselación del
+    cilindro del brazo), láminas de espesor cero pegadas al corte que no son material y tocarían la mano."""
+    parts = mf.decompose()
+    keep = [c for c in parts if c.volume() > DEGENERATE_MM3]
+    return mf if len(keep) == len(parts) else S.union(*keep)
 
 
 def split_at_wrist(body: S.Manifold, frame: WristFrame, invert: bool = False) -> WristSplit:
@@ -183,8 +199,8 @@ def split_at_wrist(body: S.Manifold, frame: WristFrame, invert: bool = False) ->
     viaja con ella: el aviso de «casi por la mitad» o el tamaño de la mano lo delatan."""
     pos = S.intersection(body, S.halfspace(Plane.from_normal(frame.center, frame.axis)))
     neg = S.intersection(body, S.halfspace(Plane.from_normal(frame.center, -frame.axis)))
-    cp = None if pos.is_empty() else _component_at_wrist(pos, frame)
-    cn = None if neg.is_empty() else _component_at_wrist(neg, frame)
+    cp, others_p = (None, []) if pos.is_empty() else _component_at_wrist(pos, frame)
+    cn, others_n = (None, []) if neg.is_empty() else _component_at_wrist(neg, frame)
     if cp is None or cn is None or min(cp.volume(), cn.volume()) < MIN_HAND_VOLUME:
         raise HandError("el plano de muñeca no atraviesa la figura (¿quedó fuera de la malla?)")
     vp, vn = float(cp.volume()), float(cn.volume())
@@ -199,7 +215,11 @@ def split_at_wrist(body: S.Manifold, frame: WristFrame, invert: bool = False) ->
     if face is None:
         raise HandError("el plano de muñeca no deja una cara de corte en la mano (¿pasa por una cavidad?)")
     centroid, area = face
-    rest = S.difference(body, hand)
+    # El resto = la mitad completa del lado del brazo + lo que quedó del lado de la mano sin ser la mano (piernas, etc.).
+    # No se resta la mano del cuerpo: donde la pared del brazo y la de la mano coinciden, la resta deja una «falda» de
+    # espesor cero que después se cuela en las piezas (y con la mano articulada tocaría la mano).
+    arm_side, others = (neg, others_p) if hand_is_pos else (pos, others_n)
+    rest = _drop_degenerate(S.union(arm_side, *others) if others else arm_side)
     return WristSplit(hand=hand, rest=rest, frame=oriented.with_center(centroid), face_area=area,
                       face_radius=float(np.sqrt(area / np.pi)), hand_volume=float(hand.volume()),
                       rest_volume=float(rest.volume()))
@@ -236,9 +256,14 @@ def hand_meta(split: WristSplit, height_mm: float | None = None, source: str = "
 
 
 # ------------------------------------------------------------------ pegar la mano estándar en otro modelo
-JOINS = ("solape",)            # «giro» (articulación print-in-place sobre el mismo plano) queda para más adelante
+HAND_NAME = "mano"             # pieza de la mano articulada (`mano_izq` / `mano_der`)
+JOINS = ("solape", "giro")     # solape: la mano queda soldada al brazo; giro: pieza aparte con pasador de hongo, gira libre
 DEFAULT_OVERLAP_MM = 0.5       # cuánto se hunde la base de la mano en el brazo: la unión tiene volumen, no solo una cara
 STEP_WARN_MM = 1.0             # diferencia de radio de muñeca (modelo vs mano estándar) a partir de la cual se avisa del escalón
+PIN_SHRINK_STEP = 0.05         # el pasador de la mano se achica de a 5 % hasta que entra en el brazo
+PIN_SHRINK_FLOOR = 0.4         # ... y no por debajo de 40 % del pedido
+HAND_SKIN_TOL_MM3 = 0.2        # lo que sobresale la cavidad engrosada `min_wall` fuera de la piel del brazo (teselación) sin ser pared fina
+HAND_MIN_SHAFT_D = 2.0         # mm: por debajo, el vástago del pasador de la mano no se imprime con una boquilla de 0,4–0,8
 SIZE_WARN_RATIO = 3.0          # la mano estándar es tantas veces más grande / chica (en volumen) que la original del modelo
 
 
@@ -271,11 +296,14 @@ class HandSpec:
 
 @dataclass
 class HandBuild:
-    body: S.Manifold            # el cuerpo (lado +X) con la mano original cambiada por la estándar
-    hand: S.Manifold            # la mano estándar ya puesta en el modelo (mundo), con el solape
+    body: S.Manifold            # el cuerpo (lado +X) sin la mano original; con «solape», con la estándar ya soldada
+    hand: S.Manifold            # la mano estándar ya puesta en el modelo (mundo): con solape o, con «giro», con su pasador
     original: S.Manifold        # la mano original del modelo, la que se descarta (mundo)
     frame: WristFrame           # marco de muñeca en el modelo (eje hacia la mano, con el giro aplicado)
     info: dict
+    pocket: S.Manifold | None = None   # solo «giro»: cavidad (pasador dilatado por la holgura) que se resta del brazo
+    pin: PinSpec | None = None         # solo «giro»: el pasador usado (ya ajustado a la muñeca)
+    pin_origin: np.ndarray | None = None   # solo «giro»: donde arranca el pasador (cara de la mano) y se orienta hacia el brazo (−eje)
 
 
 def _local_face(hand_local: S.Manifold):
@@ -291,12 +319,61 @@ def _local_face(hand_local: S.Manifold):
     return float(area.sum()), float(np.linalg.norm(c))
 
 
-def apply_hand(body: S.Manifold, spec: HandSpec, ref_height: float | None = None) -> HandBuild:
+def fit_hand_pin(rest: S.Manifold, frame: WristFrame, p: Params, base: PinSpec | None = None, cache: dict | None = None):
+    """Pasador de hongo de la mano, achicado (diámetros, misma relación) hasta que entra en el brazo.
+
+    El pasador arranca en la cara de la mano (a `clearance` del corte) y entra en el brazo hacia −eje. «Entra» significa que
+    la cavidad (pasador dilatado por `clearance`) más `min_wall` de pared queda dentro de la piel de `rest`: se mide contra la
+    malla real, así aprovecha que el antebrazo se ensancha hacia el codo (vástago fino en la muñeca, cabeza más adentro).
+    El tamaño que entra solo crece al achicar, así que se busca por bisección sobre una grilla de `PIN_SHRINK_STEP`.
+    `cache` (dict, opcional) guarda el resultado mientras no cambien el plano de muñeca, el brazo ni las medidas: el giro de la
+    mano no lo cambia. Devuelve (PinSpec, escala, entra)."""
+    base = base or p.hand_pin
+    key = None
+    if cache is not None:
+        key = (tuple(np.round(frame.center, 5)), tuple(np.round(frame.axis, 5)), float(p.clearance), float(p.min_wall),
+               tuple(base.__dict__.values()), round(float(rest.volume()), 3), int(rest.num_tri()))
+        if key in cache:
+            return cache[key]
+    arm_side = S.halfspace(Plane.from_normal(frame.center, -frame.axis))
+    origin = frame.center + frame.axis * p.clearance
+    n = int(round((1.0 - PIN_SHRINK_FLOOR) / PIN_SHRINK_STEP))
+    ks = [round(1.0 - i * PIN_SHRINK_STEP, 6) for i in range(n + 1)]          # de 1,00 a PIN_SHRINK_FLOOR
+    seen: dict[int, tuple] = {}
+
+    def fits(i: int) -> bool:
+        if i not in seen:
+            spec = PinSpec(base.shaft_d * ks[i], base.shaft_len, base.head_d * ks[i], base.head_h)
+            zone = S.dilate(mushroom_pin(origin, -frame.axis, spec), p.clearance + p.min_wall)
+            leak = float(S.difference(S.intersection(zone, arm_side), rest).volume())
+            seen[i] = (spec, ks[i], leak <= HAND_SKIN_TOL_MM3)
+        return seen[i][2]
+
+    if fits(0):
+        best = 0
+    elif not fits(n):
+        best = n                                              # ni el más chico entra: se devuelve ese y `entra = False`
+    else:
+        lo, hi = 0, n                                         # lo no entra, hi entra
+        while hi - lo > 1:
+            mid = (lo + hi) // 2
+            lo, hi = (lo, mid) if fits(mid) else (mid, hi)
+        best = hi
+    result = seen[best]
+    if cache is not None:
+        cache[key] = result
+    return result
+
+
+def apply_hand(body: S.Manifold, spec: HandSpec, ref_height: float | None = None,
+               params: Params | None = None, pin_cache: dict | None = None) -> HandBuild:
     """Cambia la mano de `body` (la mitad de trabajo, lado +X) por la mano estándar de `spec`.
 
     1. Corta por el plano de muñeca de `spec.points` y descarta la mano original (`split_at_wrist`).
-    2. Pone la mano estándar con su cara plana sobre la del corte (centroide con centroide, sin escalar) y la hunde
-       `spec.overlap` mm en el brazo, así la unión es un volumen y no un simple contacto de caras.
+    2. Pone la mano estándar con su cara plana sobre la del corte (centroide con centroide, sin escalar).
+       * `join = "solape"`: la hunde `spec.overlap` mm en el brazo, así la unión es un volumen y la mano queda soldada.
+       * `join = "giro"`: la deja a `clearance` del corte como PIEZA APARTE con un pasador de hongo que entra en el brazo
+         (`fit_hand_pin`); el brazo recibe la cavidad (`HandBuild.pocket`, la resta el pipeline) y la mano gira libre.
     El informe trae los radios de muñeca (el escalón que queda si no coinciden) y avisos."""
     if spec.join not in JOINS:
         raise HandError(f"unión «{spec.join}» desconocida (las que hay: {', '.join(JOINS)})")
@@ -318,10 +395,42 @@ def apply_hand(body: S.Manifold, spec: HandSpec, ref_height: float | None = None
     split = split_at_wrist(body, WristFrame.from_points(pts), invert=spec.invert)
     frame = split.frame.twisted(spec.yaw)
     placed = place_hand(hand_local, frame)
-    overlap = max(0.0, float(spec.overlap))
+    swivel = spec.join == "giro"
+    p = params or Params()
+    overlap = 0.0 if swivel else max(0.0, float(spec.overlap))
     if overlap:
         placed = placed.translate(tuple(float(x) for x in -frame.axis * overlap))
-    new_body = S.union(split.rest, placed)
+    pocket = pin = pin_origin = None
+    pin_info: dict = {}
+    pin_avisos: list[str] = []
+    if swivel:
+        gap = float(p.clearance)
+        placed = placed.translate(tuple(float(x) for x in frame.axis * gap))          # la cara de la mano a `gap` del corte
+        pin, k, fits = fit_hand_pin(split.rest, frame, p, cache=pin_cache)
+        pin_origin = frame.center + frame.axis * gap
+        pin_mf = mushroom_pin(pin_origin, -frame.axis, pin)
+        placed = S.union(placed, pin_mf)
+        pocket = S.dilate(pin_mf, p.clearance)
+        new_body = split.rest                                    # la cavidad la resta el pipeline en la pieza que lleva la mano
+        lip = pin.shaft_len - 2 * p.clearance
+        pin_info = {"vastago_mm": round(pin.shaft_d, 3), "cabeza_mm": round(pin.head_d, 3), "largo_mm": pin.shaft_len,
+                    "escala": round(k, 3), "entra": bool(fits), "labio_tras_cabeza_mm": round(lip, 3), "holgura_mm": gap}
+        if not fits:
+            pin_avisos.append(f"el pasador de la mano no entra en el brazo con {p.min_wall:g} mm de pared ni achicado a ×{k:.2f} "
+                              "(vástago Ø%.1f, cabeza Ø%.1f): la muñeca es muy fina; bajá la holgura o la pared mínima, o usá la unión «solape»"
+                              % (pin.shaft_d, pin.head_d))
+        elif k < 1.0 - 1e-9:
+            pin_avisos.append(f"el pasador de la mano se achicó a ×{k:.2f} (vástago Ø{pin.shaft_d:.1f}, cabeza Ø{pin.head_d:.1f}) "
+                              "para que entre en el brazo")
+        if pin.shaft_d < HAND_MIN_SHAFT_D:
+            pin_avisos.append(f"el vástago del pasador de la mano (Ø{pin.shaft_d:.1f} mm) es más fino que {HAND_MIN_SHAFT_D:g} mm: no se imprime")
+        elif pin.shaft_d < p.min_pin_d:
+            pin_avisos.append(f"el vástago del pasador de la mano (Ø{pin.shaft_d:.1f} mm) es más fino que el mínimo de pasador "
+                              f"({p.min_pin_d:g} mm): imprimí una probeta antes de confiar en él")
+        if lip < p.min_wall - 1e-9:
+            pin_avisos.append(f"el labio del brazo tras la cabeza del pasador mide {lip:.2f} mm (< {p.min_wall:g} mm): subí el largo del vástago")
+    else:
+        new_body = S.union(split.rest, placed)
     r_arm, r_hand = split.face_radius, float(np.sqrt(face_area / np.pi))
     avisos: list[str] = []
     if abs(r_arm - r_hand) > STEP_WARN_MM:
@@ -335,12 +444,18 @@ def apply_hand(body: S.Manifold, spec: HandSpec, ref_height: float | None = None
     if src_h and ref_height and abs(float(src_h) - float(ref_height)) > 0.5:
         avisos.append(f"la mano estándar se midió en una figura de {float(src_h):g} mm y esta mide {float(ref_height):g} mm: "
                       "la mano no se reescala, puede verse grande o chica")
+    if swivel:      # con giro libre el escalón es solo estético (no hay soldadura a la muñeca): se avisa igual pero más suave
+        avisos = [a.replace("queda un escalón en la unión", "queda un escalón visible entre mano y brazo") for a in avisos]
+    avisos += pin_avisos
     info = {"archivo": spec.path, "puntos_espejados": mirrored, "radio_brazo_mm": round(r_arm, 3),
             "radio_mano_mm": round(r_hand, 3), "escalon_mm": round(abs(r_arm - r_hand), 3), "solape_mm": overlap,
             "giro_grados": float(spec.yaw), "union": spec.join,
             "volumen_mano_mm3": round(float(placed.volume()), 2), "volumen_original_mm3": round(split.hand_volume, 2),
             "centro": frame.center.tolist(), "eje": frame.axis.tolist(), "avisos": avisos}
-    return HandBuild(body=new_body, hand=placed, original=split.hand, frame=frame, info=info)
+    if swivel:
+        info["pasador"] = pin_info
+    return HandBuild(body=new_body, hand=placed, original=split.hand, frame=frame, info=info, pocket=pocket, pin=pin,
+                     pin_origin=pin_origin)
 
 
 def meta_path(stl_path: str) -> str:

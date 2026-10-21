@@ -98,6 +98,8 @@ def main(argv=None) -> int:
                         "El punto 1 va en el mismo lugar anatómico que al extraer la mano (p. ej. el lado del pulgar)")
     b.add_argument("--mano-giro", type=float, default=None, metavar="GRADOS", help="giro extra de la mano alrededor de la muñeca")
     b.add_argument("--mano-invertir", action="store_true", help="la mano del modelo es el lado grande del corte")
+    b.add_argument("--mano-union", default=None, choices=("solape", "giro"),
+                   help="solape = la mano queda soldada al brazo (por defecto); giro = pieza aparte con pasador que gira libre dentro del brazo")
     b.add_argument("--mano-solape", type=float, default=None, metavar="MM",
                    help="cuánto se hunde la base de la mano en el brazo (por defecto 0,5 mm)")
     b.add_argument("--cadera-referencia", action="store_true",
@@ -209,7 +211,7 @@ def main(argv=None) -> int:
                 n, o = neck_plane(project.head).normal, neck_plane(project.head).origin
                 c = np.array([0.0, *args.cabeza_pasador])
                 project.head = dataclasses.replace(project.head, pin_center=tuple(c - ((c - o) @ n) * n))
-        hand_opts = (args.mano, args.mano_puntos, args.mano_giro, args.mano_solape)
+        hand_opts = (args.mano, args.mano_puntos, args.mano_giro, args.mano_solape, args.mano_union)
         if any(o is not None for o in hand_opts) or args.mano_invertir:
             from .hand import DEFAULT_OVERLAP_MM, HandSpec
             cur = project.hand
@@ -223,7 +225,8 @@ def main(argv=None) -> int:
             yaw = args.mano_giro if args.mano_giro is not None else (cur.yaw if cur else 0.0)
             overlap = args.mano_solape if args.mano_solape is not None else (cur.overlap if cur else DEFAULT_OVERLAP_MM)
             project.hand = HandSpec(path=path, points=pts, yaw=yaw, overlap=overlap,
-                                    invert=bool(args.mano_invertir or (cur.invert if cur else False)))
+                                    invert=bool(args.mano_invertir or (cur.invert if cur else False)),
+                                    join=args.mano_union or (cur.join if cur else "solape"))
         if args.cadera_referencia:
             project.params = project.params.with_hip_reference()
         flat = args.sin_soportes

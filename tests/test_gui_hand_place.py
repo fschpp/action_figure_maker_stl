@@ -183,3 +183,66 @@ def test_project_roundtrip_keeps_the_hand(ctrl, std_hand, tmp_path):
     c2.open_project(pf, ctrl.session.stl_path)
     assert c2.session.project.hand == ctrl.session.project.hand
     assert c2.hand_fit() is not None
+
+
+# ------------------------------------------------------------------ mano articulada (casilla «Mano articulada»)
+def _placed(ctrl, std_hand):
+    ctrl.start_hand_place(std_hand)
+    feed(ctrl, WRIST)
+    assert ctrl.session.project.hand is not None
+
+
+def test_swivel_toggle_switches_the_join_and_reports_the_pin(ctrl, std_hand):
+    _placed(ctrl, std_hand)
+    assert ctrl.session.project.hand.join == "solape" and "pasador" not in ctrl.hand_fit()["info"]
+    assert ctrl.set_hand_swivel(True)
+    assert ctrl.session.project.hand.join == "giro"
+    info = ctrl.hand_fit()["info"]
+    assert info["pasador"]["entra"] and info["union"] == "giro"
+    assert "Articulada" in ctrl.message and "gira libre" in ctrl.message
+    assert ctrl.set_hand_swivel(False)
+    assert ctrl.session.project.hand.join == "solape" and "pasador" not in ctrl.hand_fit()["info"]
+
+
+def test_swivel_preview_draws_the_hand_with_its_pin_apart_from_the_arm(ctrl, std_hand):
+    _placed(ctrl, std_hand)
+    solid = ctrl.hand_fit()["hand"]
+    ctrl.set_hand_swivel(True)
+    fit = ctrl.hand_fit()
+    assert fit["hand"].bounds[1][2] > solid.bounds[1][2] + 1.0                   # el pasador sobresale hacia el brazo
+    scene = FakeScene()
+    ctrl.sync(scene)
+    assert scene.items["mano:reemplazo"][1] is fit["hand"]
+
+
+def test_swivel_survives_yaw_and_invert_and_the_pin_fit_is_reused(ctrl, std_hand):
+    _placed(ctrl, std_hand)
+    ctrl.set_hand_swivel(True)
+    cache = ctrl.session.__dict__["_hand_pin_cache"]
+    assert len(cache) == 1
+    assert ctrl.set_hand_adjust(yaw=60.0) and ctrl.session.project.hand.join == "giro" and len(cache) == 1
+    assert ctrl.invert_hand_place() and ctrl.session.project.hand.join == "giro"
+
+
+def test_hand_pin_params_are_editable_and_refit_the_preview(ctrl, std_hand):
+    _placed(ctrl, std_hand)
+    ctrl.set_hand_swivel(True)
+    before = ctrl.hand_fit()["info"]["pasador"]["vastago_mm"]
+    assert ctrl.set_param("hand_pin.shaft_d", 2.0)
+    assert ctrl.session.project.params.hand_pin.shaft_d == 2.0
+    after = ctrl.hand_fit()["info"]["pasador"]["vastago_mm"]
+    assert after < before                                                          # el vástago pedido es más fino: se vuelve a ajustar
+
+
+def test_swivel_roundtrips_in_the_project(ctrl, std_hand, tmp_path):
+    _placed(ctrl, std_hand)
+    ctrl.set_hand_swivel(True)
+    pf = str(tmp_path / "p.proyecto")
+    ctrl.save_project(pf)
+    c2 = Controller()
+    c2.open_project(pf, ctrl.session.stl_path)
+    assert c2.session.project.hand.join == "giro" and c2.hand_fit()["info"]["union"] == "giro"
+
+
+def test_swivel_toggle_without_a_hand_does_nothing(ctrl):
+    assert not ctrl.set_hand_swivel(True) and "Primero elegí" in ctrl.message

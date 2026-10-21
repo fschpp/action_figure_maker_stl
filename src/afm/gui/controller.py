@@ -135,6 +135,10 @@ PARAM_FIELDS = (
     ("shoulder_pin.shaft_len", "Hombro: largo vástago (mm)", 0.5, 15.0, 0.1, 1),
     ("shoulder_pin.head_d", "Hombro: Ø cabeza (mm)", 3.0, 16.0, 0.1, 1),
     ("shoulder_pin.head_h", "Hombro: alto cabeza (mm)", 0.5, 8.0, 0.05, 2),
+    ("hand_pin.shaft_d", "Mano articulada: Ø vástago (mm; se achica solo si no entra en la muñeca)", 1.5, 8.0, 0.1, 1),
+    ("hand_pin.shaft_len", "Mano articulada: largo vástago (mm; labio tras la cabeza = largo − 2·holgura)", 1.0, 10.0, 0.1, 1),
+    ("hand_pin.head_d", "Mano articulada: Ø cabeza (mm)", 2.5, 12.0, 0.1, 1),
+    ("hand_pin.head_h", "Mano articulada: alto cabeza (mm)", 0.5, 5.0, 0.05, 2),
     ("hip_pin.shaft_d", "Cadera: Ø vástago (mm)", 2.0, 12.0, 0.1, 1),
     ("hip_pin.shaft_len", "Cadera: largo vástago (mm)", 0.5, 15.0, 0.1, 1),
     ("hip_pin.head_d", "Cadera: Ø cabeza (mm)", 3.0, 16.0, 0.1, 1),
@@ -1933,21 +1937,30 @@ class Controller:
     def _hand_fit_message(info: dict) -> str:
         msg = (f"Mano estándar pegada (turquesa): muñeca del modelo Ø{2 * info['radio_brazo_mm']:.1f} mm, de la mano "
                f"Ø{2 * info['radio_mano_mm']:.1f} mm. Si no cae bien usá «Invertir lado» o el giro.")
+        pin = info.get("pasador")
+        if pin:
+            msg += (f" Articulada: pieza aparte con pasador (vástago Ø{pin['vastago_mm']:.1f}, cabeza Ø{pin['cabeza_mm']:.1f} mm"
+                    + (f", ×{pin['escala']:.2f}" if pin["escala"] < 1 else "") + ") que gira libre dentro del brazo.")
         for a in info["avisos"]:
             msg += f" AVISO: {a}."
         return msg
 
-    def set_hand_adjust(self, yaw: float | None = None, invert: bool | None = None) -> bool:
-        """Cambia el giro (°) y/o el lado de la mano de reemplazo ya pegada. Si no sirve, no cambia nada."""
+    def set_hand_adjust(self, yaw: float | None = None, invert: bool | None = None, join: str | None = None) -> bool:
+        """Cambia el giro (°), el lado y/o la unión («solape» / «giro») de la mano de reemplazo ya pegada. Si no sirve, no
+        cambia nada."""
         if not self._need_loaded():
             return False
         try:
-            info = self.session.adjust_hand(yaw, invert)
+            info = self.session.adjust_hand(yaw, invert, join)
         except ValueError as e:
             self._changed(f"No sirve: {e}", scene=False)
             return False
         self._changed(self._hand_fit_message(info))
         return True
+
+    def set_hand_swivel(self, on: bool) -> bool:
+        """Mano articulada: pieza aparte con pasador que gira libre dentro del brazo (False = soldada al brazo)."""
+        return self.set_hand_adjust(join="giro" if on else "solape")
 
     def invert_hand_place(self) -> bool:
         cur = self.session.project.hand

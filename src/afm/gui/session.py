@@ -752,10 +752,11 @@ class Session:
         return meta
 
     # ------------------------------------------------- mano estándar (pegarla en este modelo)
-    def set_hand(self, path: str, points, yaw: float = 0.0, invert: bool = False) -> dict:
+    def set_hand(self, path: str, points, yaw: float = 0.0, invert: bool = False, join: str | None = None) -> dict:
         """Reemplaza la mano de este modelo por la mano estándar (STL) con el plano de muñeca de 3 puntos (marco de
-        trabajo; vale cualquiera de los dos brazos). Valida pegándola ya sobre la figura y devuelve el informe del pegado
-        (radios de muñeca, escalón, avisos). Si falla (ValueError) no cambia nada."""
+        trabajo; vale cualquiera de los dos brazos). `join`: «solape» (soldada al brazo) o «giro» (pieza aparte con pasador,
+        gira libre); None conserva la actual (o «solape»). Valida pegándola ya sobre la figura y devuelve el informe del
+        pegado (radios de muñeca, escalón, avisos, pasador). Si falla (ValueError) no cambia nada."""
         from ..hand import DEFAULT_OVERLAP_MM, HandSpec
 
         if self.work is None:
@@ -767,16 +768,19 @@ class Session:
             raise ValueError(f"No existe el archivo «{path}»")
         old = self.project.hand
         spec = HandSpec(path=path, points=tuple(tuple(float(x) for x in q) for q in points), yaw=float(yaw),
-                        invert=bool(invert), overlap=old.overlap if old else DEFAULT_OVERLAP_MM)
+                        invert=bool(invert), overlap=old.overlap if old else DEFAULT_OVERLAP_MM,
+                        join=join or (old.join if old else "solape"))
         return self._apply_hand_spec(spec)
 
-    def adjust_hand(self, yaw: float | None = None, invert: bool | None = None) -> dict:
-        """Cambia el giro (°) alrededor de la muñeca y/o el lado de la mano de la mano de reemplazo ya elegida."""
+    def adjust_hand(self, yaw: float | None = None, invert: bool | None = None, join: str | None = None) -> dict:
+        """Cambia el giro (°) alrededor de la muñeca, el lado de la mano y/o la unión («solape» / «giro») de la mano de
+        reemplazo ya elegida."""
         cur = self.project.hand
         if cur is None:
             raise ValueError("Primero elegí una mano de reemplazo (STL).")
         return self._apply_hand_spec(dataclasses.replace(
-            cur, yaw=cur.yaw if yaw is None else float(yaw), invert=cur.invert if invert is None else bool(invert)))
+            cur, yaw=cur.yaw if yaw is None else float(yaw), invert=cur.invert if invert is None else bool(invert),
+            join=cur.join if join is None else join))
 
     def clear_hand(self) -> bool:
         if self.project.hand is None:
@@ -799,12 +803,15 @@ class Session:
         from ..hand import apply_hand
 
         full = S.to_manifold(self.work)
-        hb = apply_hand(full.trim_by_plane((1.0, 0.0, 0.0), 0.0), spec, self.project.params.ref_height)
+        cache = self.__dict__.setdefault("_hand_pin_cache", {})        # el giro de la mano no cambia el ajuste del pasador
+        hb = apply_hand(full.trim_by_plane((1.0, 0.0, 0.0), 0.0), spec, self.project.params.ref_height,
+                        self.project.params, cache)
         return {"figure": S.to_trimesh(S.difference(full, hb.original)), "hand": S.to_trimesh(hb.hand), "info": hb.info}
 
     def _hand_fit_key(self, spec):
+        p = self.project.params
         return (id(self.work), spec.path, tuple(spec.points), spec.yaw, spec.invert, spec.overlap, spec.join,
-                self.project.params.ref_height)
+                p.ref_height, p.clearance, p.min_wall, tuple(p.hand_pin.__dict__.values()))
 
     def hand_replacement_preview(self):
         """{"figure": figura sin la mano original, "hand": mano estándar puesta, "info": informe} o None.
