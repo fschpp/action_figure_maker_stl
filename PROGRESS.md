@@ -3,6 +3,9 @@
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md` y `PLAN_mecanismo_clic_hombro_cadera.md`_
 
 ## Current Focus
+**Mostrar / ocultar todo desde la lista de planos (2026-10-21, rama `mostrar-ocultar-todo`, sobre `main` 8726fa3):** tres casillas generales arriba de «Lista de planos» (`chk_show`): todos los planos, todos los pines de articulación (marcas de pasadores de miembros y cuello + ejes de bisagra `eje:*`) y todos los contornos (siluetas `silueta*` y recortes `recorte:*`). `Controller.show_groups` / `group_visible` / `set_group_visible` (`SHOW_GROUPS`), aplicados en `sync` y en el espejo en vivo; se combinan con `hidden` (por plano). Lo que se edita en el momento (modo PIN / HEAD_PIN / POLYGON) se sigue viendo. `tests/test_gui_show_groups.py` (7) + 241 de GUI. Verificado en la ventana GTK real (Xvfb).
+
+## Current Focus (anterior)
 **Mano articulada (2026-10-21, rama `mano-articulada`, sobre `mano-pegar`):** la mano estándar puede salir como pieza aparte con pasador de hongo dentro del brazo (gira libre y queda atrapada): `HandSpec.join="giro"`, `Params.hand_pin`, `afm build --mano-union giro`, casilla «Mano articulada» en la GUI. Probado en muñeco sintético; en Güemes real solo cabe con plano perpendicular al antebrazo a z≈53 (vástago Ø2,1–2,85 mm).
 
 ## Current Focus (anterior)

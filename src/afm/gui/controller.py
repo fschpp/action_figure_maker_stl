@@ -91,6 +91,7 @@ _MIRROR_COLOR = (0.70, 0.78, 0.92, 1.0)      # el espejo se ve con un tinte azul
 _REPLACEMENT_HEAD_COLOR = (0.95, 0.62, 0.25, 1.0)      # cabeza de reemplazo en la vista 3D (naranja)
 _EXTRACTED_HAND_COLOR = (0.25, 0.85, 0.55, 1.0)         # mano extraída (aún sin guardar) en la vista 3D (verde)
 _REPLACEMENT_HAND_COLOR = (0.25, 0.75, 0.85, 1.0)       # mano estándar pegada en el modelo (turquesa: no se confunde con la extraída)
+SHOW_GROUPS = ("planes", "pins", "contours")     # lo que se puede mostrar / ocultar de una vez desde la lista de planos
 FLAT_NUDGE_MM = 0.1            # paso de las flechas al ajustar el plano de corte «sin soportes» (Mayús = 10 veces más)
 NUDGE_MM = 0.1                 # paso de las flechas al ajustar el pasador (Mayús = 10 veces más)
 
@@ -180,6 +181,7 @@ class Controller:
         self.message = "Abrí un STL para empezar."
         self.one_side = False                        # trabajar un solo lado (oculta x < 0)
         self.hidden: set[str] = set()                # ids de planos ocultos
+        self.show_groups: dict[str, bool] = {g: True for g in SHOW_GROUPS}   # interruptores generales (planos / pines / contornos)
         self.busy = False                            # generando la figura (la ventana bloquea la edición)
         self.progress_prefix = "Generando"           # encabezado de los mensajes de progreso de la tarea en curso
         self.show_overhangs = False                  # pintar de rojo los voladizos de impresión
@@ -1577,6 +1579,7 @@ class Controller:
             c, d = np.asarray(j.axis_center, float), np.asarray(j.axis_dir, float)
             d = d / np.linalg.norm(d)
             scene.set_lines(key, np.array([c - d * 9.0, c + d * 9.0]), (1.0, 0.85, 0.1, 1.0), on_top=True)
+            scene.show(key, self.group_visible("pins"))
         for key in [k for k in scene.items if k.startswith("eje:") and k not in wanted]:
             scene.remove(key)
 
@@ -2127,6 +2130,21 @@ class Controller:
             out.append(PlaneEntry(jid, j.name.capitalize(), j.plane, "joint", jid not in self.hidden))
         return out
 
+    def group_visible(self, group: str) -> bool:
+        """Interruptor general: «planes» (todos los planos), «pins» (marcas de pasadores y ejes de articulación) o
+        «contours» (siluetas y recortes). Se combina con el de cada plano: algo se ve si ambos lo permiten."""
+        if group not in SHOW_GROUPS:
+            raise ValueError(group)
+        return self.show_groups[group]
+
+    def set_group_visible(self, group: str, on: bool) -> None:
+        if group not in SHOW_GROUPS:
+            raise ValueError(group)
+        on = bool(on)
+        if self.show_groups[group] != on:
+            self.show_groups[group] = on
+            self._changed()
+
     def toggle_plane(self, plane_id: str) -> None:
         self.hidden ^= {plane_id}
         self._changed()
@@ -2310,7 +2328,7 @@ class Controller:
             key = f"plano:{e.id}"
             wanted.add(key)
             scene.set_plane(key, e.plane, hs, center=sess.work.bounds.mean(axis=0), color=palette[e.kind])
-            scene.show(key, e.visible)
+            scene.show(key, e.visible and self.group_visible("planes"))
         for key in [k for k in scene.items if k.startswith("plano:") and not k.endswith(":borde")]:
             if key not in wanted:
                 scene.remove(key)
@@ -2405,7 +2423,7 @@ class Controller:
             wanted.add(key)
             scene.set_lines(key, self.trim_wires(t), (0.95, 0.3, 0.3, 1.0) if t.op == "subtract" else (0.35, 0.85, 0.4, 1.0),
                             closed=True)
-            scene.show(key, t.target not in self.hidden)
+            scene.show(key, t.target not in self.hidden and self.group_visible("contours"))
         for key in [k for k in scene.items if k.startswith("recorte:") and k not in wanted]:
             scene.remove(key)
 
@@ -2432,12 +2450,12 @@ class Controller:
                     continue
                 wanted.add(key)
                 scene.set_lines(key, mirrored_points(poly), color, closed=True)
-                scene.show(key, not hidden)
+                scene.show(key, not hidden and self.group_visible("contours"))
             if l.pin_center is not None:
                 key = f"espejo:pasador:{l.name}"
                 wanted.add(key)
                 scene.set_points(key, mirrored_points(np.asarray(l.pin_center, float)[None]), (1.0, 0.55, 0.1, 1.0), 10.0)
-                scene.show(key, not hidden)
+                scene.show(key, not hidden and self.group_visible("pins"))
         for i, t in enumerate(self.session.project.trims):
             if i == (self.edit_trim if editing is not None else None):
                 continue
@@ -2445,6 +2463,7 @@ class Controller:
             wanted.add(key)
             scene.set_lines(key, [mirrored_points(w) for w in self.trim_wires(t)],
                             (0.95, 0.3, 0.3, 1.0) if t.op == "subtract" else (0.35, 0.85, 0.4, 1.0), closed=True)
+            scene.show(key, self.group_visible("contours"))
         if editing is not None and editing.pts:
             wanted.add("espejo:poligono")
             scene.set_lines("espejo:poligono", mirrored_points(editing.world()), (1.0, 0.8, 0.2, 1.0), closed=editing.closed)
@@ -2470,7 +2489,7 @@ class Controller:
             key = f"pasador:{l.name}"
             wanted.add(key)
             scene.set_points(key, np.asarray(l.pin_center, float)[None], (1.0, 0.55, 0.1, 1.0), 10.0)
-            scene.show(key, l.name not in self.hidden)
+            scene.show(key, l.name not in self.hidden and self.group_visible("pins"))
         pin_keys = ("pasador:cara", "pasador:borde", "pasador:silueta", "pasador:vastago", "pasador:cabeza",
                     "pasador:centro", "pasador:auto")
         if editing is None:
@@ -2513,6 +2532,7 @@ class Controller:
                 scene.remove(k)
             if head is not None and head.pin_center is not None:
                 scene.set_points(keys[4], np.asarray(head.pin_center, float)[None], (1.0, 0.55, 0.1, 1.0), 10.0)
+                scene.show(keys[4], self.group_visible("pins"))
             else:
                 scene.remove(keys[4])
             return
@@ -2544,7 +2564,7 @@ class Controller:
                     continue
                 wanted.add(key)
                 scene.set_lines(key, np.asarray(poly), color, closed=True)
-                scene.show(key, l.name not in self.hidden)
+                scene.show(key, l.name not in self.hidden and self.group_visible("contours"))
         for key in [k for k in scene.items if k.startswith(("silueta:", "silueta2:")) and k not in wanted]:
             scene.remove(key)
         if editing is None:
