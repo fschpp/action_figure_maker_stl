@@ -13,7 +13,8 @@ from . import detent as DT
 from .hand import HAND_MIN_SHAFT_D, HAND_NAME, HandError, HandSpec, apply_hand
 from .head import HEAD_NAME, MIN_BASE_IOU, HeadSpec, below_neck, build_head, neck_plane, split_head
 from .joints import JointBuild, JointSpec, build_joint, flex_range, hinge_for, print_flex
-from .limbs import LimbSpec, ContactFace, check_limb_plane, pin_margin, separate_limb
+from .assembly import AssemblyError, PartChoice, PlacedPart, place_part
+from .limbs import LimbSpec, ContactFace, check_limb_plane, limb_prism, pin_margin, separate_limb
 from .params import Params
 from .pins import mushroom_pin
 from .planes import Plane
@@ -84,11 +85,16 @@ def _rotation_axis(face: ContactFace) -> np.ndarray:
 def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None = None,
           sit: bool = True, progress=None, trims: list[Trim] | None = None,
           head: HeadSpec | None = None, joints: list[JointSpec] | None = None,
-          waist: WaistSpec | None = None, hand: HandSpec | None = None) -> BuildResult:
+          waist: WaistSpec | None = None, hand: HandSpec | None = None,
+          parts: dict[str, PartChoice] | None = None) -> BuildResult:
     """Construye las piezas. `body` debe estar normalizado y con el plano de simetría en x = 0.
 
     `hand`: mano estándar (STL) que reemplaza a la del modelo; se pega en el lado +X antes de cortar los miembros, así
-    viaja con el brazo (o con el antebrazo, si hay codo) y el otro lado sale por espejo."""
+    viaja con el brazo (o con el antebrazo, si hay codo) y el otro lado sale por espejo.
+
+    `parts`: piezas de catálogo (`assembly.PartChoice`) por nombre de miembro (`LimbSpec.name`). En vez de cortar ese
+    miembro del modelo, se lleva la pieza al puerto que el modelo tiene en ese lugar (sin escala); el resto del flujo
+    (pasador, clic, barrido, tallado del torso, articulaciones) es el de siempre. Con `None` el resultado es idéntico."""
     say = progress or (lambda *_: None)
     trims = trims or []
     joints = list(joints or [])
@@ -99,6 +105,10 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
         if j.limb not in {l.name for l in limbs}:
             raise ValueError(f"la articulación «{j.name}» apunta al miembro «{j.limb}», que no existe")
         by_limb[j.limb] = j
+    parts = dict(parts or {})
+    for lname in parts:
+        if lname not in {l.name for l in limbs}:
+            raise ValueError(f"la pieza de catálogo «{parts[lname].meta.ref}» apunta al miembro «{lname}», que no existe")
     for spec in limbs:
         check_limb_plane(spec.plane)       # falla rápido: un plano de canto da piezas inservibles
     half = body.trim_by_plane((1.0, 0.0, 0.0), 0.0)          # lado de trabajo (+X)
@@ -123,9 +133,23 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
     cutters: list[S.Manifold] = []        # lo que se resta del torso: se repite sobre el lado −X si el torso no se espeja
     built: dict[str, dict] = {}
     detents: dict[str, DT.DetentLimb] = {}
+    placed: dict[str, PlacedPart] = {}
     for spec in limbs:
         say(f"Separando {spec.name}…")
-        limb_raw, face = separate_limb(half_nocav, spec, p.burr)
+        if spec.name in parts:
+            # El lugar lo define el miembro del modelo (su corte y su cara); la pieza de catálogo ocupa ese lugar.
+            _own, host_face = separate_limb(half_nocav, spec, p.burr)
+            try:
+                pp = place_part(parts[spec.name], spec.kind, host_face, p, p.ref_height)
+            except AssemblyError as exc:
+                raise ValueError(f"«{spec.name}»: {exc}") from exc
+            placed[spec.name] = pp
+            own_cut = S.intersection(half_nocav, limb_prism(spec))      # el miembro propio sale del torso
+            torso_half = S.difference(torso_half, own_cut)
+            cutters.append(own_cut)
+            limb_raw, face = pp.mesh, pp.face
+        else:
+            limb_raw, face = separate_limb(half_nocav, spec, p.burr)
         limb_raw = apply_trims(limb_raw, trims, spec.name)
         if hand_build is not None and spec.kind != "leg":
             if hand_build.pocket is None:
@@ -252,6 +276,8 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
             report["torso"] = {"espejado": False, "volumen_der_mm3": round(float(torso_half.volume()), 2),
                                "volumen_izq_mm3": round(float(other.volume()), 2)}
     pieces["torso"] = S.union(torso_half, S.mirror_x(torso_half) if torso_other is None else torso_other)
+    if placed:
+        report["piezas"] = {name: pp.report() for name, pp in placed.items()}
     if hand_build is not None:
         best = max(hand_cover, key=hand_cover.get) if hand_cover else None
         report["hand"] = {**hand_build.info, "miembro": best, "cobertura": None if best is None else round(hand_cover[best], 4)}
