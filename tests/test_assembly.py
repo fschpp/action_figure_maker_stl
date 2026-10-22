@@ -149,3 +149,40 @@ def test_catalog_hand_swivel_is_a_separate_piece_with_its_pocket(doll, project, 
     assert (arm ^ hand).volume() < 1e-6
     assert arm.min_gap(hand, 5.0) == pytest.approx(project.params.clearance, abs=0.1)
     assert res.hand is not None and res.hand["limb"] == "brazo"
+
+
+# --- gancho 4 (§4.3): cabeza de catálogo por el puerto `cuello` -------------------------------------------------------------
+
+def test_catalog_head_in_its_own_port_is_identity(doll, project, extracted, direct):
+    res = build(doll, project.limbs, project.params, head=project.head, parts={"cabeza": _choice(extracted["cabeza"])})
+    assert vol(res.pieces, "cabeza") == pytest.approx(vol(direct.pieces, "cabeza"), rel=0.005)
+    assert np.allclose(res.pieces["cabeza"].bounding_box(), direct.pieces["cabeza"].bounding_box(), atol=0.05)
+    r = res.report["piezas"]["cabeza"]
+    assert r["id"] == extracted["cabeza"].meta.id and r["lugar"] == "cuello" and r["compat"]["nivel"] in ("ok", "aviso")
+    val = validate(res, project.params, project.limbs)
+    assert val["ok"], val["problems"]
+    assert val["piezas"]["cabeza"]["pieza"] == extracted["cabeza"].meta.ref
+
+
+def test_catalog_head_is_placed_by_its_port_not_by_its_coordinates(doll, project, extracted, direct):
+    """La cabeza guardada en otro marco (girada 30° y trasladada, con su puerto llevado igual) se acopla al mismo cuello."""
+    import dataclasses
+
+    import trimesh
+
+    e = extracted["cabeza"]
+    T = trimesh.transformations.rotation_matrix(np.radians(30.0), [0, 0, 1], [3.0, -2.0, 0.0])
+    T[:3, 3] += [10.0, 5.0, -7.0]
+    mesh = e.mesh.copy()
+    mesh.apply_transform(T)
+    meta = dataclasses.replace(e.meta, puertos={k: v.transformed(T) for k, v in e.meta.puertos.items()})
+    res = build(doll, project.limbs, project.params, head=project.head, parts={"cabeza": PartChoice(meta, mesh)})
+    assert vol(res.pieces, "cabeza") == pytest.approx(vol(direct.pieces, "cabeza"), rel=0.005)
+    assert np.allclose(res.pieces["cabeza"].bounding_box(), direct.pieces["cabeza"].bounding_box(), atol=0.05)
+
+
+def test_catalog_head_needs_the_neck_plane_and_a_head_piece(doll, project, extracted):
+    with pytest.raises(ValueError, match="cuello"):
+        build(doll, project.limbs, project.params, head=None, parts={"cabeza": _choice(extracted["cabeza"])})
+    with pytest.raises(ValueError, match="cabeza"):
+        build(doll, project.limbs, project.params, head=project.head, parts={"cabeza": _choice(extracted["pierna"])})

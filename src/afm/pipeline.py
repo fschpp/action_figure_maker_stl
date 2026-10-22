@@ -108,6 +108,9 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
         by_limb[j.limb] = j
     parts = dict(parts or {})
     hand_source = _catalog_hand(parts.pop("mano")) if "mano" in parts else None      # (hand_local, meta) de la pieza `mano`
+    head_part = parts.pop("cabeza", None)                                           # pieza `cabeza` (puerto `cuello`)
+    if head_part is not None and head is None:
+        raise ValueError(f"la cabeza de catálogo «{head_part.meta.ref}» necesita el plano del cuello del modelo (HeadSpec)")
     for lname in parts:
         if lname not in {l.name for l in limbs}:
             raise ValueError(f"la pieza de catálogo «{parts[lname].meta.ref}» apunta al miembro «{lname}», que no existe")
@@ -117,7 +120,7 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
     head_build = None
     if head is not None:
         say("Separando la cabeza…")
-        split = split_head(body, head, p)
+        split = split_head(body, head, p, head_part)
         head_build = build_head(split, head, p, trims)
         half = split.body_half                                # los miembros se cortan del cuerpo sin cabeza
     hand_build = None
@@ -144,6 +147,8 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
     built: dict[str, dict] = {}
     detents: dict[str, DT.DetentLimb] = {}
     placed: dict[str, PlacedPart] = {}
+    if head_build is not None and split.placed is not None:
+        placed["cabeza"] = split.placed
     for spec in limbs:
         say(f"Separando {spec.name}…")
         if spec.name in parts:

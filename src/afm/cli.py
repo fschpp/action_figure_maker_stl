@@ -256,7 +256,7 @@ def main(argv=None) -> int:
                     place, sep, ref = item.partition("=")
                     if not sep or not place or not ref:
                         ap.error(f"--pieza «{item}»: se espera LUGAR=REF (p. ej. pierna=pierna-guemes-01)")
-                    if place != "mano" and place not in {l.name for l in project.limbs}:
+                    if place not in ("mano", "cabeza") and place not in {l.name for l in project.limbs}:
                         ap.error(f"--pieza «{item}»: el proyecto no tiene un miembro «{place}» "
                                  f"(hay: {', '.join(l.name for l in project.limbs) or 'ninguno'})")
                     pid, _ver = parse_ref(ref)

@@ -18,7 +18,7 @@ from .limbs import ContactFace
 from .ports import Compat, Port, PortFace, PortFrame, coupling_transform, port_compat
 
 # Clase de miembro del huésped (`LimbSpec.kind`) -> (tipo de pieza de catálogo, puerto de la pieza)
-LIMB_PART = {"arm": ("brazo", "hombro"), "leg": ("pierna", "cadera")}
+LIMB_PART = {"arm": ("brazo", "hombro"), "leg": ("pierna", "cadera"), "head": ("cabeza", "cuello")}
 
 
 class AssemblyError(ValueError):
@@ -113,7 +113,8 @@ def _face_triangles(port_face: PortFace, frame: PortFrame) -> np.ndarray:
 
 
 def place_part(choice: PartChoice, kind: str, host_face: ContactFace, params=None, host_height: float | None = None) -> PlacedPart:
-    """Lleva la pieza al lugar del miembro de tipo `kind` ("arm" | "leg") cuya cara de contacto en el huésped es `host_face`.
+    """Lleva la pieza al lugar del miembro de tipo `kind` ("arm" | "leg") —o de la cabeza, `kind = "head"`— cuya cara de
+    contacto en el huésped es `host_face` (para la cabeza, la cara del cuello; su `outward` mira hacia el cuerpo).
 
     Devuelve la malla colocada, la `ContactFace` equivalente (centro de pasador = centro del puerto) y la compatibilidad
     barata entre el puerto de la pieza y la toma del huésped."""
