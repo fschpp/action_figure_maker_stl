@@ -129,8 +129,13 @@ def main(argv=None) -> int:
     pr.add_argument("--gaps", default=None, help="solo clic: holguras punta/muesca; una placa por valor (por defecto 0.2,0.3,0.4)")
     pr.add_argument("--espesores", default=None, help="solo clic: espesores de lengüeta a probar (mm)")
     pr.add_argument("--axiales", default=None, help="solo bisagra: holguras axiales a probar, p. ej. 0.25,0.35,0.45")
+    from .catalog_cli import add_parsers
+    add_parsers(sub)
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO)
+    if args.cmd == "catalogo":
+        from .catalog_cli import run_catalogo
+        return run_catalogo(args)
     os.makedirs(args.out, exist_ok=True)
     if args.cmd == "extraer-mano":
         from .hand import HandError

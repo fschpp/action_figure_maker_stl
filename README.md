@@ -45,6 +45,16 @@ afm demo --out out/demo            # genera una figura sintética y la articula
 afm build figura.stl proyecto.json --out out/figura
 ```
 
+Catálogo de piezas de una línea (plan `docs/PLAN_piezas_intercambiables_catalogo.md`, fases 0–2):
+
+```bash
+afm catalogo crear ~/catalogos/proceres-130 --linea proceres-130 --altura 130
+afm catalogo importar-mano ~/catalogos/proceres-130 out/mano/mano.stl   # mano estándar de `afm extraer-mano`
+afm catalogo agregar-stl RUTA pierna.stl --tipo pierna --puerto cadera x1 y1 z1 x2 y2 z2 x3 y3 z3
+afm catalogo listar RUTA [--tipo mano] [--compatible-con brazo-01]
+afm catalogo verificar RUTA
+```
+
 ## Convenciones
 
 * Unidades: mm. Figura normalizada a `ref_height` mm de los pies a la coronilla (100 por defecto; se cambia en la GUI,

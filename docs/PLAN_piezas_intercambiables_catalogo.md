@@ -98,8 +98,8 @@ Lado de trabajo +X (izquierda); la derecha sale por espejo, como hoy. Las piezas
 ```
 <catalogo>/<linea>/
   linea.json                        # afm-linea-1: nombre, altura_mm, boquilla, params (perfil), versión del motor
-  piezas/<tipo>/<id>.stl            # malla cruda, mm reales, en el marco de la figura de origen (Z arriba, +Y frente, x = 0 simetría)
-  piezas/<tipo>/<id>.pieza.json     # afm-pieza-1 (Apéndice A)
+  piezas/<tipo>/<id>@<n>.stl            # malla cruda, mm reales, en el marco de la figura de origen (Z arriba, +Y frente, x = 0 simetría); <n> = versión
+  piezas/<tipo>/<id>@<n>.pieza.json     # afm-pieza-1 (Apéndice A)
   figuras/<personaje>.receta.json   # afm-receta-1: qué pieza va en cada lugar
   compat.json                       # caché de compatibilidad completa (generado)
   CATALOGO.md                       # índice legible (generado)
@@ -191,6 +191,8 @@ afm armar RUTA receta.json --out out/fig [--sin-soportes MM]
 
 ## 6. Fases
 
+> **Estado (2026-10-21):** Fase 0 (herramientas `tools/golden.py` y `tools/medir_interfaces.py`, dorados en `tests/golden/`), Fase 1 (`ports.py`, `parts.py`) y Fase 2 (`catalog.py`, `afm catalogo crear/listar/verificar/usos/importar-mano/agregar-stl/estado`) implementadas en la rama `piezas-intercambiables`. Desvíos del plan: los archivos de pieza llevan la versión en el nombre (`<id>@<n>.*`) para que las versiones sean inmutables y convivan; las caras se guardan como `poligonos` (contorno + agujeros, en (u, v) del puerto); `WristFrame` no se reemplazó por un alias (`PortFrame.from_wrist` lo convierte) para no tocar el motor antes de los dorados. Pendiente de la Fase 2: `catalogo/ejemplo` sintético (depende de la extracción de la Fase 3).
+
 **Fase 0: línea base y medición (sin cambiar comportamiento).**
 - Congelar **resultados dorados** de `make_doll` y de Güemes, Belgrano, Azurduy y Mickey (volumen por pieza, holguras, claves de `report`, `validate.ok`) en `tests/golden/` con una herramienta `tools/golden.py`.
 - `tools/medir_interfaces.py`: por figura y puerto, centro, eje, área y radio de la cara, margen del pasador y alcance del trozo de cadera; y la comparación entre figuras (IoU, escalón). Salida: `docs/MEDIDAS_interfaces.md` y `.json`.
@@ -275,12 +277,12 @@ Tornillos y tuercas, conectores desmontables, reescalado automático de piezas, 
              "motor": "<versión>", "fecha": "2026-10-21"},
   "altura_figura_mm": 130.0,
   "lado": "izq", "espejable": true,
-  "stl": "pierna-guemes-01.stl", "sha256": "<hash>", "volumen_mm3": 0.0, "bbox": [[0, 0, 0], [0, 0, 0]],
+  "stl": "pierna-guemes-01@1.stl", "sha256": "<hash>", "volumen_mm3": 0.0, "bbox": [[0, 0, 0], [0, 0, 0]],
   "puertos": {
     "cadera": {
       "clase": "cadera", "rol": "enchufe",
       "centro": [7.66, -1.27, 52.48], "eje": [-1, 0, 0], "ref": [0, 0, 1],
-      "cara": {"area_mm2": 146.3, "radio_eq_mm": 6.82, "poligono": [[0.0, 0.0]]},
+      "cara": {"area_mm2": 146.3, "radio_eq_mm": 6.82, "poligonos": [{"exterior": [[0.0, 0.0]], "interiors": []}]},
       "barrido_deg": [0, 95]
     }
   },
