@@ -10,7 +10,8 @@ import trimesh
 
 from . import solids as S
 from . import detent as DT
-from .hand import HAND_MIN_SHAFT_D, HAND_NAME, HandError, HandSpec, apply_hand
+from .hand import (HAND_MIN_SHAFT_D, HAND_NAME, HandError, HandSpec, WristFrame, WristSplit, apply_hand, attach_hand,
+                   load_standard_hand)
 from .head import HEAD_NAME, MIN_BASE_IOU, HeadSpec, below_neck, build_head, neck_plane, split_head
 from .joints import JointBuild, JointSpec, build_joint, flex_range, hinge_for, print_flex
 from .assembly import AssemblyError, PartChoice, PlacedPart, place_part
@@ -106,6 +107,7 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
             raise ValueError(f"la articulación «{j.name}» apunta al miembro «{j.limb}», que no existe")
         by_limb[j.limb] = j
     parts = dict(parts or {})
+    hand_source = _catalog_hand(parts.pop("mano")) if "mano" in parts else None      # (hand_local, meta) de la pieza `mano`
     for lname in parts:
         if lname not in {l.name for l in limbs}:
             raise ValueError(f"la pieza de catálogo «{parts[lname].meta.ref}» apunta al miembro «{lname}», que no existe")
@@ -120,9 +122,17 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
         half = split.body_half                                # los miembros se cortan del cuerpo sin cabeza
     hand_build = None
     hand_cover: dict[str, float] = {}
-    if hand is not None:
+    # Brazos de catálogo con puerto `muneca`: la mano va en ESE puerto (no en el plano de muñeca del modelo) y se pega
+    # al brazo ya puesto, dentro del bucle de miembros.
+    wrist_arms = {s.name for s in limbs if s.kind == "arm" and s.name in parts and "muneca" in parts[s.name].meta.puertos}
+    hand_spec = hand if hand is not None else (HandSpec(path=hand_source[1].get("archivo", "")) if hand_source else None)
+    host_hand = None if wrist_arms else hand_spec
+    if host_hand is not None and not host_hand.points:
+        raise ValueError("la mano de catálogo necesita el plano de muñeca del modelo (HandSpec.points) cuando el brazo no es de catálogo")
+    part_notes: dict[str, list] = {}
+    if host_hand is not None:
         say("Pegando la mano estándar…")
-        hand_build = apply_hand(half, hand, p.ref_height, p)
+        hand_build = apply_hand(half, host_hand, p.ref_height, p, source=hand_source)
         half = hand_build.body                                # la mano nueva viaja con el brazo que se corta abajo
     half_nocav = half                                         # con «giro» la cavidad del pasador se talla aparte (ver abajo)
     pocket_in_body = 0.0
@@ -151,6 +161,24 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
         else:
             limb_raw, face = separate_limb(half_nocav, spec, p.burr)
         limb_raw = apply_trims(limb_raw, trims, spec.name)
+        if spec.name in wrist_arms and hand_spec is None:
+            part_notes.setdefault(spec.name, []).append(
+                "el brazo de catálogo no trae mano y no se pidió ninguna (--mano o pieza «mano»): queda sin mano")
+        elif spec.name in wrist_arms:
+            if hand_build is not None:
+                raise ValueError("la mano estándar solo puede ir en un brazo de catálogo")
+            say(f"Mano estándar en {spec.name}…")
+            wp = parts[spec.name].meta.puertos["muneca"].transformed(placed[spec.name].T)
+            wf = WristFrame(wp.frame.center.copy(), wp.frame.axis.copy(), wp.frame.ref.copy())
+            src = hand_source or load_standard_hand(hand_spec.path)
+            face_r = float(wp.face.radius_eq) if wp.face is not None else 0.0
+            wsplit = WristSplit(hand=S.Manifold(), rest=limb_raw, frame=wf,
+                               face_area=float(np.pi * face_r ** 2), face_radius=face_r, hand_volume=0.0,
+                               rest_volume=float(limb_raw.volume()))
+            hand_build = attach_hand(wsplit, hand_spec, src[0], src[1], p.ref_height, p)
+            limb_raw = hand_build.body                       # «solape»: brazo + mano soldados; «giro»: el brazo solo
+            if hand_build.pocket is not None:
+                pocket_in_body = float(S.intersection(limb_raw, hand_build.pocket).volume())
         if hand_build is not None and spec.kind != "leg":
             if hand_build.pocket is None:
                 hand_cover[spec.name] = _hand_coverage(limb_raw, hand_build.hand)
@@ -264,7 +292,7 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
     torso_other = None
     if not p.torso_mirror:
         say("Torso sin espejar: lado −X…")
-        other, why = _other_side_half(body, p, head, hand)
+        other, why = _other_side_half(body, p, head, host_hand, hand_source)
         if other is None:
             log.warning("Torso sin espejar: %s; se espeja el lado +X", why)
             report["torso"] = {"espejado": True, "aviso": why}
@@ -278,6 +306,8 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
     pieces["torso"] = S.union(torso_half, S.mirror_x(torso_half) if torso_other is None else torso_other)
     if placed:
         report["piezas"] = {name: pp.report() for name, pp in placed.items()}
+        for name, notes in part_notes.items():
+            report["piezas"][name]["avisos"] = notes
     if hand_build is not None:
         best = max(hand_cover, key=hand_cover.get) if hand_cover else None
         report["hand"] = {**hand_build.info, "miembro": best, "cobertura": None if best is None else round(hand_cover[best], 4)}
@@ -336,7 +366,7 @@ def _place_hand_piece(hb, jb, joint, b: dict, th: float, p: Params, pieces: dict
     return {"limb": b["spec"].name, "piece0": hb.hand, "center": ends[0], "axis": (ends[1] - ends[0]), "pin": hb.pin}
 
 
-def _other_side_half(body: S.Manifold, p: Params, head: HeadSpec | None, hand: HandSpec | None):
+def _other_side_half(body: S.Manifold, p: Params, head: HeadSpec | None, hand: HandSpec | None, hand_source=None):
     """Lado −X real del cuerpo llevado a +X (espejado), con la misma cabeza cortada y la misma mano que el lado de
     trabajo, para tallarlo con los mismos barridos y volver a espejarlo: el torso conserva su diseño asimétrico.
     Devuelve (mitad, None) o (None, motivo) si no se pudo armar y hay que espejar el lado +X."""
@@ -348,10 +378,17 @@ def _other_side_half(body: S.Manifold, p: Params, head: HeadSpec | None, hand: H
         return None, "el lado −X del cuerpo quedó vacío"
     if hand is not None:
         try:
-            half = apply_hand(half, hand, p.ref_height).body
+            half = apply_hand(half, hand, p.ref_height, source=hand_source).body
         except HandError as exc:
             return None, f"no se pudo pegar la mano estándar en el lado −X ({exc})"
     return half, None
+
+
+def _catalog_hand(choice) -> tuple:
+    """Pieza `mano` de catálogo -> (mano en el marco estándar, metadatos), igual que `hand.load_standard_hand`."""
+    if choice.meta.tipo != "mano" or "muneca" not in choice.meta.puertos:
+        raise ValueError(f"«{choice.meta.ref}» es una pieza «{choice.meta.tipo}» y ese lugar pide una «mano» con puerto «muneca»")
+    return S.to_manifold(choice.mesh), {"altura_figura_mm": choice.meta.altura_figura_mm, "archivo": choice.meta.ref}
 
 
 def _hand_coverage(limb: S.Manifold, hand: S.Manifold) -> float:
@@ -528,6 +565,7 @@ def _validate_parts(res: BuildResult, out: dict) -> dict:
     pieza y la toma del huésped. «no» es un problema; «aviso» (escalón, IoU bajo, margen del pasador) queda listado."""
     info: dict = {}
     for lugar, r in res.report.get("piezas", {}).items():
+        out["avisos"].extend(f"{lugar}: {a}" for a in r.get("avisos", []))
         c = r.get("compat")
         info[lugar] = {"pieza": f"{r['id']}@{r['version']}", "nivel": None if c is None else c["nivel"],
                        "iou": None if c is None else c["iou"], "escalon_mm": None if c is None else c["escalon_mm"]}

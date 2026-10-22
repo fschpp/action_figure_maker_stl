@@ -88,3 +88,64 @@ def test_validation_of_the_placed_build_is_as_good_as_the_direct_one(doll, proje
     assert v1["problems"] == v0["problems"]
     gap0, gap1 = min(v0["gaps"].values()), min(v1["gaps"].values())
     assert gap1 >= 0.9 * project.params.clearance and gap1 >= gap0 - 0.02
+
+
+# --- gancho 3 (§4.3): la mano estándar va en el puerto `muneca` del brazo de catálogo -----------------------------------
+
+WRIST = [(22.0, 0.0, 50.0), (14.0, 0.0, 50.0), (18.0, 4.0, 50.0)]
+
+
+@pytest.fixture(scope="module")
+def wrist_pieces(doll, project):
+    r = extract_all(doll, project, "muneco", wrist_points=WRIST, figure="doll")
+    return {e.meta.tipo: e for e in r.pieces}
+
+
+def _choice(e):
+    return PartChoice(e.meta, e.mesh)
+
+
+def test_catalog_hand_on_catalog_arm_rebuilds_the_original_arm(doll, project, wrist_pieces, direct):
+    res = build(doll, project.limbs, project.params, head=project.head,
+                parts={"brazo": _choice(wrist_pieces["brazo"]), "mano": _choice(wrist_pieces["mano"])})
+    assert res.report["hand"]["escalon_mm"] == pytest.approx(0.0, abs=0.05)
+    assert res.report["hand"]["miembro"] == "brazo" and res.report["hand"]["cobertura"] == pytest.approx(1.0, abs=1e-3)
+    assert vol(res.pieces, "brazo_izq") == pytest.approx(vol(direct.pieces, "brazo_izq"), rel=0.03)
+    # brazo sin mano + mano soldada = el brazo de siempre, salvo el solape: la mano se hunde 0,5 mm (πr²·0,5 ≈ 25 mm³ de menos)
+    assert vol(res.pieces, "torso") == pytest.approx(vol(direct.pieces, "torso"), rel=0.01)
+    assert not any("volumen" in a for a in res.report["hand"]["avisos"])          # sin mano original no hay comparación de volumen
+    val = validate(res, project.params, project.limbs)
+    assert val["ok"], val["problems"]
+
+
+def test_arm_without_hand_is_reported(doll, project, wrist_pieces):
+    res = build(doll, project.limbs, project.params, head=project.head, parts={"brazo": _choice(wrist_pieces["brazo"])})
+    assert "hand" not in res.report
+    assert any("sin mano" in a for a in res.report["piezas"]["brazo"]["avisos"])
+    assert any("sin mano" in a for a in validate(res, project.params, project.limbs)["avisos"])
+
+
+def test_catalog_hand_must_be_a_hand(doll, project, wrist_pieces):
+    with pytest.raises(ValueError, match="mano"):
+        build(doll, project.limbs, project.params, head=project.head,
+              parts={"brazo": _choice(wrist_pieces["brazo"]), "mano": _choice(wrist_pieces["pierna"])})
+
+
+def test_catalog_hand_needs_wrist_points_if_the_arm_is_the_models(doll, project, wrist_pieces):
+    with pytest.raises(ValueError, match="plano de muñeca"):
+        build(doll, project.limbs, project.params, head=project.head, parts={"mano": _choice(wrist_pieces["mano"])})
+
+
+def test_catalog_hand_swivel_is_a_separate_piece_with_its_pocket(doll, project, wrist_pieces):
+    """Unión «giro» por el puerto: la mano es otra pieza, no toca el brazo y queda a ≈ `clearance`. (La validación de giro
+    libre no se exige acá: la «mano» del muñeco es un cilindro recortado por la silueta, descentrado respecto de la muñeca.)"""
+    from afm.hand import HandSpec
+
+    res = build(doll, project.limbs, project.params, head=project.head, hand=HandSpec(path="", join="giro"),
+                parts={"brazo": _choice(wrist_pieces["brazo"]), "mano": _choice(wrist_pieces["mano"])})
+    assert {"mano_izq", "mano_der"} <= set(res.pieces) and res.report["hand"]["union"] == "giro"
+    assert res.report["hand"]["pieza"] == "mano" and res.report["hand"]["cobertura"] == pytest.approx(1.0, abs=1e-3)
+    arm, hand = res.pieces["brazo_izq"], res.pieces["mano_izq"]
+    assert (arm ^ hand).volume() < 1e-6
+    assert arm.min_gap(hand, 5.0) == pytest.approx(project.params.clearance, abs=0.1)
+    assert res.hand is not None and res.hand["limb"] == "brazo"
