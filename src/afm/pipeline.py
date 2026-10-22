@@ -1066,10 +1066,15 @@ def _extend_thighs(res: BuildResult, pieces: dict, z_cut: float, p: Params) -> t
     out, rep = dict(pieces), {}
     body = [n for n in ("torso", PELVIS_NAME) if n in pieces]
     for limb, (_l, c, ax, (a0, a1)) in res.motion.items():
-        if limb == HEAD_NAME or a1 <= a0 or limb in res.detent:
+        if limb == HEAD_NAME or a1 <= a0:
+            continue
+        if limb in res.detent:
+            rep[limb] = {"aviso": "la cadera tiene mecanismo de clic (Parámetros → «Cadera: mecanismo de clic»): el relleno de muslos "
+                                  "todavía no lo contempla; probá con el clic de cadera apagado"}
             continue
         key = f"{_limb_piece_names(res, limb)[0]}_izq"
         if key not in out:
+            rep[limb] = {"aviso": f"no se encontró la pieza {key}"}
             continue
         r = next((r for r in res.report.get("joints", {}).values() if r["limb"] == limb), {})
         th = float(r.get("print_hip", p.sit_angle))
@@ -1078,12 +1083,14 @@ def _extend_thighs(res: BuildResult, pieces: dict, z_cut: float, p: Params) -> t
         lx0, _a, _b, lx1, _c, _d = out[key].bounding_box()
         slab = S.intersection(S.intersection(S.union(*[out[n] for n in body]), _box(z1=z_cut)), _box(lx0, lx1))
         if slab.is_empty() or slab.volume() < HIP_FILL_MIN_MM3:
+            rep[limb] = {"aviso": f"el plano de corte (z = {z_cut:.2f}) no saca pelvis sobre este muslo: no hay nada que rellenar"}
             continue
         thick = S.swept_offset([slab], cc, aa, 0.0, p.clearance + HIP_FILL_BRIDGE, 0.2, 3.0)
         shadow = S.Manifold.extrude(leg0.project(), z_cut + 1.0 - leg0.bounding_box()[2]).translate((0, 0, leg0.bounding_box()[2]))
         fill = S.intersection(S.intersection(thick, shadow), _box(lx0, lx1, z1=z_cut - p.clearance))
         fill = S.drop_small_components(fill, 0.0)
         if fill.is_empty() or fill.volume() < HIP_FILL_MIN_MM3:
+            rep[limb] = {"aviso": "la pelvis que saca el corte no queda sobre el muslo (o el barrido de la pierna la ocuparía): nada que pasarle"}
             continue
         new0 = S.drop_small_components(S.union(leg0, fill), 0.01)
         sweep = S.swept_offset([fill], cc, aa, float(a1), p.clearance, 0.2, 3.0)
