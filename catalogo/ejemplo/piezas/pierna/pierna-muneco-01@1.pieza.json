@@ -1,0 +1,97 @@
+{
+  "formato": "afm-pieza-1",
+  "id": "pierna-muneco-01",
+  "version": 1,
+  "tipo": "pierna",
+  "descripcion": "Pierna de muneco",
+  "origen": {
+    "figura": "muneco.stl",
+    "proyecto": "muneco.proyecto",
+    "motor": "0.2.0",
+    "fecha": "2026-10-22"
+  },
+  "altura_figura_mm": 100.0,
+  "lado": "izq",
+  "espejable": true,
+  "stl": "pierna-muneco-01@1.stl",
+  "sha256": "ab00957a91bac1e72686370ae1dcf0fbf1e414530d383e67281ea51a48c7de4a",
+  "volumen_mm3": 7634.0555,
+  "bbox": [
+    [
+      0.0,
+      -12.0,
+      0.0
+    ],
+    [
+      16.0,
+      12.0,
+      42.0
+    ]
+  ],
+  "puertos": {
+    "cadera": {
+      "clase": "cadera",
+      "rol": "enchufe",
+      "centro": [
+        13.34,
+        0.0,
+        38.0
+      ],
+      "eje": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "ref": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "cara": {
+        "area_mm2": 152.0773,
+        "radio_eq_mm": 6.9576,
+        "poligonos": [
+          {
+            "exterior": [
+              [
+                -4.0,
+                -5.485796
+              ],
+              [
+                -4.0,
+                5.485796
+              ],
+              [
+                -4.0,
+                9.504829
+              ],
+              [
+                4.0,
+                9.504829
+              ],
+              [
+                4.0,
+                -9.504829
+              ],
+              [
+                -4.0,
+                -9.504829
+              ]
+            ],
+            "interiors": []
+          }
+        ]
+      },
+      "barrido_deg": [
+        0.0,
+        95.0
+      ]
+    }
+  },
+  "articulaciones": [],
+  "mecanismo": null,
+  "estado": "borrador",
+  "etiquetas": [
+    "propia"
+  ]
+}

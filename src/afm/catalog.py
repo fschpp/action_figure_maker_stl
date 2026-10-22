@@ -215,6 +215,9 @@ class Catalog:
                 for nb, pb in other.puertos.items():
                     if pa.clase != pb.clase:
                         continue
+                    # el puerto «_der» es el «_izq» espejado: una pieza espejable ya se compara por el lado izquierdo
+                    if (nb.endswith("_der") and me.espejable) or (na.endswith("_der") and other.espejable):
+                        continue
                     c = port_compat(pa, pb, me.altura_figura_mm, other.altura_figura_mm, params)
                     if c.nivel != "no":
                         out.append((other, na, nb, c))

@@ -37,9 +37,9 @@ ID_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 # Puertos por tipo de pieza: nombre -> (rol, requerido). El nombre empieza con la clase del puerto (`hombro_izq`).
 PORT_SPEC: dict[str, dict[str, tuple[str, bool]]] = {
     "cabeza": {"cuello": ("enchufe", True)},
-    "torso": {"cuello": ("toma", True), "hombro_izq": ("toma", True), "hombro_der": ("toma", True),
+    "torso": {"cuello": ("toma", False), "hombro_izq": ("toma", True), "hombro_der": ("toma", True),
               "cadera_izq": ("toma", True), "cadera_der": ("toma", True)},
-    "torso_sup": {"cuello": ("toma", True), "hombro_izq": ("toma", True), "hombro_der": ("toma", True),
+    "torso_sup": {"cuello": ("toma", False), "hombro_izq": ("toma", True), "hombro_der": ("toma", True),
                   "cintura": ("toma", True)},
     "pelvis": {"cintura": ("enchufe", True), "cadera_izq": ("toma", True), "cadera_der": ("toma", True)},
     "brazo": {"hombro": ("enchufe", True), "muneca": ("toma", False), "codo": ("enchufe", False)},

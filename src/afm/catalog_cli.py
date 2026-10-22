@@ -11,7 +11,7 @@ from .ports import PortError, port_class, port_from_points
 
 
 def add_parsers(sub) -> None:
-    c = sub.add_parser("catalogo", help="catálogo de piezas de una línea (crear, listar, verificar, importar-mano, agregar-stl, usos, estado)")
+    c = sub.add_parser("catalogo", help="catálogo de piezas de una línea (crear, listar, verificar, importar-mano, agregar, agregar-stl, usos, estado)")
     cs = c.add_subparsers(dest="catcmd", required=True)
 
     def root(p):
@@ -56,6 +56,17 @@ def add_parsers(sub) -> None:
     a.add_argument("--figura", default="", help="figura de origen (texto, para el índice)")
     a.add_argument("--etiqueta", action="append", default=[], choices=P.TAGS)
     a.add_argument("--nueva-version", action="store_true")
+    a = cs.add_parser("agregar", help="extraer las piezas crudas de una figura ya configurada (STL + .proyecto) y guardarlas con sus puertos")
+    root(a)
+    a.add_argument("stl")
+    a.add_argument("proyecto")
+    a.add_argument("--lugares", default="todos", help="todos o una lista separada por comas de: cabeza, torso, brazo, pierna, mano")
+    a.add_argument("--prefijo", default=None, help="nombre del personaje para los ids (p. ej. guemes → pierna-guemes-01); por defecto el del STL")
+    a.add_argument("--muneca", type=float, nargs=9, default=None, metavar="N",
+                   help="x1 y1 z1 x2 y2 z2 x3 y3 z3 de la muñeca izquierda (marco de trabajo): el brazo sale sin mano y la mano como pieza aparte")
+    a.add_argument("--muneca-invertir", action="store_true", help="la mano es el lado grande del corte de muñeca")
+    a.add_argument("--etiqueta", action="append", default=[], choices=P.TAGS, help="estandar / propia (se aplica a todas las piezas)")
+    a.add_argument("--nueva-version", action="store_true", help="si un id ya existe, guardar la versión siguiente")
     a = cs.add_parser("estado", help="cambiar el estado de una pieza (borrador, validada, impresa)")
     root(a)
     a.add_argument("ref", metavar="ID")
@@ -151,6 +162,33 @@ def _run(args) -> int:
         print(f"Pieza guardada como {meta.ref} ({meta.volumen_mm3:.0f} mm³; puertos: {', '.join(meta.puertos)})")
         for w in warns:
             print("AVISO:", w)
+        return 0
+    if cmd == "agregar":
+        from .extract import ExtractError, extract_all, load_body
+        from .project import Project
+
+        project = Project.load(args.proyecto)
+        places = None if args.lugares == "todos" else [x.strip() for x in args.lugares.split(",") if x.strip()]
+        prefix = _slug(args.prefijo or os.path.splitext(os.path.basename(args.stl))[0])
+        body, _rep = load_body(args.stl, project, progress=print)
+        try:
+            res = extract_all(body, project, prefix, places, args.muneca, args.muneca_invertir,
+                              figure=os.path.basename(args.stl), project_name=os.path.basename(args.proyecto))
+        except ExtractError as exc:
+            raise CatalogError(str(exc)) from exc
+        if abs(project.params.clearance - cat.params.clearance) > 1e-9:
+            print(f"AVISO: la holgura del proyecto ({project.params.clearance:g} mm) difiere de la de la línea ({cat.params.clearance:g} mm): "
+                  "al armar manda la de la línea")
+        for w in res.warnings:
+            print("AVISO:", w)
+        if not res.pieces:
+            raise CatalogError("no se extrajo ninguna pieza")
+        for e in res.pieces:
+            e.meta.etiquetas = list(args.etiqueta)
+            meta, warns = cat.add_piece(e.mesh, e.meta, args.nueva_version)
+            print(f"{meta.ref:<28} {meta.tipo:<10} {meta.volumen_mm3:>9.0f} mm³  puertos: {', '.join(meta.puertos)}")
+            for w in warns:
+                print("AVISO:", w)
         return 0
     if cmd == "estado":
         m = cat.set_state(args.ref, args.nuevo)
