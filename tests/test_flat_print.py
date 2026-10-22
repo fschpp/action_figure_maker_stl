@@ -202,8 +202,15 @@ def test_export_message_reports_the_thigh_fill():
 
 def test_thigh_fill_says_why_it_is_skipped():
     import dataclasses
-    res = synthetic()
-    res.detent["pierna"] = object()                       # cadera con mecanismo de clic: todavía no se rellena
+    res = synthetic(torso_half=0.1)                       # el torso no llega hasta el muslo: el corte no le saca pelvis
     _pieces, info = P.flat_for_print(res, 1.0, dataclasses.replace(Params(), flat_fill_hip=True))
-    assert "clic" in info["relleno_cadera"]["pierna"]["aviso"]
-    assert any(a.startswith("pierna:") and "clic" in a for a in info["avisos"])
+    assert "no hay nada que rellenar" in info["relleno_cadera"]["pierna"]["aviso"]
+    assert any(a.startswith("pierna:") and "nada que rellenar" in a for a in info["avisos"])
+
+
+def test_thigh_fill_with_hip_click_is_not_skipped():
+    import dataclasses
+    res = synthetic()
+    res.detent["pierna"] = object()                       # cadera con clic: ya no se saltea (el usuario lo pidió)
+    _pieces, info = P.flat_for_print(res, 1.0, dataclasses.replace(Params(), flat_fill_hip=True))
+    assert not any("mecanismo de clic" in a for a in info["avisos"])

@@ -582,7 +582,7 @@ En naranja se ve el contorno del pasador (vástago y cabeza); en verde, la posic
         self.chk_fill_hip.set_tooltip_text("El corte plano le saca a la pelvis una loncha y de pie queda un hueco contra el muslo. Con esto el muslo se \
 queda con esa loncha y la pelvis se talla de nuevo alrededor (el muslo gira libre hasta el límite de cadera). Se nota al \
 exportar; tarda un poco más.")
-        self.chk_fill_hip.connect("toggled", lambda b: None if self._updating else self.ctrl.set_flat_fill_hip(b.get_active()))
+        self.chk_fill_hip.connect("toggled", lambda b: None if self._updating else self._on_fill_hip_toggled(b))
         sub.append(self.chk_fill_hip)
         self.btn_flat_plane = self._button("Ajustar la altura del corte (vista Derecha, figura sentada)", lambda *_: self._on_flat_plane())
         self.btn_flat_plane.set_tooltip_text("Muestra la figura generada sentada, de costado, con el plano horizontal del corte «sin soportes». "
@@ -1027,6 +1027,32 @@ exportar; tarda un poco más.")
         self._anim_id = self.cube_area.add_tick_callback(tick)
 
     # ------------------------------------------------------------------ acciones
+    def _on_fill_hip_toggled(self, btn) -> None:
+        """Con el clic de cadera encendido el relleno puede cortar las lengüetas: se pide confirmación antes de activarlo."""
+        if not btn.get_active() or not self.ctrl.session.project.params.hip_detent:
+            self.ctrl.set_flat_fill_hip(btn.get_active())
+            return
+
+        def answered(dlg, result) -> None:
+            try:
+                ok = dlg.choose_finish(result) == 1
+            except Exception:                       # cerrado sin elegir
+                ok = False
+            if ok:
+                self.ctrl.set_flat_fill_hip(True)
+            else:
+                self._updating = True
+                try:
+                    btn.set_active(False)
+                finally:
+                    self._updating = False
+
+        dlg = Gtk.AlertDialog(message="La cadera tiene mecanismo de clic",
+                              detail="Rellenar los muslos talla la pelvis alrededor del muslo alargado y puede cortar las lengüetas del clic: "
+                                     "el clic de la cadera podría dejar de funcionar. Al exportar se informa cuánto se pierde. ¿Rellenar igual?",
+                              buttons=["Cancelar", "Rellenar igual"], cancel_button=0, default_button=0)
+        dlg.choose(self, None, answered)
+
     def _on_flat_toggled(self, on: bool) -> None:
         self.chk_fill_hip.set_sensitive(on)
         self.ctrl.set_flat_print(on)

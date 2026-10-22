@@ -1068,10 +1068,6 @@ def _extend_thighs(res: BuildResult, pieces: dict, z_cut: float, p: Params) -> t
     for limb, (_l, c, ax, (a0, a1)) in res.motion.items():
         if limb == HEAD_NAME or a1 <= a0:
             continue
-        if limb in res.detent:
-            rep[limb] = {"aviso": "la cadera tiene mecanismo de clic (Parámetros → «Cadera: mecanismo de clic»): el relleno de muslos "
-                                  "todavía no lo contempla; probá con el clic de cadera apagado"}
-            continue
         key = f"{_limb_piece_names(res, limb)[0]}_izq"
         if key not in out:
             rep[limb] = {"aviso": f"no se encontró la pieza {key}"}
@@ -1095,19 +1091,34 @@ def _extend_thighs(res: BuildResult, pieces: dict, z_cut: float, p: Params) -> t
         new0 = S.drop_small_components(S.union(leg0, fill), 0.01)
         sweep = S.swept_offset([fill], cc, aa, float(a1), p.clearance, 0.2, 3.0)
         carved = {n: S.difference(out[n], sweep, S.mirror_x(sweep)) for n in body}
+        lost_tabs = None
+        if limb in res.detent:                                           # las lengüetas que quedan sueltas se pierden (se avisa)
+            carved = {n: S.drop_small_components(m, 0.02) for n, m in carved.items()}
+        ref = res.detent_ref if limb in res.detent else None             # con clic: el cuerpo sin lengüetas es la referencia del giro libre
+        if ref is not None:
+            wide = _box(y0=cc[1] - 40, y1=cc[1] + 40, z0=cc[2] - 40, z1=cc[2] + 40)
+            tabs = lambda ps: float(S.difference(S.intersection(S.union(*[ps[n] for n in body]), wide), ref).volume())
+            lost_tabs = tabs(out) - tabs(carved)
         for n in body:
             if len(carved[n].decompose()) > len(out[n].decompose()):
                 rep[limb] = {"aviso": f"el tallado parte {n} en piezas sueltas; no se rellena el muslo"}
         if limb in rep:
             continue
         rho = float(np.linalg.norm(np.cross(S.to_trimesh(fill).vertices - cc, aa), axis=1).max()) + 2.0
-        crop = S.intersection(S.union(*[carved[n] for n in body]), _box(lx0 - 1, lx1 + 1, cc[1] - rho, cc[1] + rho, cc[2] - rho, cc[2] + rho))
+        near = _box(lx0 - 1, lx1 + 1, cc[1] - rho, cc[1] + rho, cc[2] - rho, cc[2] + rho)
+        crop = (S.difference(S.intersection(ref, near), sweep, S.mirror_x(sweep)) if ref is not None
+                else S.intersection(S.union(*[carved[n] for n in body]), near))
         worst = max(float(S.intersection(S.rotate_about_axis(new0, cc, aa, a), crop).volume())
                     for a in np.arange(0.0, a1 + 1e-6, 5.0))
         gap = float(new0.min_gap(crop, 3.0))
         rep[limb] = {"volumen_muslo_agregado_mm3": round(float(new0.volume() - leg0.volume()), 1),
                      "volumen_pelvis_tallado_mm3": round(float(sum(out[n].volume() - carved[n].volume() for n in body)), 1),
                      "choque_max_mm3": round(worst, 3), "holgura_de_pie_mm": round(gap, 3), "angulo_pose": th}
+        if lost_tabs is not None:
+            rep[limb]["lengueta_clic_perdida_mm3"] = round(lost_tabs, 2)
+            if lost_tabs > 1e-3:
+                rep[limb]["advertencia"] = (f"el relleno corta las lengüetas del clic de la cadera ({lost_tabs:.1f} mm³): "
+                                            "el clic puede dejar de funcionar")
         if worst > 1e-3:
             rep[limb]["aviso"] = f"el relleno choca con la pelvis al girar ({worst:.2f} mm³); no se rellena el muslo"
             continue
@@ -1174,7 +1185,7 @@ def flat_for_print(res: BuildResult, depth: float = 1.0, p: Params | None = None
             filled, fill_rep = _extend_thighs(res, pieces, z1, p)
         if fill_rep:
             info["relleno_cadera"] = fill_rep
-            info["avisos"] += [f"{k}: {v['aviso']}" for k, v in fill_rep.items() if "aviso" in v]
+            info["avisos"] += [f"{k}: {v[w]}" for k, v in fill_rep.items() for w in ("aviso", "advertencia") if w in v]
         pieces = filled
     z_cut = body_base_z(pieces) + depth
     info["altura_corte_z"] = round(float(z_cut), 3)
