@@ -518,8 +518,25 @@ def validate(res: BuildResult, p: Params, limbs: list[LimbSpec], sit: bool = Tru
     out["cadena"] = _validate_chain(res, p, out)
     out["cintura"] = _validate_waist(res, p, out)
     out["mano"] = _validate_hand(res, p, out)
+    out["piezas"] = _validate_parts(res, out)
     out["ok"] = not out["problems"]
     return out
+
+
+def _validate_parts(res: BuildResult, out: dict) -> dict:
+    """Piezas de catálogo puestas en el modelo: la compatibilidad barata (`ports.port_compat`) entre el puerto de la
+    pieza y la toma del huésped. «no» es un problema; «aviso» (escalón, IoU bajo, margen del pasador) queda listado."""
+    info: dict = {}
+    for lugar, r in res.report.get("piezas", {}).items():
+        c = r.get("compat")
+        info[lugar] = {"pieza": f"{r['id']}@{r['version']}", "nivel": None if c is None else c["nivel"],
+                       "iou": None if c is None else c["iou"], "escalon_mm": None if c is None else c["escalon_mm"]}
+        if c is None:
+            continue
+        if c["nivel"] == "no":
+            out["problems"].append(f"{lugar}: la pieza {r['id']}@{r['version']} no es compatible: " + "; ".join(c["motivos"]))
+        out["avisos"].extend(f"{lugar} ({r['id']}@{r['version']}): {a}" for a in c["avisos"])
+    return info
 
 
 def hip_pin_walls(spec_pin, center, direction, clearance: float) -> dict:

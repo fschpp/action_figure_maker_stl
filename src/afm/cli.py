@@ -14,7 +14,10 @@ from .testfigure import make_doll
 
 
 def run(stl_path: str, project: Project, outdir: str, name: str, progress=print, orient: bool | str = False,
-        max_angle: float = 45.0, flat: float | None = None) -> dict:
+        max_angle: float = 45.0, flat: float | None = None, catalog_root: str | None = None) -> dict:
+    from .assembly import resolve_parts
+
+    parts = resolve_parts(project.parts, catalog_root) if project.parts else None
     mesh, rep = meshio.load_figure(stl_path, project.params.ref_height, project.crown_z)
     for w in rep.warnings:
         progress(f"AVISO: {w}")
@@ -24,7 +27,7 @@ def run(stl_path: str, project: Project, outdir: str, name: str, progress=print,
     body = S.to_manifold(mesh)
     res = P.build(body, project.limbs, project.params, project.symmetry, progress=progress,
                   trims=project.trims, head=project.head, joints=project.joints, waist=project.waist,
-                  hand=project.hand)
+                  hand=project.hand, parts=parts)
     val = P.validate(res, project.params, project.limbs, joints=project.joints)
     files = P.export(res, outdir, name, orient=orient, max_angle=max_angle, flat=flat, params=project.params)
     info = {"carga": rep.__dict__, "construccion": res.report, "validacion": val, "archivos": files}
@@ -108,6 +111,11 @@ def main(argv=None) -> int:
                    help="cuánto se hunde la base de la mano en el brazo (por defecto 0,5 mm)")
     b.add_argument("--cadera-referencia", action="store_true",
                    help="usar el pasador de cadera de la figura de referencia (Ø4,8 / cabeza Ø9,25 × 2,44, mm absolutos)")
+    b.add_argument("--catalogo", default=None, metavar="RUTA",
+                   help="catálogo de piezas de la línea (por defecto $AFM_CATALOGO o ~/.local/share/afm/catalogos/<línea>)")
+    b.add_argument("--pieza", action="append", default=[], metavar="LUGAR=REF",
+                   help="usar la pieza de catálogo REF (id o id@versión) en el miembro LUGAR del proyecto (p. ej. pierna=pierna-guemes-01); "
+                        "repetible. Queda guardada en el .proyecto de salida")
     b.add_argument("--max-angle", type=float, default=45.0, help="ángulo de voladizo tolerado (grados desde la vertical)")
     e = sub.add_parser("extraer-mano", help="cortar la mano de una figura por un plano de muñeca de 3 puntos y guardarla como mano estándar")
     e.add_argument("stl")
@@ -236,6 +244,26 @@ def main(argv=None) -> int:
             project.hand = HandSpec(path=path, points=pts, yaw=yaw, overlap=overlap,
                                     invert=bool(args.mano_invertir or (cur.invert if cur else False)),
                                     join=args.mano_union or (cur.join if cur else "solape"))
+        if args.pieza:
+            from .catalog import Catalog, CatalogError, parse_ref
+            from .project import PartRef
+            root = args.catalogo or os.environ.get("AFM_CATALOGO")
+            if root is None:
+                ap.error("--pieza necesita el catálogo: pasá --catalogo RUTA (o definí AFM_CATALOGO)")
+            try:
+                cat = Catalog.open(root)
+                for item in args.pieza:
+                    place, sep, ref = item.partition("=")
+                    if not sep or not place or not ref:
+                        ap.error(f"--pieza «{item}»: se espera LUGAR=REF (p. ej. pierna=pierna-guemes-01)")
+                    if place not in {l.name for l in project.limbs}:
+                        ap.error(f"--pieza «{item}»: el proyecto no tiene un miembro «{place}» "
+                                 f"(hay: {', '.join(l.name for l in project.limbs) or 'ninguno'})")
+                    pid, _ver = parse_ref(ref)
+                    project.parts[place] = PartRef(pid, cat.meta(ref).version, cat.name)     # fija la versión elegida
+            except CatalogError as exc:
+                print(f"ERROR (catálogo): {exc}", file=sys.stderr)
+                return 2
         if args.cadera_referencia:
             project.params = project.params.with_hip_reference()
         if args.rellenar_muslos:
@@ -243,12 +271,16 @@ def main(argv=None) -> int:
         flat = args.sin_soportes
         if flat is not None and flat < 0:
             flat = project.params.flat_depth
+        from .assembly import AssemblyError
         from .hand import HandError
         try:
             info = run(args.stl, project, args.out, name, orient="auto" if args.orient_auto else args.orient,
-                       max_angle=args.max_angle, flat=flat)
+                       max_angle=args.max_angle, flat=flat, catalog_root=args.catalogo)
         except HandError as exc:
             print(f"ERROR (mano): {exc}", file=sys.stderr)
+            return 2
+        except AssemblyError as exc:
+            print(f"ERROR (pieza de catálogo): {exc}", file=sys.stderr)
             return 2
     val = info["validacion"]
     print("Validación:", "OK" if val["ok"] else "CON PROBLEMAS")
@@ -256,6 +288,9 @@ def main(argv=None) -> int:
         print(" -", pr)
     for av in val.get("avisos", []) + val.get("avisos_pasador", []):
         print(" AVISO:", av)
+    for lugar, r in (val.get("piezas") or {}).items():
+        print(f"Pieza de catálogo en {lugar}: {r['pieza']} — compatibilidad {r['nivel']}"
+              + ("" if r["iou"] is None else f" (IoU {r['iou']:.2f}, escalón {r['escalon_mm']:.2f} mm)"))
     print("Holguras mínimas (mm):", val["gaps"])
     ori = info["archivos"].get("orientacion")
     if ori:

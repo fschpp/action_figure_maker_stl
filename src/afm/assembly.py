@@ -133,3 +133,24 @@ def place_part(choice: PartChoice, kind: str, host_face: ContactFace, params=Non
     except Exception as exc:           # la compatibilidad es informativa: no debe impedir armar
         compat = Compat("aviso", avisos=[f"no se pudo medir la compatibilidad: {exc}"])
     return PlacedPart(choice, kind, S.to_manifold(mesh), face, T, placed_port, compat)
+
+
+def resolve_parts(refs: dict, catalog_root: str | None = None) -> dict[str, PartChoice]:
+    """`Project.parts` (lugar -> `PartRef`) -> `pipeline.build(parts=)`. Abre el catálogo de la línea de cada pieza:
+    `catalog_root` si se da, si no `$AFM_CATALOGO` o la ruta por defecto de la línea (`catalog.default_root`)."""
+    from .catalog import Catalog, CatalogError, default_root
+
+    opened: dict[str, Catalog] = {}
+    out: dict[str, PartChoice] = {}
+    for place, r in refs.items():
+        root = catalog_root or (default_root(r.linea) if r.linea else None)
+        if root is None:
+            raise AssemblyError(f"«{place}»: la pieza «{r.ref}» no dice de qué línea es: pasá --catalogo RUTA")
+        try:
+            cat = opened.get(root) or opened.setdefault(root, Catalog.open(root))
+            if r.linea and cat.name != r.linea:
+                raise AssemblyError(f"«{place}»: la pieza «{r.ref}» es de la línea «{r.linea}» y el catálogo es el de «{cat.name}»")
+            out[place] = PartChoice.from_catalog(cat, r.ref)
+        except CatalogError as exc:
+            raise AssemblyError(f"«{place}»: {exc}") from exc
+    return out
