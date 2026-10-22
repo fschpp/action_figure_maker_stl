@@ -186,3 +186,55 @@ def test_catalog_head_needs_the_neck_plane_and_a_head_piece(doll, project, extra
         build(doll, project.limbs, project.params, head=None, parts={"cabeza": _choice(extracted["cabeza"])})
     with pytest.raises(ValueError, match="cabeza"):
         build(doll, project.limbs, project.params, head=project.head, parts={"cabeza": _choice(extracted["pierna"])})
+
+
+# ---------------------------------------------------------------- gancho 1: huésped sintetizado
+def _choices(extracted, *tipos):
+    return {t: PartChoice(extracted[t].meta, extracted[t].mesh) for t in tipos}
+
+
+def test_host_needs_a_torso(extracted):
+    from afm.assembly import synthesize_host
+    with pytest.raises(AssemblyError):
+        synthesize_host(_choices(extracted, "brazo", "pierna"))
+    with pytest.raises(AssemblyError):
+        synthesize_host({"torso": PartChoice(extracted["brazo"].meta, extracted["brazo"].mesh)})
+
+
+def test_synthesized_host_pieces(extracted, project):
+    from afm.assembly import synthesize_host
+    h = synthesize_host(_choices(extracted, "torso", "brazo", "pierna", "cabeza"), project.params)
+    assert {l.name for l in h.limbs} == {"brazo", "pierna"} and set(h.faces) == {"brazo", "pierna"}
+    assert h.head is not None and h.waist is None
+    assert set(h.parts) == {"brazo", "pierna", "cabeza"}
+    assert all(f.triangles is not None and f.area > 10 for f in h.faces.values())
+
+
+def test_built_only_from_parts_matches_direct(extracted, project, direct):
+    from afm.pipeline import build_from_parts
+    res = build_from_parts(_choices(extracted, "torso", "brazo", "pierna", "cabeza"), project.params)
+    assert set(res.pieces) == set(direct.pieces)
+    for nm in direct.pieces:
+        tol = 0.02 if nm == "torso" else 0.005
+        assert vol(res.pieces, nm) == pytest.approx(vol(direct.pieces, nm), rel=tol), nm
+    assert set(res.report["piezas"]) == {"brazo", "pierna", "cabeza"}
+    v = validate(res, project.params, project.limbs)
+    assert v["ok"], v
+
+
+def test_built_from_waist_pieces_has_pelvis(doll, project):
+    """Con cintura: torso_sup + pelvis se sueldan y `build_waist` las vuelve a partir."""
+    import copy
+    from afm.pipeline import build_from_parts
+    from afm.planes import Plane
+    from afm.waist import WaistSpec
+    pr = copy.deepcopy(project)
+    pr.waist = WaistSpec(Plane.from_points((-5, -5, 55), (5, -5, 55), (0, 5, 55), "cintura"))
+    r = extract_all(doll, pr, "muneco", figure="doll")
+    ex = {e.meta.tipo: e for e in r.pieces}
+    direct_w = build(doll, pr.limbs, pr.params, head=pr.head, waist=pr.waist)
+    res = build_from_parts(_choices(ex, "torso_sup", "pelvis", "brazo", "pierna", "cabeza"), pr.params)
+    assert set(res.pieces) == set(direct_w.pieces) and "pelvis" in res.pieces
+    for nm in ("torso", "pelvis"):
+        assert vol(res.pieces, nm) == pytest.approx(vol(direct_w.pieces, nm), rel=0.03), nm
+    assert res.waist is not None

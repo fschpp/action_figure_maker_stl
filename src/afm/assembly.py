@@ -9,7 +9,7 @@ Este módulo no importa `pipeline` ni `extract` a nivel de módulo (`pipeline` l
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -155,3 +155,92 @@ def resolve_parts(refs: dict, catalog_root: str | None = None) -> dict[str, Part
         except CatalogError as exc:
             raise AssemblyError(f"«{place}»: {exc}") from exc
     return out
+
+
+# ------------------------------------------------------------------ huésped sintetizado (gancho 1 del plan, §4.3)
+# Tipo de miembro -> (nombre del miembro en el huésped sintetizado, puerto de la toma en el torso, tipo de pieza)
+HOST_LIMBS = {"brazo": ("arm", "hombro_izq"), "pierna": ("leg", "cadera_izq")}
+
+
+@dataclass
+class SyntheticHost:
+    """Lo que `pipeline.build` necesita cuando no hay figura de origen: el cuerpo armado con piezas de catálogo."""
+
+    body: S.Manifold
+    limbs: list
+    faces: dict                 # nombre de miembro -> ContactFace de la toma del torso (en vez de `separate_limb`)
+    parts: dict                 # lo que queda de `parts` (miembros, mano, cabeza) para `build(parts=)`
+    head: object | None = None  # HeadSpec desde el puerto `cuello` del torso
+    waist: object | None = None  # WaistSpec desde el puerto `cintura`
+    notes: list = field(default_factory=list)
+
+
+def _choice_mesh(choice: PartChoice, T=None):
+    m = choice.mesh.copy()
+    if T is not None:
+        m.apply_transform(T)
+    return S.to_manifold(m)
+
+
+def synthesize_host(parts: dict, params=None) -> SyntheticHost:
+    """Arma el huésped con el torso de catálogo: `torso` (entero) o `torso_sup` + `pelvis` (se sueldan y `build_waist` las
+    vuelve a partir con el `WaistSpec` armado desde el puerto `cintura`). Cada miembro de `parts` (`brazo`, `pierna`) se
+    acopla a la toma del torso (`hombro_izq`, `cadera_izq`); la cabeza (pieza `cabeza`) se suma al cuerpo en su propio
+    cuello para que `split_head` la corte y la reemplace, como con una figura. Sin escala, todo rígido."""
+    from .head import HeadSpec
+    from .limbs import LimbSpec
+    from .planes import Plane
+    from .waist import WaistSpec
+
+    parts = dict(parts)
+    notes: list = []
+    if "torso" in parts:
+        upper = lower = parts.pop("torso")
+        if upper.meta.tipo != "torso":
+            raise AssemblyError(f"«{upper.meta.ref}» es una pieza «{upper.meta.tipo}» y ese lugar pide «torso»")
+        if "torso_sup" in parts or "pelvis" in parts:
+            raise AssemblyError("se pidió «torso» entero y también «torso_sup»/«pelvis»: elegí uno")
+    elif "torso_sup" in parts and "pelvis" in parts:
+        upper, lower = parts.pop("torso_sup"), parts.pop("pelvis")
+        for ch, tipo in ((upper, "torso_sup"), (lower, "pelvis")):
+            if ch.meta.tipo != tipo:
+                raise AssemblyError(f"«{ch.meta.ref}» es una pieza «{ch.meta.tipo}» y ese lugar pide «{tipo}»")
+    else:
+        raise AssemblyError("sin figura de origen hace falta una pieza «torso» (o «torso_sup» y «pelvis»)")
+    waist = None
+    body = _choice_mesh(upper)
+    if upper is not lower:
+        cp = upper.meta.puertos.get("cintura")
+        if cp is None:
+            raise AssemblyError(f"«{upper.meta.ref}» no tiene el puerto «cintura»")
+        body = S.union(body, _choice_mesh(lower))
+        waist = WaistSpec(plane=Plane.from_normal(cp.frame.center, -cp.frame.axis, "cintura"))
+    head = None
+    if "cabeza" in parts:
+        hc = parts["cabeza"]
+        neck = upper.meta.puertos.get("cuello")
+        if neck is None:
+            raise AssemblyError(f"«{upper.meta.ref}» no tiene puerto «cuello»: no se le puede poner la cabeza «{hc.meta.ref}»")
+        T = coupling_transform(hc.port("head").frame, neck.frame)
+        body = S.union(body, _choice_mesh(hc, T))       # la cabeza «original» del huésped: build la corta y pone la de catálogo
+        head = HeadSpec(plane=Plane.from_normal(neck.frame.center, neck.frame.axis, "cuello"))
+    limbs, faces = [], {}
+    for name, (kind, tomas) in HOST_LIMBS.items():
+        if name not in parts:
+            continue
+        owner = upper if kind == "arm" else lower
+        toma = owner.meta.puertos.get(tomas)
+        if toma is None:
+            raise AssemblyError(f"«{owner.meta.ref}» no tiene el puerto «{tomas}»: no se le puede poner «{parts[name].meta.ref}»")
+        out = -np.asarray(toma.frame.axis, float)          # `ContactFace.outward` sale del miembro hacia el torso
+        tris = None if toma.face is None else _face_triangles(toma.face, toma.frame)
+        faces[name] = ContactFace(np.asarray(toma.frame.center, float).copy(), out,
+                                  float(toma.face.area if toma.face is not None else 0.0), tris)
+        lp = parts[name].port(kind)
+        mech = (parts[name].meta.mecanismo or {}).get("mechanism")
+        c = np.asarray(toma.frame.center, float)
+        limbs.append(LimbSpec(name=name, kind=kind, plane=Plane.from_normal(c, toma.frame.axis, name),
+                              polygon=np.zeros((3, 3)), thickness=1.0, contact_axis=tuple(abs(float(x)) for x in toma.frame.axis),
+                              pin_center=tuple(float(x) for x in c), sweep_deg=None if lp.sweep_deg is None else tuple(lp.sweep_deg),
+                              mechanism=mech))
+    return SyntheticHost(body, limbs, faces, parts, head, waist, notes)

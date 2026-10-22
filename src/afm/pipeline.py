@@ -87,7 +87,7 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
           sit: bool = True, progress=None, trims: list[Trim] | None = None,
           head: HeadSpec | None = None, joints: list[JointSpec] | None = None,
           waist: WaistSpec | None = None, hand: HandSpec | None = None,
-          parts: dict[str, PartChoice] | None = None) -> BuildResult:
+          parts: dict[str, PartChoice] | None = None, host_faces: dict | None = None) -> BuildResult:
     """Construye las piezas. `body` debe estar normalizado y con el plano de simetría en x = 0.
 
     `hand`: mano estándar (STL) que reemplaza a la del modelo; se pega en el lado +X antes de cortar los miembros, así
@@ -107,6 +107,12 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
             raise ValueError(f"la articulación «{j.name}» apunta al miembro «{j.limb}», que no existe")
         by_limb[j.limb] = j
     parts = dict(parts or {})
+    host_faces = dict(host_faces or {})
+    for lname in host_faces:
+        if lname not in parts:
+            raise ValueError(f"«{lname}»: hay una toma sintetizada pero no una pieza de catálogo para ese lugar")
+    if host_faces and not p.torso_mirror:
+        raise ValueError("el huésped sintetizado con piezas de catálogo todavía no admite torso_mirror = False")
     hand_source = _catalog_hand(parts.pop("mano")) if "mano" in parts else None      # (hand_local, meta) de la pieza `mano`
     head_part = parts.pop("cabeza", None)                                           # pieza `cabeza` (puerto `cuello`)
     if head_part is not None and head is None:
@@ -153,15 +159,19 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
         say(f"Separando {spec.name}…")
         if spec.name in parts:
             # El lugar lo define el miembro del modelo (su corte y su cara); la pieza de catálogo ocupa ese lugar.
-            _own, host_face = separate_limb(half_nocav, spec, p.burr)
+            if spec.name in host_faces:
+                host_face = host_faces[spec.name]               # huésped sintetizado: la toma sale del puerto del torso
+            else:
+                _own, host_face = separate_limb(half_nocav, spec, p.burr)
             try:
                 pp = place_part(parts[spec.name], spec.kind, host_face, p, p.ref_height)
             except AssemblyError as exc:
                 raise ValueError(f"«{spec.name}»: {exc}") from exc
             placed[spec.name] = pp
-            own_cut = S.intersection(half_nocav, limb_prism(spec))      # el miembro propio sale del torso
-            torso_half = S.difference(torso_half, own_cut)
-            cutters.append(own_cut)
+            if spec.name not in host_faces:
+                own_cut = S.intersection(half_nocav, limb_prism(spec))      # el miembro propio sale del torso
+                torso_half = S.difference(torso_half, own_cut)
+                cutters.append(own_cut)
             limb_raw, face = pp.mesh, pp.face
         else:
             limb_raw, face = separate_limb(half_nocav, spec, p.burr)
@@ -350,6 +360,17 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
         report["waist"] = _waist_report(waist_build, built, by_limb, head_build is not None)
     return BuildResult(pieces=pieces, report=report, motion=res_motion, joints=res_joints, detent=detents, detent_ref=ref,
                        waist=waist_build, hand=hand_res)
+
+
+def build_from_parts(parts: dict[str, PartChoice], p: Params, sit: bool = True, progress=None, trims: list[Trim] | None = None,
+                     joints: list[JointSpec] | None = None, hand: HandSpec | None = None) -> BuildResult:
+    """Figura armada solo con piezas de catálogo (Fase 6 del plan, gancho 1): el huésped se sintetiza con el torso
+    (`torso`, o `torso_sup` + `pelvis`) y las demás piezas (`brazo`, `pierna`, `cabeza`, `mano`) se acoplan a sus puertos.
+    No hace falta STL ni `Project`; el resto del flujo es el de `build`."""
+    from .assembly import synthesize_host
+    host = synthesize_host(parts, p)
+    return build(host.body, host.limbs, p, None, sit, progress, trims, host.head, joints, host.waist, hand, host.parts,
+                 host_faces=host.faces)
 
 
 def _place_hand_piece(hb, jb, joint, b: dict, th: float, p: Params, pieces: dict) -> dict:
