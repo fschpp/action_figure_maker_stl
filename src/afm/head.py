@@ -44,6 +44,8 @@ MIN_UP = 0.3          # |n·Z| mínimo del plano del cuello (un plano casi verti
 MAX_SIDE = 0.5        # |n·X| máximo antes de simetrizar (el plano tiene que contener el eje izquierda-derecha)
 REPLACEMENT_SCALE_RANGE = (0.0, 5.0)   # factor manual sobre la escala automática: (mín, máx]; el mínimo es exclusivo (cualquier valor > 0)
 MIN_CUT_UP = 0.3      # |n·Z| mínimo del plano de corte de la base de la cabeza importada (casi vertical no sirve)
+CAVITY_SLICES = 360       # cortes horizontales con los que se sigue una cavidad abierta en la base de la cabeza importada
+MIN_CAVITY_FRAC = 0.01    # huecos de la base menores a esta fracción de su área (agujeritos) no se rellenan
 
 
 @dataclass
@@ -316,6 +318,78 @@ def _flat_bottom_area(mesh, z0: float, tol: float) -> float:
     return float(mesh.area_faces[flat].sum())
 
 
+def _cavity_parts(shape):
+    """(huella exterior rellena, lista de polígonos hueco) de una sección con relleno par-impar."""
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+
+    polys = [q for q in (shape.geoms if hasattr(shape, "geoms") else [shape])
+             if q.geom_type == "Polygon" and not q.is_empty]
+    if not polys:
+        return Polygon(), []
+    filled = unary_union([Polygon(q.exterior) for q in polys])
+    cav = filled.difference(shape)
+    parts = [c for c in (cav.geoms if hasattr(cav, "geoms") else [cav]) if c.geom_type == "Polygon" and c.area > 1e-9]
+    return filled, parts
+
+
+def _cavity_plug(mf: S.Manifold, z_base: float, z_top: float, tol: float, wall: float, cut: bool):
+    """Relleno de la cavidad de una cabeza importada HUECA (cáscara de pared fina, abierta por la base).
+
+    Si la sección de la base tiene huecos (la base es un anillo fino, no un disco), sigue esos huecos hacia arriba
+    con cortes horizontales (solo los que continúan el hueco del corte anterior) y arma un sólido que los llena,
+    levemente solapado con la pared. Se une a la malla: la superficie exterior queda intacta y la cabeza pasa a ser
+    maciza. Devuelve None si la base no tiene huecos apreciables. `wall` es el espesor estimado de la pared."""
+    import manifold3d as m3
+    from shapely.ops import unary_union
+
+    filled0, parts = _cavity_parts(_section_shape(mf, z_base + 2 * tol))
+    if not parts or sum(c.area for c in parts) < MIN_CAVITY_FRAC * max(filled0.area, 1e-12):
+        return None
+    # separación de cortes: 0.6 × espesor de pared (así el relleno no puede asomar fuera de la pared al subir de un corte
+    # al siguiente); si habría que pasar de CAVITY_SLICES cortes se usa la intersección de cortes vecinos (más segura)
+    n = int(np.ceil((z_top - z_base) / max(0.6 * wall, 1e-9)))
+    safe_union = n <= CAVITY_SLICES
+    zs = np.linspace(z_base + 2 * tol, z_top - 2 * tol, int(np.clip(n, 40, CAVITY_SLICES)))
+    dz = float(zs[1] - zs[0])
+    prev = unary_union(parts)
+    z_prev = z_base - (3 * tol if cut else 0.0)        # si se corta, el relleno asoma bajo la base y el corte lo recorta limpio
+    h = 0.2 * wall                                     # cortes que difieren menos que esto comparten una sola lámina
+    layers = []
+    run, z_run = prev, z_prev                          # lámina en curso: unión de los huecos de varios cortes parecidos
+    for z in zs[1:]:
+        _f, cur_parts = _cavity_parts(_section_shape(mf, float(z)))
+        keep = [c for c in cur_parts if c.intersection(prev).area > 1e-9]       # solo el hueco que continúa el anterior
+        if not keep:                                                            # el hueco termina entre este corte y el anterior
+            layers.append((z_run, float(z), run))
+            break
+        cur = unary_union(keep)
+        if run.hausdorff_distance(cur) <= h:
+            run = run.union(cur)
+        else:
+            layers.append((z_run, float(z), run.union(cur) if safe_union else run.intersection(cur)))   # unión: sin rendijas entre láminas
+            run, z_run = cur, float(z)
+        prev = cur
+    else:
+        layers.append((z_run, float(zs[-1]) + dz, run))
+    e = 0.35 * wall                                    # solapa la pared sin atravesarla
+    z_floor = z_base - (3 * tol if cut else 0.0)
+    solids = []
+    for z_lo, z_hi, poly in layers:
+        g = poly.simplify(0.25 * wall)                 # el contorno interior no necesita precisión: lo cubre el solape `e`
+        g = g.buffer(e, join_style=2) if e > 0 else g
+        contours = []
+        for q in (g.geoms if hasattr(g, "geoms") else [g]):
+            if q.geom_type == "Polygon" and not q.is_empty:
+                contours.append(np.asarray(q.exterior.coords)[:-1])
+                contours += [np.asarray(r.coords)[:-1] for r in q.interiors]
+        if not contours:
+            continue
+        lo, hi = max(z_lo - 0.1 * dz, z_floor), z_hi + 0.1 * dz       # sin base cortada, el relleno no puede asomar bajo la base plana
+        solids.append(m3.Manifold.extrude(m3.CrossSection(contours, m3.FillRule.EvenOdd), hi - lo).translate((0.0, 0.0, lo)))
+    return S.union(*solids) if solids else None
+
+
 def fit_replacement(spec: HeadSpec, plane: Plane, face: ContactFace):
     """Escala y coloca la cabeza importada sobre el plano del cuello.
 
@@ -350,6 +424,15 @@ def fit_replacement(spec: HeadSpec, plane: Plane, face: ContactFace):
             base = sec_f
     if base.is_empty or base.area <= 1e-9:
         raise ValueError("no se pudo medir la base de la cabeza importada (¿está vacía o al revés? probá otro «arriba»)")
+    wall = 2.0 * abs(float(mesh.volume)) / max(float(mesh.area), 1e-12)     # espesor medio de la pared (≈ el de una cáscara)
+    plug = _cavity_plug(mf, z_base, z0 + height, tol, wall, cut)
+    hueca = plug is not None
+    if hueca:                                   # cabeza hueca abierta por la base: se rellena por dentro y se mide el disco entero
+        mf = S.union(mf, plug)
+        base = _section_shape(mf, z_base + 2 * tol)
+        log.info("La cabeza importada es hueca (cáscara abierta por la base): se rellenó por dentro")
+        if base.is_empty or base.area <= 1e-9:
+            raise ValueError("no se pudo medir la base de la cabeza importada tras rellenarla")
     orig = _face_shape_in(plane, face)
     k_auto = float(np.sqrt(orig.area / base.area))
     k = k_auto * float(spec.replacement_scale)          # la escala manual multiplica el ajuste automático
@@ -374,7 +457,7 @@ def fit_replacement(spec: HeadSpec, plane: Plane, face: ContactFace):
     bounds = placed.bounding_box()
     # "escala" es respecto de las unidades del archivo importado (k es respecto de la malla ya pre-escalada)
     info = {"escala": k * pre, "base_igualada_mm2": float(orig.area), "coincidencia_base": iou,
-            "base_cortada": bool(cut), "alto_mm": float((height - (z_base - z0)) * k),
+            "base_cortada": bool(cut), "cavidad_rellenada": bool(hueca), "alto_mm": float((height - (z_base - z0)) * k),
             "escala_manual": float(spec.replacement_scale), "corte_plano": z_cut is not None,
             "raw_a_mundo": (M @ T_raw).tolist(),
             "volumen_mm3": float(placed.volume()), "bbox": [list(map(float, b)) for b in

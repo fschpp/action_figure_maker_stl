@@ -2032,6 +2032,8 @@ class Controller:
             msg += " La base se cortó con el plano de 3 puntos."
         elif info["base_cortada"]:
             msg += " No traía base plana: se cortó una fracción baja para apoyarla."
+        if info.get("cavidad_rellenada"):
+            msg += " La cabeza era hueca (cáscara abierta por la base): se rellenó por dentro para que la base sea maciza."
         if info["coincidencia_base"] < MIN_BASE_IOU:
             msg += " AVISO: la base se parece poco a la del cuello; probá otro giro, eje «arriba», escala o plano de corte (Planos → Cabeza)."
         return msg
