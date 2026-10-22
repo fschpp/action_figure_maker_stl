@@ -196,5 +196,14 @@ def test_export_message_reports_the_thigh_fill():
     assert fill_hip_message(ok, False) == ""
     msg = fill_hip_message(ok, True)
     assert "+30.8 mm³" in msg and "135.6" in msg and "0.434" in msg
-    assert "no se aplicó" in fill_hip_message({}, True)
+    assert fill_hip_message({}, True) == " Relleno de muslos: no se aplicó."
     assert "no se aplicó" in fill_hip_message({"relleno_cadera": {"pierna": {"aviso": "choca"}}}, True)
+
+
+def test_thigh_fill_says_why_it_is_skipped():
+    import dataclasses
+    res = synthetic()
+    res.detent["pierna"] = object()                       # cadera con mecanismo de clic: todavía no se rellena
+    _pieces, info = P.flat_for_print(res, 1.0, dataclasses.replace(Params(), flat_fill_hip=True))
+    assert "clic" in info["relleno_cadera"]["pierna"]["aviso"]
+    assert any(a.startswith("pierna:") and "clic" in a for a in info["avisos"])

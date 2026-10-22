@@ -41,7 +41,8 @@ def fill_hip_message(ss: dict, wanted: bool) -> str:
         return ""
     done = {k: r for k, r in (ss.get("relleno_cadera") or {}).items() if "aviso" not in r}
     if not done:
-        return " Relleno de muslos: no se aplicó (nada que rellenar o ver AVISO)."
+        return " Relleno de muslos: no se aplicó (el motivo figura en AVISO)." if ss.get("relleno_cadera") else \
+            " Relleno de muslos: no se aplicó."
     return " Relleno de muslos: " + "; ".join(
         f"{k} +{r['volumen_muslo_agregado_mm3']:g} mm³, pelvis tallada {r['volumen_pelvis_tallado_mm3']:g} mm³, "
         f"holgura de pie {r['holgura_de_pie_mm']:g} mm" for k, r in done.items()) + "."
