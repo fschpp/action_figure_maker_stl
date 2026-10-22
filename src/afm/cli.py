@@ -37,6 +37,26 @@ def run(stl_path: str, project: Project, outdir: str, name: str, progress=print,
     return info
 
 
+def run_armar(recipe_path: str, outdir: str, name: str | None = None, catalog_root: str | None = None, progress=print,
+              orient: bool | str = False, max_angle: float = 45.0, flat: float | None = None) -> dict:
+    """`afm armar`: arma la figura de una receta (`afm-receta-1`) solo con piezas de catálogo, valida y exporta."""
+    from .recipe import Recipe, assemble
+
+    recipe = Recipe.load(recipe_path)
+    name = name or recipe.personaje
+    os.makedirs(outdir, exist_ok=True)
+    asm = assemble(recipe, catalog_root, progress=progress)
+    if flat is not None and flat < 0:
+        flat = asm.params.flat_depth
+    val = P.validate(asm.res, asm.params, asm.limbs, joints=asm.joints)
+    files = P.export(asm.res, outdir, name, orient=orient, max_angle=max_angle, flat=flat, params=asm.params)
+    info = {"receta": recipe.to_dict(), "construccion": asm.res.report, "validacion": val, "archivos": files}
+    with open(os.path.join(outdir, f"{name}_informe.json"), "w") as f:
+        json.dump(info, f, indent=2, default=float)
+    recipe.save(os.path.join(outdir, f"{name}.receta.json"))
+    return info
+
+
 def run_extract_hand(stl_path: str, project: Project, points, out_dir: str, name: str = "mano",
                      invert: bool = False, progress=print) -> dict:
     """Corta la mano de la figura por el plano de muñeca (3 puntos en el marco de trabajo de la GUI) y la guarda
@@ -117,6 +137,16 @@ def main(argv=None) -> int:
                    help="usar la pieza de catálogo REF (id o id@versión) en el miembro LUGAR del proyecto (p. ej. pierna=pierna-guemes-01); "
                         "repetible. Queda guardada en el .proyecto de salida")
     b.add_argument("--max-angle", type=float, default=45.0, help="ángulo de voladizo tolerado (grados desde la vertical)")
+    a = sub.add_parser("armar", help="armar una figura solo con piezas de catálogo a partir de una receta (afm-receta-1)")
+    a.add_argument("catalogo", metavar="RUTA", help="catálogo de piezas de la línea de la receta")
+    a.add_argument("receta", help="<personaje>.receta.json")
+    a.add_argument("--out", default="out/figura")
+    a.add_argument("--name", default=None, help="nombre de los archivos de salida (por defecto el personaje de la receta)")
+    a.add_argument("--sin-soportes", nargs="?", type=float, const=-1.0, default=None, metavar="MM",
+                   help="aplanar la base y girar los brazos para imprimir sin soportes (sin MM: el de la línea)")
+    a.add_argument("--orient", action="store_true", help="exportar apoyado en la cama en la pose de la vista previa")
+    a.add_argument("--orient-auto", action="store_true", help="exportar en la orientación de menor voladizo")
+    a.add_argument("--max-angle", type=float, default=45.0, help="ángulo de voladizo tolerado (grados desde la vertical)")
     e = sub.add_parser("extraer-mano", help="cortar la mano de una figura por un plano de muñeca de 3 puntos y guardarla como mano estándar")
     e.add_argument("stl")
     e.add_argument("proyecto", help="proyecto de la figura (altura, frente y simetría: los puntos se miden en ese marco)")
@@ -145,6 +175,28 @@ def main(argv=None) -> int:
         from .catalog_cli import run_catalogo
         return run_catalogo(args)
     os.makedirs(args.out, exist_ok=True)
+    if args.cmd == "armar":
+        from .recipe import RecipeError
+        try:
+            info = run_armar(args.receta, args.out, args.name, args.catalogo, orient="auto" if args.orient_auto else args.orient,
+                             max_angle=args.max_angle, flat=args.sin_soportes)
+        except (RecipeError, OSError) as exc:
+            print(f"ERROR (receta): {exc}", file=sys.stderr)
+            return 2
+        except ValueError as exc:
+            print(f"ERROR (armado): {exc}", file=sys.stderr)
+            return 2
+        val = info["validacion"]
+        print("Validación:", "OK" if val["ok"] else "CON PROBLEMAS")
+        for pr in val["problems"]:
+            print(" -", pr)
+        for av in val.get("avisos", []) + val.get("avisos_pasador", []):
+            print(" AVISO:", av)
+        for lugar, r in (val.get("piezas") or {}).items():
+            print(f"Pieza de catálogo en {lugar}: {r['pieza']} — compatibilidad {r['nivel']}")
+        print("Holguras mínimas (mm):", val["gaps"])
+        return 0 if val["ok"] else 1
+
     if args.cmd == "extraer-mano":
         from .hand import HandError
         try:

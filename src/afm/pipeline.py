@@ -44,6 +44,7 @@ class BuildResult:
     detent_ref: S.Manifold | None = None         # torso SIN lengüetas ni puntas: referencia para el giro libre del clic
     hand: dict | None = None                     # mano articulada: {"limb", "piece0" (mano de pie, sin girar), "center", "axis" (de la pose impresa), "pin"}
     waist: WaistBuild | None = None              # cintura: `pieces["torso"]` es el pecho (arriba) y `pieces["pelvis"]` la pelvis
+    joint_specs: list = field(default_factory=list)   # todas las articulaciones usadas (las del modelo y las que traen las piezas de catálogo)
 
 
 def align_to_symmetry(mesh: trimesh.Trimesh, sym: Plane | None) -> trimesh.Trimesh:
@@ -372,7 +373,7 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
         pieces["torso"], pieces[PELVIS_NAME] = waist_build.upper, waist_build.lower
         report["waist"] = _waist_report(waist_build, built, by_limb, head_build is not None)
     return BuildResult(pieces=pieces, report=report, motion=res_motion, joints=res_joints, detent=detents, detent_ref=ref,
-                       waist=waist_build, hand=hand_res)
+                       waist=waist_build, hand=hand_res, joint_specs=list(joints))
 
 
 def build_from_parts(parts: dict[str, PartChoice], p: Params, sit: bool = True, progress=None, trims: list[Trim] | None = None,
