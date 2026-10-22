@@ -13,7 +13,7 @@ from . import detent as DT
 from .hand import (HAND_MIN_SHAFT_D, HAND_NAME, HandError, HandSpec, WristFrame, WristSplit, apply_hand, attach_hand,
                    load_standard_hand)
 from .head import HEAD_NAME, MIN_BASE_IOU, HeadSpec, below_neck, build_head, neck_plane, split_head
-from .joints import JointBuild, JointSpec, build_joint, flex_range, hinge_for, print_flex
+from .joints import JOINT_KIND_BY_LIMB, JointBuild, JointSpec, build_joint, flex_range, hinge_for, print_flex
 from .assembly import AssemblyError, PartChoice, PlacedPart, place_part
 from .limbs import LimbSpec, ContactFace, check_limb_plane, limb_prism, pin_margin, separate_limb
 from .params import Params
@@ -107,6 +107,7 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
             raise ValueError(f"la articulación «{j.name}» apunta al miembro «{j.limb}», que no existe")
         by_limb[j.limb] = j
     parts = dict(parts or {})
+    parts_src = set(parts)
     host_faces = dict(host_faces or {})
     for lname in host_faces:
         if lname not in parts:
@@ -168,6 +169,15 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
             except AssemblyError as exc:
                 raise ValueError(f"«{spec.name}»: {exc}") from exc
             placed[spec.name] = pp
+            for jd in pp.choice.meta.articulaciones or []:        # articulaciones internas de la pieza (rodilla, codo)
+                j = JointSpec.from_dict(jd).transformed(pp.T, spec.name)
+                if spec.name in by_limb:
+                    raise ValueError(f"«{spec.name}»: la pieza «{pp.choice.meta.ref}» trae la articulación «{j.name}» y el "
+                                     f"modelo ya define «{by_limb[spec.name].name}» (por ahora una sola por miembro)")
+                if j.kind != JOINT_KIND_BY_LIMB.get(spec.kind):
+                    raise ValueError(f"«{spec.name}»: la articulación «{j.name}» de la pieza es «{j.kind}» y el miembro es «{spec.kind}»")
+                by_limb[spec.name] = j
+                joints.append(j)
             if spec.name not in host_faces:
                 own_cut = S.intersection(half_nocav, limb_prism(spec))      # el miembro propio sale del torso
                 torso_half = S.difference(torso_half, own_cut)
@@ -323,6 +333,9 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
         report["piezas"] = {name: pp.report() for name, pp in placed.items()}
         for name, notes in part_notes.items():
             report["piezas"][name]["avisos"] = notes
+        for name in report["piezas"]:
+            if name in by_limb and name in parts_src:
+                report["piezas"][name]["articulaciones"] = [by_limb[name].name]
     if hand_build is not None:
         best = max(hand_cover, key=hand_cover.get) if hand_cover else None
         report["hand"] = {**hand_build.info, "miembro": best, "cobertura": None if best is None else round(hand_cover[best], 4)}

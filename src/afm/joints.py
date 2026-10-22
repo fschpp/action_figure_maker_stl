@@ -59,6 +59,25 @@ class JointSpec:
             return 1 if self.flex_sign >= 0 else -1
         return -1 if self.kind == "knee" else 1
 
+    def transformed(self, T, limb: str | None = None) -> "JointSpec":
+        """La articulación llevada por la transformación rígida `T` (4x4) —p. ej. de la pieza de catálogo a su lugar—, para el
+        miembro `limb` (por defecto el mismo). Si el giro invierte el sentido del eje (el motor lo toma con x ≥ 0), el sentido
+        de flexión se invierte con él para que el miembro doble hacia el mismo lado."""
+        import dataclasses
+        T = np.asarray(T, float)
+        R, t = T[:3, :3], T[:3, 3]
+        n = R @ np.asarray(self.plane.normal, float)
+        o = R @ np.asarray(self.plane.origin, float) + t
+        ax = R @ np.asarray(self.axis_dir, float)
+        ax = ax / np.linalg.norm(ax)
+        flip = self.flex_sign
+        if ax[0] < 0:
+            ax = -ax
+            flip = -self.sign()
+        return dataclasses.replace(self, limb=limb or self.limb, plane=Plane.from_normal(o, n, self.plane.name),
+                                   axis_center=tuple(float(x) for x in R @ np.asarray(self.axis_center, float) + t),
+                                   axis_dir=tuple(float(x) for x in ax), flex_sign=flip)
+
     def to_dict(self) -> dict:
         return {"name": self.name, "limb": self.limb, "kind": self.kind, "plane": self.plane.to_dict(),
                 "axis_center": list(self.axis_center), "axis_dir": list(self.axis_dir),

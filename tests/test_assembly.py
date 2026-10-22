@@ -238,3 +238,55 @@ def test_built_from_waist_pieces_has_pelvis(doll, project):
     for nm in ("torso", "pelvis"):
         assert vol(res.pieces, nm) == pytest.approx(vol(direct_w.pieces, nm), rel=0.03), nm
     assert res.waist is not None
+
+
+# ---------------------------------------------------------------- gancho 5: articulaciones internas de la pieza
+def _knee():
+    from afm.joints import JointSpec
+    from afm.planes import Plane
+    return JointSpec(name="rodilla", limb="pierna", kind="knee", plane=Plane.from_normal((0, 0, 14.0), (0, 0, 1), "art"),
+                     axis_center=(9.0, 0.0, 17.4))
+
+
+def test_joint_transformed_identity_and_rotation():
+    j = _knee()
+    same = j.transformed(np.eye(4))
+    assert np.allclose(same.axis_center, j.axis_center) and np.allclose(same.plane.normal, j.plane.normal)
+    assert same.flex_sign is None
+    T = np.eye(4)
+    T[:3, :3] = [[-1, 0, 0], [0, -1, 0], [0, 0, 1]]          # giro de 180° sobre Z: el eje X se invierte
+    t = j.transformed(T, "otra")
+    assert t.limb == "otra" and np.allclose(t.axis_center, (-9.0, 0.0, 17.4)) and t.axis_dir[0] > 0
+    assert t.sign() == -j.sign()
+
+
+def test_catalog_leg_with_knee_brings_its_joint(doll, project, direct):
+    import copy
+    pr = copy.deepcopy(project)
+    pr.joints = [_knee()]
+    r = extract_all(doll, pr, "muneco", figure="doll")
+    ex = {e.meta.tipo: e for e in r.pieces}
+    assert ex["pierna"].meta.articulaciones and ex["brazo"].meta.articulaciones == []
+    d = build(doll, pr.limbs, pr.params, head=pr.head, joints=pr.joints)
+    res = build_from_parts_(ex, pr)
+    assert {"muslo_izq", "pantorrilla_izq"} <= set(res.pieces) and "pierna_izq" not in res.pieces
+    assert set(res.pieces) == set(d.pieces)
+    for nm in ("muslo_izq", "pantorrilla_izq", "brazo_izq"):
+        assert vol(res.pieces, nm) == pytest.approx(vol(d.pieces, nm), rel=0.01), nm
+    assert res.report["piezas"]["pierna"]["articulaciones"] == ["rodilla"]
+    assert "rodilla" in res.joints
+
+
+def build_from_parts_(ex, pr):
+    from afm.pipeline import build_from_parts
+    return build_from_parts(_choices(ex, "torso", "brazo", "pierna", "cabeza"), pr.params)
+
+
+def test_catalog_joint_clashes_with_model_joint(doll, project):
+    import copy
+    pr = copy.deepcopy(project)
+    pr.joints = [_knee()]
+    ex = {e.meta.tipo: e for e in extract_all(doll, pr, "muneco", figure="doll").pieces}
+    with pytest.raises(ValueError, match="una sola"):
+        build(doll, project.limbs, project.params, head=project.head, joints=[_knee()],
+              parts={"pierna": PartChoice(ex["pierna"].meta, ex["pierna"].mesh)})
