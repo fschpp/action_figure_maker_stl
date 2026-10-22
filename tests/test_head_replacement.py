@@ -266,3 +266,50 @@ def test_new_fields_roundtrip_and_old_projects_load(tmp_path):
         old["head"].pop(k)
     h = Project.from_dict(old).head
     assert (h.replacement_rx, h.replacement_ry, h.replacement_scale, h.replacement_cut_points) == (0.0, 0.0, 1.0, None)
+
+
+# ------------------------------------------------------------------ cabeza hueca (cáscara abierta por la base)
+@pytest.fixture(scope="module")
+def hollow(tmp_path_factory):
+    """La bola con base plana en z = -10, pero HUECA: pared de ~1 mm y abierta por abajo (una taza al revés)."""
+    d = tmp_path_factory.mktemp("hueca")
+    ball = M.sphere(15, 64)
+    solid = S.intersection(ball, M.cube((100, 100, 100), center=True).translate((0, 0, 50 - 10)))
+    cavity = S.union(M.sphere(14, 64), M.cylinder(30, 9, 9, 48).translate((0, 0, -30)))     # interior + boca por la base
+    cup = S.difference(solid, cavity)
+    return {"solid": _write(d, solid, "maciza.stl"), "cup": _write(d, cup, "hueca.stl"), "cup_mf": cup, "solid_mf": solid}
+
+
+def test_hollow_head_is_filled_so_the_base_is_a_solid_disk(body, params, hollow):
+    from afm.head import _face_shape
+
+    solid = split_head(body, _neck(replacement_path=hollow["solid"]), params)
+    cup = split_head(body, _neck(replacement_path=hollow["cup"]), params)
+    assert solid.replacement["cavidad_rellenada"] is False
+    assert cup.replacement["cavidad_rellenada"] is True
+    # la base se mide como disco entero: misma escala y misma coincidencia con el cuello que la cabeza maciza
+    assert cup.replacement["escala"] == pytest.approx(solid.replacement["escala"], rel=0.03)
+    assert cup.replacement["coincidencia_base"] == pytest.approx(solid.replacement["coincidencia_base"], abs=0.05)
+    _plane, shape = _face_shape(cup.face)
+    assert all(len(g.interiors) == 0 for g in (shape.geoms if hasattr(shape, "geoms") else [shape]))   # sin huecos
+    assert shape.area == pytest.approx(cup.replacement["base_igualada_mm2"], rel=0.1)
+    # la cabeza queda maciza (misma forma exterior) y de una sola pieza
+    assert cup.head.volume() == pytest.approx(solid.head.volume(), rel=0.05)
+    assert len(cup.head.decompose()) == 1
+
+
+def test_hollow_head_lets_the_neck_pin_move_freely(body, params, hollow):
+    from afm.head import head_pin_preview
+
+    spec = _neck(replacement_path=hollow["cup"])
+    split = split_head(body, spec, params)
+    prev = head_pin_preview(split, spec)
+    shaft = params.neck_pin.shaft_d
+    along = prev.along
+    margins = [prev.fit(prev.project(split.face.center + off * along), shaft)[1] for off in (-4.0, -2.0, 0.0, 2.0, 4.0)]
+    assert all(m > 0 for m in margins)              # el vástago cabe en la cara en todo el tramo central (antes: sobre el hueco)
+    assert len(prev.trace()) == 1                   # y la cara se ve de canto como un solo tramo continuo
+
+
+def test_solid_head_is_not_touched_by_the_cavity_fill(body, params, assets):
+    assert split_head(body, _neck(replacement_path=assets["asym"]), params).replacement["cavidad_rellenada"] is False
