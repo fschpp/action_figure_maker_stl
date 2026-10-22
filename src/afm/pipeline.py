@@ -1354,6 +1354,32 @@ def print_orientation(res: BuildResult, max_angle: float = 45.0, extra_tilts=(0.
     return pose_orientation(asm, max_angle)
 
 
+def parts_list(res: BuildResult, name: str = "figura") -> dict | None:
+    """Lista de piezas de catálogo usadas en la figura (plan de piezas intercambiables, §4.5): lugar -> id@versión,
+    sha256, origen y resultado de compatibilidad. None si la figura no usa piezas de catálogo."""
+    rep = res.report.get("piezas") or {}
+    if not rep:
+        return None
+    lugares = {}
+    for lugar, r in sorted(rep.items()):
+        c = r.get("compat") or {}
+        lugares[lugar] = {"pieza": f"{r.get('id')}@{r.get('version')}", "id": r.get("id"), "version": r.get("version"),
+                          "sha256": r.get("sha256"), "origen": r.get("origen"), "lugar_puerto": r.get("lugar"),
+                          "compat": c.get("nivel", c.get("resultado")), "avisos": list(c.get("avisos") or []) + list(r.get("avisos") or [])}
+    return {"formato": "afm-lista-piezas-1", "figura": name, "piezas": lugares}
+
+
+def parts_list_markdown(lst: dict) -> str:
+    rows = ["| Lugar | Pieza | Origen | Compatibilidad | sha256 |", "|---|---|---|---|---|"]
+    for lugar, r in lst["piezas"].items():
+        rows.append(f"| {lugar} | {r['pieza']} | {r.get('origen') or '-'} | {r.get('compat') or '-'} | `{(r.get('sha256') or '')[:12]}` |")
+    out = [f"# Lista de piezas: {lst['figura']}", "", *rows]
+    notes = [(lugar, a) for lugar, r in lst["piezas"].items() for a in r["avisos"]]
+    if notes:
+        out += ["", "## Avisos", *[f"- **{lugar}**: {a}" for lugar, a in notes]]
+    return "\n".join(out) + "\n"
+
+
 def export(res: BuildResult, outdir: str, name: str = "figura", orient: bool | str = False,
            max_angle: float = 45.0, extra_tilts=(0.0,), flat: float | None = None, params: Params | None = None) -> dict:
     """Escribe el ensamblado y un STL por parte. Con `orient=True` apoya todo el conjunto en la cama en la pose de
@@ -1383,4 +1409,12 @@ def export(res: BuildResult, outdir: str, name: str = "figura", orient: bool | s
     asm = trimesh.util.concatenate(meshes)
     asm.export(os.path.join(outdir, f"{name}_ensamblada.stl"))
     info.update({"ensamblada": f"{name}_ensamblada.stl", "piezas": sorted(res.pieces)})
+    lst = parts_list(res, name)
+    if lst is not None:
+        import json
+        with open(os.path.join(outdir, f"{name}_lista_de_piezas.json"), "w", encoding="utf-8") as fh:
+            json.dump(lst, fh, ensure_ascii=False, indent=2)
+        with open(os.path.join(outdir, f"{name}_lista_de_piezas.md"), "w", encoding="utf-8") as fh:
+            fh.write(parts_list_markdown(lst))
+        info["lista_de_piezas"] = f"{name}_lista_de_piezas.json"
     return info
