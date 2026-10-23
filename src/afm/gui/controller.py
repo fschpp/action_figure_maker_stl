@@ -2001,6 +2001,23 @@ class Controller:
         self._changed(f"Catálogo «{cat.name}»: {n} pieza(s)." + "".join(f" AVISO: {w}." for w in warns), scene=False)
         return True
 
+    def default_catalog_line(self) -> tuple[str, float]:
+        """Nombre y altura (mm) que propone «Crear catálogo…»: `proceres-<altura>` y la altura de la figura abierta."""
+        h = float(self.session.project.params.ref_height)
+        return f"proceres-{h:g}", h
+
+    def create_catalog(self, path: str, name: str | None = None, height_mm: float | None = None) -> bool:
+        """«Crear catálogo…» (= `afm catalogo crear RUTA --linea NOMBRE --altura MM`): lo crea en `path` y lo deja abierto."""
+        try:
+            cat = self.session.create_catalog(path, name, height_mm)
+        except ValueError as e:
+            self._changed(str(e), scene=False)
+            return False
+        warns = self.session.catalog_warnings()
+        self._changed(f"Catálogo «{cat.name}» creado en {cat.root} (altura {cat.height_mm:g} mm). Está vacío: usá «Catalogar "
+                      "esta figura…» para guardar sus piezas." + "".join(f" AVISO: {w}." for w in warns), scene=False)
+        return True
+
     def catalog_choices(self, place: str) -> list:
         """Piezas del catálogo que sirven en ese lugar (vacío si no hay catálogo abierto o el lugar no existe)."""
         try:

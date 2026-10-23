@@ -962,6 +962,29 @@ class Session:
         self.outcome = None
         return cat
 
+    def create_catalog(self, root: str, name: str | None = None, height_mm: float | None = None):
+        """Equivalente de `afm catalogo crear RUTA --linea NOMBRE --altura MM`: crea el catálogo de una línea en la carpeta
+        `root` (nueva o vacía) y lo deja abierto. Sin `name` usa el de la carpeta; sin `height_mm` la altura de la figura
+        del proyecto; la boquilla y el perfil de parámetros son los de `afm catalogo crear` para la boquilla del proyecto."""
+        from ..catalog import Catalog, CatalogError
+        from ..profile import default_for_nozzle
+
+        root = os.path.abspath(os.path.expanduser(root or ""))
+        if not root or root == os.path.sep:
+            raise ValueError("Elegí una carpeta para el catálogo.")
+        if os.path.isdir(root) and os.listdir(root) and not os.path.isfile(os.path.join(root, "linea.json")):
+            raise ValueError(f"La carpeta «{root}» no está vacía: elegí una nueva o vacía.")
+        name = (name or os.path.basename(root)).strip()
+        height = float(height_mm if height_mm is not None else self.project.params.ref_height)
+        nozzle = self.project.params.nozzle
+        try:
+            cat = Catalog.create(root, name, height, nozzle, default_for_nozzle(nozzle))
+        except (CatalogError, OSError) as exc:
+            raise ValueError(f"No se pudo crear el catálogo «{root}»: {exc}") from exc
+        self.catalog_root = cat.root
+        self.outcome = None
+        return cat
+
     def _catalog(self):
         if not self.catalog_root:
             raise ValueError("Primero abrí un catálogo de piezas.")

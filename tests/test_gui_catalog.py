@@ -91,3 +91,29 @@ def test_generate_with_a_catalog_part_fills_the_row_with_the_compatibility(ctrl,
     assert txt.startswith("pierna: ") and "IoU 1,00" in txt
     ctrl.catalog_set_part("pierna", None)
     assert ctrl.session.outcome is None                       # cambiar una pieza invalida la figura generada
+
+
+def test_create_catalog_from_the_gui_is_afm_catalogo_crear(ctrl, tmp_path):
+    assert ctrl.default_catalog_line() == ("proceres-100", 100.0)
+    path = str(tmp_path / "catalogos" / "proceres-100")
+    assert ctrl.create_catalog(path, "proceres-100", 100.0) is True
+    assert "creado" in ctrl.message and "proceres-100" in ctrl.message
+    cat = Catalog.open(path)                                   # lo mismo que deja `afm catalogo crear`
+    assert cat.name == "proceres-100" and cat.height_mm == 100.0 and cat.list() == []
+    assert ctrl.session.catalog_root == cat.root
+    # queda abierto: se puede catalogar la figura abierta y elegir piezas sin pasar por «Abrir catálogo»
+    assert ctrl.catalog_add_current("muneco") is True and ctrl.catalog_choices("pierna")
+
+
+def test_create_catalog_defaults_and_errors(ctrl, tmp_path):
+    path = str(tmp_path / "sin-nombre-explicito")
+    assert ctrl.create_catalog(path) is True                   # nombre = carpeta, altura = la de la figura
+    cat = Catalog.open(path)
+    assert cat.name == "sin-nombre-explicito" and cat.height_mm == ctrl.session.project.params.ref_height
+    assert ctrl.create_catalog(path) is False and "ya es un catálogo" in ctrl.message
+    ocupada = tmp_path / "ocupada"
+    ocupada.mkdir()
+    (ocupada / "algo.txt").write_text("x")
+    assert ctrl.create_catalog(str(ocupada), "x", 100) is False and "no está vacía" in ctrl.message
+    assert ctrl.create_catalog(str(tmp_path / "n"), "nombre con espacios", 100) is False and "inválido" in ctrl.message
+    assert ctrl.create_catalog(str(tmp_path / "h"), "ok", 0) is False and "mayor que 0" in ctrl.message

@@ -389,16 +389,18 @@ class MainWindow(Gtk.ApplicationWindow):
                    "gira libre (se achica solo si la muñeca es fina; ver Parámetros → Mano articulada).")
 
         sec = _collapsible(box, "Piezas de catálogo")
+        self.btn_cat_new = self._button("Crear catálogo de la línea (carpeta nueva)…", self._on_catalog_new)
         self.btn_cat_open = self._button("Abrir catálogo de la línea (carpeta)…", self._on_catalog_open)
         self.lbl_catalog = Gtk.Label(label="Sin catálogo abierto", xalign=0, wrap=True)
         self.btn_cat_add = self._button("Catalogar esta figura…", self._on_catalog_add)
-        for w in (self.btn_cat_open, self.lbl_catalog, self.btn_cat_add):
+        for w in (self.btn_cat_new, self.btn_cat_open, self.lbl_catalog, self.btn_cat_add):
             sec.append(w)
         sec.append(Gtk.Label(label="Pieza de cada lugar (al cambiarla hay que volver a generar)", xalign=0, margin_top=8))
         self.parts_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         sec.append(self.parts_box)
         self._parts_sig = None
-        _help(sec, "Abrí la carpeta del catálogo de la línea (la que crea «afm catalogo crear»). «Catalogar esta figura» guarda "
+        _help(sec, "«Crear catálogo» arma una carpeta nueva para la línea (nombre y altura de figura; es lo mismo que «afm catalogo "
+                   "crear») y la deja abierta. Si ya tenés una, abrila con «Abrir catálogo». «Catalogar esta figura» guarda "
                    "sus piezas crudas (cabeza, torso, brazo, pierna, con los planos y siluetas que ya definiste) para usarlas en "
                    "otras figuras. En cada lugar elegí «la del modelo» o una pieza del catálogo: «Generar figura» la pone en el "
                    "puerto que el modelo tiene en ese lugar, sin escalarla, y la fila muestra cómo acopla (ok / aviso / no, "
@@ -1111,6 +1113,7 @@ exportar; tarda un poco más.")
     def _sync_catalog(self, loaded: bool) -> None:
         ctrl = self.ctrl
         root = ctrl.session.catalog_root
+        self.btn_cat_new.set_sensitive(not ctrl.busy)
         self.btn_cat_open.set_sensitive(not ctrl.busy)
         self.btn_cat_add.set_sensitive(bool(loaded and root and not ctrl.busy))
         self.lbl_catalog.set_text("Sin catálogo abierto" if not root else f"Catálogo: {root}")
@@ -1151,6 +1154,51 @@ exportar; tarda un poco más.")
                                                   and cur.version == int(ref.split("@")[1])):
             return                                    # ya estaba (la lista se redibujó)
         self.ctrl.catalog_set_part(lugar, ref)
+
+    def _on_catalog_new(self, *_):
+        """«Crear catálogo…»: elegir la carpeta nueva, después nombre de la línea y altura de figura."""
+        name0, height0 = self.ctrl.default_catalog_line()
+        dlg = Gtk.FileDialog(title="Carpeta nueva para el catálogo de la línea", initial_name=name0)
+
+        def picked(d, res):
+            try:
+                f = d.save_finish(res)
+            except GLib.Error:
+                return                      # cancelado
+            self._catalog_line_dialog(f.get_path(), height0)
+
+        dlg.save(self, None, picked)
+
+    def _catalog_line_dialog(self, path: str, height0: float) -> None:
+        win = Gtk.Window(title="Crear catálogo de la línea", transient_for=self, modal=True, resizable=False)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_top=12, margin_bottom=12,
+                      margin_start=12, margin_end=12)
+        box.append(Gtk.Label(label=f"Carpeta: {path}", xalign=0, wrap=True, max_width_chars=50))
+        box.append(Gtk.Label(label="Nombre de la línea (letras, números, guiones y puntos)", xalign=0))
+        ent = Gtk.Entry(text=os.path.basename(path.rstrip(os.sep)), hexpand=True)
+        box.append(ent)
+        box.append(Gtk.Label(label="Altura de la figura de la línea, de los pies a la coronilla (mm)", xalign=0))
+        spin = Gtk.SpinButton.new_with_range(10.0, 500.0, 1.0)
+        spin.set_value(height0)
+        box.append(spin)
+        row = Gtk.Box(spacing=6, halign=Gtk.Align.END, margin_top=6)
+        cancel = Gtk.Button(label="Cancelar")
+        ok = Gtk.Button(label="Crear")
+        ok.add_css_class("suggested-action")
+        row.append(cancel)
+        row.append(ok)
+        box.append(row)
+        win.set_child(box)
+        cancel.connect("clicked", lambda *_: win.close())
+
+        def create(*_):
+            if self.ctrl.create_catalog(path, ent.get_text(), spin.get_value()):
+                win.close()
+            else:
+                self._error(ValueError(self.ctrl.message))   # deja abierto el diálogo para corregir nombre o altura
+
+        ok.connect("clicked", create)
+        win.present()
 
     def _on_catalog_open(self, *_):
         dlg = Gtk.FileDialog(title="Catálogo de la línea (carpeta)")
