@@ -328,3 +328,62 @@ def test_unmirrored_torso_keeps_an_asymmetric_bump(project):
     assert d.report["torso"]["volumen_izq_mm3"] - d.report["torso"]["volumen_der_mm3"] > 5       # el bulto está
     for k in ("volumen_izq_mm3", "volumen_der_mm3"):
         assert res.report["torso"][k] == pytest.approx(d.report["torso"][k], rel=0.03), k
+
+
+# ---------------------------------------------------------------- pelvis de catálogo sin cambiar el torso
+@pytest.fixture(scope="module")
+def waist_doll(doll, project):
+    import copy
+    from afm.planes import Plane
+    from afm.waist import WaistSpec
+    pr = copy.deepcopy(project)
+    pr.waist = WaistSpec(Plane.from_points((-5, -5, 55), (5, -5, 55), (0, 5, 55), "cintura"))
+    r = extract_all(doll, pr, "muneco", figure="doll")
+    return pr, {e.meta.tipo: e for e in r.pieces}, build(doll, pr.limbs, pr.params, head=pr.head, waist=pr.waist)
+
+
+def test_pelvis_alone_in_its_own_port_rebuilds_the_direct_figure(doll, waist_doll):
+    pr, ex, direct_w = waist_doll
+    res = build(doll, pr.limbs, pr.params, head=pr.head, waist=pr.waist, parts=_choices(ex, "pelvis"))
+    assert set(res.pieces) == set(direct_w.pieces)
+    for nm in direct_w.pieces:
+        assert vol(res.pieces, nm) == pytest.approx(vol(direct_w.pieces, nm), rel=0.03), nm
+    rep = res.report["piezas"]["pelvis"]
+    assert rep["lugar"] == "cintura" and rep["compat"]["nivel"] in ("ok", "aviso")
+    assert not rep.get("avisos")                       # caderas donde las tiene el modelo
+
+
+def test_pelvis_alone_needs_the_waist_plane(doll, project, waist_doll):
+    _pr, ex, _d = waist_doll
+    with pytest.raises(ValueError, match="plano de cintura"):
+        build(doll, project.limbs, project.params, head=project.head, parts=_choices(ex, "pelvis"))
+
+
+def test_pelvis_alone_rejects_a_wrong_kind(doll, waist_doll):
+    pr, ex, _d = waist_doll
+    with pytest.raises(ValueError, match="pelvis"):
+        build(doll, pr.limbs, pr.params, head=pr.head, waist=pr.waist, parts={"pelvis": PartChoice(ex["pierna"].meta, ex["pierna"].mesh)})
+
+
+def test_a_different_pelvis_replaces_only_the_pelvis(doll, waist_doll):
+    """Una pelvis con un bulto atrás: cambia la pelvis y el torso de arriba queda igual."""
+    import trimesh
+    pr, ex, direct_w = waist_doll
+    bump = trimesh.creation.box(extents=(6, 4, 8))
+    bump.apply_translation((0, -9, 45))
+    mesh = ex["pelvis"].mesh.copy()
+    mesh = trimesh.util.concatenate([mesh, bump])
+    mesh = S.to_trimesh(S.union(S.to_manifold(ex["pelvis"].mesh), S.to_manifold(bump)))
+    ch = {"pelvis": PartChoice(ex["pelvis"].meta, mesh)}
+    res = build(doll, pr.limbs, pr.params, head=pr.head, waist=pr.waist, parts=ch)
+    assert vol(res.pieces, "pelvis") > vol(direct_w.pieces, "pelvis") + 20
+    assert vol(res.pieces, "torso") == pytest.approx(vol(direct_w.pieces, "torso"), rel=0.01)
+
+
+def test_pelvis_preview_without_generating(doll, waist_doll):
+    from afm.preflight import preview_part
+    pr, ex, _d = waist_doll
+    pv = preview_part("pelvis", PartChoice(ex["pelvis"].meta, ex["pelvis"].mesh), pr, doll)
+    assert pv.error is None and pv.kind == "pelvis" and pv.mesh is not None
+    assert pv.compat is not None and pv.compat.iou == pytest.approx(1.0, abs=0.02)
+    assert pv.host_shape is not None and not pv.notes

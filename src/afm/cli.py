@@ -141,7 +141,8 @@ def main(argv=None) -> int:
     b.add_argument("--catalogo", default=None, metavar="RUTA",
                    help="catálogo de piezas de la línea (por defecto $AFM_CATALOGO o ~/.local/share/afm/catalogos/<línea>)")
     b.add_argument("--pieza", action="append", default=[], metavar="LUGAR=REF",
-                   help="usar la pieza de catálogo REF (id o id@versión) en el miembro LUGAR del proyecto (p. ej. pierna=pierna-guemes-01); "
+                   help="usar la pieza de catálogo REF (id o id@versión) en el miembro LUGAR del proyecto (p. ej. pierna=pierna-guemes-01), en «cabeza», «mano» o «pelvis» "
+                        "(la pelvis sola cambia solo la del modelo y necesita su plano de cintura); "
                         "repetible. Queda guardada en el .proyecto de salida")
     b.add_argument("--max-angle", type=float, default=45.0, help="ángulo de voladizo tolerado (grados desde la vertical)")
     a = sub.add_parser("armar", help="armar una figura solo con piezas de catálogo a partir de una receta (afm-receta-1)")
@@ -315,7 +316,7 @@ def main(argv=None) -> int:
                     place, sep, ref = item.partition("=")
                     if not sep or not place or not ref:
                         ap.error(f"--pieza «{item}»: se espera LUGAR=REF (p. ej. pierna=pierna-guemes-01)")
-                    if place not in ("mano", "cabeza") and place not in {l.name for l in project.limbs}:
+                    if place not in ("mano", "cabeza", "pelvis") and place not in {l.name for l in project.limbs}:
                         ap.error(f"--pieza «{item}»: el proyecto no tiene un miembro «{place}» "
                                  f"(hay: {', '.join(l.name for l in project.limbs) or 'ninguno'})")
                     pid, _ver = parse_ref(ref)

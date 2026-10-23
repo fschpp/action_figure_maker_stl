@@ -980,6 +980,8 @@ class Session:
         for place in self.project.parts:
             if place not in self.part_places():
                 out.append(f"la pieza de catálogo de «{place}» apunta a un lugar que el modelo ya no tiene: quitala")
+        if "pelvis" in self.project.parts and self.project.waist is None:
+            out.append("la pelvis de catálogo necesita el plano de cintura del modelo (Planos → Cintura): define dónde se corta")
         hand = self.project.hand
         if hand is not None and not os.path.isfile(hand.path):
             out.append(f"la mano estándar «{hand.path}» ya no existe: elegí otra o quitá la mano de reemplazo")
@@ -1072,9 +1074,11 @@ class Session:
         return self._place_types(place)[0]
 
     def catalog_only(self) -> bool:
-        """True si hay torso (o pelvis) de catálogo elegido: entonces la figura sale ENTERA del catálogo (como `afm armar`) y
-        el cuerpo del STL abierto solo sirve de referencia. Con un torso de catálogo no hay figura de origen a la que acoplar."""
-        return any(k in self.project.parts for k in TORSO_PLACES)
+        """True si hay torso de catálogo elegido: entonces la figura sale ENTERA del catálogo (como `afm armar`) y el cuerpo
+        del STL abierto solo sirve de referencia. Con un torso de catálogo no hay figura de origen a la que acoplar.
+        La pelvis sola NO lo activa: reemplaza la del modelo y el torso de arriba sigue siendo el del modelo (hace falta su
+        plano de cintura)."""
+        return "torso" in self.project.parts
 
     def catalog_choices(self, place: str) -> list:
         """Piezas del catálogo (última versión de cada una) que sirven en ese lugar."""
@@ -1100,9 +1104,7 @@ class Session:
                 except Exception as exc:        # noqa: BLE001 — se informa como problema
                     out.append(f"«{place}»: {exc}")
         t, pel = tipo.get("torso"), tipo.get("pelvis")
-        if "torso" not in parts:
-            out.append("elegiste una pelvis de catálogo pero no el torso (de arriba): elegí también «torso»")
-        elif t == "torso_sup" and "pelvis" not in parts:
+        if t == "torso_sup" and "pelvis" not in parts:
             out.append("el torso elegido es solo la parte de arriba (torso_sup): elegí también una «pelvis»")
         elif t == "torso" and "pelvis" in parts:
             out.append("el torso elegido es entero: con «pelvis» hace falta un torso de arriba (torso_sup), o quitá la pelvis")

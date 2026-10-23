@@ -19,9 +19,9 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from . import solids as S
-from .assembly import AssemblyError, PartChoice, face_of_triangles, host_frame, place_part
+from .assembly import AssemblyError, PartChoice, face_of_triangles, hip_notes, host_frame, place_part, swap_pelvis
 from .joints import JOINT_KIND_BY_LIMB, JointSpec
-from .ports import Compat, Port, PortError
+from .ports import Compat, Port, PortError, PortFrame
 
 # Lugares que se pueden revisar de antemano. La mano se acopla en la muñeca del brazo ya puesto: se mide al generar.
 SKIPPED = {"mano": "la mano se acopla en la muñeca del brazo: su acople se mide al generar"}
@@ -127,6 +127,19 @@ def preview_part(place: str, choice: PartChoice, project, body: S.Manifold, half
             placed = split.placed
             host_face = None            # la cara del cuello ya se midió dentro de `split_head`
             host_port_face = None
+        elif place == "pelvis":
+            pv.kind = "pelvis"
+            _body, placed = swap_pelvis(body, project.limbs, project.waist, choice, p, p.ref_height)
+            f = placed.port.frame                 # la toma del torso de arriba mira al revés que el enchufe de la pelvis
+            host_port_face = face_of_triangles(placed.face, PortFrame(f.center.copy(), -f.axis, f.ref.copy()))
+            legs = {}
+            for l in project.limbs:
+                if l.kind == "leg":
+                    try:
+                        legs[l.name] = separate_limb(half if half is not None else body.trim_by_plane((1.0, 0.0, 0.0), 0.0), l, p.burr)[1]
+                    except ValueError:
+                        pass
+            pv.notes += hip_notes(placed, legs)
         else:
             spec = next((l for l in project.limbs if l.name == place), None)
             if spec is None:

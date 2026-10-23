@@ -261,6 +261,15 @@ def test_torso_and_pelvis_are_places_with_their_own_choices(ctrl, root):
     assert ctrl.session.catalog_only() is True
 
 
+def test_pelvis_alone_does_not_make_the_figure_catalog_only(ctrl, root):
+    """La pelvis sola reemplaza la del modelo: el torso sigue siendo el del modelo y hace falta su plano de cintura."""
+    from afm.project import PartRef
+    ctrl.open_catalog(root)
+    ctrl.session.project.parts["pelvis"] = PartRef(id="pelvis-x", version=1, linea=ctrl.session._catalog().name)
+    assert ctrl.session.catalog_only() is False
+    assert any("plano de cintura" in t for t in ctrl.session.problems())
+
+
 def test_torso_alone_needs_no_pelvis_but_a_pelvis_needs_the_torso(ctrl, root):
     ctrl.open_catalog(root)
     ctrl.catalog_add_current("muneco")
