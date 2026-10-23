@@ -197,7 +197,7 @@ afm armar RUTA receta.json --out out/fig [--sin-soportes MM]
 
 > **Estado (2026-10-22, Fase 4 parcial):** `src/afm/assembly.py` y `pipeline.build(parts=)` cubren el gancho 2 (miembro de catálogo en el puerto del huésped) y el 6 (`report["piezas"]`); `parts=None` no cambia nada. Faltan 1, 3, 4 y 5 de §4.3. Desvío: el lugar lo define el `LimbSpec` del huésped (su cara y centro de pasador), no un `LimbSpec` mínimo generado; el miembro propio se quita del torso con `half ∩ limb_prism(spec)`.
 
-> **Estado (2026-10-22, Fase 4 completa y Fase 6 parcial):** ganchos 1 (huésped sintetizado: `assembly.synthesize_host`, `pipeline.build_from_parts`, `build(host_faces=)`) y 5 (`JointSpec.transformed`, articulaciones de la pieza en `build`) hechos; trazabilidad §4.5 (`<n>_lista_de_piezas.json/.md` en `export`); `src/afm/recipe.py` + `afm armar`. Falta de la Fase 6: `torso_mirror = False` con huésped sintetizado. Se prueba con el muñeco; con figuras reales falta (cuello y muñeca).
+> **Estado (2026-10-22, Fase 4 completa y Fase 6 parcial):** ganchos 1 (huésped sintetizado: `assembly.synthesize_host`, `pipeline.build_from_parts`, `build(host_faces=)`) y 5 (`JointSpec.transformed`, articulaciones de la pieza en `build`) hechos; trazabilidad §4.5 (`<n>_lista_de_piezas.json/.md` en `export`); `src/afm/recipe.py` + `afm armar`. `torso_mirror = False` con huésped sintetizado también funciona (se quitó la guarda de `build`). Se prueba con el muñeco; con figuras reales falta (cuello y muñeca).
 
 **Fase 0: línea base y medición (sin cambiar comportamiento).**
 - Congelar **resultados dorados** de `make_doll` y de Güemes, Belgrano, Azurduy y Mickey (volumen por pieza, holguras, claves de `report`, `validate.ok`) en `tests/golden/` con una herramienta `tools/golden.py`.

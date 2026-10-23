@@ -290,3 +290,41 @@ def test_catalog_joint_clashes_with_model_joint(doll, project):
     with pytest.raises(ValueError, match="una sola"):
         build(doll, project.limbs, project.params, head=project.head, joints=[_knee()],
               parts={"pierna": PartChoice(ex["pierna"].meta, ex["pierna"].mesh)})
+
+
+# ---------------------------------------------------------------- torso_mirror = False con huésped sintetizado
+def test_unmirrored_torso_from_parts(doll, project):
+    """El torso de catálogo sacado sin espejar conserva su lado −X; al armar con `torso_mirror = False` se talla cada lado
+    con sus barridos y el informe lo dice."""
+    import copy
+    import dataclasses
+    from afm.pipeline import build_from_parts
+    pr = copy.deepcopy(project)
+    pr.params = dataclasses.replace(pr.params, torso_mirror=False)
+    ex = {e.meta.tipo: e for e in extract_all(doll, pr, "muneco", figure="doll").pieces}
+    d = build(doll, pr.limbs, pr.params, head=pr.head)
+    res = build_from_parts(_choices(ex, "torso", "brazo", "pierna", "cabeza"), pr.params)
+    assert res.report["torso"]["espejado"] is False and d.report["torso"]["espejado"] is False
+    assert vol(res.pieces, "torso") == pytest.approx(vol(d.pieces, "torso"), rel=0.02)
+    assert res.report["torso"]["volumen_izq_mm3"] == pytest.approx(d.report["torso"]["volumen_izq_mm3"], rel=0.03)
+    v = validate(res, pr.params, pr.limbs)
+    assert v["ok"], v
+
+
+def test_unmirrored_torso_keeps_an_asymmetric_bump(project):
+    """Un bulto solo en el lado −X de la espalda: con `torso_mirror = False` sobrevive en la figura armada solo con piezas."""
+    import copy
+    import dataclasses
+    import trimesh
+    from afm.pipeline import build_from_parts
+    bump = trimesh.creation.box(extents=(4.0, 4.0, 4.0))
+    bump.apply_translation((-5.0, -11.0, 50.0))
+    body = S.union(S.to_manifold(make_doll()), S.to_manifold(bump))
+    pr = copy.deepcopy(project)
+    pr.params = dataclasses.replace(pr.params, torso_mirror=False)
+    ex = {e.meta.tipo: e for e in extract_all(body, pr, "muneco", figure="doll").pieces}
+    d = build(body, pr.limbs, pr.params, head=pr.head)
+    res = build_from_parts(_choices(ex, "torso", "brazo", "pierna", "cabeza"), pr.params)
+    assert d.report["torso"]["volumen_izq_mm3"] - d.report["torso"]["volumen_der_mm3"] > 5       # el bulto está
+    for k in ("volumen_izq_mm3", "volumen_der_mm3"):
+        assert res.report["torso"][k] == pytest.approx(d.report["torso"][k], rel=0.03), k

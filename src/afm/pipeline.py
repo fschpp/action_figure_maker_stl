@@ -113,8 +113,6 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
     for lname in host_faces:
         if lname not in parts:
             raise ValueError(f"«{lname}»: hay una toma sintetizada pero no una pieza de catálogo para ese lugar")
-    if host_faces and not p.torso_mirror:
-        raise ValueError("el huésped sintetizado con piezas de catálogo todavía no admite torso_mirror = False")
     hand_source = _catalog_hand(parts.pop("mano")) if "mano" in parts else None      # (hand_local, meta) de la pieza `mano`
     head_part = parts.pop("cabeza", None)                                           # pieza `cabeza` (puerto `cuello`)
     if head_part is not None and head is None:
