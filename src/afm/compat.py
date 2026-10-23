@@ -201,8 +201,14 @@ def matrix_markdown(cat: Catalog, results: list[dict] | None = None) -> str:
         lines.append("")
     lines += ["## Compatibilidad completa (`build` + `validate`)", ""]
     if results is None:
-        cache = CompatCache(cat.root).load()["entradas"]
-        results = list(cache.values())
+        # el caché guarda una entrada por combinación (clave): si una receta cambió, quedan las viejas. El informe
+        # muestra solo la más reciente de cada figura.
+        latest: dict = {}
+        for e in CompatCache(cat.root).load()["entradas"].values():
+            k = (e.get("personaje"), e.get("linea"))
+            if k not in latest or str(e.get("fecha") or "") >= str(latest[k].get("fecha") or ""):
+                latest[k] = e
+        results = list(latest.values())
     if not results:
         lines.append("(todavía no se validó ninguna figura: `afm catalogo compat RUTA receta.json`)")
     else:

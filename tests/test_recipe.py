@@ -1,6 +1,7 @@
 """Recetas `afm-receta-1` y `afm armar` (Fase 6 del plan de piezas intercambiables)."""
 import json
 import os
+import shutil
 
 import pytest
 
@@ -46,7 +47,9 @@ def test_bad_recipes_are_rejected(cambio, texto):
 
 def test_armar_cli_builds_the_doll_only_from_catalog_parts(tmp_path, capsys):
     out = str(tmp_path / "fig")
-    code = cli.main(["armar", ROOT, RECETA, "--out", out])
+    cat = str(tmp_path / "linea")       # `afm armar` guarda compat.json junto al catálogo: no ensuciar el del repo
+    shutil.copytree(ROOT, cat, ignore=shutil.ignore_patterns("compat.json", "COMPATIBILIDAD.md"))
+    code = cli.main(["armar", cat, RECETA, "--out", out])
     txt = capsys.readouterr().out
     assert code == 0, txt
     assert "Validación: OK" in txt and "Pieza de catálogo en cabeza" in txt

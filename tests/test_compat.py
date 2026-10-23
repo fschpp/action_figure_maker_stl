@@ -16,7 +16,7 @@ EJEMPLO = os.path.join(os.path.dirname(__file__), "..", "catalogo", "ejemplo")
 def cat_dir(tmp_path):
     """Copia del catálogo de ejemplo: `afm armar` y `compat` escriben `compat.json` junto al catálogo."""
     dst = str(tmp_path / "linea")
-    shutil.copytree(EJEMPLO, dst)
+    shutil.copytree(EJEMPLO, dst, ignore=shutil.ignore_patterns("compat.json", "COMPATIBILIDAD.md"))
     return dst
 
 
@@ -146,3 +146,15 @@ def test_armar_records_and_compat_reuses_the_result(cat_dir, recipe, tmp_path, c
     assert "caché" in capsys.readouterr().out
     md = compat.matrix_markdown(Catalog.open(cat_dir))
     assert "| muneco | ok |" in md
+
+
+def test_matrix_report_shows_only_the_latest_entry_of_each_figure(cat_dir):
+    cat = Catalog.open(cat_dir)
+    c = compat.CompatCache(cat_dir)
+    base = {"personaje": "demo", "linea": "l", "ok": True, "nivel": "ok", "piezas": {}, "problemas": [], "avisos": []}
+    c.put("vieja", {**base, "ok": False, "holgura_min_mm": 0.11, "fecha": "2026-10-20T10:00:00"})
+    c.put("nueva", {**base, "holgura_min_mm": 0.47, "fecha": "2026-10-22T10:00:00"})
+    c.put("otra", {**base, "personaje": "otra-fig", "holgura_min_mm": 0.5, "fecha": "2026-10-01T10:00:00"})
+    md = compat.matrix_markdown(cat)
+    assert md.count("| demo |") == 1 and "| demo | ok | ok | 0.47 |" in md and "0.11" not in md
+    assert "| otra-fig |" in md
