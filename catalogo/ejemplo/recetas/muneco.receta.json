@@ -1,0 +1,15 @@
+{
+  "formato": "afm-receta-1",
+  "personaje": "muneco",
+  "linea": "ejemplo-100",
+  "lugares": {
+    "cabeza": "cabeza-muneco-01@1",
+    "torso": "torso-muneco-01@1",
+    "pelvis": null,
+    "brazo": "brazo-muneco-01@1",
+    "pierna": "pierna-muneco-01@1",
+    "mano": "mano-muneco-01@1"
+  },
+  "opciones": {"cintura": false, "clic_hombro": false, "clic_cadera": false, "torso_mirror": true},
+  "ajustes": {"mano": {"yaw": 0, "union": "solape"}}
+}

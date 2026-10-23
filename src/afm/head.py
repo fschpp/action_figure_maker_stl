@@ -99,6 +99,7 @@ class HeadSplit:
     plane: Plane                 # plano del cuello simetrizado, normal hacia la cabeza
     face: ContactFace            # cara del corte (la de la cabeza que se usa), normal hacia el cuerpo
     replacement: dict | None = None   # datos del ajuste de la cabeza de reemplazo (escala, coincidencia de base…)
+    placed: object | None = None      # assembly.PlacedPart si la cabeza viene del catálogo (sin escala: mm reales)
 
 
 @dataclass
@@ -155,11 +156,13 @@ def below_neck(body: S.Manifold, plane: Plane, p: Params) -> S.Manifold:
     return S.intersection(body, S.halfspace(below))
 
 
-def split_head(body: S.Manifold, spec: HeadSpec, p: Params) -> HeadSplit:
+def split_head(body: S.Manifold, spec: HeadSpec, p: Params, head_part=None) -> HeadSplit:
     """Corta el cuerpo entero por el plano del cuello. El cuerpo se baja `clearance` mm (holgura).
 
     Con `spec.replacement_path` la cabeza original se descarta y se devuelve la importada, ya escalada y
-    colocada sobre el plano (la original solo aporta la base a igualar)."""
+    colocada sobre el plano (la original solo aporta la base a igualar).
+    `head_part` (assembly.PartChoice, pieza `cabeza` de catálogo) tiene prioridad sobre `replacement_path`: se acopla su
+    puerto `cuello` con el cuello del modelo, rígido y sin escalar; la compatibilidad queda en `HeadSplit.placed`."""
     plane = neck_plane(spec)
     head = S.largest_component(S.intersection(body, S.halfspace(plane)))
     if head.is_empty() or head.volume() < 1.0:
@@ -169,10 +172,16 @@ def split_head(body: S.Manifold, spec: HeadSpec, p: Params) -> HeadSplit:
         raise ValueError("el plano del cuello deja la figura sin cuerpo (¿está por debajo de los pies?)")
     face = _face_from_head(head, plane)
     info = None
-    if spec.replacement_path:
+    placed = None
+    if head_part is not None:
+        from .assembly import place_part
+        placed = place_part(head_part, "head", face, p, p.ref_height)    # descarta la cabeza original
+        head = placed.mesh
+        face = _face_from_head(head, plane)
+    elif spec.replacement_path:
         head, info = fit_replacement(spec, plane, face)      # descarta la cabeza original
         face = _face_from_head(head, plane)
-    return HeadSplit(head, body_half, plane, face, info)
+    return HeadSplit(head, body_half, plane, face, info, placed)
 
 
 # ------------------------------------------------------------- cabeza de reemplazo
@@ -496,7 +505,7 @@ def build_head(split: HeadSplit, spec: HeadSpec, p: Params, trims=None) -> HeadB
 
     mine = [t for t in (trims or []) if t.target == spec.name]
     whole = split.head
-    if mine and spec.replacement_path:   # cabeza importada: sin simetría, los recortes se aplican tal cual
+    if mine and (spec.replacement_path or split.placed is not None):   # cabeza importada o de catálogo: sin simetría, los recortes se aplican tal cual
         from .trims import apply_trims as _apply
         whole = _apply(whole, mine, spec.name)
     elif mine:     # los recortes se dibujan en el lado de trabajo: se aplican a la mitad y se espeja

@@ -1,0 +1,864 @@
+{
+  "figuras": {
+    "muneco": {
+      "altura_mm": 100.0,
+      "puertos": {
+        "hombro": {
+          "centro": [
+            15.66,
+            0.0,
+            60.0
+          ],
+          "eje": [
+            -1.0,
+            -0.0,
+            -0.0
+          ],
+          "radio_eq_mm": 7.073,
+          "area_mm2": 157.16,
+          "margen_pasador_mm": 0.569
+        },
+        "cadera": {
+          "centro": [
+            13.34,
+            0.0,
+            38.0
+          ],
+          "eje": [
+            1.0,
+            0.0,
+            0.0
+          ],
+          "radio_eq_mm": 6.958,
+          "area_mm2": 152.08,
+          "margen_pasador_mm": 1.5
+        },
+        "cuello": {
+          "centro": [
+            0.0,
+            -0.0,
+            80.0
+          ],
+          "eje": [
+            -0.0,
+            -0.0,
+            -1.0
+          ],
+          "radio_eq_mm": 6.256,
+          "area_mm2": 122.97,
+          "margen_pasador_mm": 4.633
+        }
+      }
+    },
+    "guemes": {
+      "altura_mm": 100.0,
+      "puertos": {
+        "hombro": {
+          "centro": [
+            12.66,
+            -2.797,
+            84.441
+          ],
+          "eje": [
+            -1.0,
+            -0.0,
+            -0.0
+          ],
+          "radio_eq_mm": 6.835,
+          "area_mm2": 146.76,
+          "margen_pasador_mm": 2.848
+        },
+        "cadera": {
+          "centro": [
+            7.66,
+            -1.265,
+            52.478
+          ],
+          "eje": [
+            -1.0,
+            -0.0,
+            -0.0
+          ],
+          "radio_eq_mm": 6.824,
+          "area_mm2": 146.3,
+          "margen_pasador_mm": 2.978
+        }
+      }
+    },
+    "belgrano": {
+      "altura_mm": 100.0,
+      "puertos": {
+        "hombro": {
+          "centro": [
+            11.66,
+            -0.981,
+            72.164
+          ],
+          "eje": [
+            -1.0,
+            -0.0,
+            -0.0
+          ],
+          "radio_eq_mm": 5.766,
+          "area_mm2": 104.45,
+          "margen_pasador_mm": 1.935
+        },
+        "cadera": {
+          "centro": [
+            7.66,
+            -1.458,
+            42.959
+          ],
+          "eje": [
+            -1.0,
+            -0.0,
+            -0.0
+          ],
+          "radio_eq_mm": 6.714,
+          "area_mm2": 141.62,
+          "margen_pasador_mm": 2.459
+        }
+      }
+    },
+    "azurduy": {
+      "altura_mm": 100.0,
+      "puertos": {
+        "hombro": {
+          "centro": [
+            9.66,
+            -3.924,
+            75.212
+          ],
+          "eje": [
+            -1.0,
+            -0.0,
+            -0.0
+          ],
+          "radio_eq_mm": 4.886,
+          "area_mm2": 75.01,
+          "margen_pasador_mm": 1.347
+        },
+        "cadera": {
+          "centro": [
+            7.66,
+            -2.489,
+            47.026
+          ],
+          "eje": [
+            -1.0,
+            -0.0,
+            -0.0
+          ],
+          "radio_eq_mm": 6.173,
+          "area_mm2": 119.72,
+          "margen_pasador_mm": 2.474
+        }
+      }
+    },
+    "mickey": {
+      "altura_mm": 100.0,
+      "puertos": {
+        "hombro": {
+          "centro": [
+            9.076,
+            -6.561,
+            63.082
+          ],
+          "eje": [
+            -1.0,
+            -0.0,
+            -0.0
+          ],
+          "radio_eq_mm": 3.406,
+          "area_mm2": 36.44,
+          "margen_pasador_mm": 0.801
+        },
+        "cadera": {
+          "centro": [
+            8.993,
+            -5.851,
+            36.313
+          ],
+          "eje": [
+            -1.0,
+            -0.0,
+            -0.0
+          ],
+          "radio_eq_mm": 9.421,
+          "area_mm2": 278.84,
+          "margen_pasador_mm": 4.092
+        }
+      }
+    }
+  },
+  "pares": [
+    {
+      "enchufe_de": "muneco",
+      "toma_de": "guemes",
+      "puerto": "hombro",
+      "nivel": "aviso",
+      "iou": 0.4247,
+      "escalon_mm": 0.2381,
+      "margenes_mm": {
+        "A": 0.569,
+        "B": 2.848
+      },
+      "motivos": [],
+      "avisos": [
+        "las caras coinciden solo 42 % (mínimo recomendado 80 %)",
+        "pared de 0.57 mm alrededor del pasador en la cara A (mínimo 1.2 mm)"
+      ]
+    },
+    {
+      "enchufe_de": "muneco",
+      "toma_de": "guemes",
+      "puerto": "cadera",
+      "nivel": "aviso",
+      "iou": 0.5598,
+      "escalon_mm": 0.1335,
+      "margenes_mm": {
+        "A": 1.5,
+        "B": 2.978
+      },
+      "motivos": [],
+      "avisos": [
+        "las caras coinciden solo 56 % (mínimo recomendado 80 %)"
+      ]
+    },
+    {
+      "enchufe_de": "muneco",
+      "toma_de": "belgrano",
+      "puerto": "hombro",
+      "nivel": "aviso",
+      "iou": 0.4232,
+      "escalon_mm": 1.3067,
+      "margenes_mm": {
+        "A": 0.569,
+        "B": 1.935
+      },
+      "motivos": [],
+      "avisos": [
+        "las caras coinciden solo 42 % (mínimo recomendado 80 %)",
+        "escalón de 1.31 mm entre los radios de las caras (aviso desde 1 mm)",
+        "pared de 0.57 mm alrededor del pasador en la cara A (mínimo 1.2 mm)"
+      ]
+    },
+    {
+      "enchufe_de": "muneco",
+      "toma_de": "belgrano",
+      "puerto": "cadera",
+      "nivel": "aviso",
+      "iou": 0.6321,
+      "escalon_mm": 0.2435,
+      "margenes_mm": {
+        "A": 1.5,
+        "B": 2.459
+      },
+      "motivos": [],
+      "avisos": [
+        "las caras coinciden solo 63 % (mínimo recomendado 80 %)"
+      ]
+    },
+    {
+      "enchufe_de": "muneco",
+      "toma_de": "azurduy",
+      "puerto": "hombro",
+      "nivel": "aviso",
+      "iou": 0.367,
+      "escalon_mm": 2.1865,
+      "margenes_mm": {
+        "A": 0.569,
+        "B": 1.347
+      },
+      "motivos": [],
+      "avisos": [
+        "las caras coinciden solo 37 % (mínimo recomendado 80 %)",
+        "escalón de 2.19 mm entre los radios de las caras (aviso desde 1 mm)",
+        "pared de 0.57 mm alrededor del pasador en la cara A (mínimo 1.2 mm)"
+      ]
+    },
+    {
+      "enchufe_de": "muneco",
+      "toma_de": "azurduy",
+      "puerto": "cadera",
+      "nivel": "aviso",
+      "iou": 0.5561,
+      "escalon_mm": 0.7843,
+      "margenes_mm": {
+        "A": 1.5,
+        "B": 2.474
+      },
+      "motivos": [],
+      "avisos": [
+        "las caras coinciden solo 56 % (mínimo recomendado 80 %)"
+      ]
+    },
+    {
+      "enchufe_de": "muneco",
+      "toma_de": "mickey",
+      "puerto": "hombro",
+      "nivel": "aviso",
+      "iou": 0.1871,
+      "escalon_mm": 3.6671,
+      "margenes_mm": {
+        "A": 0.569,
+        "B": 0.801
+      },
+      "motivos": [],
+      "avisos": [
+        "las caras coinciden solo 19 % (mínimo recomendado 80 %)",
+        "escalón de 3.67 mm entre los radios de las caras (aviso desde 1 mm)",
+        "pared de 0.57 mm alrededor del pasador en la cara A (mínimo 1.2 mm)",
+        "pared de 0.80 mm alrededor del pasador en la cara B (mínimo 1.2 mm)"
+      ]
+    },
+    {
+      "enchufe_de": "muneco",
+      "toma_de": "mickey",
+      "puerto": "cadera",
+      "nivel": "aviso",
+      "iou": 0.4886,
+      "escalon_mm": 2.4636,
+      "margenes_mm": {
+        "A": 1.5,
+        "B": 4.092
+      },
+      "motivos": [],
+      "avisos": [
+        "las caras coinciden solo 49 % (mínimo recomendado 80 %)",
+        "escalón de 2.46 mm entre los radios de las caras (aviso desde 1 mm)"
+      ]
+    },
+    {
+      "enchufe_de": "guemes",
+      "toma_de": "muneco",
+      "puerto": "hombro",
+      "nivel": "aviso",
+      "iou": 0.4247,
+      "escalon_mm": 0.2381,
+      "margenes_mm": {
+        "A": 2.848,
+        "B": 0.569
+      },
+      "motivos": [],
+      "avisos": [
+        "las caras coinciden solo 42 % (mínimo recomendado 80 %)",
+        "pared de 0.57 mm alrededor del pasador en la cara B (mínimo 1.2 mm)"
+      ]
+    },
+    {
+      "enchufe_de": "guemes",
+      "toma_de": "muneco",
+      "puerto": "cadera",
+      "nivel": "aviso",
+      "iou": 0.5598,
+      "escalon_mm": 0.1335,
+      "margenes_mm": {
+        "A": 2.978,
+        "B": 1.5
+      },
+      "motivos": [],
+      "avisos": [
+        "las caras coinciden solo 56 % (mínimo recomendado 80 %)"
+      ]
+    },
+    {
+      "enchufe_de": "guemes",
+      "toma_de": "belgrano",
+      "puerto": "hombro",
+      "nivel": "aviso",
+      "iou": 0.7117,
+      "escalon_mm": 1.0686,
+      "margenes_mm": {
+        "A": 2.848,
+        "B": 1.935
+      },
+      "motivos": [],
+      "avisos": [
+        "las caras coinciden solo 71 % (mínimo recomendado 80 %)",
+        "escalón de 1.07 mm entre los radios de las caras (aviso desde 1 mm)"
+      ]
+    },
+    {
+      "enchufe_de": "guemes",
+      "toma_de": "belgrano",
+      "puerto": "cadera",
+      "nivel": "ok",
+      "iou": 0.8624,
+      "escalon_mm": 0.1101,
+      "margenes_mm": {
+        "A": 2.978,
+        "B": 2.459
+      },
+      "motivos": [],
+      "avisos": []
+    },
+    {
+      "enchufe_de": "guemes",
+      "toma_de": "azurduy",
+      "puerto": "hombro",
+      "nivel": "aviso",
+      "iou": 0.5111,
+      "escalon_mm": 1.9484,
+      "margenes_mm": {
+        "A": 2.848,
+        "B": 1.347
+      },
+      "motivos": [],
+      "avisos": [
+        "las caras coinciden solo 51 % (mínimo recomendado 80 %)",
+        "escalón de 1.95 mm entre los radios de las caras (aviso desde 1 mm)"
+      ]
+    },
+    {
+      "enchufe_de": "guemes",
+      "toma_de": "azurduy",
+      "puerto": "cadera",
+      "nivel": "ok",
+      "iou": 0.8082,
+      "escalon_mm": 0.6509,
+      "margenes_mm": {
+        "A": 2.978,
+        "B": 2.474
+      },
+      "motivos": [],
+      "avisos": []
+    },
+    {
+      "enchufe_de": "guemes",
+      "toma_de": "mickey",
+      "puerto": "hombro",
+      "nivel": "aviso",
+      "iou": 0.2483,
+      "escalon_mm": 3.429,
+      "margenes_mm": {
+        "A": 2.848,
+        "B": 0.801
+      },
+      "motivos": [],
+      "avisos": [
+        "las caras coinciden solo 25 % (mínimo recomendado 80 %)",
+        "escalón de 3.43 mm entre los radios de las caras (aviso desde 1 mm)",
+        "pared de 0.80 mm alrededor del pasador en la cara B (mínimo 1.2 mm)"
+      ]
+    },
+    {
+      "enchufe_de": "guemes",
+      "toma_de": "mickey",
+      "puerto": "cadera",
+      "nivel": "aviso",
+      "iou": 0.5247,
+      "escalon_mm": 2.597,
+      "margenes_mm": {
+        "A": 2.978,
+        "B": 4.092
+      },
+      "motivos": [],
+      "avisos": [
+        "las caras coinciden solo 52 % (mínimo recomendado 80 %)",
+        "escalón de 2.60 mm entre los radios de las caras (aviso desde 1 mm)"
+      ]
+    },
+    {
+      "enchufe_de": "belgrano",
+      "toma_de": "muneco",
+      "puerto": "hombro",
+      "nivel": "aviso",
+      "iou": 0.4232,
+      "escalon_mm": 1.3067,
+      "margenes_mm": {
+        "A": 1.935,
+        "B": 0.569
+      },
+      "motivos": [],
+      "avisos": [
+        "las caras coinciden solo 42 % (mínimo recomendado 80 %)",
+        "escalón de 1.31 mm entre los radios de las caras (aviso desde 1 mm)",
+        "pared de 0.57 mm alrededor del pasador en la cara B (mínimo 1.2 mm)"
+      ]
+    },
+    {
+      "enchufe_de": "belgrano",
+      "toma_de": "muneco",
+      "puerto": "cadera",
+      "nivel": "aviso",
+      "iou": 0.6321,
+      "escalon_mm": 0.2435,
+      "margenes_mm": {
+        "A": 2.459,
+        "B": 1.5
+      },
+      "motivos": [],
+      "avisos": [
+        "las caras coinciden solo 63 % (mínimo recomendado 80 %)"
+      ]
+    },
+    {
+      "enchufe_de": "belgrano",
+      "toma_de": "guemes",
+      "puerto": "hombro",
+      "nivel": "aviso",
+      "iou": 0.7117,
+      "escalon_mm": 1.0686,
+      "margenes_mm": {
+        "A": 1.935,
+        "B": 2.848
+      },
+      "motivos": [],
+      "avisos": [
+        "las caras coinciden solo 71 % (mínimo recomendado 80 %)",
+        "escalón de 1.07 mm entre los radios de las caras (aviso desde 1 mm)"
+      ]
+    },
+    {
+      "enchufe_de": "belgrano",
+      "toma_de": "guemes",
+      "puerto": "cadera",
+      "nivel": "ok",
+      "iou": 0.8624,
+      "escalon_mm": 0.1101,
+      "margenes_mm": {
+        "A": 2.459,
+        "B": 2.978
+      },
+      "motivos": [],
+      "avisos": []
+    },
+    {
+      "enchufe_de": "belgrano",
+      "toma_de": "azurduy",
+      "puerto": "hombro",
+      "nivel": "aviso",
+      "iou": 0.7181,
+      "escalon_mm": 0.8798,
+      "margenes_mm": {
+        "A": 1.935,
+        "B": 1.347
+      },
+      "motivos": [],
+      "avisos": [
+        "las caras coinciden solo 72 % (mínimo recomendado 80 %)"
+      ]
+    },
+    {
+      "enchufe_de": "belgrano",
+      "toma_de": "azurduy",
+      "puerto": "cadera",
+      "nivel": "ok",
+      "iou": 0.8358,
+      "escalon_mm": 0.5408,
+      "margenes_mm": {
+        "A": 2.459,
+        "B": 2.474
+      },
+      "motivos": [],
+      "avisos": []
+    },
+    {
+      "enchufe_de": "belgrano",
+      "toma_de": "mickey",
+      "puerto": "hombro",
+      "nivel": "aviso",
+      "iou": 0.3489,
+      "escalon_mm": 2.3604,
+      "margenes_mm": {
+        "A": 1.935,
+        "B": 0.801
+      },
+      "motivos": [],
+      "avisos": [
+        "las caras coinciden solo 35 % (mínimo recomendado 80 %)",
+        "escalón de 2.36 mm entre los radios de las caras (aviso desde 1 mm)",
+        "pared de 0.80 mm alrededor del pasador en la cara B (mínimo 1.2 mm)"
+      ]
+    },
+    {
+      "enchufe_de": "belgrano",
+      "toma_de": "mickey",
+      "puerto": "cadera",
+      "nivel": "aviso",
+      "iou": 0.5057,
+      "escalon_mm": 2.7071,
+      "margenes_mm": {
+        "A": 2.459,
+        "B": 4.092
+      },
+      "motivos": [],
+      "avisos": [
+        "las caras coinciden solo 51 % (mínimo recomendado 80 %)",
+        "escalón de 2.71 mm entre los radios de las caras (aviso desde 1 mm)"
+      ]
+    },
+    {
+      "enchufe_de": "azurduy",
+      "toma_de": "muneco",
+      "puerto": "hombro",
+      "nivel": "aviso",
+      "iou": 0.367,
+      "escalon_mm": 2.1865,
+      "margenes_mm": {
+        "A": 1.347,
+        "B": 0.569
+      },
+      "motivos": [],
+      "avisos": [
+        "las caras coinciden solo 37 % (mínimo recomendado 80 %)",
+        "escalón de 2.19 mm entre los radios de las caras (aviso desde 1 mm)",
+        "pared de 0.57 mm alrededor del pasador en la cara B (mínimo 1.2 mm)"
+      ]
+    },
+    {
+      "enchufe_de": "azurduy",
+      "toma_de": "muneco",
+      "puerto": "cadera",
+      "nivel": "aviso",
+      "iou": 0.5561,
+      "escalon_mm": 0.7843,
+      "margenes_mm": {
+        "A": 2.474,
+        "B": 1.5
+      },
+      "motivos": [],
+      "avisos": [
+        "las caras coinciden solo 56 % (mínimo recomendado 80 %)"
+      ]
+    },
+    {
+      "enchufe_de": "azurduy",
+      "toma_de": "guemes",
+      "puerto": "hombro",
+      "nivel": "aviso",
+      "iou": 0.5111,
+      "escalon_mm": 1.9484,
+      "margenes_mm": {
+        "A": 1.347,
+        "B": 2.848
+      },
+      "motivos": [],
+      "avisos": [
+        "las caras coinciden solo 51 % (mínimo recomendado 80 %)",
+        "escalón de 1.95 mm entre los radios de las caras (aviso desde 1 mm)"
+      ]
+    },
+    {
+      "enchufe_de": "azurduy",
+      "toma_de": "guemes",
+      "puerto": "cadera",
+      "nivel": "ok",
+      "iou": 0.8082,
+      "escalon_mm": 0.6509,
+      "margenes_mm": {
+        "A": 2.474,
+        "B": 2.978
+      },
+      "motivos": [],
+      "avisos": []
+    },
+    {
+      "enchufe_de": "azurduy",
+      "toma_de": "belgrano",
+      "puerto": "hombro",
+      "nivel": "aviso",
+      "iou": 0.7181,
+      "escalon_mm": 0.8798,
+      "margenes_mm": {
+        "A": 1.347,
+        "B": 1.935
+      },
+      "motivos": [],
+      "avisos": [
+        "las caras coinciden solo 72 % (mínimo recomendado 80 %)"
+      ]
+    },
+    {
+      "enchufe_de": "azurduy",
+      "toma_de": "belgrano",
+      "puerto": "cadera",
+      "nivel": "ok",
+      "iou": 0.8358,
+      "escalon_mm": 0.5408,
+      "margenes_mm": {
+        "A": 2.474,
+        "B": 2.459
+      },
+      "motivos": [],
+      "avisos": []
+    },
+    {
+      "enchufe_de": "azurduy",
+      "toma_de": "mickey",
+      "puerto": "hombro",
+      "nivel": "aviso",
+      "iou": 0.4852,
+      "escalon_mm": 1.4806,
+      "margenes_mm": {
+        "A": 1.347,
+        "B": 0.801
+      },
+      "motivos": [],
+      "avisos": [
+        "las caras coinciden solo 49 % (mínimo recomendado 80 %)",
+        "escalón de 1.48 mm entre los radios de las caras (aviso desde 1 mm)",
+        "pared de 0.80 mm alrededor del pasador en la cara B (mínimo 1.2 mm)"
+      ]
+    },
+    {
+      "enchufe_de": "azurduy",
+      "toma_de": "mickey",
+      "puerto": "cadera",
+      "nivel": "aviso",
+      "iou": 0.4294,
+      "escalon_mm": 3.2479,
+      "margenes_mm": {
+        "A": 2.474,
+        "B": 4.092
+      },
+      "motivos": [],
+      "avisos": [
+        "las caras coinciden solo 43 % (mínimo recomendado 80 %)",
+        "escalón de 3.25 mm entre los radios de las caras (aviso desde 1 mm)"
+      ]
+    },
+    {
+      "enchufe_de": "mickey",
+      "toma_de": "muneco",
+      "puerto": "hombro",
+      "nivel": "aviso",
+      "iou": 0.1871,
+      "escalon_mm": 3.6671,
+      "margenes_mm": {
+        "A": 0.801,
+        "B": 0.569
+      },
+      "motivos": [],
+      "avisos": [
+        "las caras coinciden solo 19 % (mínimo recomendado 80 %)",
+        "escalón de 3.67 mm entre los radios de las caras (aviso desde 1 mm)",
+        "pared de 0.80 mm alrededor del pasador en la cara A (mínimo 1.2 mm)",
+        "pared de 0.57 mm alrededor del pasador en la cara B (mínimo 1.2 mm)"
+      ]
+    },
+    {
+      "enchufe_de": "mickey",
+      "toma_de": "muneco",
+      "puerto": "cadera",
+      "nivel": "aviso",
+      "iou": 0.4886,
+      "escalon_mm": 2.4636,
+      "margenes_mm": {
+        "A": 4.092,
+        "B": 1.5
+      },
+      "motivos": [],
+      "avisos": [
+        "las caras coinciden solo 49 % (mínimo recomendado 80 %)",
+        "escalón de 2.46 mm entre los radios de las caras (aviso desde 1 mm)"
+      ]
+    },
+    {
+      "enchufe_de": "mickey",
+      "toma_de": "guemes",
+      "puerto": "hombro",
+      "nivel": "aviso",
+      "iou": 0.2483,
+      "escalon_mm": 3.429,
+      "margenes_mm": {
+        "A": 0.801,
+        "B": 2.848
+      },
+      "motivos": [],
+      "avisos": [
+        "las caras coinciden solo 25 % (mínimo recomendado 80 %)",
+        "escalón de 3.43 mm entre los radios de las caras (aviso desde 1 mm)",
+        "pared de 0.80 mm alrededor del pasador en la cara A (mínimo 1.2 mm)"
+      ]
+    },
+    {
+      "enchufe_de": "mickey",
+      "toma_de": "guemes",
+      "puerto": "cadera",
+      "nivel": "aviso",
+      "iou": 0.5247,
+      "escalon_mm": 2.597,
+      "margenes_mm": {
+        "A": 4.092,
+        "B": 2.978
+      },
+      "motivos": [],
+      "avisos": [
+        "las caras coinciden solo 52 % (mínimo recomendado 80 %)",
+        "escalón de 2.60 mm entre los radios de las caras (aviso desde 1 mm)"
+      ]
+    },
+    {
+      "enchufe_de": "mickey",
+      "toma_de": "belgrano",
+      "puerto": "hombro",
+      "nivel": "aviso",
+      "iou": 0.3489,
+      "escalon_mm": 2.3604,
+      "margenes_mm": {
+        "A": 0.801,
+        "B": 1.935
+      },
+      "motivos": [],
+      "avisos": [
+        "las caras coinciden solo 35 % (mínimo recomendado 80 %)",
+        "escalón de 2.36 mm entre los radios de las caras (aviso desde 1 mm)",
+        "pared de 0.80 mm alrededor del pasador en la cara A (mínimo 1.2 mm)"
+      ]
+    },
+    {
+      "enchufe_de": "mickey",
+      "toma_de": "belgrano",
+      "puerto": "cadera",
+      "nivel": "aviso",
+      "iou": 0.5057,
+      "escalon_mm": 2.7071,
+      "margenes_mm": {
+        "A": 4.092,
+        "B": 2.459
+      },
+      "motivos": [],
+      "avisos": [
+        "las caras coinciden solo 51 % (mínimo recomendado 80 %)",
+        "escalón de 2.71 mm entre los radios de las caras (aviso desde 1 mm)"
+      ]
+    },
+    {
+      "enchufe_de": "mickey",
+      "toma_de": "azurduy",
+      "puerto": "hombro",
+      "nivel": "aviso",
+      "iou": 0.4852,
+      "escalon_mm": 1.4806,
+      "margenes_mm": {
+        "A": 0.801,
+        "B": 1.347
+      },
+      "motivos": [],
+      "avisos": [
+        "las caras coinciden solo 49 % (mínimo recomendado 80 %)",
+        "escalón de 1.48 mm entre los radios de las caras (aviso desde 1 mm)",
+        "pared de 0.80 mm alrededor del pasador en la cara A (mínimo 1.2 mm)"
+      ]
+    },
+    {
+      "enchufe_de": "mickey",
+      "toma_de": "azurduy",
+      "puerto": "cadera",
+      "nivel": "aviso",
+      "iou": 0.4294,
+      "escalon_mm": 3.2479,
+      "margenes_mm": {
+        "A": 4.092,
+        "B": 2.474
+      },
+      "motivos": [],
+      "avisos": [
+        "las caras coinciden solo 43 % (mínimo recomendado 80 %)",
+        "escalón de 3.25 mm entre los radios de las caras (aviso desde 1 mm)"
+      ]
+    }
+  ]
+}

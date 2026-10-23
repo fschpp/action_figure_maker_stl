@@ -1,0 +1,107 @@
+{
+  "formato": "afm-linea-1",
+  "nombre": "ejemplo-100",
+  "altura_mm": 100.0,
+  "boquilla": 0.4,
+  "params": {
+    "ref_height": 100.0,
+    "clearance": 0.5,
+    "burr": 0.66,
+    "shoulder_pin": {
+      "shaft_d": 4.1,
+      "shaft_len": 2.5,
+      "head_d": 6.6,
+      "head_h": 1.65
+    },
+    "hip_pin": {
+      "shaft_d": 5.0,
+      "shaft_len": 4.1,
+      "head_d": 6.6,
+      "head_h": 2.5
+    },
+    "neck_pin": {
+      "shaft_d": 4.1,
+      "shaft_len": 2.5,
+      "head_d": 6.6,
+      "head_h": 1.65
+    },
+    "waist_pin": {
+      "shaft_d": 6.0,
+      "shaft_len": 3.0,
+      "head_d": 10.0,
+      "head_h": 3.0
+    },
+    "hand_pin": {
+      "shaft_d": 3.0,
+      "shaft_len": 2.4,
+      "head_d": 4.6,
+      "head_h": 1.2
+    },
+    "waist_twist": 45.0,
+    "sit_angle": 90.0,
+    "hip_margin": 5.0,
+    "sweep_step": 5.0,
+    "min_wall": 1.2,
+    "min_pin_d": 3.0,
+    "nozzle": 0.4,
+    "hinge_pin": {
+      "pin_d": 2.4,
+      "pin_len": 1.2,
+      "tongue_t": 2.4,
+      "end_r": 3.6,
+      "neck": true,
+      "rod": true,
+      "rod_wall": 1.2
+    },
+    "axial_clearance": 0.35,
+    "knee_range": [
+      0.0,
+      90.0
+    ],
+    "knee_hyperext": 0.0,
+    "elbow_range": [
+      0.0,
+      90.0
+    ],
+    "elbow_hyperext": 10.0,
+    "stop_margin": 5.0,
+    "knee_print_angle": 85.0,
+    "elbow_print_angle": 0.0,
+    "min_tongue": 2.0,
+    "min_hinge_pin_d": 2.0,
+    "decimate": 0.6,
+    "detent": {
+      "n_notches": 4,
+      "disc_d": 8.0,
+      "disc_h": 2.5,
+      "notch_depth": 0.8,
+      "flank_deg": 30.0,
+      "tip_r": 0.7,
+      "detent_gap": 0.3,
+      "slit_w": 0.5,
+      "flex_gap": 1.0,
+      "finger_t": 1.2,
+      "finger_len": 10.0,
+      "finger_w": 4.0,
+      "max_strain": 0.01,
+      "print_angle": 10.0,
+      "hold_torque_min": 10.0,
+      "move_torque_max": 60.0,
+      "elastic_modulus": 2500.0
+    },
+    "shoulder_detent": false,
+    "hip_detent": false,
+    "flat_depth": 1.0,
+    "torso_mirror": true,
+    "flat_fill_hip": false
+  },
+  "lugares": [
+    "cabeza",
+    "torso",
+    "pelvis",
+    "brazo",
+    "pierna",
+    "mano"
+  ],
+  "motor": "0.2.0"
+}

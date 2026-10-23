@@ -10,10 +10,12 @@ import trimesh
 
 from . import solids as S
 from . import detent as DT
-from .hand import HAND_MIN_SHAFT_D, HAND_NAME, HandError, HandSpec, apply_hand
+from .hand import (HAND_MIN_SHAFT_D, HAND_NAME, HandError, HandSpec, WristFrame, WristSplit, apply_hand, attach_hand,
+                   load_standard_hand)
 from .head import HEAD_NAME, MIN_BASE_IOU, HeadSpec, below_neck, build_head, neck_plane, split_head
-from .joints import JointBuild, JointSpec, build_joint, flex_range, hinge_for, print_flex
-from .limbs import LimbSpec, ContactFace, check_limb_plane, pin_margin, separate_limb
+from .joints import JOINT_KIND_BY_LIMB, JointBuild, JointSpec, build_joint, flex_range, hinge_for, print_flex
+from .assembly import AssemblyError, PartChoice, PlacedPart, place_part
+from .limbs import LimbSpec, ContactFace, check_limb_plane, limb_prism, pin_margin, separate_limb
 from .params import Params
 from .pins import mushroom_pin
 from .planes import Plane
@@ -42,6 +44,7 @@ class BuildResult:
     detent_ref: S.Manifold | None = None         # torso SIN lengüetas ni puntas: referencia para el giro libre del clic
     hand: dict | None = None                     # mano articulada: {"limb", "piece0" (mano de pie, sin girar), "center", "axis" (de la pose impresa), "pin"}
     waist: WaistBuild | None = None              # cintura: `pieces["torso"]` es el pecho (arriba) y `pieces["pelvis"]` la pelvis
+    joint_specs: list = field(default_factory=list)   # todas las articulaciones usadas (las del modelo y las que traen las piezas de catálogo)
 
 
 def align_to_symmetry(mesh: trimesh.Trimesh, sym: Plane | None) -> trimesh.Trimesh:
@@ -84,11 +87,16 @@ def _rotation_axis(face: ContactFace) -> np.ndarray:
 def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None = None,
           sit: bool = True, progress=None, trims: list[Trim] | None = None,
           head: HeadSpec | None = None, joints: list[JointSpec] | None = None,
-          waist: WaistSpec | None = None, hand: HandSpec | None = None) -> BuildResult:
+          waist: WaistSpec | None = None, hand: HandSpec | None = None,
+          parts: dict[str, PartChoice] | None = None, host_faces: dict | None = None) -> BuildResult:
     """Construye las piezas. `body` debe estar normalizado y con el plano de simetría en x = 0.
 
     `hand`: mano estándar (STL) que reemplaza a la del modelo; se pega en el lado +X antes de cortar los miembros, así
-    viaja con el brazo (o con el antebrazo, si hay codo) y el otro lado sale por espejo."""
+    viaja con el brazo (o con el antebrazo, si hay codo) y el otro lado sale por espejo.
+
+    `parts`: piezas de catálogo (`assembly.PartChoice`) por nombre de miembro (`LimbSpec.name`). En vez de cortar ese
+    miembro del modelo, se lleva la pieza al puerto que el modelo tiene en ese lugar (sin escala); el resto del flujo
+    (pasador, clic, barrido, tallado del torso, articulaciones) es el de siempre. Con `None` el resultado es idéntico."""
     say = progress or (lambda *_: None)
     trims = trims or []
     joints = list(joints or [])
@@ -99,20 +107,41 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
         if j.limb not in {l.name for l in limbs}:
             raise ValueError(f"la articulación «{j.name}» apunta al miembro «{j.limb}», que no existe")
         by_limb[j.limb] = j
+    parts = dict(parts or {})
+    parts_src = set(parts)
+    host_faces = dict(host_faces or {})
+    for lname in host_faces:
+        if lname not in parts:
+            raise ValueError(f"«{lname}»: hay una toma sintetizada pero no una pieza de catálogo para ese lugar")
+    hand_source = _catalog_hand(parts.pop("mano")) if "mano" in parts else None      # (hand_local, meta) de la pieza `mano`
+    head_part = parts.pop("cabeza", None)                                           # pieza `cabeza` (puerto `cuello`)
+    if head_part is not None and head is None:
+        raise ValueError(f"la cabeza de catálogo «{head_part.meta.ref}» necesita el plano del cuello del modelo (HeadSpec)")
+    for lname in parts:
+        if lname not in {l.name for l in limbs}:
+            raise ValueError(f"la pieza de catálogo «{parts[lname].meta.ref}» apunta al miembro «{lname}», que no existe")
     for spec in limbs:
         check_limb_plane(spec.plane)       # falla rápido: un plano de canto da piezas inservibles
     half = body.trim_by_plane((1.0, 0.0, 0.0), 0.0)          # lado de trabajo (+X)
     head_build = None
     if head is not None:
         say("Separando la cabeza…")
-        split = split_head(body, head, p)
+        split = split_head(body, head, p, head_part)
         head_build = build_head(split, head, p, trims)
         half = split.body_half                                # los miembros se cortan del cuerpo sin cabeza
     hand_build = None
     hand_cover: dict[str, float] = {}
-    if hand is not None:
+    # Brazos de catálogo con puerto `muneca`: la mano va en ESE puerto (no en el plano de muñeca del modelo) y se pega
+    # al brazo ya puesto, dentro del bucle de miembros.
+    wrist_arms = {s.name for s in limbs if s.kind == "arm" and s.name in parts and "muneca" in parts[s.name].meta.puertos}
+    hand_spec = hand if hand is not None else (HandSpec(path=hand_source[1].get("archivo", "")) if hand_source else None)
+    host_hand = None if wrist_arms else hand_spec
+    if host_hand is not None and not host_hand.points:
+        raise ValueError("la mano de catálogo necesita el plano de muñeca del modelo (HandSpec.points) cuando el brazo no es de catálogo")
+    part_notes: dict[str, list] = {}
+    if host_hand is not None:
         say("Pegando la mano estándar…")
-        hand_build = apply_hand(half, hand, p.ref_height, p)
+        hand_build = apply_hand(half, host_hand, p.ref_height, p, source=hand_source)
         half = hand_build.body                                # la mano nueva viaja con el brazo que se corta abajo
     half_nocav = half                                         # con «giro» la cavidad del pasador se talla aparte (ver abajo)
     pocket_in_body = 0.0
@@ -123,10 +152,57 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
     cutters: list[S.Manifold] = []        # lo que se resta del torso: se repite sobre el lado −X si el torso no se espeja
     built: dict[str, dict] = {}
     detents: dict[str, DT.DetentLimb] = {}
+    placed: dict[str, PlacedPart] = {}
+    if head_build is not None and split.placed is not None:
+        placed["cabeza"] = split.placed
     for spec in limbs:
         say(f"Separando {spec.name}…")
-        limb_raw, face = separate_limb(half_nocav, spec, p.burr)
+        if spec.name in parts:
+            # El lugar lo define el miembro del modelo (su corte y su cara); la pieza de catálogo ocupa ese lugar.
+            if spec.name in host_faces:
+                host_face = host_faces[spec.name]               # huésped sintetizado: la toma sale del puerto del torso
+            else:
+                _own, host_face = separate_limb(half_nocav, spec, p.burr)
+            try:
+                pp = place_part(parts[spec.name], spec.kind, host_face, p, p.ref_height)
+            except AssemblyError as exc:
+                raise ValueError(f"«{spec.name}»: {exc}") from exc
+            placed[spec.name] = pp
+            for jd in pp.choice.meta.articulaciones or []:        # articulaciones internas de la pieza (rodilla, codo)
+                j = JointSpec.from_dict(jd).transformed(pp.T, spec.name)
+                if spec.name in by_limb:
+                    raise ValueError(f"«{spec.name}»: la pieza «{pp.choice.meta.ref}» trae la articulación «{j.name}» y el "
+                                     f"modelo ya define «{by_limb[spec.name].name}» (por ahora una sola por miembro)")
+                if j.kind != JOINT_KIND_BY_LIMB.get(spec.kind):
+                    raise ValueError(f"«{spec.name}»: la articulación «{j.name}» de la pieza es «{j.kind}» y el miembro es «{spec.kind}»")
+                by_limb[spec.name] = j
+                joints.append(j)
+            if spec.name not in host_faces:
+                own_cut = S.intersection(half_nocav, limb_prism(spec))      # el miembro propio sale del torso
+                torso_half = S.difference(torso_half, own_cut)
+                cutters.append(own_cut)
+            limb_raw, face = pp.mesh, pp.face
+        else:
+            limb_raw, face = separate_limb(half_nocav, spec, p.burr)
         limb_raw = apply_trims(limb_raw, trims, spec.name)
+        if spec.name in wrist_arms and hand_spec is None:
+            part_notes.setdefault(spec.name, []).append(
+                "el brazo de catálogo no trae mano y no se pidió ninguna (--mano o pieza «mano»): queda sin mano")
+        elif spec.name in wrist_arms:
+            if hand_build is not None:
+                raise ValueError("la mano estándar solo puede ir en un brazo de catálogo")
+            say(f"Mano estándar en {spec.name}…")
+            wp = parts[spec.name].meta.puertos["muneca"].transformed(placed[spec.name].T)
+            wf = WristFrame(wp.frame.center.copy(), wp.frame.axis.copy(), wp.frame.ref.copy())
+            src = hand_source or load_standard_hand(hand_spec.path)
+            face_r = float(wp.face.radius_eq) if wp.face is not None else 0.0
+            wsplit = WristSplit(hand=S.Manifold(), rest=limb_raw, frame=wf,
+                               face_area=float(np.pi * face_r ** 2), face_radius=face_r, hand_volume=0.0,
+                               rest_volume=float(limb_raw.volume()))
+            hand_build = attach_hand(wsplit, hand_spec, src[0], src[1], p.ref_height, p)
+            limb_raw = hand_build.body                       # «solape»: brazo + mano soldados; «giro»: el brazo solo
+            if hand_build.pocket is not None:
+                pocket_in_body = float(S.intersection(limb_raw, hand_build.pocket).volume())
         if hand_build is not None and spec.kind != "leg":
             if hand_build.pocket is None:
                 hand_cover[spec.name] = _hand_coverage(limb_raw, hand_build.hand)
@@ -240,7 +316,7 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
     torso_other = None
     if not p.torso_mirror:
         say("Torso sin espejar: lado −X…")
-        other, why = _other_side_half(body, p, head, hand)
+        other, why = _other_side_half(body, p, head, host_hand, hand_source)
         if other is None:
             log.warning("Torso sin espejar: %s; se espeja el lado +X", why)
             report["torso"] = {"espejado": True, "aviso": why}
@@ -252,6 +328,13 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
             report["torso"] = {"espejado": False, "volumen_der_mm3": round(float(torso_half.volume()), 2),
                                "volumen_izq_mm3": round(float(other.volume()), 2)}
     pieces["torso"] = S.union(torso_half, S.mirror_x(torso_half) if torso_other is None else torso_other)
+    if placed:
+        report["piezas"] = {name: pp.report() for name, pp in placed.items()}
+        for name, notes in part_notes.items():
+            report["piezas"][name]["avisos"] = notes
+        for name in report["piezas"]:
+            if name in by_limb and name in parts_src:
+                report["piezas"][name]["articulaciones"] = [by_limb[name].name]
     if hand_build is not None:
         best = max(hand_cover, key=hand_cover.get) if hand_cover else None
         report["hand"] = {**hand_build.info, "miembro": best, "cobertura": None if best is None else round(hand_cover[best], 4)}
@@ -288,7 +371,18 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
         pieces["torso"], pieces[PELVIS_NAME] = waist_build.upper, waist_build.lower
         report["waist"] = _waist_report(waist_build, built, by_limb, head_build is not None)
     return BuildResult(pieces=pieces, report=report, motion=res_motion, joints=res_joints, detent=detents, detent_ref=ref,
-                       waist=waist_build, hand=hand_res)
+                       waist=waist_build, hand=hand_res, joint_specs=list(joints))
+
+
+def build_from_parts(parts: dict[str, PartChoice], p: Params, sit: bool = True, progress=None, trims: list[Trim] | None = None,
+                     joints: list[JointSpec] | None = None, hand: HandSpec | None = None) -> BuildResult:
+    """Figura armada solo con piezas de catálogo (Fase 6 del plan, gancho 1): el huésped se sintetiza con el torso
+    (`torso`, o `torso_sup` + `pelvis`) y las demás piezas (`brazo`, `pierna`, `cabeza`, `mano`) se acoplan a sus puertos.
+    No hace falta STL ni `Project`; el resto del flujo es el de `build`."""
+    from .assembly import synthesize_host
+    host = synthesize_host(parts, p)
+    return build(host.body, host.limbs, p, None, sit, progress, trims, host.head, joints, host.waist, hand, host.parts,
+                 host_faces=host.faces)
 
 
 def _place_hand_piece(hb, jb, joint, b: dict, th: float, p: Params, pieces: dict) -> dict:
@@ -310,7 +404,7 @@ def _place_hand_piece(hb, jb, joint, b: dict, th: float, p: Params, pieces: dict
     return {"limb": b["spec"].name, "piece0": hb.hand, "center": ends[0], "axis": (ends[1] - ends[0]), "pin": hb.pin}
 
 
-def _other_side_half(body: S.Manifold, p: Params, head: HeadSpec | None, hand: HandSpec | None):
+def _other_side_half(body: S.Manifold, p: Params, head: HeadSpec | None, hand: HandSpec | None, hand_source=None):
     """Lado −X real del cuerpo llevado a +X (espejado), con la misma cabeza cortada y la misma mano que el lado de
     trabajo, para tallarlo con los mismos barridos y volver a espejarlo: el torso conserva su diseño asimétrico.
     Devuelve (mitad, None) o (None, motivo) si no se pudo armar y hay que espejar el lado +X."""
@@ -322,10 +416,17 @@ def _other_side_half(body: S.Manifold, p: Params, head: HeadSpec | None, hand: H
         return None, "el lado −X del cuerpo quedó vacío"
     if hand is not None:
         try:
-            half = apply_hand(half, hand, p.ref_height).body
+            half = apply_hand(half, hand, p.ref_height, source=hand_source).body
         except HandError as exc:
             return None, f"no se pudo pegar la mano estándar en el lado −X ({exc})"
     return half, None
+
+
+def _catalog_hand(choice) -> tuple:
+    """Pieza `mano` de catálogo -> (mano en el marco estándar, metadatos), igual que `hand.load_standard_hand`."""
+    if choice.meta.tipo != "mano" or "muneca" not in choice.meta.puertos:
+        raise ValueError(f"«{choice.meta.ref}» es una pieza «{choice.meta.tipo}» y ese lugar pide una «mano» con puerto «muneca»")
+    return S.to_manifold(choice.mesh), {"altura_figura_mm": choice.meta.altura_figura_mm, "archivo": choice.meta.ref}
 
 
 def _hand_coverage(limb: S.Manifold, hand: S.Manifold) -> float:
@@ -492,8 +593,26 @@ def validate(res: BuildResult, p: Params, limbs: list[LimbSpec], sit: bool = Tru
     out["cadena"] = _validate_chain(res, p, out)
     out["cintura"] = _validate_waist(res, p, out)
     out["mano"] = _validate_hand(res, p, out)
+    out["piezas"] = _validate_parts(res, out)
     out["ok"] = not out["problems"]
     return out
+
+
+def _validate_parts(res: BuildResult, out: dict) -> dict:
+    """Piezas de catálogo puestas en el modelo: la compatibilidad barata (`ports.port_compat`) entre el puerto de la
+    pieza y la toma del huésped. «no» es un problema; «aviso» (escalón, IoU bajo, margen del pasador) queda listado."""
+    info: dict = {}
+    for lugar, r in res.report.get("piezas", {}).items():
+        out["avisos"].extend(f"{lugar}: {a}" for a in r.get("avisos", []))
+        c = r.get("compat")
+        info[lugar] = {"pieza": f"{r['id']}@{r['version']}", "nivel": None if c is None else c["nivel"],
+                       "iou": None if c is None else c["iou"], "escalon_mm": None if c is None else c["escalon_mm"]}
+        if c is None:
+            continue
+        if c["nivel"] == "no":
+            out["problems"].append(f"{lugar}: la pieza {r['id']}@{r['version']} no es compatible: " + "; ".join(c["motivos"]))
+        out["avisos"].extend(f"{lugar} ({r['id']}@{r['version']}): {a}" for a in c["avisos"])
+    return info
 
 
 def hip_pin_walls(spec_pin, center, direction, clearance: float) -> dict:
@@ -1268,6 +1387,32 @@ def print_orientation(res: BuildResult, max_angle: float = 45.0, extra_tilts=(0.
     return pose_orientation(asm, max_angle)
 
 
+def parts_list(res: BuildResult, name: str = "figura") -> dict | None:
+    """Lista de piezas de catálogo usadas en la figura (plan de piezas intercambiables, §4.5): lugar -> id@versión,
+    sha256, origen y resultado de compatibilidad. None si la figura no usa piezas de catálogo."""
+    rep = res.report.get("piezas") or {}
+    if not rep:
+        return None
+    lugares = {}
+    for lugar, r in sorted(rep.items()):
+        c = r.get("compat") or {}
+        lugares[lugar] = {"pieza": f"{r.get('id')}@{r.get('version')}", "id": r.get("id"), "version": r.get("version"),
+                          "sha256": r.get("sha256"), "origen": r.get("origen"), "lugar_puerto": r.get("lugar"),
+                          "compat": c.get("nivel", c.get("resultado")), "avisos": list(c.get("avisos") or []) + list(r.get("avisos") or [])}
+    return {"formato": "afm-lista-piezas-1", "figura": name, "piezas": lugares}
+
+
+def parts_list_markdown(lst: dict) -> str:
+    rows = ["| Lugar | Pieza | Origen | Compatibilidad | sha256 |", "|---|---|---|---|---|"]
+    for lugar, r in lst["piezas"].items():
+        rows.append(f"| {lugar} | {r['pieza']} | {r.get('origen') or '-'} | {r.get('compat') or '-'} | `{(r.get('sha256') or '')[:12]}` |")
+    out = [f"# Lista de piezas: {lst['figura']}", "", *rows]
+    notes = [(lugar, a) for lugar, r in lst["piezas"].items() for a in r["avisos"]]
+    if notes:
+        out += ["", "## Avisos", *[f"- **{lugar}**: {a}" for lugar, a in notes]]
+    return "\n".join(out) + "\n"
+
+
 def export(res: BuildResult, outdir: str, name: str = "figura", orient: bool | str = False,
            max_angle: float = 45.0, extra_tilts=(0.0,), flat: float | None = None, params: Params | None = None) -> dict:
     """Escribe el ensamblado y un STL por parte. Con `orient=True` apoya todo el conjunto en la cama en la pose de
@@ -1297,4 +1442,12 @@ def export(res: BuildResult, outdir: str, name: str = "figura", orient: bool | s
     asm = trimesh.util.concatenate(meshes)
     asm.export(os.path.join(outdir, f"{name}_ensamblada.stl"))
     info.update({"ensamblada": f"{name}_ensamblada.stl", "piezas": sorted(res.pieces)})
+    lst = parts_list(res, name)
+    if lst is not None:
+        import json
+        with open(os.path.join(outdir, f"{name}_lista_de_piezas.json"), "w", encoding="utf-8") as fh:
+            json.dump(lst, fh, ensure_ascii=False, indent=2)
+        with open(os.path.join(outdir, f"{name}_lista_de_piezas.md"), "w", encoding="utf-8") as fh:
+            fh.write(parts_list_markdown(lst))
+        info["lista_de_piezas"] = f"{name}_lista_de_piezas.json"
     return info

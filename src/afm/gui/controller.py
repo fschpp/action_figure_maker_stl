@@ -1988,6 +1988,99 @@ class Controller:
         cur = self.session.project.hand
         return self.set_hand_adjust(invert=None if cur is None else not cur.invert)
 
+    # ------------------------------------------------------------- catálogo de piezas (Fase 8)
+    def open_catalog(self, path: str) -> bool:
+        """Abre el catálogo de la línea; deja en el mensaje cuántas piezas trae y lo que difiere de esta figura."""
+        try:
+            cat = self.session.open_catalog(path)
+        except ValueError as e:
+            self._changed(str(e), scene=False)
+            return False
+        n = len(cat.list())
+        warns = self.session.catalog_warnings()
+        self._changed(f"Catálogo «{cat.name}»: {n} pieza(s)." + "".join(f" AVISO: {w}." for w in warns), scene=False)
+        return True
+
+    def default_catalog_line(self) -> tuple[str, float]:
+        """Nombre y altura (mm) que propone «Crear catálogo…»: `proceres-<altura>` y la altura de la figura abierta."""
+        h = float(self.session.project.params.ref_height)
+        return f"proceres-{h:g}", h
+
+    def create_catalog(self, path: str, name: str | None = None, height_mm: float | None = None) -> bool:
+        """«Crear catálogo…» (= `afm catalogo crear RUTA --linea NOMBRE --altura MM`): lo crea en `path` y lo deja abierto."""
+        try:
+            cat = self.session.create_catalog(path, name, height_mm)
+        except ValueError as e:
+            self._changed(str(e), scene=False)
+            return False
+        warns = self.session.catalog_warnings()
+        self._changed(f"Catálogo «{cat.name}» creado en {cat.root} (altura {cat.height_mm:g} mm). Está vacío: usá «Catalogar "
+                      "esta figura…» para guardar sus piezas." + "".join(f" AVISO: {w}." for w in warns), scene=False)
+        return True
+
+    def catalog_choices(self, place: str) -> list:
+        """Piezas del catálogo que sirven en ese lugar (vacío si no hay catálogo abierto o el lugar no existe)."""
+        try:
+            return self.session.catalog_choices(place)
+        except ValueError:
+            return []
+
+    def catalog_set_part(self, place: str, ref: str | None) -> bool:
+        """Pone la pieza `ref` en ese lugar (None o vacío = vuelve a la del modelo). Hay que volver a generar la figura."""
+        if not self._need_loaded():
+            return False
+        if not ref:
+            self._changed(f"«{place}» vuelve a usar la pieza del modelo." if self.session.clear_part(place)
+                          else f"«{place}» ya usaba la pieza del modelo.", scene=False)
+            return True
+        try:
+            pr = self.session.set_part(place, ref)
+        except ValueError as e:
+            self._changed(f"No sirve: {e}", scene=False)
+            return False
+        self._changed(f"«{place}»: pieza {pr.ref}. Generá la figura para ver cómo acopla.", scene=False)
+        return True
+
+    def catalog_rows(self) -> list[dict]:
+        """Una fila por lugar (miembros, cabeza, mano): pieza elegida y, tras generar, la etiqueta de compatibilidad."""
+        return self.session.part_rows() if self.loaded else []
+
+    @staticmethod
+    def catalog_row_text(row: dict) -> str:
+        """Texto de una fila para la lista: «brazo: original» o «pierna: pierna-01@2 — aviso (IoU 0,71, escalón 1,07 mm)»."""
+        if row["pieza"] is None:
+            return f"{row['lugar']}: la del modelo"
+        c = row.get("compat")
+        if not c:
+            return f"{row['lugar']}: {row['pieza']}"
+        extra = []
+        if c.get("iou") is not None:
+            extra.append(f"IoU {c['iou']:.2f}".replace(".", ","))
+        if c.get("escalon_mm") is not None:
+            extra.append(f"escalón {c['escalon_mm']:.2f} mm".replace(".", ","))
+        return f"{row['lugar']}: {row['pieza']} — {c.get('nivel', '?')}" + (f" ({', '.join(extra)})" if extra else "")
+
+    def catalog_add_done(self, res: dict | None, err: Exception | None) -> bool:
+        """Cierra «Catalogar esta figura»: mensaje con las piezas guardadas (o el error)."""
+        if err is not None or res is None:
+            self._changed(f"No se pudo catalogar: {err}", scene=False)
+            return False
+        refs = ", ".join(m.ref for m in res["piezas"])
+        self._changed(f"Catalogadas {len(res['piezas'])} pieza(s): {refs}." + "".join(f" AVISO: {w}" for w in res["avisos"]),
+                      scene=False)
+        return True
+
+    def catalog_add_current(self, prefix: str, places=None, wrist_points=None, labels=(), new_version: bool = False) -> bool:
+        """«Catalogar esta figura…»: guarda sus piezas crudas con puertos en el catálogo abierto."""
+        if not self._need_loaded():
+            return False
+        try:
+            res = self.session.catalog_add(prefix, places, wrist_points, labels, new_version)
+        except ValueError as e:
+            self._changed(f"No se pudo catalogar: {e}", scene=False)
+            return False
+        return self.catalog_add_done(res, None)
+
     def clear_hand(self) -> None:
         self._changed("Se vuelve a usar la mano original del modelo." if self.session.clear_hand()
                       else "No había mano de reemplazo.")

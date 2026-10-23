@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import sys
+import time
 
 from . import __version__, meshio, pipeline as P, solids as S
 from .project import Project, demo_project
@@ -14,7 +15,10 @@ from .testfigure import make_doll
 
 
 def run(stl_path: str, project: Project, outdir: str, name: str, progress=print, orient: bool | str = False,
-        max_angle: float = 45.0, flat: float | None = None) -> dict:
+        max_angle: float = 45.0, flat: float | None = None, catalog_root: str | None = None) -> dict:
+    from .assembly import resolve_parts
+
+    parts = resolve_parts(project.parts, catalog_root) if project.parts else None
     mesh, rep = meshio.load_figure(stl_path, project.params.ref_height, project.crown_z)
     for w in rep.warnings:
         progress(f"AVISO: {w}")
@@ -24,13 +28,39 @@ def run(stl_path: str, project: Project, outdir: str, name: str, progress=print,
     body = S.to_manifold(mesh)
     res = P.build(body, project.limbs, project.params, project.symmetry, progress=progress,
                   trims=project.trims, head=project.head, joints=project.joints, waist=project.waist,
-                  hand=project.hand)
+                  hand=project.hand, parts=parts)
     val = P.validate(res, project.params, project.limbs, joints=project.joints)
     files = P.export(res, outdir, name, orient=orient, max_angle=max_angle, flat=flat, params=project.params)
     info = {"carga": rep.__dict__, "construccion": res.report, "validacion": val, "archivos": files}
     with open(os.path.join(outdir, f"{name}_informe.json"), "w") as f:
         json.dump(info, f, indent=2, default=float)
     project.save(os.path.join(outdir, f"{name}.proyecto"))
+    return info
+
+
+def run_armar(recipe_path: str, outdir: str, name: str | None = None, catalog_root: str | None = None, progress=print,
+              orient: bool | str = False, max_angle: float = 45.0, flat: float | None = None) -> dict:
+    """`afm armar`: arma la figura de una receta (`afm-receta-1`) solo con piezas de catálogo, valida y exporta."""
+    from .recipe import Recipe, assemble
+
+    recipe = Recipe.load(recipe_path)
+    name = name or recipe.personaje
+    os.makedirs(outdir, exist_ok=True)
+    t0 = time.time()
+    asm = assemble(recipe, catalog_root, progress=progress)
+    if flat is not None and flat < 0:
+        flat = asm.params.flat_depth
+    val = P.validate(asm.res, asm.params, asm.limbs, joints=asm.joints)
+    try:                          # compat.json: la figura ya está armada y validada, guardar el resultado no cuesta nada
+        from .compat import record
+        record(asm, val, time.time() - t0)
+    except (OSError, ValueError) as exc:
+        progress(f"AVISO: no se pudo guardar el resultado en compat.json: {exc}")
+    files = P.export(asm.res, outdir, name, orient=orient, max_angle=max_angle, flat=flat, params=asm.params)
+    info = {"receta": recipe.to_dict(), "construccion": asm.res.report, "validacion": val, "archivos": files}
+    with open(os.path.join(outdir, f"{name}_informe.json"), "w") as f:
+        json.dump(info, f, indent=2, default=float)
+    recipe.save(os.path.join(outdir, f"{name}.receta.json"))
     return info
 
 
@@ -108,7 +138,22 @@ def main(argv=None) -> int:
                    help="cuánto se hunde la base de la mano en el brazo (por defecto 0,5 mm)")
     b.add_argument("--cadera-referencia", action="store_true",
                    help="usar el pasador de cadera de la figura de referencia (Ø4,8 / cabeza Ø9,25 × 2,44, mm absolutos)")
+    b.add_argument("--catalogo", default=None, metavar="RUTA",
+                   help="catálogo de piezas de la línea (por defecto $AFM_CATALOGO o ~/.local/share/afm/catalogos/<línea>)")
+    b.add_argument("--pieza", action="append", default=[], metavar="LUGAR=REF",
+                   help="usar la pieza de catálogo REF (id o id@versión) en el miembro LUGAR del proyecto (p. ej. pierna=pierna-guemes-01); "
+                        "repetible. Queda guardada en el .proyecto de salida")
     b.add_argument("--max-angle", type=float, default=45.0, help="ángulo de voladizo tolerado (grados desde la vertical)")
+    a = sub.add_parser("armar", help="armar una figura solo con piezas de catálogo a partir de una receta (afm-receta-1)")
+    a.add_argument("catalogo", metavar="RUTA", help="catálogo de piezas de la línea de la receta")
+    a.add_argument("receta", help="<personaje>.receta.json")
+    a.add_argument("--out", default="out/figura")
+    a.add_argument("--name", default=None, help="nombre de los archivos de salida (por defecto el personaje de la receta)")
+    a.add_argument("--sin-soportes", nargs="?", type=float, const=-1.0, default=None, metavar="MM",
+                   help="aplanar la base y girar los brazos para imprimir sin soportes (sin MM: el de la línea)")
+    a.add_argument("--orient", action="store_true", help="exportar apoyado en la cama en la pose de la vista previa")
+    a.add_argument("--orient-auto", action="store_true", help="exportar en la orientación de menor voladizo")
+    a.add_argument("--max-angle", type=float, default=45.0, help="ángulo de voladizo tolerado (grados desde la vertical)")
     e = sub.add_parser("extraer-mano", help="cortar la mano de una figura por un plano de muñeca de 3 puntos y guardarla como mano estándar")
     e.add_argument("stl")
     e.add_argument("proyecto", help="proyecto de la figura (altura, frente y simetría: los puntos se miden en ese marco)")
@@ -129,9 +174,36 @@ def main(argv=None) -> int:
     pr.add_argument("--gaps", default=None, help="solo clic: holguras punta/muesca; una placa por valor (por defecto 0.2,0.3,0.4)")
     pr.add_argument("--espesores", default=None, help="solo clic: espesores de lengüeta a probar (mm)")
     pr.add_argument("--axiales", default=None, help="solo bisagra: holguras axiales a probar, p. ej. 0.25,0.35,0.45")
+    from .catalog_cli import add_parsers
+    add_parsers(sub)
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO)
+    if args.cmd == "catalogo":
+        from .catalog_cli import run_catalogo
+        return run_catalogo(args)
     os.makedirs(args.out, exist_ok=True)
+    if args.cmd == "armar":
+        from .recipe import RecipeError
+        try:
+            info = run_armar(args.receta, args.out, args.name, args.catalogo, orient="auto" if args.orient_auto else args.orient,
+                             max_angle=args.max_angle, flat=args.sin_soportes)
+        except (RecipeError, OSError) as exc:
+            print(f"ERROR (receta): {exc}", file=sys.stderr)
+            return 2
+        except ValueError as exc:
+            print(f"ERROR (armado): {exc}", file=sys.stderr)
+            return 2
+        val = info["validacion"]
+        print("Validación:", "OK" if val["ok"] else "CON PROBLEMAS")
+        for pr in val["problems"]:
+            print(" -", pr)
+        for av in val.get("avisos", []) + val.get("avisos_pasador", []):
+            print(" AVISO:", av)
+        for lugar, r in (val.get("piezas") or {}).items():
+            print(f"Pieza de catálogo en {lugar}: {r['pieza']} — compatibilidad {r['nivel']}")
+        print("Holguras mínimas (mm):", val["gaps"])
+        return 0 if val["ok"] else 1
+
     if args.cmd == "extraer-mano":
         from .hand import HandError
         try:
@@ -231,6 +303,26 @@ def main(argv=None) -> int:
             project.hand = HandSpec(path=path, points=pts, yaw=yaw, overlap=overlap,
                                     invert=bool(args.mano_invertir or (cur.invert if cur else False)),
                                     join=args.mano_union or (cur.join if cur else "solape"))
+        if args.pieza:
+            from .catalog import Catalog, CatalogError, parse_ref
+            from .project import PartRef
+            root = args.catalogo or os.environ.get("AFM_CATALOGO")
+            if root is None:
+                ap.error("--pieza necesita el catálogo: pasá --catalogo RUTA (o definí AFM_CATALOGO)")
+            try:
+                cat = Catalog.open(root)
+                for item in args.pieza:
+                    place, sep, ref = item.partition("=")
+                    if not sep or not place or not ref:
+                        ap.error(f"--pieza «{item}»: se espera LUGAR=REF (p. ej. pierna=pierna-guemes-01)")
+                    if place not in ("mano", "cabeza") and place not in {l.name for l in project.limbs}:
+                        ap.error(f"--pieza «{item}»: el proyecto no tiene un miembro «{place}» "
+                                 f"(hay: {', '.join(l.name for l in project.limbs) or 'ninguno'})")
+                    pid, _ver = parse_ref(ref)
+                    project.parts[place] = PartRef(pid, cat.meta(ref).version, cat.name)     # fija la versión elegida
+            except CatalogError as exc:
+                print(f"ERROR (catálogo): {exc}", file=sys.stderr)
+                return 2
         if args.cadera_referencia:
             project.params = project.params.with_hip_reference()
         if args.rellenar_muslos:
@@ -238,12 +330,16 @@ def main(argv=None) -> int:
         flat = args.sin_soportes
         if flat is not None and flat < 0:
             flat = project.params.flat_depth
+        from .assembly import AssemblyError
         from .hand import HandError
         try:
             info = run(args.stl, project, args.out, name, orient="auto" if args.orient_auto else args.orient,
-                       max_angle=args.max_angle, flat=flat)
+                       max_angle=args.max_angle, flat=flat, catalog_root=args.catalogo)
         except HandError as exc:
             print(f"ERROR (mano): {exc}", file=sys.stderr)
+            return 2
+        except AssemblyError as exc:
+            print(f"ERROR (pieza de catálogo): {exc}", file=sys.stderr)
             return 2
     val = info["validacion"]
     print("Validación:", "OK" if val["ok"] else "CON PROBLEMAS")
@@ -251,6 +347,9 @@ def main(argv=None) -> int:
         print(" -", pr)
     for av in val.get("avisos", []) + val.get("avisos_pasador", []):
         print(" AVISO:", av)
+    for lugar, r in (val.get("piezas") or {}).items():
+        print(f"Pieza de catálogo en {lugar}: {r['pieza']} — compatibilidad {r['nivel']}"
+              + ("" if r["iou"] is None else f" (IoU {r['iou']:.2f}, escalón {r['escalon_mm']:.2f} mm)"))
     print("Holguras mínimas (mm):", val["gaps"])
     ori = info["archivos"].get("orientacion")
     if ori:

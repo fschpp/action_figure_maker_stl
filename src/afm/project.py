@@ -15,6 +15,27 @@ from .waist import WaistSpec
 
 
 @dataclass
+class PartRef:
+    """Pieza de catálogo elegida para un lugar del modelo (plan de piezas intercambiables, §3.4). Guarda la línea y el id
+    (nunca rutas absolutas: el catálogo se resuelve con `--catalogo`, `$AFM_CATALOGO` o la ruta por defecto de la línea)."""
+
+    id: str
+    version: int | None = None            # None = la última al armar; el CLI la fija al elegirla
+    linea: str | None = None
+
+    @property
+    def ref(self) -> str:
+        return self.id if self.version is None else f"{self.id}@{self.version}"
+
+    def to_dict(self) -> dict:
+        return {"id": self.id, "version": self.version, "linea": self.linea}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "PartRef":
+        return cls(id=d["id"], version=d.get("version"), linea=d.get("linea"))
+
+
+@dataclass
 class Project:
     params: Params = field(default_factory=Params)
     symmetry: Plane | None = None
@@ -26,6 +47,7 @@ class Project:
     head: HeadSpec | None = None          # cabeza articulada (plano del cuello + pasador); None = cabeza fija al torso
     waist: WaistSpec | None = None        # cintura articulada (plano de corte + pasador robusto); None = torso de una pieza
     hand: HandSpec | None = None          # mano estándar (STL) pegada en la muñeca; None = la mano original del modelo
+    parts: dict[str, PartRef] = field(default_factory=dict)  # pieza de catálogo por nombre de miembro (LimbSpec.name)
 
     def to_dict(self) -> dict:
         return {
@@ -40,6 +62,7 @@ class Project:
             "waist": None if self.waist is None else self.waist.to_dict(),
             "hand": None if self.hand is None else self.hand.to_dict(),
             "joints": [j.to_dict() for j in self.joints],
+            "parts": {k: v.to_dict() for k, v in self.parts.items()},
         }
 
     @classmethod
@@ -55,6 +78,7 @@ class Project:
             waist=None if d.get("waist") is None else WaistSpec.from_dict(d["waist"]),
             hand=None if d.get("hand") is None else HandSpec.from_dict(d["hand"]),
             joints=[JointSpec.from_dict(x) for x in d.get("joints", [])],
+            parts={k: PartRef.from_dict(v) for k, v in (d.get("parts") or {}).items()},
         )
 
     def scale_geometry(self, k: float) -> None:

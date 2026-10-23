@@ -388,6 +388,24 @@ class MainWindow(Gtk.ApplicationWindow):
                    "«Mano articulada»: en vez de soldarla, la mano sale como pieza aparte con un pasador que entra en el brazo y "
                    "gira libre (se achica solo si la muñeca es fina; ver Parámetros → Mano articulada).")
 
+        sec = _collapsible(box, "Piezas de catálogo")
+        self.btn_cat_new = self._button("Crear catálogo de la línea (carpeta nueva)…", self._on_catalog_new)
+        self.btn_cat_open = self._button("Abrir catálogo de la línea (carpeta)…", self._on_catalog_open)
+        self.lbl_catalog = Gtk.Label(label="Sin catálogo abierto", xalign=0, wrap=True)
+        self.btn_cat_add = self._button("Catalogar esta figura…", self._on_catalog_add)
+        for w in (self.btn_cat_new, self.btn_cat_open, self.lbl_catalog, self.btn_cat_add):
+            sec.append(w)
+        sec.append(Gtk.Label(label="Pieza de cada lugar (al cambiarla hay que volver a generar)", xalign=0, margin_top=8))
+        self.parts_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        sec.append(self.parts_box)
+        self._parts_sig = None
+        _help(sec, "«Crear catálogo» arma una carpeta nueva para la línea (nombre y altura de figura; es lo mismo que «afm catalogo "
+                   "crear») y la deja abierta. Si ya tenés una, abrila con «Abrir catálogo». «Catalogar esta figura» guarda "
+                   "sus piezas crudas (cabeza, torso, brazo, pierna, con los planos y siluetas que ya definiste) para usarlas en "
+                   "otras figuras. En cada lugar elegí «la del modelo» o una pieza del catálogo: «Generar figura» la pone en el "
+                   "puerto que el modelo tiene en ese lugar, sin escalarla, y la fila muestra cómo acopla (ok / aviso / no, "
+                   "IoU y escalón entre las caras). La mano de catálogo se acopla en la muñeca del brazo de catálogo.")
+
         sec = _collapsible(box, "Cabeza")
         self.btn_neck = self._button("Agregar plano del cuello / cabeza (3 puntos)", lambda *_: self.ctrl.start_neck_plane())
         self.btn_head_stl = self._button("Cabeza de reemplazo (STL)…", self._on_head_replacement)
@@ -676,6 +694,7 @@ exportar; tarda un poco más.")
             self.lbl_hand_fit.set_text("" if fit is None else
                                        f"Muñeca del modelo Ø{2 * fit['info']['radio_brazo_mm']:.1f} mm · de la mano "
                                        f"Ø{2 * fit['info']['radio_mano_mm']:.1f} mm (escalón {fit['info']['escalon_mm']:.1f} mm)")
+            self._sync_catalog(loaded)
             self.btn_knee.set_sensitive(loaded and has_sym and bool(ctrl.session.project.limbs))
             self.btn_elbow.set_sensitive(loaded and has_sym and bool(ctrl.session.project.limbs))
             self.btn_elbow_lines.set_sensitive(loaded and has_sym and bool(ctrl.session.project.limbs))
@@ -1089,6 +1108,120 @@ exportar; tarda un poco más.")
             return
         if abs(spin.get_value() - getattr(head, HEAD_ADJUST_ATTR[key])) > 1e-9:
             self.ctrl.set_head_adjust(**{key: spin.get_value()})
+
+    # ------------------------------------------------------- piezas de catálogo
+    def _sync_catalog(self, loaded: bool) -> None:
+        ctrl = self.ctrl
+        root = ctrl.session.catalog_root
+        self.btn_cat_new.set_sensitive(not ctrl.busy)
+        self.btn_cat_open.set_sensitive(not ctrl.busy)
+        self.btn_cat_add.set_sensitive(bool(loaded and root and not ctrl.busy))
+        self.lbl_catalog.set_text("Sin catálogo abierto" if not root else f"Catálogo: {root}")
+        rows = ctrl.catalog_rows() if root else []
+        choices = {r["lugar"]: [m.ref for m in ctrl.catalog_choices(r["lugar"])] for r in rows}
+        sig = (root, tuple((r["lugar"], r["pieza"], ctrl.catalog_row_text(r), tuple(choices[r["lugar"]])) for r in rows))
+        if sig == self._parts_sig:
+            return
+        self._parts_sig = sig
+        while (child := self.parts_box.get_first_child()) is not None:
+            self.parts_box.remove(child)
+        for r in rows:
+            lugar, refs = r["lugar"], choices[r["lugar"]]
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            line = Gtk.Box(spacing=6)
+            line.append(Gtk.Label(label=lugar.capitalize(), xalign=0, hexpand=True))
+            dd = Gtk.DropDown.new_from_strings(["(la del modelo)"] + refs)
+            cur = r["pieza"]
+            # la pieza guardada puede traer versión fija («id@2»): se muestra la fila de esa pieza si está en la lista
+            idx = 0 if cur is None else next((i + 1 for i, ref in enumerate(refs) if ref == cur or ref.split("@")[0] == cur.split("@")[0]), 0)
+            dd.set_selected(idx)
+            dd.connect("notify::selected", self._on_part_selected, lugar, refs)
+            line.append(dd)
+            box.append(line)
+            if r["pieza"] is not None:
+                lbl = Gtk.Label(label=ctrl.catalog_row_text(r), xalign=0, wrap=True)
+                lbl.add_css_class("dim-label")
+                box.append(lbl)
+            self.parts_box.append(box)
+
+    def _on_part_selected(self, dd: Gtk.DropDown, _p, lugar: str, refs: list) -> None:
+        if self._updating:
+            return
+        i = dd.get_selected()
+        ref = None if i == 0 else refs[i - 1]
+        cur = self.ctrl.session.project.parts.get(lugar)
+        if (cur.ref if cur else None) == ref or (cur is not None and ref is not None and cur.id == ref.split("@")[0]
+                                                  and cur.version == int(ref.split("@")[1])):
+            return                                    # ya estaba (la lista se redibujó)
+        self.ctrl.catalog_set_part(lugar, ref)
+
+    def _on_catalog_new(self, *_):
+        """«Crear catálogo…»: elegir la carpeta nueva, después nombre de la línea y altura de figura."""
+        name0, height0 = self.ctrl.default_catalog_line()
+        dlg = Gtk.FileDialog(title="Carpeta nueva para el catálogo de la línea", initial_name=name0)
+
+        def picked(d, res):
+            try:
+                f = d.save_finish(res)
+            except GLib.Error:
+                return                      # cancelado
+            self._catalog_line_dialog(f.get_path(), height0)
+
+        dlg.save(self, None, picked)
+
+    def _catalog_line_dialog(self, path: str, height0: float) -> None:
+        win = Gtk.Window(title="Crear catálogo de la línea", transient_for=self, modal=True, resizable=False)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_top=12, margin_bottom=12,
+                      margin_start=12, margin_end=12)
+        box.append(Gtk.Label(label=f"Carpeta: {path}", xalign=0, wrap=True, max_width_chars=50))
+        box.append(Gtk.Label(label="Nombre de la línea (letras, números, guiones y puntos)", xalign=0))
+        ent = Gtk.Entry(text=os.path.basename(path.rstrip(os.sep)), hexpand=True)
+        box.append(ent)
+        box.append(Gtk.Label(label="Altura de la figura de la línea, de los pies a la coronilla (mm)", xalign=0))
+        spin = Gtk.SpinButton.new_with_range(10.0, 500.0, 1.0)
+        spin.set_value(height0)
+        box.append(spin)
+        row = Gtk.Box(spacing=6, halign=Gtk.Align.END, margin_top=6)
+        cancel = Gtk.Button(label="Cancelar")
+        ok = Gtk.Button(label="Crear")
+        ok.add_css_class("suggested-action")
+        row.append(cancel)
+        row.append(ok)
+        box.append(row)
+        win.set_child(box)
+        cancel.connect("clicked", lambda *_: win.close())
+
+        def create(*_):
+            if self.ctrl.create_catalog(path, ent.get_text(), spin.get_value()):
+                win.close()
+            else:
+                self._error(ValueError(self.ctrl.message))   # deja abierto el diálogo para corregir nombre o altura
+
+        ok.connect("clicked", create)
+        win.present()
+
+    def _on_catalog_open(self, *_):
+        dlg = Gtk.FileDialog(title="Catálogo de la línea (carpeta)")
+
+        def finished(d, res):
+            try:
+                f = d.select_folder_finish(res)
+            except GLib.Error:
+                return                      # cancelado
+            try:
+                self.ctrl.open_catalog(f.get_path())
+            except Exception as e:          # noqa: BLE001
+                self._error(e)
+
+        dlg.select_folder(self, None, finished)
+
+    def _on_catalog_add(self, *_):
+        import re
+
+        stl = self.ctrl.session.stl_path
+        prefix = re.sub(r"[^a-z0-9]+", "-", os.path.splitext(os.path.basename(stl or "figura"))[0].lower()).strip("-") or "figura"
+        self._run_task("Catalogando la figura…", lambda progress: self.ctrl.session.catalog_add(prefix),
+                       lambda res, err: self.ctrl.catalog_add_done(res, err), "Figura catalogada")
 
     def _on_hand_replacement(self, *_):
         self._pick_file("Mano estándar (STL)", ["*.stl"], "Archivos STL", self.ctrl.start_hand_place)

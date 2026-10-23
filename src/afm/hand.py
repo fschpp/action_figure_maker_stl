@@ -277,7 +277,7 @@ class HandSpec:
     al extraer la mano deja la mano orientada igual sin tocar `yaw`. La mano no se reescala (mm reales)."""
 
     path: str
-    points: tuple
+    points: tuple = ()               # vacío cuando el marco de la muñeca lo da el puerto `muneca` del brazo de catálogo
     yaw: float = 0.0                 # giro extra (°) alrededor del eje de la muñeca
     invert: bool = False             # la mano del modelo es el lado grande del corte
     join: str = "solape"
@@ -365,25 +365,8 @@ def fit_hand_pin(rest: S.Manifold, frame: WristFrame, p: Params, base: PinSpec |
     return result
 
 
-def apply_hand(body: S.Manifold, spec: HandSpec, ref_height: float | None = None,
-               params: Params | None = None, pin_cache: dict | None = None) -> HandBuild:
-    """Cambia la mano de `body` (la mitad de trabajo, lado +X) por la mano estándar de `spec`.
-
-    1. Corta por el plano de muñeca de `spec.points` y descarta la mano original (`split_at_wrist`).
-    2. Pone la mano estándar con su cara plana sobre la del corte (centroide con centroide, sin escalar).
-       * `join = "solape"`: la hunde `spec.overlap` mm en el brazo, así la unión es un volumen y la mano queda soldada.
-       * `join = "giro"`: la deja a `clearance` del corte como PIEZA APARTE con un pasador de hongo que entra en el brazo
-         (`fit_hand_pin`); el brazo recibe la cavidad (`HandBuild.pocket`, la resta el pipeline) y la mano gira libre.
-    El informe trae los radios de muñeca (el escalón que queda si no coinciden) y avisos."""
-    if spec.join not in JOINS:
-        raise HandError(f"unión «{spec.join}» desconocida (las que hay: {', '.join(JOINS)})")
-    pts = np.asarray(spec.points, float)
-    if pts.shape != (3, 3):
-        raise HandError("el plano de muñeca necesita 3 puntos (x, y, z)")
-    mirrored = bool(pts[:, 0].mean() < 0)
-    if mirrored:
-        pts = pts * np.array([-1.0, 1.0, 1.0])               # la mano se pega en +X; el otro brazo sale por espejo
-    hand_local, meta = load_standard_hand(spec.path)
+def _checked_face(hand_local: S.Manifold) -> float:
+    """Área de la cara plana de unión de la mano estándar; `HandError` si no es una mano estándar de esta herramienta."""
     face = _local_face(hand_local)
     if face is None:
         raise HandError("la mano estándar no tiene una cara plana de unión en z = 0: usá un STL guardado con "
@@ -392,7 +375,40 @@ def apply_hand(body: S.Manifold, spec: HandSpec, ref_height: float | None = None
     if face_off > 0.5:
         raise HandError(f"la cara de unión de la mano estándar no está centrada en el origen (a {face_off:.2f} mm): "
                         "no es una mano estándar de esta herramienta")
+    return face_area
+
+
+def apply_hand(body: S.Manifold, spec: HandSpec, ref_height: float | None = None,
+               params: Params | None = None, pin_cache: dict | None = None, source: tuple | None = None) -> HandBuild:
+    """Cambia la mano de `body` (la mitad de trabajo, lado +X) por la mano estándar de `spec`.
+
+    1. Corta por el plano de muñeca de `spec.points` y descarta la mano original (`split_at_wrist`).
+    2. Pone la mano estándar con su cara plana sobre la del corte (centroide con centroide, sin escalar) (`attach_hand`).
+       * `join = "solape"`: la hunde `spec.overlap` mm en el brazo, así la unión es un volumen y la mano queda soldada.
+       * `join = "giro"`: la deja a `clearance` del corte como PIEZA APARTE con un pasador de hongo que entra en el brazo
+         (`fit_hand_pin`); el brazo recibe la cavidad (`HandBuild.pocket`, la resta el pipeline) y la mano gira libre.
+    El informe trae los radios de muñeca (el escalón que queda si no coinciden) y avisos.
+    `source = (hand_local, meta)` da la mano ya cargada (pieza de catálogo) en vez de leer `spec.path`."""
+    if spec.join not in JOINS:
+        raise HandError(f"unión «{spec.join}» desconocida (las que hay: {', '.join(JOINS)})")
+    pts = np.asarray(spec.points, float)
+    if pts.shape != (3, 3):
+        raise HandError("el plano de muñeca necesita 3 puntos (x, y, z)")
+    mirrored = bool(pts[:, 0].mean() < 0)
+    if mirrored:
+        pts = pts * np.array([-1.0, 1.0, 1.0])               # la mano se pega en +X; el otro brazo sale por espejo
+    hand_local, meta = source if source is not None else load_standard_hand(spec.path)
+    _checked_face(hand_local)
     split = split_at_wrist(body, WristFrame.from_points(pts), invert=spec.invert)
+    return attach_hand(split, spec, hand_local, meta, ref_height, params, pin_cache, mirrored)
+
+
+def attach_hand(split: WristSplit, spec: HandSpec, hand_local: S.Manifold, meta: dict | None,
+                ref_height: float | None = None, params: Params | None = None, pin_cache: dict | None = None,
+                mirrored: bool = False) -> HandBuild:
+    """Pone la mano estándar sobre el corte `split` (ver `apply_hand`). Con un brazo de catálogo no hay mano original que
+    cortar: `split.rest` es el brazo, `split.frame` el marco de su puerto `muneca` y `split.hand_volume = 0`."""
+    face_area = _checked_face(hand_local)
     frame = split.frame.twisted(spec.yaw)
     placed = place_hand(hand_local, frame)
     swivel = spec.join == "giro"
@@ -437,7 +453,7 @@ def apply_hand(body: S.Manifold, spec: HandSpec, ref_height: float | None = None
         avisos.append(f"la muñeca del modelo (Ø{2 * r_arm:.1f} mm) y la de la mano estándar (Ø{2 * r_hand:.1f} mm) difieren "
                       f"{abs(r_arm - r_hand):.1f} mm de radio: queda un escalón en la unión")
     ratio = float(hand_local.volume()) / max(split.hand_volume, 1e-9)
-    if ratio > SIZE_WARN_RATIO or ratio < 1.0 / SIZE_WARN_RATIO:
+    if split.hand_volume > 0 and (ratio > SIZE_WARN_RATIO or ratio < 1.0 / SIZE_WARN_RATIO):
         avisos.append(f"la mano estándar tiene {ratio:.1f} veces el volumen de la mano original del modelo "
                       "(¿el plano de muñeca está bien puesto?)")
     src_h = None if meta is None else meta.get("altura_figura_mm")

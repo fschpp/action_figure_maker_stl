@@ -98,8 +98,8 @@ Lado de trabajo +X (izquierda); la derecha sale por espejo, como hoy. Las piezas
 ```
 <catalogo>/<linea>/
   linea.json                        # afm-linea-1: nombre, altura_mm, boquilla, params (perfil), versión del motor
-  piezas/<tipo>/<id>.stl            # malla cruda, mm reales, en el marco de la figura de origen (Z arriba, +Y frente, x = 0 simetría)
-  piezas/<tipo>/<id>.pieza.json     # afm-pieza-1 (Apéndice A)
+  piezas/<tipo>/<id>@<n>.stl            # malla cruda, mm reales, en el marco de la figura de origen (Z arriba, +Y frente, x = 0 simetría); <n> = versión
+  piezas/<tipo>/<id>@<n>.pieza.json     # afm-pieza-1 (Apéndice A)
   figuras/<personaje>.receta.json   # afm-receta-1: qué pieza va en cada lugar
   compat.json                       # caché de compatibilidad completa (generado)
   CATALOGO.md                       # índice legible (generado)
@@ -191,6 +191,16 @@ afm armar RUTA receta.json --out out/fig [--sin-soportes MM]
 
 ## 6. Fases
 
+> **Estado (2026-10-21):** Fase 0 (herramientas `tools/golden.py` y `tools/medir_interfaces.py`, dorados en `tests/golden/`), Fase 1 (`ports.py`, `parts.py`) y Fase 2 (`catalog.py`, `afm catalogo crear/listar/verificar/usos/importar-mano/agregar-stl/estado`) implementadas en la rama `piezas-intercambiables`. Desvíos del plan: los archivos de pieza llevan la versión en el nombre (`<id>@<n>.*`) para que las versiones sean inmutables y convivan; las caras se guardan como `poligonos` (contorno + agujeros, en (u, v) del puerto); `WristFrame` no se reemplazó por un alias (`PortFrame.from_wrist` lo convierte) para no tocar el motor antes de los dorados. `catalogo/ejemplo` (muñeco sintético) ya está en el repo.
+>
+> **Estado (2026-10-22):** Fase 3 implementada (`src/afm/extract.py`, `afm catalogo agregar`). Desvíos: (a) el torso crudo es `half − miembro` (el miembro tal cual salió de `separate_limb`, con rebaba y `cap_*`), no `half − prisma`: restándole luego el barrido da el mismo torso que `pipeline.build`; (b) donde el miembro roza una arista del torso (la cadera de Güemes) la malla soldada tiene una arista de 4 caras; el motor solo lo avisa, el catálogo exige mallas estancas, así que se cura con pymeshfix (Δvolumen < 0,05 %) y, si no alcanza, se resta el miembro ensanchado 2 µm / 30 µm / 0,1 mm; (c) el puerto `cuello` del torso es opcional (figuras sin plano del cuello llevan la cabeza integrada); (d) el centro del puerto es el centro del pasador (`pin_center`), no el centroide de la cara: por eso el IoU entre figuras (≈0,5–0,7) es menor que el de `MEDIDAS_interfaces.md` (centroides) y conviene mirar las dos cosas antes de decidir D3; (e) `compatible_with` ignora los puertos `_der` de piezas espejables (son el `_izq` espejado). Extraídas y verificadas con las figuras reales: Güemes, Belgrano y Azurduy (brazo, pierna y torso; sin cabeza ni mano porque sus proyectos no definen cuello ni muñeca).
+
+> **Estado (2026-10-22, Fase 4 parcial):** `src/afm/assembly.py` y `pipeline.build(parts=)` cubren el gancho 2 (miembro de catálogo en el puerto del huésped) y el 6 (`report["piezas"]`); `parts=None` no cambia nada. Faltan 1, 3, 4 y 5 de §4.3. Desvío: el lugar lo define el `LimbSpec` del huésped (su cara y centro de pasador), no un `LimbSpec` mínimo generado; el miembro propio se quita del torso con `half ∩ limb_prism(spec)`.
+
+> **Estado (2026-10-22, Fase 4 completa y Fase 6 parcial):** ganchos 1 (huésped sintetizado: `assembly.synthesize_host`, `pipeline.build_from_parts`, `build(host_faces=)`) y 5 (`JointSpec.transformed`, articulaciones de la pieza en `build`) hechos; trazabilidad §4.5 (`<n>_lista_de_piezas.json/.md` en `export`); `src/afm/recipe.py` + `afm armar`. `torso_mirror = False` con huésped sintetizado también funciona (se quitó la guarda de `build`). Se prueba con el muñeco; con figuras reales falta (cuello y muñeca).
+
+> **Estado (2026-10-22, Fase 7):** `src/afm/compat.py` (caché `compat.json` con clave = piezas + hash + `Params` + opciones + motor, `check`, `matrix_markdown`), `afm catalogo compat` y `afm catalogo matriz`; `afm armar` registra su resultado. Desvío: el informe de matriz se genera como `<catálogo>/COMPATIBILIDAD.md` (el catálogo vive fuera del repo), no en `docs/`; `usos` y la lista de piezas ya existían (Fases 2 y 6).
+
 **Fase 0: línea base y medición (sin cambiar comportamiento).**
 - Congelar **resultados dorados** de `make_doll` y de Güemes, Belgrano, Azurduy y Mickey (volumen por pieza, holguras, claves de `report`, `validate.ok`) en `tests/golden/` con una herramienta `tools/golden.py`.
 - `tools/medir_interfaces.py`: por figura y puerto, centro, eje, área y radio de la cara, margen del pasador y alcance del trozo de cadera; y la comparación entre figuras (IoU, escalón). Salida: `docs/MEDIDAS_interfaces.md` y `.json`.
@@ -211,6 +221,8 @@ afm armar RUTA receta.json --out out/fig [--sin-soportes MM]
 **Fase 7: compatibilidad completa y trazabilidad.** `compat.json`, lista de piezas, `usos`, informe de matriz (`docs/compatibilidad.md` generado).
 
 **Fase 8: GUI.** §5. Retira `Project.hand`.
+
+> **Estado (2026-10-23):** hecha la sección «Piezas de catálogo» (abrir catálogo, catalogar la figura abierta, una fila por lugar con pieza y compatibilidad; `Session`/`Controller` + ventana, probada en GTK real). Falta «Definir puerto (3 puntos)», el color por lugar y retirar `Project.hand`.
 
 **Fase 9: impresión, calibre y documentación (con el cliente).** Imprimir 2–3 combinaciones cruzadas con el perfil de la línea; **calibre de puerto** (par de probetas por clase de pasador, extensión de `probes.py`); actualizar `docs/tutorial_gui.md`, `manual_corto.md`, `README.md` y `PROGRESS.md`.
 
@@ -275,12 +287,12 @@ Tornillos y tuercas, conectores desmontables, reescalado automático de piezas, 
              "motor": "<versión>", "fecha": "2026-10-21"},
   "altura_figura_mm": 130.0,
   "lado": "izq", "espejable": true,
-  "stl": "pierna-guemes-01.stl", "sha256": "<hash>", "volumen_mm3": 0.0, "bbox": [[0, 0, 0], [0, 0, 0]],
+  "stl": "pierna-guemes-01@1.stl", "sha256": "<hash>", "volumen_mm3": 0.0, "bbox": [[0, 0, 0], [0, 0, 0]],
   "puertos": {
     "cadera": {
       "clase": "cadera", "rol": "enchufe",
       "centro": [7.66, -1.27, 52.48], "eje": [-1, 0, 0], "ref": [0, 0, 1],
-      "cara": {"area_mm2": 146.3, "radio_eq_mm": 6.82, "poligono": [[0.0, 0.0]]},
+      "cara": {"area_mm2": 146.3, "radio_eq_mm": 6.82, "poligonos": [{"exterior": [[0.0, 0.0]], "interiors": []}]},
       "barrido_deg": [0, 95]
     }
   },

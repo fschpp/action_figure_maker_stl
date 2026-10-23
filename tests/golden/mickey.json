@@ -1,0 +1,51 @@
+{
+  "claves_construccion": [
+    "limbs",
+    "torso_triangulos"
+  ],
+  "claves_validacion": [
+    "articulaciones",
+    "avisos",
+    "avisos_pasador",
+    "cadena",
+    "cadera",
+    "cintura",
+    "detent",
+    "gaps",
+    "mano",
+    "ok",
+    "pieces",
+    "problems",
+    "recorrido"
+  ],
+  "gaps": {
+    "brazo_der": 0.4772,
+    "brazo_izq": 0.4772,
+    "pierna_der": 0.4624,
+    "pierna_izq": 0.4624
+  },
+  "ok": true,
+  "piezas": {
+    "brazo_der": {
+      "componentes": 1,
+      "volumen": 2008.9535
+    },
+    "brazo_izq": {
+      "componentes": 1,
+      "volumen": 2008.9535
+    },
+    "pierna_der": {
+      "componentes": 1,
+      "volumen": 5169.8649
+    },
+    "pierna_izq": {
+      "componentes": 1,
+      "volumen": 5169.8649
+    },
+    "torso": {
+      "componentes": 1,
+      "volumen": 43386.0933
+    }
+  },
+  "problems": []
+}
