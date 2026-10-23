@@ -131,6 +131,7 @@ class Session:
         self.project.front = front
         self.project.symmetry = None
         self.project.limbs, self.project.trims, self.project.head, self.project.waist = [], [], None, None
+        self.project.part_scales.clear()
         self.outcome = None
         self._rebuild_frames()
 
@@ -665,6 +666,7 @@ class Session:
     def remove_limb(self, name: str) -> None:
         self.project.joints = [j for j in self.project.joints if j.limb != name]
         self.project.limbs = [l for l in self.project.limbs if l.name != name]
+        self.project.part_scales.pop(name, None)
         self.project.trims = [t for t in self.project.trims if t.target != name]
         self.outcome = None
 
@@ -915,6 +917,7 @@ class Session:
 
     def remove_waist(self) -> None:
         self.project.waist = None
+        self.project.part_scales.pop("pelvis", None)
         self.outcome = None
 
     def add_trim(self, trim: Trim) -> None:
@@ -980,6 +983,8 @@ class Session:
         for place in self.project.parts:
             if place not in self.part_places():
                 out.append(f"la pieza de catálogo de «{place}» apunta a un lugar que el modelo ya no tiene: quitala")
+        if "pelvis" in self.project.parts and self.project.waist is None:
+            out.append("Definí el plano de cintura para importar la pelvis sin el torso")
         hand = self.project.hand
         if hand is not None and not os.path.isfile(hand.path):
             out.append(f"la mano estándar «{hand.path}» ya no existe: elegí otra o quitá la mano de reemplazo")
@@ -1072,9 +1077,37 @@ class Session:
         return self._place_types(place)[0]
 
     def catalog_only(self) -> bool:
-        """True si hay torso (o pelvis) de catálogo elegido: entonces la figura sale ENTERA del catálogo (como `afm armar`) y
-        el cuerpo del STL abierto solo sirve de referencia. Con un torso de catálogo no hay figura de origen a la que acoplar."""
-        return any(k in self.project.parts for k in TORSO_PLACES)
+        """Un torso de catálogo activa el armado completo; una pelvis sola conserva el torso del modelo."""
+        return "torso" in self.project.parts
+
+    def scale_places(self) -> list[str]:
+        return ["torso"] + (["pelvis"] if self.project.waist is not None else []) + [l.name for l in self.project.limbs]
+
+    def set_part_scale(self, place: str, factor: float) -> None:
+        if place not in self.scale_places():
+            raise ValueError(f"«{place}»: definí su corte antes de escalar la pieza")
+        if place in self.project.parts or self.catalog_only():
+            raise ValueError("Elegí la pieza del modelo para modificar su escala")
+        k = float(factor)
+        if not np.isfinite(k) or k <= 0:
+            raise ValueError("La escala debe ser finita y mayor que cero")
+        self.project.part_scales[place] = k
+        self.outcome = None
+        self._part_preview = None
+
+    def divide_model(self) -> dict:
+        probs = self.problems()
+        if probs:
+            raise ValueError("; ".join(probs))
+        old = dict(self.project.part_scales)
+        try:
+            for place in self.scale_places():
+                if place not in self.project.parts:
+                    self.set_part_scale(place, old.get(place, 1.0))
+            return self.preview_parts()
+        except Exception:
+            self.project.part_scales = old
+            raise
 
     def catalog_choices(self, place: str) -> list:
         """Piezas del catálogo (última versión de cada una) que sirven en ese lugar."""
@@ -1202,10 +1235,10 @@ class Session:
 
     def part_preview_fresh(self) -> bool:
         """True si ya se revisaron las piezas elegidas con el estado actual (o si no hay piezas que revisar)."""
-        if not self.project.parts:
+        if not self.project.parts and not self.project.part_scales:
             return True
         items = self.part_preview_items()
-        return bool(items) and set(items) == set(self.project.parts)
+        return bool(items) and set(self.project.parts).issubset(items)
 
     def preview_parts(self, progress=None) -> dict:
         """Revisa las piezas de catálogo elegidas SIN generar: la compatibilidad, el conflicto de rodilla/codo y la
@@ -1214,6 +1247,11 @@ class Session:
 
         if self.work is None:
             raise ValueError("Primero abrí una figura.")
+        from ..customize import needed, preview_model
+        if needed(self.project):
+            items = preview_model(S.to_manifold(self.work), self.project, self._resolved_parts())
+            self._part_preview = (self._preview_signature(), items)
+            return items
         if not self.project.parts:
             self._part_preview = None
             return {}
@@ -1280,6 +1318,16 @@ class Session:
             raise ValueError(str(exc)) from exc
         if not res.pieces:
             raise ValueError("No se extrajo ninguna pieza.")
+        if self.project.part_scales:
+            from ..assembly import PartChoice
+            from ..customize import scale_choice
+            places_by_type = {"torso": "torso", "torso_sup": "torso", "pelvis": "pelvis"}
+            places_by_type.update({{"arm": "brazo", "leg": "pierna"}[l.kind]: l.name for l in self.project.limbs})
+            for piece in res.pieces:
+                place = places_by_type.get(piece.meta.tipo)
+                k = self.project.part_scales.get(place, 1.0)
+                adjusted = scale_choice(PartChoice(piece.meta, piece.mesh), k)
+                piece.meta, piece.mesh = adjusted.meta, adjusted.mesh
         metas, avisos = [], list(res.warnings)
         for e in res.pieces:
             e.meta.etiquetas = list(labels)
@@ -1303,6 +1351,12 @@ class Session:
         probs = self.problems()
         if probs:
             raise ValueError("; ".join(probs))
+        from ..customize import needed, build_model
+        if needed(self.project):
+            res, limbs = build_model(S.to_manifold(self.work), self.project, self._resolved_parts(), progress)
+            val = P.validate(res, self.project.params, limbs, joints=res.joint_specs)
+            self.outcome = BuildOutcome(res, val)
+            return self.outcome
         if self.catalog_only():
             return self._build_catalog_only(progress)
         parts = self._resolved_parts()

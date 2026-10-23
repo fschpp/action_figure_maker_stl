@@ -65,3 +65,8 @@ afm catalogo verificar RUTA
   Si el torso tiene un diseño asimétrico (banda cruzada, condecoraciones de un solo lado), poné
   `torso_mirror = 0` («Parámetros → Torso espejado» en la GUI): el torso conserva ambos lados del STL y solo
   los miembros se espejan (la cabeza ya sale entera del STL).
+
+### Ajustes de proporciones y pelvis de catálogo
+
+Podés conservar el torso del proyecto al importar una pelvis, dividir la figura actual y escalar sus piezas originales
+por separado antes de regenerar las uniones. Ver [uso en GUI y CLI](docs/ajustes_piezas.md).

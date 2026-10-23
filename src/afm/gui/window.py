@@ -406,7 +406,11 @@ class MainWindow(Gtk.ApplicationWindow):
         self.chk_part_preview.connect("toggled", lambda b: None if self._updating else self.ctrl.set_show_part_preview(b.get_active()))
         for w in (self.btn_cat_forget, self.btn_cat_review, self.btn_cat_scale, self.btn_cat_align, self.chk_part_preview):
             sec.append(w)
-        sec.append(Gtk.Label(label="Pieza de cada lugar (al cambiarla hay que volver a generar)", xalign=0, margin_top=8))
+        self.btn_divide_model = self._button("Dividir figura actual y ajustar piezas…", self._on_divide_model)
+        self.btn_reset_piece_scales = self._button("Restablecer escalas por pieza", lambda *_: self.ctrl.reset_part_scales())
+        sec.append(self.btn_divide_model)
+        sec.append(self.btn_reset_piece_scales)
+        sec.append(Gtk.Label(label="Pieza de cada lugar (escala ×1 = original; al cambiar hay que generar)", xalign=0, margin_top=8))
         self.parts_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         sec.append(self.parts_box)
         self._parts_sig = None
@@ -417,7 +421,10 @@ class MainWindow(Gtk.ApplicationWindow):
                    "puerto que el modelo tiene en ese lugar, sin escalarla, y la fila muestra cómo acopla (ok / aviso / no, "
                    "IoU y escalón entre las caras). La mano de catálogo se acopla en la muñeca del brazo de catálogo. «Revisar» mide el acople de cada pieza SIN "
                    "generar y la dibuja ya colocada (verde = ok, ámbar = aviso, rojo = no); «Ver por qué» superpone las dos "
-                   "caras. Con un torso (o pelvis) de catálogo la figura sale entera del catálogo. El catálogo se reabre solo "
+                   "caras. Una pelvis sola conserva el torso, brazos y piernas del modelo: definí antes el plano de cintura. "
+                   "«Dividir figura actual» separa las piezas crudas para ajustar su escala uniforme; los puertos acompañan el cambio "
+                   "y los pasadores se regeneran con las medidas del proyecto. Brazos y piernas se ajustan por par espejado. "
+                   "«Restablecer» vuelve a las proporciones originales. Con un torso de catálogo la figura sale entera del catálogo. El catálogo se reabre solo "
                    "al cargar la figura.")
 
         sec = _collapsible(box, "Cabeza")
@@ -1143,15 +1150,18 @@ exportar; tarda un poco más.")
         self.btn_cat_add.set_sensitive(bool(loaded and root and not ctrl.busy))
         self.lbl_catalog.set_text("Sin catálogo abierto" if not root else f"Catálogo: {root}")
         self.btn_cat_forget.set_sensitive(bool(root and not ctrl.busy))
-        self.btn_cat_review.set_sensitive(bool(loaded and root and ctrl.session.project.parts and not ctrl.busy))
+        self.btn_cat_review.set_sensitive(bool(loaded and (ctrl.session.project.parts or ctrl.session.project.part_scales) and not ctrl.busy))
+        self.btn_divide_model.set_sensitive(bool(loaded and not ctrl.busy and not ctrl.session.catalog_only()))
+        self.btn_reset_piece_scales.set_sensitive(bool(loaded and ctrl.session.project.part_scales and not ctrl.busy))
         self.btn_cat_scale.set_sensitive(bool(loaded and root and not ctrl.busy))
         self.btn_cat_align.set_sensitive(bool(loaded and root and ctrl.session.project.parts and not ctrl.busy))
         scale = ctrl.line_scale() if root else None
         self.btn_cat_scale.set_label("Escalar la figura a la altura de la línea" if scale is None else
                                      f"Escalar la figura a la altura de la línea (×{scale:.3f})".replace(".", ","))
-        rows = ctrl.catalog_rows() if root else []
-        choices = {r["lugar"]: [m.ref for m in ctrl.catalog_choices(r["lugar"])] for r in rows}
-        sig = (root, tuple((r["lugar"], r["pieza"], ctrl.catalog_row_text(r), tuple(choices[r["lugar"]]), r.get("nivel"),
+        rows = ctrl.catalog_rows() if loaded else []
+        choices = {r["lugar"]: [m.ref for m in ctrl.catalog_choices(r["lugar"])] if root else [] for r in rows}
+        sig = (root, ctrl.busy, tuple(sorted(ctrl.session.project.part_scales.items())),
+               tuple(ctrl.session.scale_places()), tuple((r["lugar"], r["pieza"], ctrl.catalog_row_text(r), tuple(choices[r["lugar"]]), r.get("nivel"),
                            tuple(r.get("conflictos") or ()), tuple(r.get("avisos") or ())) for r in rows))
         if sig == self._parts_sig:
             return
@@ -1169,8 +1179,22 @@ exportar; tarda un poco más.")
             idx = 0 if cur is None else next((i + 1 for i, ref in enumerate(refs) if ref == cur or ref.split("@")[0] == cur.split("@")[0]), 0)
             dd.set_selected(idx)
             dd.connect("notify::selected", self._on_part_selected, lugar, refs)
+            dd.set_sensitive(bool(root and not ctrl.busy))
             line.append(dd)
             box.append(line)
+            if lugar in ctrl.session.scale_places():
+                scale_line = Gtk.Box(spacing=6)
+                scale_line.append(Gtk.Label(label="Escala de la pieza del modelo ×", xalign=0))
+                spin = Gtk.SpinButton.new_with_range(0.05, 10.0, 0.01)
+                spin.set_digits(3)
+                spin.set_value(ctrl.session.project.part_scales.get(lugar, 1.0))
+                spin.set_sensitive(bool(not ctrl.busy and cur is None and not ctrl.session.catalog_only()))
+                scale_line.append(spin)
+                apply = Gtk.Button(label="Aplicar")
+                apply.set_sensitive(spin.get_sensitive())
+                apply.connect("clicked", lambda _b, place=lugar, value=spin: self.ctrl.set_part_scale(place, value.get_value()))
+                scale_line.append(apply)
+                box.append(scale_line)
             if r["pieza"] is not None:
                 lbl = Gtk.Label(label=ctrl.catalog_row_text(r), xalign=0, wrap=True)
                 lbl.add_css_class("dim-label")
@@ -1203,6 +1227,10 @@ exportar; tarda un poco más.")
                             tooltip_text="Escala TODA la figura para que la cara de este lugar tenga el tamaño de la de la pieza")
             sc.connect("clicked", lambda *_: ctrl.scale_to_fit_part(lugar))
             bar.append(sc)
+            if not ctrl.session.catalog_only():
+                local = Gtk.Button(label="Ajustar sólo torso / pelvis", tooltip_text="Iguala el radio de las caras de unión. Revisá luego IoU, escalón y pared.")
+                local.connect("clicked", lambda *_: ctrl.scale_host_for_part(lugar))
+                bar.append(local)
         if r.get("conflictos"):
             k1 = Gtk.Button(label="Usar la articulación de la pieza",
                             tooltip_text="Quita la rodilla/codo del modelo en este miembro")
@@ -1270,6 +1298,14 @@ exportar; tarda un poco más.")
                 path(poly)
                 cr.set_source_rgb(*rgb)
                 cr.stroke()
+
+    def _on_divide_model(self, *_):
+        if self.ctrl.busy:
+            return
+        self.ctrl.busy = True
+        self.ctrl._changed("Dividiendo la figura en piezas crudas…", scene=False)
+        self._run_task("Dividiendo la figura…", lambda progress: self.ctrl.session.divide_model(),
+                       lambda res, err: self.ctrl.finish_preview_parts(res, err), "Figura dividida")
 
     def _on_catalog_review(self, *_):
         job = self.ctrl.begin_preview_parts()

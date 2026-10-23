@@ -2062,8 +2062,8 @@ class Controller:
             return None
         if not self._need_loaded():
             return None
-        if not self.session.project.parts:
-            self._changed("No hay piezas de catálogo elegidas: nada que revisar.", scene=False)
+        if not self.session.project.parts and not self.session.project.part_scales:
+            self._changed("No hay piezas elegidas ni divididas: nada que revisar.", scene=False)
             return None
         self.busy = True
         self.progress_prefix = "Revisando"
@@ -2149,6 +2149,47 @@ class Controller:
             return False
         return self.set_ref_height(h)
 
+    def divide_model(self) -> bool:
+        if self.busy or not self._need_loaded():
+            return False
+        try:
+            self.session.divide_model()
+        except ValueError as exc:
+            self._changed(f"No se pudo dividir: {exc}", scene=False)
+            return False
+        self._changed("Figura dividida: ajustá la escala de cada pieza y revisá los acoples antes de generar.")
+        return True
+
+    def set_part_scale(self, place: str, factor: float) -> bool:
+        if self.busy or not self._need_loaded():
+            return False
+        try:
+            self.session.set_part_scale(place, factor)
+        except ValueError as exc:
+            self._changed(str(exc), scene=False)
+            return False
+        self._changed(f"{place}: escala ×{factor:.3f}. Volvé a revisar las piezas y generar.")
+        return True
+
+    def reset_part_scales(self) -> None:
+        if self.busy:
+            return
+        self.session.project.part_scales.clear()
+        self.session._part_preview = None
+        self.session.outcome = None
+        self._changed("Escalas por pieza restablecidas; se usa el modelo original.")
+
+    def scale_host_for_part(self, place: str) -> bool:
+        """Ajusta sólo la toma original que recibe una pieza de catálogo (torso o pelvis)."""
+        pv = self.part_preview(place)
+        if pv is None or pv.scale_hint is None:
+            self._changed("Primero revisá las piezas para medir sus caras.", scene=False)
+            return False
+        spec = next((l for l in self.session.project.limbs if l.name == place), None)
+        target = "pelvis" if spec is not None and spec.kind == "leg" and self.session.project.waist else "torso"
+        k = self.session.project.part_scales.get(target, 1.0) * pv.scale_hint
+        return self.set_part_scale(target, k)
+
     def scale_to_fit_part(self, place: str) -> bool:
         """Escala TODA la figura por el factor que iguala la cara de corte de ese lugar con la de la pieza (`scale_hint`)."""
         pv = self.part_preview(place)
@@ -2168,7 +2209,7 @@ class Controller:
             return out
         for w in sess.catalog_warnings():
             out["avisos"].append(w)
-        if not sess.project.parts:
+        if not sess.project.parts and not sess.project.part_scales:
             return out
         if not sess.part_preview_fresh():
             out["stale"] = True

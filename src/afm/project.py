@@ -49,6 +49,8 @@ class Project:
     hand: HandSpec | None = None          # mano estándar (STL) pegada en la muñeca; None = la mano original del modelo
     parts: dict[str, PartRef] = field(default_factory=dict)  # pieza de catálogo por nombre de miembro (LimbSpec.name)
 
+    part_scales: dict[str, float] = field(default_factory=dict)  # escala uniforme de cada pieza ORIGINAL
+
     def to_dict(self) -> dict:
         return {
             "version": 1,
@@ -63,6 +65,7 @@ class Project:
             "hand": None if self.hand is None else self.hand.to_dict(),
             "joints": [j.to_dict() for j in self.joints],
             "parts": {k: v.to_dict() for k, v in self.parts.items()},
+            "part_scales": dict(self.part_scales),
         }
 
     @classmethod
@@ -79,6 +82,7 @@ class Project:
             hand=None if d.get("hand") is None else HandSpec.from_dict(d["hand"]),
             joints=[JointSpec.from_dict(x) for x in d.get("joints", [])],
             parts={k: PartRef.from_dict(v) for k, v in (d.get("parts") or {}).items()},
+            part_scales={k: float(v) for k, v in (d.get("part_scales") or {}).items()},
         )
 
     def scale_geometry(self, k: float) -> None:
