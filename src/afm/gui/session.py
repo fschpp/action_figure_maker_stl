@@ -939,19 +939,154 @@ class Session:
         for j in self.project.joints:
             if j.limb not in names:
                 out.append(f"{j.name}: su miembro «{j.limb}» ya no existe")
+        for place in self.project.parts:
+            if place not in self.part_places():
+                out.append(f"la pieza de catálogo de «{place}» apunta a un lugar que el modelo ya no tiene: quitala")
         hand = self.project.hand
         if hand is not None and not os.path.isfile(hand.path):
             out.append(f"la mano estándar «{hand.path}» ya no existe: elegí otra o quitá la mano de reemplazo")
         return out
 
+    # ------------------------------------------------------------- catálogo de piezas (plan de piezas intercambiables, Fase 8)
+    catalog_root: str | None = None          # carpeta del catálogo de la línea (no va en el .proyecto: ahí solo id y versión)
+
+    def open_catalog(self, root: str):
+        """Abre el catálogo de la línea en `root` y lo usa para elegir y armar piezas. Avisos en `catalog_warnings()`."""
+        from ..catalog import Catalog, CatalogError
+
+        try:
+            cat = Catalog.open(root)
+        except (CatalogError, OSError) as exc:
+            raise ValueError(f"No se pudo abrir el catálogo «{root}»: {exc}") from exc
+        self.catalog_root = cat.root
+        self.outcome = None
+        return cat
+
+    def _catalog(self):
+        if not self.catalog_root:
+            raise ValueError("Primero abrí un catálogo de piezas.")
+        from ..catalog import Catalog, CatalogError
+
+        try:
+            return Catalog.open(self.catalog_root)
+        except (CatalogError, OSError) as exc:
+            raise ValueError(f"No se pudo abrir el catálogo «{self.catalog_root}»: {exc}") from exc
+
+    def catalog_warnings(self) -> list[str]:
+        """Diferencias entre la línea del catálogo y esta figura que conviene mirar antes de elegir piezas."""
+        if not self.catalog_root:
+            return []
+        cat, out = self._catalog(), []
+        p, q = self.project.params, cat.params
+        if abs(p.ref_height - float(cat.line.get("altura_mm", p.ref_height))) > 0.5:
+            out.append(f"la figura mide {p.ref_height:g} mm y la línea «{cat.name}» {cat.line.get('altura_mm')} mm")
+        if abs(p.clearance - q.clearance) > 1e-9:
+            out.append(f"la holgura del proyecto ({p.clearance:g} mm) difiere de la de la línea ({q.clearance:g} mm): "
+                       "al armar con piezas manda la del proyecto en «Generar» y la de la línea en «afm armar»")
+        return out
+
+    def part_places(self) -> list[str]:
+        """Lugares donde se puede poner una pieza de catálogo: cada miembro del modelo, la cabeza (si tiene plano de cuello)
+        y la mano."""
+        return [l.name for l in self.project.limbs] + (["cabeza"] if self.project.head is not None else []) + ["mano"]
+
+    def _place_type(self, place: str) -> str:
+        from ..assembly import LIMB_PART
+
+        for l in self.project.limbs:
+            if l.name == place:
+                return LIMB_PART[l.kind][0]
+        if place in ("cabeza", "mano"):
+            return place
+        raise ValueError(f"«{place}» no es un lugar del modelo (hay {', '.join(self.part_places())})")
+
+    def catalog_choices(self, place: str) -> list:
+        """Piezas del catálogo (última versión de cada una) que sirven en ese lugar."""
+        return self._catalog().list(self._place_type(place))
+
+    def set_part(self, place: str, ref: str):
+        """Pone la pieza `ref` (`id` o `id@versión`) en ese lugar; guarda en el proyecto la versión elegida."""
+        from ..catalog import CatalogError
+        from ..project import PartRef
+
+        tipo = self._place_type(place)
+        cat = self._catalog()
+        try:
+            meta = cat.meta(ref)
+        except CatalogError as exc:
+            raise ValueError(str(exc)) from exc
+        if meta.tipo != tipo:
+            raise ValueError(f"«{meta.ref}» es una pieza «{meta.tipo}» y «{place}» pide «{tipo}»")
+        self.project.parts[place] = PartRef(id=meta.id, version=meta.version, linea=cat.name)
+        self.outcome = None
+        return self.project.parts[place]
+
+    def clear_part(self, place: str) -> bool:
+        if self.project.parts.pop(place, None) is None:
+            return False
+        self.outcome = None
+        return True
+
+    def part_rows(self) -> list[dict]:
+        """Una fila por lugar: la pieza de catálogo elegida (o None = la del modelo) y, si ya se generó la figura, el
+        resultado de la compatibilidad del acople (`ok` / `aviso` / `no`, IoU, escalón)."""
+        built = {}
+        if self.outcome is not None:
+            built = self.outcome.result.report.get("piezas", {})
+        rows = []
+        for place in self.part_places():
+            ref = self.project.parts.get(place)
+            info = built.get(place) or {}
+            rows.append({"lugar": place, "pieza": None if ref is None else ref.ref, "compat": info.get("compat"),
+                         "avisos": info.get("avisos", [])})
+        return rows
+
+    def catalog_add(self, prefix: str, places=None, wrist_points=None, labels=(), new_version: bool = False) -> dict:
+        """«Catalogar esta figura»: saca las piezas crudas con puertos de la figura abierta (con los planos, siluetas y
+        articulaciones ya definidos) y las guarda en el catálogo. Devuelve {"piezas": [PieceMeta], "avisos": [str]}."""
+        from ..extract import ExtractError, extract_all
+
+        if self.work is None:
+            raise ValueError("Primero abrí una figura.")
+        probs = self.problems()
+        if probs:
+            raise ValueError("; ".join(probs))
+        cat = self._catalog()
+        name = os.path.basename(self.stl_path or "figura")
+        try:
+            res = extract_all(S.to_manifold(self.work), self.project, prefix, places, wrist_points, False, figure=name)
+        except ExtractError as exc:
+            raise ValueError(str(exc)) from exc
+        if not res.pieces:
+            raise ValueError("No se extrajo ninguna pieza.")
+        metas, avisos = [], list(res.warnings)
+        for e in res.pieces:
+            e.meta.etiquetas = list(labels)
+            meta, warns = cat.add_piece(e.mesh, e.meta, new_version)
+            metas.append(meta)
+            avisos += warns
+        return {"piezas": metas, "avisos": avisos}
+
+    def _resolved_parts(self):
+        """`Project.parts` -> piezas cargadas del catálogo abierto (o de la ruta por defecto de su línea)."""
+        if not self.project.parts:
+            return None
+        from ..assembly import AssemblyError, resolve_parts
+
+        try:
+            return resolve_parts(self.project.parts, self.catalog_root)
+        except AssemblyError as exc:
+            raise ValueError(str(exc)) from exc
+
     def build(self, progress=None) -> BuildOutcome:
         probs = self.problems()
         if probs:
             raise ValueError("; ".join(probs))
+        parts = self._resolved_parts()
         body = S.to_manifold(self.work)
         res = P.build(body, self.project.limbs, self.project.params, self.project.symmetry,
                       progress=progress, trims=self.project.trims, head=self.project.head,
-                      joints=self.project.joints, waist=self.project.waist, hand=self.project.hand)
+                      joints=self.project.joints, waist=self.project.waist, hand=self.project.hand, parts=parts)
         val = P.validate(res, self.project.params, self.project.limbs, joints=self.project.joints)
         self.outcome = BuildOutcome(res, val)
         return self.outcome

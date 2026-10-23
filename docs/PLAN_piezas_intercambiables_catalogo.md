@@ -222,6 +222,8 @@ afm armar RUTA receta.json --out out/fig [--sin-soportes MM]
 
 **Fase 8: GUI.** §5. Retira `Project.hand`.
 
+> **Estado (2026-10-23):** hecha la sección «Piezas de catálogo» (abrir catálogo, catalogar la figura abierta, una fila por lugar con pieza y compatibilidad; `Session`/`Controller` + ventana, probada en GTK real). Falta «Definir puerto (3 puntos)», el color por lugar y retirar `Project.hand`.
+
 **Fase 9: impresión, calibre y documentación (con el cliente).** Imprimir 2–3 combinaciones cruzadas con el perfil de la línea; **calibre de puerto** (par de probetas por clase de pasador, extensión de `probes.py`); actualizar `docs/tutorial_gui.md`, `manual_corto.md`, `README.md` y `PROGRESS.md`.
 
 **Fase 10 (opcional): piezas más finas** (antebrazo, pantorrilla, bota) y **accesorios** sobre un puerto `agarre`.
