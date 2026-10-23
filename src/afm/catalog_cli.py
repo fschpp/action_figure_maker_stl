@@ -8,10 +8,11 @@ import sys
 from . import parts as P
 from .catalog import Catalog, CatalogError, default_root
 from .ports import PortError, port_class, port_from_points
+from .recipe import RecipeError
 
 
 def add_parsers(sub) -> None:
-    c = sub.add_parser("catalogo", help="catálogo de piezas de una línea (crear, listar, verificar, importar-mano, agregar, agregar-stl, usos, estado)")
+    c = sub.add_parser("catalogo", help="catálogo de piezas de una línea (crear, listar, verificar, importar-mano, agregar, agregar-stl, usos, estado, compat, matriz)")
     cs = c.add_subparsers(dest="catcmd", required=True)
 
     def root(p):
@@ -67,6 +68,15 @@ def add_parsers(sub) -> None:
     a.add_argument("--muneca-invertir", action="store_true", help="la mano es el lado grande del corte de muñeca")
     a.add_argument("--etiqueta", action="append", default=[], choices=P.TAGS, help="estandar / propia (se aplica a todas las piezas)")
     a.add_argument("--nueva-version", action="store_true", help="si un id ya existe, guardar la versión siguiente")
+    a = cs.add_parser("compat", help="compatibilidad completa (build + validate) de las recetas del catálogo; el resultado queda en compat.json")
+    root(a)
+    a.add_argument("--receta", action="append", default=[], metavar="ARCHIVO",
+                   help="receta afm-receta-1 a validar (repetible); sin esta opción, las de <catálogo>/figuras y <catálogo>/recetas")
+    a.add_argument("--forzar", action="store_true", help="volver a armar aunque compat.json ya tenga el resultado de esta combinación")
+    a = cs.add_parser("matriz", help="informe COMPATIBILIDAD.md: matriz barata del catálogo y resultados completos guardados")
+    root(a)
+    a.add_argument("--out", default=None, metavar="ARCHIVO", help="dónde escribirlo (por defecto <catálogo>/COMPATIBILIDAD.md)")
+    a.add_argument("--completa", action="store_true", help="antes de escribirlo, validar (con caché) todas las recetas del catálogo")
     a = cs.add_parser("estado", help="cambiar el estado de una pieza (borrador, validada, impresa)")
     root(a)
     a.add_argument("ref", metavar="ID")
@@ -89,7 +99,7 @@ def _slug(text: str) -> str:
 def run_catalogo(args) -> int:
     try:
         return _run(args)
-    except (CatalogError, P.PieceError, PortError) as exc:
+    except (CatalogError, P.PieceError, PortError, RecipeError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
 
@@ -189,6 +199,36 @@ def _run(args) -> int:
             print(f"{meta.ref:<28} {meta.tipo:<10} {meta.volumen_mm3:>9.0f} mm³  puertos: {', '.join(meta.puertos)}")
             for w in warns:
                 print("AVISO:", w)
+        return 0
+    if cmd == "compat":
+        from . import compat
+        from .recipe import Recipe
+
+        if args.receta:
+            results = []
+            for path in args.receta:
+                res = compat.check(Recipe.load(path), cat.root, args.forzar, print)
+                res["receta"] = path
+                results.append(res)
+        else:
+            results = compat.check_all(cat, args.forzar, print)
+        if not results:
+            print("(no hay recetas: pasá --receta ARCHIVO o guardalas en <catálogo>/figuras)")
+        for r in results:
+            origen = "caché" if r.get("cache") else f"armada en {r.get('segundos')} s"
+            hm = r.get("holgura_min_mm")
+            print(f"{r.get('personaje')}: {'OK' if r.get('ok') else 'CON PROBLEMAS'} (acople {r.get('nivel') or '—'}, "
+                  f"holgura mín. {'—' if hm is None else f'{hm:.2f} mm'}; {origen})")
+            for t in r.get("problemas", []):
+                print(f"  PROBLEMA: {t}")
+            for t in r.get("avisos", []):
+                print(f"  aviso: {t}")
+        return 0 if all(r.get("ok") for r in results) else 1
+    if cmd == "matriz":
+        from . import compat
+
+        results = compat.check_all(cat, False, print) if args.completa else None
+        print(f"Escrito {compat.write_matrix(cat, args.out, results)}")
         return 0
     if cmd == "estado":
         m = cat.set_state(args.ref, args.nuevo)

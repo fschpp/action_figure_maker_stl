@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import sys
+import time
 
 from . import __version__, meshio, pipeline as P, solids as S
 from .project import Project, demo_project
@@ -45,10 +46,16 @@ def run_armar(recipe_path: str, outdir: str, name: str | None = None, catalog_ro
     recipe = Recipe.load(recipe_path)
     name = name or recipe.personaje
     os.makedirs(outdir, exist_ok=True)
+    t0 = time.time()
     asm = assemble(recipe, catalog_root, progress=progress)
     if flat is not None and flat < 0:
         flat = asm.params.flat_depth
     val = P.validate(asm.res, asm.params, asm.limbs, joints=asm.joints)
+    try:                          # compat.json: la figura ya está armada y validada, guardar el resultado no cuesta nada
+        from .compat import record
+        record(asm, val, time.time() - t0)
+    except (OSError, ValueError) as exc:
+        progress(f"AVISO: no se pudo guardar el resultado en compat.json: {exc}")
     files = P.export(asm.res, outdir, name, orient=orient, max_angle=max_angle, flat=flat, params=asm.params)
     info = {"receta": recipe.to_dict(), "construccion": asm.res.report, "validacion": val, "archivos": files}
     with open(os.path.join(outdir, f"{name}_informe.json"), "w") as f:

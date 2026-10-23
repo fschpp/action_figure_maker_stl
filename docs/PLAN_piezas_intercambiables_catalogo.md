@@ -199,6 +199,8 @@ afm armar RUTA receta.json --out out/fig [--sin-soportes MM]
 
 > **Estado (2026-10-22, Fase 4 completa y Fase 6 parcial):** ganchos 1 (huésped sintetizado: `assembly.synthesize_host`, `pipeline.build_from_parts`, `build(host_faces=)`) y 5 (`JointSpec.transformed`, articulaciones de la pieza en `build`) hechos; trazabilidad §4.5 (`<n>_lista_de_piezas.json/.md` en `export`); `src/afm/recipe.py` + `afm armar`. `torso_mirror = False` con huésped sintetizado también funciona (se quitó la guarda de `build`). Se prueba con el muñeco; con figuras reales falta (cuello y muñeca).
 
+> **Estado (2026-10-22, Fase 7):** `src/afm/compat.py` (caché `compat.json` con clave = piezas + hash + `Params` + opciones + motor, `check`, `matrix_markdown`), `afm catalogo compat` y `afm catalogo matriz`; `afm armar` registra su resultado. Desvío: el informe de matriz se genera como `<catálogo>/COMPATIBILIDAD.md` (el catálogo vive fuera del repo), no en `docs/`; `usos` y la lista de piezas ya existían (Fases 2 y 6).
+
 **Fase 0: línea base y medición (sin cambiar comportamiento).**
 - Congelar **resultados dorados** de `make_doll` y de Güemes, Belgrano, Azurduy y Mickey (volumen por pieza, holguras, claves de `report`, `validate.ok`) en `tests/golden/` con una herramienta `tools/golden.py`.
 - `tools/medir_interfaces.py`: por figura y puerto, centro, eje, área y radio de la cara, margen del pasador y alcance del trozo de cadera; y la comparación entre figuras (IoU, escalón). Salida: `docs/MEDIDAS_interfaces.md` y `.json`.
