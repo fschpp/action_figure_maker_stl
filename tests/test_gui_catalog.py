@@ -36,7 +36,7 @@ def test_everything_needs_an_open_catalog(ctrl):
     assert ctrl.catalog_choices("pierna") == []
     assert ctrl.catalog_set_part("pierna", "x") is False and "catálogo" in ctrl.message
     assert ctrl.catalog_add_current("muneco") is False and "catálogo" in ctrl.message
-    assert [r["lugar"] for r in ctrl.catalog_rows()] == ["brazo", "pierna", "cabeza", "mano"]
+    assert [r["lugar"] for r in ctrl.catalog_rows()] == ["torso", "pelvis", "brazo", "pierna", "cabeza", "mano"]
 
 
 def test_open_catalog_reports_a_bad_path_and_the_line(ctrl, root, tmp_path):
@@ -117,3 +117,172 @@ def test_create_catalog_defaults_and_errors(ctrl, tmp_path):
     assert ctrl.create_catalog(str(ocupada), "x", 100) is False and "no está vacía" in ctrl.message
     assert ctrl.create_catalog(str(tmp_path / "n"), "nombre con espacios", 100) is False and "inválido" in ctrl.message
     assert ctrl.create_catalog(str(tmp_path / "h"), "ok", 0) is False and "mayor que 0" in ctrl.message
+
+
+# ---------------------------------------------------------------- mejoras de usabilidad del catálogo
+def _catalogued(ctrl, root):
+    ctrl.open_catalog(root)
+    ctrl.catalog_add_current("muneco")
+    ctrl.catalog_set_part("pierna", ctrl.catalog_choices("pierna")[0].ref)
+
+
+def test_catalog_is_remembered_and_reopened(ctrl, root, tmp_path, doll_stl):
+    ctrl.open_catalog(root)
+    ctrl.catalog_add_current("muneco")
+    ctrl.catalog_set_part("pierna", ctrl.catalog_choices("pierna")[0].ref)
+    path = str(tmp_path / "g.proyecto")
+    ctrl.save_project(path)
+    c2 = Controller()
+    c2.open_project(path, doll_stl)                       # sin abrir el catálogo a mano
+    assert c2.session.catalog_root == ctrl.session.catalog_root and "reabierto" in c2.message
+    c3 = Controller()
+    c3.open_stl(doll_stl)                                 # sin piezas: el último usado
+    assert c3.session.catalog_root == ctrl.session.catalog_root
+    c3.forget_catalog()
+    c4 = Controller()
+    c4.open_stl(doll_stl)
+    assert c4.session.catalog_root is None
+
+
+def test_project_with_parts_warns_when_the_catalog_is_unknown(ctrl, root, tmp_path, doll_stl, monkeypatch):
+    _catalogued(ctrl, root)
+    path = str(tmp_path / "g.proyecto")
+    ctrl.save_project(path)
+    ctrl.forget_catalog()
+    c2 = Controller()
+    c2.open_project(path, doll_stl)
+    assert c2.session.catalog_root is None and "no sé dónde está su catálogo" in c2.message
+
+
+def test_preview_parts_then_pregenerate_issues(ctrl, root):
+    _catalogued(ctrl, root)
+    assert ctrl.pregenerate_issues()["stale"] is True            # elegida pero sin revisar
+    items = ctrl.preview_parts()
+    assert items and "Revisadas 1 pieza(s)" in ctrl.message
+    issues = ctrl.pregenerate_issues()
+    assert issues["stale"] is False and issues["bloqueantes"] == []
+    row = {r["lugar"]: r for r in ctrl.catalog_rows()}["pierna"]
+    assert row["previa"] is True and "IoU" in ctrl.catalog_row_text(row)
+    d = ctrl.fit_diagnosis("pierna")
+    assert d and d["caras"]["pieza"] and d["caras"]["modelo"]
+    ctrl.session.project.params.clearance += 0.1
+    assert ctrl.pregenerate_issues()["stale"] is True            # cambió algo: hay que revisar de nuevo
+
+
+def test_pregenerate_issues_block_on_a_mismatch(ctrl, root):
+    _catalogued(ctrl, root)
+    ctrl.set_ref_height(ctrl.session.project.params.ref_height * 1.5)
+    ctrl.preview_parts()
+    issues = ctrl.pregenerate_issues()
+    assert issues["bloqueantes"] or issues["avisos"]
+
+
+def test_scale_to_line_and_to_fit_a_part(ctrl, root):
+    assert ctrl.scale_to_line() is False and "catálogo" in ctrl.message
+    _catalogued(ctrl, root)
+    assert ctrl.line_scale() == pytest.approx(100.0 / ctrl.session.project.params.ref_height)
+    ctrl.set_ref_height(80.0)
+    assert ctrl.scale_to_line() is True and ctrl.session.project.params.ref_height == pytest.approx(100.0)
+    ctrl.set_ref_height(120.0)
+    assert ctrl.scale_to_fit_part("pierna") is False             # sin revisión vigente
+    ctrl.preview_parts()
+    assert ctrl.scale_to_fit_part("pierna") is True
+    assert ctrl.session.project.params.ref_height == pytest.approx(100.0, rel=0.06)
+
+
+def test_generate_after_preview_uses_the_real_result(ctrl, root):
+    _catalogued(ctrl, root)
+    ctrl.preview_parts()
+    assert ctrl.outcome_free() is True
+    ctrl.session.project.params.decimate = 0
+    assert ctrl.generate() is not None and ctrl.outcome_free() is False
+
+
+def test_previewed_parts_are_drawn_before_generating(ctrl, root):
+    from test_gui_phases35 import FakeScene
+
+    _catalogued(ctrl, root)
+    sc = FakeScene()
+    ctrl.sync(sc)
+    assert not [k for k in sc.items if k.startswith("parte:")]          # sin revisar no se dibuja nada
+    ctrl.preview_parts()
+    ctrl.sync(sc)
+    assert "parte:pierna" in sc.items and "parte:pierna:espejo" in sc.items
+    ctrl.set_show_part_preview(False)
+    ctrl.sync(sc)
+    assert not [k for k in sc.items if k.startswith("parte:")]
+    ctrl.set_show_part_preview(True)
+    ctrl.session.clear_part("pierna")                                   # la pieza ya no está elegida: desaparece sola
+    ctrl.sync(sc)
+    assert not [k for k in sc.items if k.startswith("parte:")]
+
+
+def test_cuts_are_numbered_and_aligned_to_the_line(ctrl, root, monkeypatch):
+    rows = ctrl.cut_rows()
+    assert [r["n"] for r in rows] == list(range(1, len(rows) + 1)) and rows[0]["id"] == "simetria"
+    assert ctrl.cut_row_text(rows[1]).startswith("2 · ")
+    _catalogued(ctrl, root)
+    # el muñeco no dibuja sus miembros sobre el plano de simetría: se lo simula para probar la cuenta del desplazamiento
+    monkeypatch.setattr("afm.gui.session.plane_on_symmetry", lambda plane, axis: True)
+    sess = ctrl.session
+    x = sess.line_cut_x("pierna")
+    assert x is not None and x > 0                                     # la pieza catalogada corta de costado
+    sess.limb("pierna").cut_offset = x + 2.0                            # se desalinea a propósito
+    leg = next(r for r in ctrl.cut_rows() if r["id"] == "pierna")
+    assert leg["dif_mm"] == pytest.approx(-2.0, abs=0.01) and "la línea corta a" in ctrl.cut_row_text(leg)
+    assert ctrl.align_cuts_to_line() == 1
+    assert next(r for r in ctrl.cut_rows() if r["id"] == "pierna")["dif_mm"] == pytest.approx(0.0, abs=0.01)
+    assert ctrl.align_cuts_to_line() == 0 and "No había" in ctrl.message
+    assert ctrl.align_cut_to_line("brazo") is False and "usa la pieza del modelo" in ctrl.message
+
+
+def test_cut_numbers_are_drawn_in_the_viewer(ctrl):
+    from test_gui_phases35 import FakeScene
+
+    sc = FakeScene()
+    ctrl.sync(sc)
+    keys = [k for k in sc.items if k.startswith("corte:")]
+    assert keys and any(k.startswith("corte:simetria:") for k in keys)
+    ctrl.set_show_cut_numbers(False)
+    ctrl.sync(sc)
+    assert not [k for k in sc.items if k.startswith("corte:")]
+
+
+# ---------------------------------------------------------------- torso y pelvis como lugares
+def test_torso_and_pelvis_are_places_with_their_own_choices(ctrl, root):
+    ctrl.open_catalog(root)
+    ctrl.catalog_add_current("muneco")
+    assert [r["lugar"] for r in ctrl.catalog_rows()][:2] == ["torso", "pelvis"]
+    torsos = ctrl.catalog_choices("torso")
+    assert torsos and {m.tipo for m in torsos} <= {"torso", "torso_sup"}
+    assert ctrl.catalog_choices("pelvis") == []                       # el muñeco no tiene cintura: no hay pelvis
+    assert ctrl.catalog_set_part("torso", ctrl.catalog_choices("brazo")[0].ref) is False and "pide «torso o torso_sup»" in ctrl.message
+    assert ctrl.catalog_set_part("torso", torsos[0].ref) is True
+    assert ctrl.session.catalog_only() is True
+
+
+def test_torso_alone_needs_no_pelvis_but_a_pelvis_needs_the_torso(ctrl, root):
+    ctrl.open_catalog(root)
+    ctrl.catalog_add_current("muneco")
+    ctrl.catalog_set_part("torso", ctrl.catalog_choices("torso")[0].ref)
+    assert ctrl.session.problems() == []                               # torso entero: se arma solo
+    ctrl.catalog_set_part("torso", None)
+    assert ctrl.session.catalog_only() is False
+
+
+def test_catalog_only_preview_and_build(ctrl, root):
+    ctrl.open_catalog(root)
+    ctrl.catalog_add_current("muneco")
+    for place in ("torso", "brazo", "pierna"):
+        assert ctrl.catalog_set_part(place, ctrl.catalog_choices(place)[0].ref) is True
+    ctrl.session.project.symmetry = None                              # el modelo no hace falta: sale todo del catálogo
+    items = ctrl.preview_parts()
+    assert items and set(items) == {"torso", "brazo", "pierna"}
+    assert items["torso"].compat is None and items["torso"].notes
+    assert items["brazo"].compat is not None and items["brazo"].mesh is not None
+    assert ctrl.pregenerate_issues()["stale"] is False
+    ctrl.session.project.params.decimate = 0
+    out = ctrl.generate()
+    assert out is not None, ctrl.message
+    names = set(out.result.pieces)
+    assert "torso" in names and any(n.startswith("brazo") for n in names) and any(n.startswith("pierna") for n in names)

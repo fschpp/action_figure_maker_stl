@@ -16,6 +16,7 @@ import numpy as np
 import trimesh
 
 from .. import solids as S
+from . import settings as GUI_SETTINGS
 from ..head import HEAD_NAME, MIN_BASE_IOU, REPLACEMENT_UPS, neck_plane
 from ..pipeline import body_base_z, body_ref
 from ..waist import PELVIS_NAME, WAIST_NAME
@@ -101,6 +102,8 @@ class PlaneEntry:
 
 
 _MIRROR_COLOR = (0.70, 0.78, 0.92, 1.0)      # el espejo se ve con un tinte azul para no confundirlo con el lado real
+_PART_PREVIEW_COLORS = {"ok": (0.30, 0.78, 0.45, 1.0), "aviso": (0.95, 0.75, 0.20, 1.0),
+                        "no": (0.90, 0.30, 0.30, 1.0)}   # pieza de catálogo todavía sin generar, por nivel de acople
 _REPLACEMENT_HEAD_COLOR = (0.95, 0.62, 0.25, 1.0)      # cabeza de reemplazo en la vista 3D (naranja)
 _EXTRACTED_HAND_COLOR = (0.25, 0.85, 0.55, 1.0)         # mano extraída (aún sin guardar) en la vista 3D (verde)
 _REPLACEMENT_HAND_COLOR = (0.25, 0.75, 0.85, 1.0)       # mano estándar pegada en el modelo (turquesa: no se confunde con la extraída)
@@ -221,6 +224,8 @@ class Controller:
         self.hand_extract: dict | None = None        # mano extraída sin guardar: hand (local), split, points, invert
         self._hand_mesh = None                       # (split, malla de la mano en el mundo) para dibujarla en verde
         self._hand_path_pending: str | None = None   # STL de la mano estándar elegida, a la espera de los 3 clics de la muñeca
+        self.show_cut_numbers = True                 # rotular cada corte con su número en el visor
+        self.show_part_preview = True                # dibujar las piezas de catálogo elegidas antes de generar
         self.scene_dirty = True
         self.on_change = None                        # callable() para refrescar la barra lateral
         if self.session.loaded:
@@ -295,6 +300,7 @@ class Controller:
         self.hand_extract = self._hand_mesh = None
         self._after_load()
         msg = f"Cargado {path.split('/')[-1]}"
+        msg += self._auto_catalog()
         if session.report.warnings:
             msg += " — " + " ".join(session.report.warnings)
         self._changed(msg)
@@ -305,7 +311,7 @@ class Controller:
         self.hidden.clear()
         self.hand_extract = self._hand_mesh = None
         self._after_load()
-        self._changed(f"Proyecto abierto: {path.split('/')[-1]}")
+        self._changed(f"Proyecto abierto: {path.split('/')[-1]}" + self._auto_catalog())
 
     def save_project(self, path: str) -> None:
         self.session.save_project(path)
@@ -1996,6 +2002,7 @@ class Controller:
         except ValueError as e:
             self._changed(str(e), scene=False)
             return False
+        GUI_SETTINGS.remember_catalog(cat.name, cat.root)
         n = len(cat.list())
         warns = self.session.catalog_warnings()
         self._changed(f"Catálogo «{cat.name}»: {n} pieza(s)." + "".join(f" AVISO: {w}." for w in warns), scene=False)
@@ -2013,10 +2020,166 @@ class Controller:
         except ValueError as e:
             self._changed(str(e), scene=False)
             return False
+        GUI_SETTINGS.remember_catalog(cat.name, cat.root)
         warns = self.session.catalog_warnings()
         self._changed(f"Catálogo «{cat.name}» creado en {cat.root} (altura {cat.height_mm:g} mm). Está vacío: usá «Catalogar "
                       "esta figura…» para guardar sus piezas." + "".join(f" AVISO: {w}." for w in warns), scene=False)
         return True
+
+    def _auto_catalog(self) -> str:
+        """Reabre solo el catálogo al cargar una figura: el de la línea de las piezas que ya trae el proyecto (carpeta
+        recordada por línea) o, si no trae piezas, el último que se usó. Devuelve un texto para el mensaje ("" si no abrió
+        nada). Nunca falla: si la carpeta ya no sirve, simplemente no se abre."""
+        sess = self.session
+        if sess.catalog_root:
+            return ""
+        lines = sorted({r.linea for r in sess.project.parts.values() if r.linea})
+        root = next((r for r in (GUI_SETTINGS.catalog_for_line(l) for l in lines) if r), None)
+        if root is None and not sess.project.parts:
+            root = GUI_SETTINGS.last_catalog()
+        if root is None:
+            return ("" if not lines else
+                    f" — AVISO: el proyecto usa piezas de la línea «{', '.join(lines)}» y no sé dónde está su catálogo: "
+                    "abrilo con «Abrir catálogo de la línea…».")
+        try:
+            cat = sess.open_catalog(root)
+        except ValueError:
+            return ""
+        return f" — Catálogo «{cat.name}» reabierto ({root})."
+
+    def forget_catalog(self) -> None:
+        """«Olvidar catálogo»: cierra el de esta sesión y borra lo recordado (no toca la carpeta ni el proyecto)."""
+        GUI_SETTINGS.forget_catalog()
+        self.session.catalog_root = None
+        self.session._part_preview = None
+        self._changed("Catálogo olvidado: la próxima vez hay que abrirlo a mano.", scene=False)
+
+    # ---- revisión previa de las piezas (sin generar)
+    def begin_preview_parts(self):
+        """Devuelve el trabajo ``job(progress=None) -> dict`` que revisa las piezas elegidas sin generar (apto para un
+        hilo; después `finish_preview_parts` en el hilo de la interfaz). None si no hay nada que revisar."""
+        if self.busy:
+            return None
+        if not self._need_loaded():
+            return None
+        if not self.session.project.parts:
+            self._changed("No hay piezas de catálogo elegidas: nada que revisar.", scene=False)
+            return None
+        self.busy = True
+        self.progress_prefix = "Revisando"
+        self._changed("Revisando cómo acoplan las piezas elegidas (sin generar)…", scene=False)
+        return lambda progress=None: self.session.preview_parts(progress)
+
+    def finish_preview_parts(self, items: dict | None = None, error: Exception | None = None) -> None:
+        self.busy = False
+        self.progress_prefix = "Generando"
+        if error is not None or items is None:
+            self._changed(f"No se pudo revisar: {error}", scene=False)
+            return
+        self._changed(self.preview_message(items))
+
+    def preview_parts(self) -> dict | None:
+        """Revisión previa sin hilos (pruebas y uso programático). Devuelve {lugar: PartPreview} o None."""
+        job = self.begin_preview_parts()
+        if job is None:
+            return None
+        try:
+            items = job()
+        except Exception as e:                      # noqa: BLE001 — se informa en el estado
+            self.finish_preview_parts(error=e)
+            return None
+        self.finish_preview_parts(items)
+        return items
+
+    @staticmethod
+    def preview_message(items: dict) -> str:
+        bad = [pv for pv in items.values() if pv.nivel == "no"]
+        warn = [pv for pv in items.values() if pv.nivel == "aviso"]
+        head = (f"Revisadas {len(items)} pieza(s) sin generar: "
+                f"{len(items) - len(bad) - len(warn)} bien, {len(warn)} con aviso, {len(bad)} con problema.")
+        detail = "".join(f" {pv.place}: {pv.problems()[0]}." for pv in bad + warn if pv.problems())
+        return head + detail
+
+    def part_preview(self, place: str):
+        """`PartPreview` vigente del lugar (o None si todavía no se revisó o cambió algo desde entonces)."""
+        return self.session.part_preview_items().get(place)
+
+    def set_show_part_preview(self, on: bool) -> None:
+        if self.show_part_preview != bool(on):
+            self.show_part_preview = bool(on)
+            self._changed(scene=True)
+
+    def fit_diagnosis(self, place: str) -> dict | None:
+        """Todo lo que la ventana necesita para mostrar POR QUÉ la pieza combina o no con el lugar: las dos caras
+        superpuestas (polígonos en (u, v) del puerto de la pieza) y las explicaciones en lenguaje llano. None si no hay
+        revisión vigente de ese lugar."""
+        pv = self.part_preview(place)
+        if pv is None:
+            return None
+        from ..preflight import advice, overlay_polygons
+
+        return {"lugar": place, "pieza": pv.ref, "nivel": pv.nivel, "resumen": pv.summary(),
+                "caras": overlay_polygons(pv), "lineas": advice(pv, self.session), "escala": pv.scale_hint}
+
+    def resolve_joint_conflict(self, place: str, keep: str = "part") -> bool:
+        """Resuelve el conflicto de rodilla/codo de `place` (ver `Session.resolve_joint_conflict`)."""
+        if not self._need_loaded():
+            return False
+        try:
+            msg = self.session.resolve_joint_conflict(place, keep)
+        except ValueError as e:
+            self._changed(str(e), scene=False)
+            return False
+        self._changed(msg + " Volvé a revisar las piezas.")
+        return True
+
+    # ---- escalar la figura a la altura de la línea del catálogo
+    def line_scale(self) -> float | None:
+        """Factor que lleva esta figura a la altura de la línea del catálogo abierto (None si no hay catálogo)."""
+        h = self.session.line_height()
+        if h is None or not self.loaded:
+            return None
+        return h / float(self.session.project.params.ref_height)
+
+    def scale_to_line(self) -> bool:
+        """«Escalar a la altura de la línea»: la figura pasa a medir lo que la línea del catálogo (ver `set_ref_height`)."""
+        h = self.session.line_height()
+        if h is None:
+            self._changed("Primero abrí el catálogo de la línea: de ahí sale la altura.", scene=False)
+            return False
+        return self.set_ref_height(h)
+
+    def scale_to_fit_part(self, place: str) -> bool:
+        """Escala TODA la figura por el factor que iguala la cara de corte de ese lugar con la de la pieza (`scale_hint`)."""
+        pv = self.part_preview(place)
+        if pv is None or pv.scale_hint is None:
+            self._changed(f"Primero revisá las piezas: no hay factor de escala para «{place}».", scene=False)
+            return False
+        return self.set_ref_height(self.session.project.params.ref_height * pv.scale_hint)
+
+    # ---- avisar antes de generar
+    def pregenerate_issues(self) -> dict:
+        """Lo que hay que mirar ANTES de generar, sin generar: {"stale": bool, "bloqueantes": [...], "avisos": [...]}.
+        `stale` = hay piezas de catálogo elegidas y todavía no se revisaron con el estado actual (la ventana las revisa
+        antes de preguntar). Los bloqueantes son lo que `build` va a rechazar o dejar mal; los avisos, lo que conviene leer."""
+        sess = self.session
+        out = {"stale": False, "bloqueantes": [], "avisos": []}
+        if not self.loaded:
+            return out
+        for w in sess.catalog_warnings():
+            out["avisos"].append(w)
+        if not sess.project.parts:
+            return out
+        if not sess.part_preview_fresh():
+            out["stale"] = True
+            return out
+        for place, pv in sess.part_preview_items().items():
+            if pv.error or pv.conflicts or (pv.compat is not None and pv.compat.motivos):
+                out["bloqueantes"] += [f"{place}: {t}" for t in pv.problems()[:3]]
+            elif pv.compat is not None and pv.compat.avisos:
+                out["avisos"] += [f"{place}: {t}" for t in pv.compat.avisos]
+            out["avisos"] += [f"{place}: {t}" for t in pv.notes]
+        return out
 
     def catalog_choices(self, place: str) -> list:
         """Piezas del catálogo que sirven en ese lugar (vacío si no hay catálogo abierto o el lugar no existe)."""
@@ -2244,6 +2407,88 @@ class Controller:
             out.append(PlaneEntry(jid, j.name.capitalize(), j.plane, "joint", jid not in self.hidden))
         return out
 
+    def cut_rows(self) -> list[dict]:
+        """Cortes NUMERADOS en el orden de la lista de planos (el mismo número que se dibuja en el visor): n, id, etiqueta,
+        tipo, desplazamiento del corte (mm, solo miembros sobre el plano de simetría) y, si la pieza de catálogo elegida
+        corta a otra distancia, la de la línea (`linea_mm`) y la diferencia (`dif_mm`)."""
+        out = []
+        for n, e in enumerate(self.plane_entries(), start=1):
+            cur = line = None
+            if e.kind in ("arm", "leg"):
+                cur = self.session.limb_offset(e.id)
+                line = self.session.line_cut_x(e.id) if cur is not None else None
+            out.append({"n": n, "id": e.id, "etiqueta": e.label, "tipo": e.kind, "corte_mm": cur, "linea_mm": line,
+                        "dif_mm": None if (cur is None or line is None) else line - cur})
+        return out
+
+    @staticmethod
+    def cut_row_text(row: dict) -> str:
+        """«2 · Pierna — corte a 7,00 mm (la línea corta a 7,66: +0,66)»."""
+        t = f"{row['n']} · {row['etiqueta']}"
+        if row["corte_mm"] is None:
+            return t
+        t += f" — corte a {row['corte_mm']:.2f} mm".replace(".", ",")
+        if row["linea_mm"] is not None:
+            d = row["dif_mm"]
+            t += (f" (la línea corta a {row['linea_mm']:.2f}: {'alineado' if abs(d) < 0.05 else f'{d:+.2f}'})").replace(".", ",")
+        return t
+
+    def align_cut_to_line(self, place: str) -> bool:
+        """«Alinear a la línea» en un miembro: su corte pasa a la distancia de la pieza de catálogo elegida."""
+        if not self._need_loaded():
+            return False
+        try:
+            x = self.session.align_cut_to_line(place)
+        except (ValueError, KeyError) as e:
+            self._changed(f"No se pudo alinear «{place}»: {e}.", scene=False)
+            return False
+        self._changed(f"Corte de «{place}» alineado a la línea: {x:.2f} mm del plano de simetría. Volvé a revisar las piezas.")
+        return True
+
+    def align_cuts_to_line(self) -> int:
+        """«Alinear todos los cortes a la línea»: cada miembro con pieza de catálogo y corte lateral. Devuelve cuántos movió."""
+        if not self._need_loaded():
+            return 0
+        moved, skipped = [], []
+        for r in self.cut_rows():
+            if r["id"] in self.session.project.parts and r["tipo"] in ("arm", "leg"):
+                if r["dif_mm"] is not None and abs(r["dif_mm"]) < 0.05:
+                    continue
+                try:
+                    self.session.align_cut_to_line(r["id"])
+                    moved.append(r["id"])
+                except (ValueError, KeyError) as e:
+                    skipped.append(f"{r['id']} ({e})")
+        msg = (f"Alineados a la línea: {', '.join(moved)}." if moved else "No había cortes para alinear.")
+        if skipped:
+            msg += " Sin alinear: " + "; ".join(skipped) + "."
+        self._changed(msg + (" Volvé a revisar las piezas." if moved else ""))
+        return len(moved)
+
+    def set_show_cut_numbers(self, on: bool) -> None:
+        if self.show_cut_numbers != bool(on):
+            self.show_cut_numbers = bool(on)
+            self._changed()
+
+    def _sync_cut_numbers(self, scene) -> None:
+        """Dibuja el número de cada corte (el de `cut_rows`) en el visor, mirando a la cámara y sin prueba de profundidad."""
+        from .glyphs import camera_axes, number_paths
+
+        wanted = set()
+        if self.show_cut_numbers and self.group_visible("planes"):
+            right, up = camera_axes(self.camera.eye(), self.camera.target)
+            h = max(self.plane_half_size * 0.16, 1.0)
+            for n, e in enumerate(self.plane_entries(), start=1):
+                if not e.visible:
+                    continue
+                org = np.asarray(e.plane.origin, float)
+                for i, path in enumerate(number_paths(n, org, right, up, h)):
+                    key = f"corte:{e.id}:n{i}"
+                    scene.set_lines(key, path, (1.0, 1.0, 1.0, 1.0), on_top=True)
+                    wanted.add(key)
+        for key in [k for k in scene.items if k.startswith("corte:") and k not in wanted]:
+            scene.remove(key)
+
     def group_visible(self, group: str) -> bool:
         """Interruptor general: «planes» (todos los planos), «pins» (marcas de pasadores y ejes de articulación) o
         «contours» (siluetas y recortes). Se combina con el de cada plano: algo se ve si ambos lo permiten."""
@@ -2434,6 +2679,8 @@ class Controller:
             scene.set_mesh("mano:extraida", hand, color=_EXTRACTED_HAND_COLOR, clip_x=clip)
         else:
             scene.remove("mano:extraida")
+        self._sync_part_previews(scene, clip)
+        self._sync_cut_numbers(scene)
         hs = self.plane_half_size
         palette = {"symmetry": (1.0, 0.55, 0.2, 0.18), "arm": (0.3, 0.6, 1.0, 0.22), "leg": (0.4, 0.85, 0.5, 0.22),
                    "head": (0.9, 0.5, 0.9, 0.22), "joint": (1.0, 0.85, 0.2, 0.22),
@@ -2485,6 +2732,31 @@ class Controller:
                                                           plane_origin=head.plane.origin - n * 1e-3, cap=False)
             cache = self._headless_cache = (key, mesh)
         return cache[1]
+
+    def _sync_part_previews(self, scene, clip: float) -> None:
+        """Dibuja las piezas de catálogo elegidas YA colocadas (vista previa de la revisión, sin generar), pintadas por
+        nivel de acople: verde = ok, ámbar = aviso, rojo = no. Brazos y piernas también del lado −X (espejo)."""
+        wanted = set()
+        if self.show_part_preview and self.outcome_free():
+            for place, pv in self.session.part_preview_items().items():
+                if pv.mesh is None:
+                    continue
+                color = _PART_PREVIEW_COLORS.get(pv.nivel, _PART_PREVIEW_COLORS["aviso"])
+                key = f"parte:{place}"
+                scene.set_mesh(key, pv.mesh, color=color, clip_x=clip)
+                wanted.add(key)
+                if pv.kind in ("arm", "leg"):
+                    m = pv.mesh.copy()
+                    m.vertices = m.vertices * np.array([-1.0, 1.0, 1.0])
+                    m.invert()
+                    scene.set_mesh(key + ":espejo", m, color=color, clip_x=-1e9 if clip < 0 else clip)
+                    wanted.add(key + ":espejo")
+        for key in [k for k in scene.items if k.startswith("parte:") and k not in wanted]:
+            scene.remove(key)
+
+    def outcome_free(self) -> bool:
+        """True mientras no hay una figura generada con estas piezas (después se ve la generada, no la previa)."""
+        return self.session.outcome is None
 
     def _sync_pose(self, scene) -> None:
         """Vista previa de la pose: torso generado + miembros girados al ángulo elegido (rojo = interfiere)."""

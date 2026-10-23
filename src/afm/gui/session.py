@@ -45,6 +45,9 @@ def _raise_top(poly: np.ndarray, top: float | None, tol: float = 0.35) -> np.nda
     return poly
 
 
+TORSO_PLACES = ("torso", "pelvis")        # lugares de catálogo que no son un miembro del modelo: el torso y la pelvis
+
+
 @dataclass
 class BuildOutcome:
     result: P.BuildResult
@@ -211,6 +214,39 @@ class Session:
         spec.cut_offset = mm
         spec.pin_center = None          # la cara de contacto se movió
         self.outcome = None
+
+    def line_cut_x(self, place: str) -> float | None:
+        """Distancia al plano de simetría (mm) a la que corta la pieza de catálogo elegida en `place`: es la x del centro
+        de su puerto (los puertos de hombro y cadera son laterales). None si no hay pieza, no hay catálogo o el puerto de
+        la pieza no es lateral (su corte no se puede reproducir con un desplazamiento)."""
+        ref = self.project.parts.get(place)
+        spec = self.limb(place)
+        if ref is None or spec is None or not self.catalog_root:
+            return None
+        from ..assembly import LIMB_PART
+
+        try:
+            port = self._catalog().meta(ref.ref).puertos.get(LIMB_PART[spec.kind][1])
+        except Exception:                           # noqa: BLE001 — la consulta es informativa
+            return None
+        if port is None or abs(float(port.frame.axis[0])) < 0.95:
+            return None
+        return abs(float(port.frame.center[0]))
+
+    def align_cut_to_line(self, place: str) -> float:
+        """«Alinear el corte a la línea»: mueve el corte de `place` a la misma distancia del plano de simetría que el de la
+        pieza de catálogo elegida, para que las caras de unión coincidan. Devuelve el desplazamiento nuevo (mm)."""
+        spec = self.limb(place)
+        if spec is None:
+            raise ValueError(f"«{place}» no es un miembro del modelo")
+        if place not in self.project.parts:
+            raise ValueError(f"«{place}» usa la pieza del modelo: elegí una pieza de catálogo para alinear a su corte")
+        x = self.line_cut_x(place)
+        if x is None:
+            raise ValueError(f"el corte de la pieza de «{place}» no es lateral: no se reproduce con un desplazamiento "
+                             "(hay que alinear el plano a mano)")
+        self.set_limb_offset(place, x)            # también valida que el plano esté sobre la simetría
+        return x
 
     def fix_limb_extrude(self, name: str) -> bool:
         """Si el plano de `name` está de costado pero la extrusión es simétrica (proyectos guardados antes
@@ -928,6 +964,8 @@ class Session:
         if not self.loaded:
             out.append("Abrí un STL")
             return out
+        if self.catalog_only():
+            return self.catalog_only_problems()          # la figura sale del catálogo: no hace falta el modelo
         if self.project.symmetry is None:
             out.append("Falta el plano de simetría")
         if not self.project.limbs and self.project.head is None and self.project.waist is None:
@@ -1011,35 +1049,103 @@ class Session:
     def part_places(self) -> list[str]:
         """Lugares donde se puede poner una pieza de catálogo: cada miembro del modelo, la cabeza (si tiene plano de cuello)
         y la mano."""
-        return [l.name for l in self.project.limbs] + (["cabeza"] if self.project.head is not None else []) + ["mano"]
+        return (list(TORSO_PLACES) + [l.name for l in self.project.limbs]
+                + (["cabeza"] if self.project.head is not None else []) + ["mano"])
 
-    def _place_type(self, place: str) -> str:
+    def _place_types(self, place: str) -> tuple[str, ...]:
+        """Tipos de pieza de catálogo que sirven en ese lugar. «torso»: entero (`torso`) o la parte de arriba
+        (`torso_sup`, que va con una `pelvis`); «pelvis»: `pelvis`."""
         from ..assembly import LIMB_PART
 
+        if place == "torso":
+            return ("torso", "torso_sup")
+        if place == "pelvis":
+            return ("pelvis",)
         for l in self.project.limbs:
             if l.name == place:
-                return LIMB_PART[l.kind][0]
+                return (LIMB_PART[l.kind][0],)
         if place in ("cabeza", "mano"):
-            return place
+            return (place,)
         raise ValueError(f"«{place}» no es un lugar del modelo (hay {', '.join(self.part_places())})")
+
+    def _place_type(self, place: str) -> str:
+        return self._place_types(place)[0]
+
+    def catalog_only(self) -> bool:
+        """True si hay torso (o pelvis) de catálogo elegido: entonces la figura sale ENTERA del catálogo (como `afm armar`) y
+        el cuerpo del STL abierto solo sirve de referencia. Con un torso de catálogo no hay figura de origen a la que acoplar."""
+        return any(k in self.project.parts for k in TORSO_PLACES)
 
     def catalog_choices(self, place: str) -> list:
         """Piezas del catálogo (última versión de cada una) que sirven en ese lugar."""
-        return self._catalog().list(self._place_type(place))
+        cat = self._catalog()
+        return [m for t in self._place_types(place) for m in cat.list(t)]
+
+    def catalog_only_problems(self) -> list[str]:
+        """Lo que impide armar la figura solo con piezas de catálogo (torso y pelvis incluidos)."""
+        out = []
+        parts = self.project.parts
+        if not self.catalog_only():
+            return out
+        if not self.catalog_root:
+            out.append("el torso de catálogo necesita el catálogo abierto")
+            return out
+        cat = self._catalog()
+        tipo = {}
+        for place in TORSO_PLACES:
+            ref = parts.get(place)
+            if ref is not None:
+                try:
+                    tipo[place] = cat.meta(ref.ref).tipo
+                except Exception as exc:        # noqa: BLE001 — se informa como problema
+                    out.append(f"«{place}»: {exc}")
+        t, pel = tipo.get("torso"), tipo.get("pelvis")
+        if "torso" not in parts:
+            out.append("elegiste una pelvis de catálogo pero no el torso (de arriba): elegí también «torso»")
+        elif t == "torso_sup" and "pelvis" not in parts:
+            out.append("el torso elegido es solo la parte de arriba (torso_sup): elegí también una «pelvis»")
+        elif t == "torso" and "pelvis" in parts:
+            out.append("el torso elegido es entero: con «pelvis» hace falta un torso de arriba (torso_sup), o quitá la pelvis")
+        if "pelvis" in parts and pel not in (None, "pelvis"):
+            out.append(f"«pelvis» pide una pieza «pelvis» y se eligió una «{pel}»")
+        seen: dict[str, str] = {}
+        for l in self.project.limbs:
+            if l.name in parts:
+                host = {"arm": "brazo", "leg": "pierna"}[l.kind]
+                if host in seen:
+                    out.append(f"«{seen[host]}» y «{l.name}» son los dos {host}s de catálogo: con torso de catálogo se pone un "
+                               f"{host} y se espeja; dejá la pieza del modelo en uno")
+                seen[host] = l.name
+        return out
+
+    def _catalog_only_choices(self) -> dict:
+        """`Project.parts` -> las claves que espera `synthesize_host` (`torso` | `torso_sup`, `pelvis`, `brazo`, `pierna`,
+        `cabeza`, `mano`)."""
+        resolved = self._resolved_parts() or {}
+        out = {}
+        for place, choice in resolved.items():
+            if place == "torso" and choice.meta.tipo == "torso_sup":
+                out["torso_sup"] = choice
+            elif place in TORSO_PLACES or place in ("cabeza", "mano"):
+                out[place] = choice
+            else:
+                spec = self.limb(place)
+                out[{"arm": "brazo", "leg": "pierna"}[spec.kind]] = choice
+        return out
 
     def set_part(self, place: str, ref: str):
         """Pone la pieza `ref` (`id` o `id@versión`) en ese lugar; guarda en el proyecto la versión elegida."""
         from ..catalog import CatalogError
         from ..project import PartRef
 
-        tipo = self._place_type(place)
+        tipos = self._place_types(place)
         cat = self._catalog()
         try:
             meta = cat.meta(ref)
         except CatalogError as exc:
             raise ValueError(str(exc)) from exc
-        if meta.tipo != tipo:
-            raise ValueError(f"«{meta.ref}» es una pieza «{meta.tipo}» y «{place}» pide «{tipo}»")
+        if meta.tipo not in tipos:
+            raise ValueError(f"«{meta.ref}» es una pieza «{meta.tipo}» y «{place}» pide «{' o '.join(tipos)}»")
         self.project.parts[place] = PartRef(id=meta.id, version=meta.version, linea=cat.name)
         self.outcome = None
         return self.project.parts[place]
@@ -1056,13 +1162,105 @@ class Session:
         built = {}
         if self.outcome is not None:
             built = self.outcome.result.report.get("piezas", {})
+        pre = self.part_preview_items()          # revisión previa vigente (sin generar), o {}
         rows = []
         for place in self.part_places():
             ref = self.project.parts.get(place)
             info = built.get(place) or {}
-            rows.append({"lugar": place, "pieza": None if ref is None else ref.ref, "compat": info.get("compat"),
-                         "avisos": info.get("avisos", [])})
+            row = {"lugar": place, "pieza": None if ref is None else ref.ref, "compat": info.get("compat"),
+                   "avisos": info.get("avisos", []), "previa": False}
+            pv = pre.get(place)
+            if not info and pv is not None and ref is not None and pv.ref == ref.ref:
+                row["compat"] = None if pv.compat is None else pv.compat.to_dict()
+                row["avisos"] = pv.problems()
+                row["previa"] = True
+                row["nivel"] = pv.nivel
+                row["conflictos"] = list(pv.conflicts)
+                row["error"] = pv.error
+            rows.append(row)
         return rows
+
+    # ------------------------------------------------------------- revisión previa de las piezas (sin generar)
+    _part_preview: tuple | None = None       # (firma, {lugar: preflight.PartPreview})
+
+    def _preview_signature(self) -> str:
+        """Todo lo que cambia el resultado de la revisión: el proyecto, la malla, el catálogo y las piezas elegidas."""
+        import hashlib
+
+        b = self.work.bounds if self.work is not None else None
+        blob = json.dumps({"p": self.project.to_dict(), "n": None if self.work is None else len(self.work.faces),
+                           "b": None if b is None else np.round(b, 3).tolist(), "c": self.catalog_root},
+                          sort_keys=True, default=float, separators=(",", ":"))
+        return hashlib.sha1(blob.encode()).hexdigest()
+
+    def part_preview_items(self) -> dict:
+        """Revisión previa vigente (vacía si cambió algo desde que se hizo)."""
+        if self._part_preview is None or self.work is None:
+            return {}
+        sig, items = self._part_preview
+        return items if sig == self._preview_signature() else {}
+
+    def part_preview_fresh(self) -> bool:
+        """True si ya se revisaron las piezas elegidas con el estado actual (o si no hay piezas que revisar)."""
+        if not self.project.parts:
+            return True
+        items = self.part_preview_items()
+        return bool(items) and set(items) == set(self.project.parts)
+
+    def preview_parts(self, progress=None) -> dict:
+        """Revisa las piezas de catálogo elegidas SIN generar: la compatibilidad, el conflicto de rodilla/codo y la
+        pieza ya colocada para dibujarla. Devuelve {lugar: PartPreview} y la deja guardada (`part_preview_items`)."""
+        from ..preflight import preview_parts as _preview
+
+        if self.work is None:
+            raise ValueError("Primero abrí una figura.")
+        if not self.project.parts:
+            self._part_preview = None
+            return {}
+        if self.catalog_only():
+            from ..preflight import preview_catalog_only
+
+            probs = self.catalog_only_problems()
+            if probs:
+                raise ValueError("; ".join(probs))
+            choices = self._catalog_only_choices()
+            kinds = {"arm": "brazo", "leg": "pierna"}
+            place_of = {kinds[l.kind]: l.name for l in self.project.limbs if l.name in self.project.parts}
+            place_of.update({"torso_sup": "torso", "torso": "torso", "pelvis": "pelvis", "cabeza": "cabeza", "mano": "mano"})
+            items = preview_catalog_only(self.project.params, choices, place_of)
+            self._part_preview = (self._preview_signature(), items)
+            return items
+        if self.project.symmetry is None:
+            raise ValueError("Falta el plano de simetría")
+        parts = self._resolved_parts()
+        items = _preview(self.project, parts, S.to_manifold(self.work), progress)
+        self._part_preview = (self._preview_signature(), items)
+        return items
+
+    def resolve_joint_conflict(self, place: str, keep: str = "part") -> str:
+        """Conflicto de rodilla/codo en `place`. `keep="part"`: se queda con la articulación de la pieza y se quita la del
+        modelo; `keep="model"`: se queda con la del modelo y se vuelve a la pieza del modelo en ese lugar."""
+        if keep not in ("part", "model"):
+            raise ValueError(keep)
+        if keep == "model":
+            if not self.clear_part(place):
+                raise ValueError(f"«{place}» ya usaba la pieza del modelo")
+            return f"«{place}» vuelve a usar la pieza del modelo (queda la articulación del modelo)."
+        js = [j for j in self.project.joints if j.limb == place]
+        if not js:
+            raise ValueError(f"«{place}» no tiene una articulación propia del modelo que quitar")
+        for j in js:
+            self.remove_joint(j.name)
+        return f"Se quitó «{', '.join(j.name for j in js)}» del modelo: «{place}» usa la articulación de la pieza."
+
+    def line_height(self) -> float | None:
+        """Altura de figura (mm) de la línea del catálogo abierto, o None."""
+        if not self.catalog_root:
+            return None
+        try:
+            return float(self._catalog().line.get("altura_mm"))
+        except (TypeError, ValueError):
+            return None
 
     def catalog_add(self, prefix: str, places=None, wrist_points=None, labels=(), new_version: bool = False) -> dict:
         """«Catalogar esta figura»: saca las piezas crudas con puertos de la figura abierta (con los planos, siluetas y
@@ -1105,12 +1303,29 @@ class Session:
         probs = self.problems()
         if probs:
             raise ValueError("; ".join(probs))
+        if self.catalog_only():
+            return self._build_catalog_only(progress)
         parts = self._resolved_parts()
         body = S.to_manifold(self.work)
         res = P.build(body, self.project.limbs, self.project.params, self.project.symmetry,
                       progress=progress, trims=self.project.trims, head=self.project.head,
                       joints=self.project.joints, waist=self.project.waist, hand=self.project.hand, parts=parts)
         val = P.validate(res, self.project.params, self.project.limbs, joints=self.project.joints)
+        self.outcome = BuildOutcome(res, val)
+        return self.outcome
+
+    def _build_catalog_only(self, progress=None) -> BuildOutcome:
+        """Figura armada solo con piezas de catálogo (torso incluido): lo mismo que `afm armar` (recipe.assemble)."""
+        from ..assembly import AssemblyError, synthesize_host
+
+        p = self.project.params
+        try:
+            host = synthesize_host(self._catalog_only_choices(), p)
+            res = P.build(host.body, host.limbs, p, None, True, progress, None, host.head, None, host.waist, None,
+                          host.parts, host_faces=host.faces)
+        except AssemblyError as exc:
+            raise ValueError(str(exc)) from exc
+        val = P.validate(res, p, host.limbs, joints=res.joint_specs)
         self.outcome = BuildOutcome(res, val)
         return self.outcome
 

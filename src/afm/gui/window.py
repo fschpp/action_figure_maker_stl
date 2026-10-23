@@ -395,6 +395,17 @@ class MainWindow(Gtk.ApplicationWindow):
         self.btn_cat_add = self._button("Catalogar esta figura…", self._on_catalog_add)
         for w in (self.btn_cat_new, self.btn_cat_open, self.lbl_catalog, self.btn_cat_add):
             sec.append(w)
+        self.btn_cat_forget = self._button("Olvidar el catálogo recordado", lambda *_: self.ctrl.forget_catalog())
+        self.btn_cat_forget.set_tooltip_text("Cierra el catálogo y borra lo recordado: la próxima vez hay que abrirlo a mano. "
+                                             "No toca la carpeta ni el proyecto.")
+        self.btn_cat_review = self._button("Revisar las piezas elegidas (sin generar)", self._on_catalog_review)
+        self.btn_cat_scale = self._button("Escalar la figura a la altura de la línea", lambda *_: self.ctrl.scale_to_line())
+        self.btn_cat_align = self._button("Alinear todos los cortes a la línea", self._on_align_all)
+        self.chk_part_preview = Gtk.CheckButton(label="Dibujar las piezas elegidas antes de generar",
+                                                active=self.ctrl.show_part_preview)
+        self.chk_part_preview.connect("toggled", lambda b: None if self._updating else self.ctrl.set_show_part_preview(b.get_active()))
+        for w in (self.btn_cat_forget, self.btn_cat_review, self.btn_cat_scale, self.btn_cat_align, self.chk_part_preview):
+            sec.append(w)
         sec.append(Gtk.Label(label="Pieza de cada lugar (al cambiarla hay que volver a generar)", xalign=0, margin_top=8))
         self.parts_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         sec.append(self.parts_box)
@@ -404,7 +415,10 @@ class MainWindow(Gtk.ApplicationWindow):
                    "sus piezas crudas (cabeza, torso, brazo, pierna, con los planos y siluetas que ya definiste) para usarlas en "
                    "otras figuras. En cada lugar elegí «la del modelo» o una pieza del catálogo: «Generar figura» la pone en el "
                    "puerto que el modelo tiene en ese lugar, sin escalarla, y la fila muestra cómo acopla (ok / aviso / no, "
-                   "IoU y escalón entre las caras). La mano de catálogo se acopla en la muñeca del brazo de catálogo.")
+                   "IoU y escalón entre las caras). La mano de catálogo se acopla en la muñeca del brazo de catálogo. «Revisar» mide el acople de cada pieza SIN "
+                   "generar y la dibuja ya colocada (verde = ok, ámbar = aviso, rojo = no); «Ver por qué» superpone las dos "
+                   "caras. Con un torso (o pelvis) de catálogo la figura sale entera del catálogo. El catálogo se reabre solo "
+                   "al cargar la figura.")
 
         sec = _collapsible(box, "Cabeza")
         self.btn_neck = self._button("Agregar plano del cuello / cabeza (3 puntos)", lambda *_: self.ctrl.start_neck_plane())
@@ -462,6 +476,9 @@ En naranja se ve el contorno del pasador (vástago y cabeza); en verde, la posic
         self.planes_box = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
         self.planes_box.add_css_class("boxed-list")
         sec.append(self.planes_box)
+        self.chk_cut_numbers = Gtk.CheckButton(label="Numerar los cortes en el visor", active=self.ctrl.show_cut_numbers)
+        self.chk_cut_numbers.connect("toggled", lambda b: None if self._updating else self.ctrl.set_show_cut_numbers(b.get_active()))
+        sec.append(self.chk_cut_numbers)
 
         # --------------------------------------------------------- Miembros
         box = self._tab_page("Miembros")
@@ -811,6 +828,7 @@ exportar; tarda un poco más.")
     def _rebuild_plane_list(self) -> None:
         while (child := self.planes_box.get_first_child()) is not None:
             self.planes_box.remove(child)
+        cuts = {r["id"]: r for r in self.ctrl.cut_rows()}
         for e in self.ctrl.plane_entries():
             row = Gtk.Box(spacing=6)
             for side in ("start", "end", "top", "bottom"):
@@ -818,8 +836,15 @@ exportar; tarda un poco más.")
             vis = Gtk.CheckButton(active=e.visible, tooltip_text="Mostrar / ocultar")
             vis.connect("toggled", lambda _b, pid=e.id: None if self._updating else self.ctrl.toggle_plane(pid))
             row.append(vis)
-            lab = Gtk.Label(label=e.label, xalign=0, hexpand=True)
+            cut = cuts.get(e.id)
+            lab = Gtk.Label(label=self.ctrl.cut_row_text(cut) if cut else e.label, xalign=0, hexpand=True, wrap=True)
             row.append(lab)
+            if cut and cut["dif_mm"] is not None and abs(cut["dif_mm"]) >= 0.05:
+                al = Gtk.Button(label="Alinear", tooltip_text="Mover este corte a la misma distancia del plano de simetría "
+                                "que el de la pieza de catálogo elegida")
+                al.add_css_class("flat")
+                al.connect("clicked", lambda _b, pid=e.id: self.ctrl.align_cut_to_line(pid))
+                row.append(al)
             if e.kind in ("arm", "leg"):
                 ed = Gtk.Button(icon_name="document-edit-symbolic", tooltip_text="Dibujar / editar la silueta")
                 ed.add_css_class("flat")
@@ -1117,9 +1142,17 @@ exportar; tarda un poco más.")
         self.btn_cat_open.set_sensitive(not ctrl.busy)
         self.btn_cat_add.set_sensitive(bool(loaded and root and not ctrl.busy))
         self.lbl_catalog.set_text("Sin catálogo abierto" if not root else f"Catálogo: {root}")
+        self.btn_cat_forget.set_sensitive(bool(root and not ctrl.busy))
+        self.btn_cat_review.set_sensitive(bool(loaded and root and ctrl.session.project.parts and not ctrl.busy))
+        self.btn_cat_scale.set_sensitive(bool(loaded and root and not ctrl.busy))
+        self.btn_cat_align.set_sensitive(bool(loaded and root and ctrl.session.project.parts and not ctrl.busy))
+        scale = ctrl.line_scale() if root else None
+        self.btn_cat_scale.set_label("Escalar la figura a la altura de la línea" if scale is None else
+                                     f"Escalar la figura a la altura de la línea (×{scale:.3f})".replace(".", ","))
         rows = ctrl.catalog_rows() if root else []
         choices = {r["lugar"]: [m.ref for m in ctrl.catalog_choices(r["lugar"])] for r in rows}
-        sig = (root, tuple((r["lugar"], r["pieza"], ctrl.catalog_row_text(r), tuple(choices[r["lugar"]])) for r in rows))
+        sig = (root, tuple((r["lugar"], r["pieza"], ctrl.catalog_row_text(r), tuple(choices[r["lugar"]]), r.get("nivel"),
+                           tuple(r.get("conflictos") or ()), tuple(r.get("avisos") or ())) for r in rows))
         if sig == self._parts_sig:
             return
         self._parts_sig = sig
@@ -1142,6 +1175,8 @@ exportar; tarda un poco más.")
                 lbl = Gtk.Label(label=ctrl.catalog_row_text(r), xalign=0, wrap=True)
                 lbl.add_css_class("dim-label")
                 box.append(lbl)
+                if r.get("previa"):
+                    box.append(self._part_actions(lugar, r))
             self.parts_box.append(box)
 
     def _on_part_selected(self, dd: Gtk.DropDown, _p, lugar: str, refs: list) -> None:
@@ -1154,6 +1189,96 @@ exportar; tarda un poco más.")
                                                   and cur.version == int(ref.split("@")[1])):
             return                                    # ya estaba (la lista se redibujó)
         self.ctrl.catalog_set_part(lugar, ref)
+
+    def _part_actions(self, lugar: str, r: dict) -> Gtk.Box:
+        """Botones de una fila revisada: «Ver por qué», escalar para este lugar y resolver el conflicto de rodilla/codo."""
+        ctrl = self.ctrl
+        bar = Gtk.Box(spacing=4)
+        why = Gtk.Button(label="Ver por qué", tooltip_text="Superpone la cara de la pieza y la del modelo y explica el acople")
+        why.connect("clicked", lambda *_: self._show_fit_diagnosis(lugar))
+        bar.append(why)
+        pv = ctrl.part_preview(lugar)
+        if pv is not None and pv.scale_hint is not None and abs(pv.scale_hint - 1.0) > 0.03:
+            sc = Gtk.Button(label=f"Escalar la figura ×{pv.scale_hint:.3f}".replace(".", ","),
+                            tooltip_text="Escala TODA la figura para que la cara de este lugar tenga el tamaño de la de la pieza")
+            sc.connect("clicked", lambda *_: ctrl.scale_to_fit_part(lugar))
+            bar.append(sc)
+        if r.get("conflictos"):
+            k1 = Gtk.Button(label="Usar la articulación de la pieza",
+                            tooltip_text="Quita la rodilla/codo del modelo en este miembro")
+            k1.connect("clicked", lambda *_: ctrl.resolve_joint_conflict(lugar, "part"))
+            k2 = Gtk.Button(label="Usar la del modelo", tooltip_text="Vuelve a la pieza del modelo en este lugar")
+            k2.connect("clicked", lambda *_: ctrl.resolve_joint_conflict(lugar, "model"))
+            bar.append(k1)
+            bar.append(k2)
+        return bar
+
+    def _show_fit_diagnosis(self, lugar: str) -> None:
+        """Ventana con las dos caras superpuestas (u, v en mm) y el porqué, en lenguaje llano."""
+        d = self.ctrl.fit_diagnosis(lugar)
+        if d is None:
+            self.ctrl.report_progress("Primero revisá las piezas.")
+            return
+        win = Gtk.Window(title=f"Por qué «{d['pieza']}» en {lugar}", transient_for=self, modal=False)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_top=12, margin_bottom=12,
+                      margin_start=12, margin_end=12)
+        box.append(Gtk.Label(label=d["resumen"], xalign=0, wrap=True, max_width_chars=60))
+        area = Gtk.DrawingArea(content_width=420, content_height=320)
+        area.set_draw_func(lambda _a, cr, w, h: self._draw_faces(cr, w, h, d["caras"]))
+        box.append(area)
+        box.append(Gtk.Label(label="Verde: lo que se toca · rojo: sobra de la pieza · ámbar: sobra del modelo · "
+                                   "azul: contorno del modelo · naranja: contorno de la pieza", xalign=0, wrap=True, max_width_chars=60))
+        for t in d["lineas"] or ["Todo bien: las caras coinciden."]:
+            box.append(Gtk.Label(label="• " + t, xalign=0, wrap=True, max_width_chars=60))
+        close = Gtk.Button(label="Cerrar", halign=Gtk.Align.END)
+        close.connect("clicked", lambda *_: win.close())
+        box.append(close)
+        win.set_child(box)
+        win.present()
+
+    @staticmethod
+    def _draw_faces(cr, w: int, h: int, caras: dict) -> None:
+        pts = [pt for key in ("pieza", "modelo") for poly in caras.get(key, []) for pt in poly["exterior"]]
+        if not pts:
+            return
+        us, vs = [p[0] for p in pts], [p[1] for p in pts]
+        u0, u1, v0, v1 = min(us), max(us), min(vs), max(vs)
+        k = 0.9 * min(w / max(u1 - u0, 1e-6), h / max(v1 - v0, 1e-6))
+        cu, cv = (u0 + u1) / 2, (v0 + v1) / 2
+
+        def xy(p):
+            return w / 2 + (p[0] - cu) * k, h / 2 - (p[1] - cv) * k
+
+        def path(poly):
+            for ring in [poly["exterior"]] + list(poly["interiors"]):
+                if not ring:
+                    continue
+                cr.move_to(*xy(ring[0]))
+                for q in ring[1:]:
+                    cr.line_to(*xy(q))
+                cr.close_path()
+
+        for key, rgba in (("comun", (0.30, 0.78, 0.45, 0.55)), ("solo_pieza", (0.90, 0.30, 0.30, 0.60)),
+                          ("solo_modelo", (0.95, 0.75, 0.20, 0.60))):
+            for poly in caras.get(key, []):
+                path(poly)
+                cr.set_source_rgba(*rgba)
+                cr.fill()
+        cr.set_line_width(2.0)
+        for key, rgb in (("modelo", (0.25, 0.50, 0.95)), ("pieza", (0.95, 0.50, 0.15))):
+            for poly in caras.get(key, []):
+                path(poly)
+                cr.set_source_rgb(*rgb)
+                cr.stroke()
+
+    def _on_catalog_review(self, *_):
+        job = self.ctrl.begin_preview_parts()
+        if job is not None:
+            self._run_task("Revisando las piezas", job, lambda items, err: self.ctrl.finish_preview_parts(items, err),
+                           "Piezas revisadas")
+
+    def _on_align_all(self, *_):
+        self.ctrl.align_cuts_to_line()
 
     def _on_catalog_new(self, *_):
         """«Crear catálogo…»: elegir la carpeta nueva, después nombre de la línea y altura de figura."""
@@ -1321,6 +1446,44 @@ exportar; tarda un poco más.")
         return False                        # no repetir
 
     def _on_generate(self) -> None:
+        """«Generar figura»: si hay piezas de catálogo sin revisar las revisa primero (rápido) y avisa antes de generar."""
+        ctrl = self.ctrl
+        if ctrl.loaded and not ctrl.busy and ctrl.session.project.parts and not ctrl.session.part_preview_fresh():
+            job = ctrl.begin_preview_parts()
+            if job is not None:
+                def reviewed(items, err) -> None:
+                    ctrl.finish_preview_parts(items, err)
+                    if err is None:
+                        self._confirm_generate()
+
+                self._run_task("Revisando las piezas", job, reviewed, "Piezas revisadas")
+                return
+        self._confirm_generate()
+
+    def _confirm_generate(self) -> None:
+        issues = self.ctrl.pregenerate_issues()
+        bad, warn = issues["bloqueantes"], issues["avisos"]
+        if not bad and not warn:
+            self._start_generate()
+            return
+        lines = [("✗ " + t) for t in bad] + [("• " + t) for t in warn]
+        detail = "\n".join(lines[:12]) + (f"\n… y {len(lines) - 12} más" if len(lines) > 12 else "")
+        if bad:
+            detail += "\n\nGenerar con esto probablemente falle o deje la unión mal."
+        dlg = Gtk.AlertDialog(message="Antes de generar", detail=detail, buttons=["Cancelar", "Generar igual"],
+                              cancel_button=0, default_button=0)
+
+        def answered(d, res) -> None:
+            try:
+                i = d.choose_finish(res)
+            except GLib.Error:
+                return
+            if i == 1:
+                self._start_generate()
+
+        dlg.choose(self, None, answered)
+
+    def _start_generate(self) -> None:
         job = self.ctrl.begin_generate()
         if job is not None:
             self._run_task("Generando la figura", job, lambda outcome, err: self.ctrl.finish_generate(outcome, err), "Figura generada")
