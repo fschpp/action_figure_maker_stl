@@ -236,6 +236,56 @@ def test_cuts_are_numbered_and_aligned_to_the_line(ctrl, root, monkeypatch):
     assert ctrl.align_cut_to_line("brazo") is False and "usa la pieza del modelo" in ctrl.message
 
 
+def test_plane_status_marks_tilted_and_failed_planes(ctrl, root):
+    """Un plano de miembro girado unos grados respecto del corte de la pieza elegida se pinta de amarillo; el que falló
+    en la revisión, de rojo con el motivo; y el rojo se apaga solo cuando el usuario mueve ese plano."""
+    import numpy as np
+    from afm.extract import ExtractError
+    from afm.planes import Plane
+    from afm.ports import PortError
+    from test_gui_phases35 import FakeScene
+
+    class ColorScene(FakeScene):
+        def __init__(self):
+            super().__init__()
+            self.colors = {}
+
+        def set_plane(self, name, plane, hs, center=None, color=None):
+            self.colors[name] = color
+            super().set_plane(name, plane, hs, center, color)
+
+    _catalogued(ctrl, root)
+    sess = ctrl.session
+    spec = sess.limb("pierna")
+    x = sess.line_cut_x("pierna")
+    spec.plane = Plane.from_normal((x, 0.0, 0.0), (1.0, 0.0, 0.0), "pierna")
+    assert ctrl.plane_status()["pierna"][0] == "ok"
+    t = np.radians(5.0)
+    spec.plane = Plane.from_normal((x, 0.0, 0.0), (np.cos(t), np.sin(t), 0.0), "pierna")
+    nivel, texto = ctrl.plane_status()["pierna"]
+    assert nivel == "aviso" and "5,0°" in texto
+    row = next(r for r in ctrl.cut_rows() if r["id"] == "pierna")
+    assert row["nivel"] == "aviso" and "⚠" in ctrl.cut_row_text(row)
+    sc = ColorScene()
+    ctrl.sync(sc)
+    assert sc.colors["plano:pierna"][0] == pytest.approx(1.0) and sc.colors["plano:pierna"][2] < 0.2     # amarillo
+
+    err = PortError("«pierna»: el plano del puerto no cae sobre una cara plana — hay una cara girada 5,0°", "pierna", {})
+    ctrl.finish_preview_parts(error=err)
+    assert ctrl.plane_status()["pierna"][0] == "no" and "pintado de rojo" in ctrl.message
+    assert "FALLÓ" in ctrl.cut_row_text(next(r for r in ctrl.cut_rows() if r["id"] == "pierna"))
+    ctrl.sync(sc)
+    assert sc.colors["plano:pierna"][0] > 0.9 and sc.colors["plano:pierna"][1] < 0.2                     # rojo
+    # una excepción de extracción sin plano propio (muñeca) no pinta nada
+    ctrl.finish_preview_parts(error=ExtractError("muñeca: algo", "muneca"))
+    assert ctrl.plane_faults == {} and "pintado" not in ctrl.message
+    # el rojo se apaga al mover el plano
+    ctrl.finish_preview_parts(error=err)
+    assert "pierna" in ctrl.plane_faults
+    spec.plane = Plane.from_normal((x, 0.0, 0.0), (1.0, 0.0, 0.0), "pierna")
+    assert ctrl.plane_status()["pierna"][0] == "ok"
+
+
 def test_cut_numbers_are_drawn_in_the_viewer(ctrl):
     from test_gui_phases35 import FakeScene
 

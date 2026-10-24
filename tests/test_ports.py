@@ -111,3 +111,34 @@ def test_face_from_mesh_handles_a_ring():
     frame = PortFrame.from_points(PTS, ring.center_mass)
     face = face_from_mesh(ring, frame.with_center((0, 0, 0)))
     assert face.area == pytest.approx(np.pi * (36 - 9), rel=0.01) and len(face.polygons[0]["interiors"]) == 1
+
+
+def test_face_from_mesh_error_names_place_and_measures_tilt():
+    """Plano girado 4° respecto de la cara de la pieza: el error dice el lugar, el giro y el corrimiento."""
+    from afm.ports import diagnose_plane
+    mesh = cyl(5, 30)                                       # cara de unión en z = 0, mirando a −Z
+    tilt = np.radians(4.0)
+    axis = np.array([np.sin(tilt), 0.0, -np.cos(tilt)])    # eje del puerto girado 4° alrededor de Y
+    frame = PortFrame((0.0, 0.0, 0.0), axis, (1.0, 0.0, 0.0) - ((1.0, 0.0, 0.0) @ axis) * axis)
+    with pytest.raises(PortError) as exc:
+        face_from_mesh(mesh, frame, place="brazo")
+    err = exc.value
+    assert err.place == "brazo" and "«brazo»" in str(err)
+    assert err.diag["inclinacion_deg"] == pytest.approx(4.0, abs=0.2)
+    assert "4,0°" in str(err) and "girá el plano" in str(err)
+    assert diagnose_plane(mesh, frame)["en_plano"] == 0
+
+
+def test_diagnose_plane_far_from_piece_and_exact_face():
+    from afm.ports import diagnose_plane, describe_plane_failure
+    mesh = cyl(5, 30)
+    far = PortFrame((0.0, 0.0, 50.0), (0.0, 0.0, -1.0), (1.0, 0.0, 0.0))     # el plano no toca la pieza
+    d = diagnose_plane(mesh, far)
+    assert d["inclinacion_deg"] is None and "no toca la pieza" in describe_plane_failure(d)
+    ok = PortFrame((0.0, 0.0, 0.0), (0.0, 0.0, -1.0), (1.0, 0.0, 0.0))
+    d = diagnose_plane(mesh, ok)
+    assert d["en_plano"] > 0 and d["inclinacion_deg"] == pytest.approx(0.0, abs=1e-6)
+    offset = PortFrame((0.0, 0.0, -1.2), (0.0, 0.0, -1.0), (1.0, 0.0, 0.0))  # paralelo pero corrido
+    d = diagnose_plane(mesh, offset)
+    assert d["inclinacion_deg"] == pytest.approx(0.0, abs=1e-6) and abs(abs(d["desvio_mm"]) - 1.2) < 1e-6
+    assert "corrido" in describe_plane_failure(d)

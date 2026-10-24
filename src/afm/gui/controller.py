@@ -104,6 +104,8 @@ class PlaneEntry:
 _MIRROR_COLOR = (0.70, 0.78, 0.92, 1.0)      # el espejo se ve con un tinte azul para no confundirlo con el lado real
 _PART_PREVIEW_COLORS = {"ok": (0.30, 0.78, 0.45, 1.0), "aviso": (0.95, 0.75, 0.20, 1.0),
                         "no": (0.90, 0.30, 0.30, 1.0)}   # pieza de catálogo todavía sin generar, por nivel de acople
+_PLANE_STATUS_COLORS = {"no": (0.95, 0.12, 0.12, 0.45), "aviso": (1.0, 0.85, 0.1, 0.38),
+                        "ok": (0.2, 0.9, 0.35, 0.30)}       # plano que falló / girado respecto de la pieza elegida / coincide
 _REPLACEMENT_HEAD_COLOR = (0.95, 0.62, 0.25, 1.0)      # cabeza de reemplazo en la vista 3D (naranja)
 _EXTRACTED_HAND_COLOR = (0.25, 0.85, 0.55, 1.0)         # mano extraída (aún sin guardar) en la vista 3D (verde)
 _REPLACEMENT_HAND_COLOR = (0.25, 0.75, 0.85, 1.0)       # mano estándar pegada en el modelo (turquesa: no se confunde con la extraída)
@@ -199,6 +201,7 @@ class Controller:
         self.hidden: set[str] = set()                # ids de planos ocultos
         self.show_groups: dict[str, bool] = {g: True for g in SHOW_GROUPS}   # interruptores generales (planos / pines / contornos)
         self.busy = False                            # generando la figura (la ventana bloquea la edición)
+        self.plane_faults: dict[str, tuple[str, bytes]] = {}   # id de plano -> (por qué su corte falló, firma del plano): se pinta de rojo hasta que el plano cambie
         self.progress_prefix = "Generando"           # encabezado de los mensajes de progreso de la tarea en curso
         self.show_overhangs = False                  # pintar de rojo los voladizos de impresión
         self.overhang_angle = 45.0                   # grados desde la vertical (como `--max-angle`)
@@ -2074,8 +2077,10 @@ class Controller:
         self.busy = False
         self.progress_prefix = "Generando"
         if error is not None or items is None:
-            self._changed(f"No se pudo revisar: {error}", scene=False)
+            self._register_plane_fault(error)
+            self._changed(f"No se pudo revisar: {error}{self._fault_hint()}")
             return
+        self.plane_faults = {}
         self._changed(self.preview_message(items))
 
     def preview_parts(self) -> dict | None:
@@ -2448,6 +2453,75 @@ class Controller:
         return f"{base} {i}"
 
     # ---------------------------------------------------------------- planos
+    # ---- diagnóstico visual de planos (qué plano falla y cuánto está girado)
+    @staticmethod
+    def plane_id_for_place(place: str | None) -> str | None:
+        """Id del plano (el de `plane_entries`) al que pertenece el lugar de un error de extracción. La muñeca no
+        tiene plano propio en la lista (se define con 3 puntos de la mano): devuelve None."""
+        if place is None or place == "muneca":
+            return None
+        return {"cuello": HEAD_NAME, "cintura": WAIST_NAME}.get(place, place)
+
+    def _register_plane_fault(self, error: Exception | None) -> None:
+        """Si el error trae el lugar cuyo plano falló, lo recuerda para pintar ese plano de rojo en el visor."""
+        self.plane_faults = {}
+        pid = self.plane_id_for_place(getattr(error, "place", None))
+        if pid is not None and any(e.id == pid for e in self.plane_entries()):
+            self.plane_faults[pid] = (str(error), self._plane_sig(pid))
+
+    def _plane_sig(self, pid: str) -> bytes:
+        """Firma del plano y del desplazamiento de su corte: si cambia, el fallo registrado ya no vale."""
+        e = next((x for x in self.plane_entries() if x.id == pid), None)
+        if e is None:
+            return b""
+        spec = self.session.limb(pid)
+        off = b"" if spec is None else repr(getattr(spec, "cut_offset", None)).encode()
+        return np.round(np.asarray(e.plane.origin, float), 6).tobytes() + np.round(np.asarray(e.plane.normal, float), 6).tobytes() + off
+
+    def _fault_hint(self) -> str:
+        if not self.plane_faults:
+            return ""
+        names = {e.id: e.label for e in self.plane_entries()}
+        return " — el plano «" + "», «".join(names.get(k, k) for k in self.plane_faults) + "» está pintado de rojo en el visor."
+
+    def plane_tilt_deg(self, place: str) -> float | None:
+        """Cuánto está girado (grados) el plano lateral de un miembro respecto de la cara de la pieza de catálogo elegida
+        en `place`, cuyo puerto es lateral (paralelo al plano de simetría). None si no hay pieza de catálogo con puerto
+        lateral o si el plano del miembro no es lateral (su corte no tiene que ser paralelo a la simetría)."""
+        from ..limbs import plane_is_lateral
+
+        spec = self.session.limb(place)
+        if spec is None or place not in self.session.project.parts or self.session.line_cut_x(place) is None:
+            return None
+        if not plane_is_lateral(spec.plane, spec.contact_axis):
+            return None
+        ax = np.asarray(spec.contact_axis, float)
+        n = np.asarray(spec.plane.normal, float)
+        c = abs(float(n @ ax)) / (np.linalg.norm(n) * np.linalg.norm(ax))
+        return float(np.degrees(np.arccos(min(1.0, c))))
+
+    def plane_status(self) -> dict[str, tuple[str, str]]:
+        """Estado de cada plano para pintarlo: {id: (nivel, texto)} con nivel «no» (rojo: su corte falló en la última
+        revisión), «aviso» (amarillo: está girado más de `TILT_OK_DEG` respecto de la cara de la pieza elegida) o «ok».
+        Los planos que no son de miembros ni fallaron no aparecen."""
+        from ..ports import TILT_OK_DEG
+
+        out: dict[str, tuple[str, str]] = {}
+        for e in self.plane_entries():
+            fault = self.plane_faults.get(e.id)
+            if fault is not None and fault[1] == self._plane_sig(e.id):
+                out[e.id] = ("no", fault[0])
+                continue
+            if e.kind in ("arm", "leg"):
+                t = self.plane_tilt_deg(e.id)
+                if t is None:
+                    continue
+                if t >= TILT_OK_DEG:
+                    out[e.id] = ("aviso", f"girado {t:.1f}° respecto del corte de la pieza elegida".replace(".", ","))
+                else:
+                    out[e.id] = ("ok", "coincide con el corte de la pieza elegida")
+        return out
+
     def plane_entries(self) -> list[PlaneEntry]:
         out = []
         if self.session.project.symmetry is not None:
@@ -2472,19 +2546,26 @@ class Controller:
         tipo, desplazamiento del corte (mm, solo miembros sobre el plano de simetría) y, si la pieza de catálogo elegida
         corta a otra distancia, la de la línea (`linea_mm`) y la diferencia (`dif_mm`)."""
         out = []
+        status = self.plane_status()
         for n, e in enumerate(self.plane_entries(), start=1):
             cur = line = None
             if e.kind in ("arm", "leg"):
                 cur = self.session.limb_offset(e.id)
                 line = self.session.line_cut_x(e.id) if cur is not None else None
+            st = status.get(e.id)
             out.append({"n": n, "id": e.id, "etiqueta": e.label, "tipo": e.kind, "corte_mm": cur, "linea_mm": line,
-                        "dif_mm": None if (cur is None or line is None) else line - cur})
+                        "dif_mm": None if (cur is None or line is None) else line - cur,
+                        "nivel": None if st is None else st[0], "estado": None if st is None else st[1]})
         return out
 
     @staticmethod
     def cut_row_text(row: dict) -> str:
         """«2 · Pierna — corte a 7,00 mm (la línea corta a 7,66: +0,66)»."""
         t = f"{row['n']} · {row['etiqueta']}"
+        if row.get("nivel") == "no":
+            t += " — ✗ FALLÓ: " + row["estado"].split("— ")[-1]
+        elif row.get("nivel") == "aviso":
+            t += " — ⚠ " + row["estado"]
         if row["corte_mm"] is None:
             return t
         t += f" — corte a {row['corte_mm']:.2f} mm".replace(".", ",")
@@ -2623,8 +2704,10 @@ class Controller:
         self.busy = False
         self.pose_view, self.pose_report = False, None      # la figura nueva reemplaza a la de la vista previa
         if error is not None:
-            self._changed(f"Falló la generación: {error}", scene=False)
+            self._register_plane_fault(error)
+            self._changed(f"Falló la generación: {error}{self._fault_hint()}")
         else:
+            self.plane_faults = {}
             self._changed(validation_summary(outcome.validation, self.session.project.params.clearance),
                           scene=False)
 
@@ -2746,10 +2829,12 @@ class Controller:
                    "head": (0.9, 0.5, 0.9, 0.22), "joint": (1.0, 0.85, 0.2, 0.22),
                    "waist": (0.95, 0.35, 0.35, 0.22)}
         wanted = set()
+        status = self.plane_status()
         for e in self.plane_entries():
             key = f"plano:{e.id}"
             wanted.add(key)
-            scene.set_plane(key, e.plane, hs, center=sess.work.bounds.mean(axis=0), color=palette[e.kind])
+            color = _PLANE_STATUS_COLORS.get((status.get(e.id) or ("",))[0], palette[e.kind])
+            scene.set_plane(key, e.plane, hs, center=sess.work.bounds.mean(axis=0), color=color)
             scene.show(key, e.visible and self.group_visible("planes"))
         for key in [k for k in scene.items if k.startswith("plano:") and not k.endswith(":borde")]:
             if key not in wanted:
