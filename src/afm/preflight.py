@@ -236,6 +236,15 @@ def advice(pv: PartPreview, session=None) -> list[str]:
     k = pv.scale_hint
     for m in c.motivos:
         out.append(f"No se puede: {m}.")
+    for lado, (cabe, hace_falta) in c.cara_chica.items():
+        if lado == "B":
+            out.append(f"Cambiar de pieza o escalar no lo arregla: la cara de corte del MODELO en este lugar es chica (cabe un "
+                       f"círculo de Ø{cabe:.1f} mm y hacen falta Ø{hace_falta:.1f} mm con su pared). Agrandá esa cara: movela o "
+                       "girá el plano del miembro (Planos) o redibujá su silueta (Miembros) para que el corte atraviese una "
+                       "zona más gruesa; o achicá el vástago en Parámetros.")
+        else:
+            out.append(f"La cara de la PIEZA elegida es chica (cabe un círculo de Ø{cabe:.1f} mm y hacen falta Ø{hace_falta:.1f} "
+                       "mm con su pared): elegí otra pieza o achicá el vástago en Parámetros.")
     if c.iou is not None and c.iou < 0.8:
         out.append(f"Las caras coinciden solo {100 * c.iou:.0f} %: la parte verde de la imagen es lo que se toca; el resto "
                    "queda como escalón o hueco entre el modelo y la pieza.")

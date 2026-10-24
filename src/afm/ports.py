@@ -344,17 +344,62 @@ class Compat:
     margenes_mm: dict = field(default_factory=dict)   # margen del pasador (vástago al borde de la cara) por lado
     motivos: list = field(default_factory=list)       # por qué «no»
     avisos: list = field(default_factory=list)
+    # lado -> (Ø del mayor círculo que entra en la cara, Ø que hace falta con pared): caras donde el pasador no entra en
+    # NINGUNA posición, o sea que ni cambiar de pieza ni escalar lo arreglan: hay que agrandar esa cara.
+    cara_chica: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
-        return {"nivel": self.nivel, "iou": None if self.iou is None else round(self.iou, 4),
-                "escalon_mm": None if self.escalon_mm is None else round(self.escalon_mm, 4),
-                "margenes_mm": {k: round(v, 3) for k, v in self.margenes_mm.items()},
-                "motivos": list(self.motivos), "avisos": list(self.avisos)}
+        d = {"nivel": self.nivel, "iou": None if self.iou is None else round(self.iou, 4),
+             "escalon_mm": None if self.escalon_mm is None else round(self.escalon_mm, 4),
+             "margenes_mm": {k: round(v, 3) for k, v in self.margenes_mm.items()},
+             "motivos": list(self.motivos), "avisos": list(self.avisos)}
+        if self.cara_chica:
+            d["cara_chica_mm"] = {k: [round(a, 2), round(b, 2)] for k, (a, b) in self.cara_chica.items()}
+        return d
 
 
 def _pin_for(clase: str, params: Params) -> PinSpec | None:
     attr = PIN_OF_CLASS.get(clase)
     return getattr(params, attr) if attr else None
+
+
+_SIDE_NAME = {"A": "la pieza", "B": "el modelo"}
+
+
+def pin_diagnosis(face: PortFace, shaft_d: float) -> dict:
+    """Por qué un vástago de Ø`shaft_d` centrado en el puerto (u = v = 0) sobresale de `face`.
+
+    Devuelve `dentro` (el centro cae en la cara), `margen` (mm del vástago al borde; negativo = sobresale), `circulo_d` (Ø
+    del mayor círculo que cabe en la cara: ninguna posición del pasador puede ser mayor) y `desvio` (mm del centro al
+    centro de ese círculo). Con eso se distingue una cara demasiado chica (`circulo_d < shaft_d`: no se arregla moviendo el
+    pasador) de un pasador mal ubicado en una cara que sí alcanza."""
+    from shapely.geometry import Point
+    from shapely.ops import polylabel
+
+    shape = face.shape()
+    pt = Point(0.0, 0.0)
+    dentro = bool(shape.contains(pt))
+    d = float(shape.boundary.distance(pt))
+    geoms = list(shape.geoms) if hasattr(shape, "geoms") else [shape]
+    big = max(geoms, key=lambda g: g.area)
+    pole = polylabel(big, tolerance=0.01)
+    return {"dentro": dentro, "margen": (d if dentro else -d) - shaft_d / 2,
+            "circulo_d": 2.0 * float(big.boundary.distance(pole)), "desvio": float(pt.distance(pole))}
+
+
+def _pin_reason(lado: str, face: PortFace, shaft_d: float, min_wall: float) -> tuple[str, tuple | None]:
+    """(texto del motivo, (Ø del mayor círculo, Ø necesario) si la cara es demasiado chica para cualquier posición)."""
+    g = pin_diagnosis(face, shaft_d)
+    base = f"el pasador de {shaft_d:g} mm no entra en la cara {lado} ({_SIDE_NAME[lado]}; sobresale {-g['margen']:.2f} mm)"
+    if not g["dentro"]:
+        return (base + "; el centro del puerto cae FUERA de esa cara: el centro del pasador de esta unión está mal ubicado "
+                       "o la cara se midió incompleta", None)
+    if g["circulo_d"] < shaft_d:
+        return (base + f"; la cara es demasiado chica: el mayor círculo que entra mide Ø{g['circulo_d']:.1f} mm y el vástago "
+                       f"es de Ø{shaft_d:g} mm, así que no entra en ninguna posición",
+                (g["circulo_d"], shaft_d + 2 * min_wall))
+    return (base + f"; la cara admite un círculo de Ø{g['circulo_d']:.1f} mm: el pasador está a {g['desvio']:.1f} mm del mejor "
+                   "punto, movelo", None)
 
 
 def face_iou(a: PortFace, b: PortFace) -> float:
@@ -395,7 +440,10 @@ def port_compat(a: Port, b: Port, height_a: float | None = None, height_b: float
                 m = pin_fit(p.face.shape(), (0.0, 0.0), pin.shaft_d)[1]
                 c.margenes_mm[lado] = m
                 if m < 0:
-                    c.motivos.append(f"el pasador de {pin.shaft_d:g} mm no entra en la cara {lado} (sobresale {-m:.2f} mm)")
+                    why, chica = _pin_reason(lado, p.face, pin.shaft_d, params.min_wall)
+                    c.motivos.append(why)
+                    if chica is not None:
+                        c.cara_chica[lado] = chica
                 elif m < params.min_wall:
                     c.avisos.append(f"pared de {m:.2f} mm alrededor del pasador en la cara {lado} (mínimo {params.min_wall:g} mm)")
             if pin.shaft_d < params.min_pin_d:

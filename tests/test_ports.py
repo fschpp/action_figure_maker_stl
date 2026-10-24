@@ -180,3 +180,48 @@ def test_extract_tolerates_a_slightly_tilted_cut_plane():
     assert any("girado 1,0°" in w for w in res.warnings)
     port = res.pieces[0].meta.puertos["hombro"]
     assert abs(port.frame.axis[1]) == pytest.approx(np.sin(t), abs=2e-3) and port.face.area > 1.0
+
+
+# ---- por qué el pasador no entra (cara chica / mal ubicado / centro fuera de la cara)
+def _face(*rings):
+    """PortFace en (u, v) a partir de rectángulos (u0, v0, u1, v1)."""
+    from shapely.geometry import box
+    from shapely.ops import unary_union
+    return PortFace.from_shape(unary_union([box(*r) for r in rings]))
+
+
+def _with_face(r, rol, face, up=True):
+    p = _port(r, rol, up=up)
+    p.face = face
+    return p
+
+
+def test_pin_reason_tiny_face_cannot_hold_any_pin():
+    """Cara en tira de 1,7 mm de ancho (hombro pegado al borde): el pasador no entra en NINGUNA posición."""
+    sliver = _face((-8.0, -0.85, 8.0, 0.85))
+    c = port_compat(_with_face(8, "enchufe", sliver), _port(8, "toma", up=False))
+    assert c.nivel == "no" and "B" not in c.cara_chica
+    assert any("no entra" in m and "demasiado chica" in m and "ninguna posición" in m for m in c.motivos)
+    cabe, hace_falta = c.cara_chica["A"]
+    assert cabe == pytest.approx(1.7, abs=0.05) and hace_falta == pytest.approx(4.1 + 2 * 1.2)
+    assert c.to_dict()["cara_chica_mm"]["A"] == [pytest.approx(1.7, abs=0.05), pytest.approx(6.5)]
+
+
+def test_pin_reason_off_center_pin_in_a_big_enough_face():
+    """Cara de 12 × 12 con el centro del puerto a 0,5 mm de un borde: sí entra un círculo de Ø12, solo hay que mover el pasador."""
+    big = _face((-0.5, -6.0, 11.5, 6.0))
+    c = port_compat(_with_face(8, "enchufe", big), _port(8, "toma", up=False))
+    assert c.nivel == "no" and not c.cara_chica
+    assert any("movelo" in m and "no entra" in m for m in c.motivos)
+
+
+def test_pin_reason_port_center_outside_the_face():
+    far = _face((3.0, -6.0, 15.0, 6.0))
+    c = port_compat(_port(8, "enchufe"), _with_face(8, "toma", far, up=False))
+    assert c.nivel == "no" and not c.cara_chica
+    assert any("FUERA" in m and "cara B (el modelo" in m for m in c.motivos)
+
+
+def test_ok_compat_has_no_extra_keys():
+    ok = port_compat(_port(8, "enchufe"), _port(8, "toma", up=False), 130, 130)
+    assert "cara_chica_mm" not in ok.to_dict() and not ok.cara_chica
