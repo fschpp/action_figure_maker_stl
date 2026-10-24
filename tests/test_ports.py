@@ -142,3 +142,41 @@ def test_diagnose_plane_far_from_piece_and_exact_face():
     d = diagnose_plane(mesh, offset)
     assert d["inclinacion_deg"] == pytest.approx(0.0, abs=1e-6) and abs(abs(d["desvio_mm"]) - 1.2) < 1e-6
     assert "corrido" in describe_plane_failure(d)
+
+
+def test_snap_frame_follows_the_real_face_up_to_a_few_degrees():
+    """El eje supuesto del puerto (p. ej. X) puede quedar 1° girado respecto del corte real: el puerto sigue la cara."""
+    from afm.ports import snap_frame_to_face
+    mesh = cyl(5, 30)                                       # cara real en z = 0, normal −Z
+    for deg, expect in ((1.0, True), (2.5, True), (6.0, False)):
+        t = np.radians(deg)
+        axis = np.array([np.sin(t), 0.0, -np.cos(t)])
+        frame = PortFrame((0.0, 0.0, 0.0), axis, (1.0, 0.0, 0.0) - ((1.0, 0.0, 0.0) @ axis) * axis)
+        with pytest.raises(PortError):
+            face_from_mesh(mesh, frame)                     # con el eje girado la tolerancia de 1 µm no alcanza
+        snapped = snap_frame_to_face(mesh, frame)
+        assert (snapped is not None) is expect
+        if expect:
+            new, tilt = snapped
+            assert tilt == pytest.approx(deg, abs=0.05)
+            assert np.allclose(new.axis, (0.0, 0.0, -1.0), atol=1e-6)
+            assert abs(new.axis @ new.ref) < 1e-9
+            assert face_from_mesh(mesh, new).area == pytest.approx(np.pi * 25, rel=0.02)
+
+
+def test_extract_tolerates_a_slightly_tilted_cut_plane():
+    """Con el plano del brazo girado 1° la extracción no falla: avisa y deja el puerto en la cara real."""
+    from afm.extract import extract_all
+    from afm.planes import Plane
+    from afm.project import demo_project
+    from afm.testfigure import make_doll
+    proj = demo_project()
+    arm = next(l for l in proj.limbs if l.kind == "arm")
+    t = np.radians(1.0)
+    n = np.asarray(arm.plane.normal, float)
+    arm.plane = Plane.from_normal(arm.plane.origin, np.array([[np.cos(t), -np.sin(t), 0], [np.sin(t), np.cos(t), 0], [0, 0, 1]]) @ n,
+                                  arm.plane.name)
+    res = extract_all(S.to_manifold(make_doll()), proj, "doll", places=["brazo"])
+    assert any("girado 1,0°" in w for w in res.warnings)
+    port = res.pieces[0].meta.puertos["hombro"]
+    assert abs(port.frame.axis[1]) == pytest.approx(np.sin(t), abs=2e-3) and port.face.area > 1.0

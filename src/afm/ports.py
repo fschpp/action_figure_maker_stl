@@ -200,12 +200,38 @@ NEAR_FACE_MM = 3.0              # mm: cara «cercana» al plano del puerto (para
 TILT_OK_DEG = 0.3               # grados: por debajo de esto se considera que el plano coincide con la cara
 
 
+def _dominant_face(mesh, frame: PortFrame, near_mm: float = NEAR_FACE_MM):
+    """La cara plana más grande de `mesh` que mira hacia `frame.axis` (normal a menos de ~37°) y cuyo centro cae a
+    menos de `near_mm` del plano del puerto. Devuelve (normal unitaria, centroide ponderado por área, área) o None.
+    «Cara» = triángulos coplanares (a menos de `FACE_TOL`) con la misma normal que el de partida."""
+    tri = np.asarray(mesh.triangles, float)
+    if len(tri) == 0:
+        return None
+    axis = np.asarray(frame.axis, float)
+    nrm = np.asarray(mesh.face_normals, float)
+    dist = ((tri.reshape(-1, 3) - frame.center) @ axis).reshape(-1, 3)
+    idx = np.where((np.abs(dist.mean(axis=1)) < near_mm) & (nrm @ axis > 0.8))[0]
+    if len(idx) == 0:
+        return None
+    area = 0.5 * np.linalg.norm(np.cross(tri[idx, 1] - tri[idx, 0], tri[idx, 2] - tri[idx, 0]), axis=1)
+    best = None
+    for k in np.argsort(-area)[:8]:                       # varias semillas: la mayor cara plana, no solo el mayor triángulo
+        nb, p0 = nrm[idx[k]], tri[idx[k]][0]
+        off = np.abs((tri[idx].reshape(-1, 3) - p0) @ nb).reshape(-1, 3).max(axis=1)
+        sel = (off < FACE_TOL) & (nrm[idx] @ nb > 0.9999)
+        total = float(area[sel].sum())
+        if best is None or total > best[2]:
+            c = (tri[idx][sel].mean(axis=1) * area[sel, None]).sum(axis=0) / total
+            best = (nb / np.linalg.norm(nb), c, total)
+    return best
+
+
 def diagnose_plane(mesh, frame: PortFrame, tol: float = FACE_TOL, near_mm: float = NEAR_FACE_MM) -> dict:
     """Por qué (o si) el plano del puerto cae sobre una cara plana de `mesh` que mira hacia `frame.axis`.
 
     Devuelve: `triangulos` (de la pieza), `en_plano` (los que yacen sobre el plano, a menos de `tol`, mirando hacia
-    afuera), `cercanos` (los que miran hacia afuera con el centro a menos de `near_mm` del plano), y de esos cercanos
-    la cara dominante: `inclinacion_deg` (ángulo entre su normal y el eje del puerto) y `desvio_mm` (distancia con
+    afuera), `cercanos` (los que miran hacia afuera con el centro a menos de `near_mm` del plano), y de la cara plana
+    dominante cercana: `inclinacion_deg` (ángulo entre su normal y el eje del puerto) y `desvio_mm` (distancia con
     signo de la cara al plano, medida en el centro del puerto). `inclinacion_deg`/`desvio_mm` son None si no hay
     ninguna cara cercana."""
     tri = np.asarray(mesh.triangles, float)
@@ -217,25 +243,34 @@ def diagnose_plane(mesh, frame: PortFrame, tol: float = FACE_TOL, near_mm: float
     dist = ((tri.reshape(-1, 3) - frame.center) @ axis).reshape(-1, 3)
     facing = nrm @ axis
     out["en_plano"] = int(((np.abs(dist) < tol).all(axis=1) & (facing > 0.999)).sum())
-    near = (np.abs(dist.mean(axis=1)) < near_mm) & (facing > 0.8)
-    out["cercanos"] = int(near.sum())
-    if not near.any():
-        return out
-    t, n = tri[near], nrm[near]
-    area = 0.5 * np.linalg.norm(np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0]), axis=1)
-    if area.sum() <= 0:
-        return out
-    # cara dominante: la normal media ponderada por área de los triángulos cercanos que miran casi igual que la mayor
-    big = n[int(np.argmax(area))]
-    same = (n @ big) > 0.995
-    wn = (n[same] * area[same, None]).sum(axis=0)
-    wn /= np.linalg.norm(wn)
-    out["inclinacion_deg"] = float(np.degrees(np.arccos(np.clip(wn @ axis, -1.0, 1.0))))
-    # distancia de la cara dominante al centro del puerto, medida a lo largo de la normal del puerto
-    cen = t[same].mean(axis=1)
-    c = (cen * area[same, None]).sum(axis=0) / area[same].sum()
-    out["desvio_mm"] = float((c - frame.center) @ axis)
+    out["cercanos"] = int(((np.abs(dist.mean(axis=1)) < near_mm) & (facing > 0.8)).sum())
+    face = _dominant_face(mesh, frame, near_mm)
+    if face is not None:
+        n, c, _a = face
+        out["inclinacion_deg"] = float(np.degrees(np.arccos(np.clip(n @ axis, -1.0, 1.0))))
+        out["desvio_mm"] = float((c - frame.center) @ axis)
     return out
+
+
+MAX_SNAP_TILT_DEG = 3.0         # grados: hasta este giro el puerto sigue la cara real del corte en vez de fallar
+
+
+def snap_frame_to_face(mesh, frame: PortFrame, max_tilt_deg: float = MAX_SNAP_TILT_DEG):
+    """Marco del puerto ajustado a la cara plana REAL de la pieza cercana al plano: eje = su normal, centro = su
+    centroide, referencia de giro = la anterior proyectada sobre la cara. Devuelve (marco, giro en grados) o None si no
+    hay cara cercana o está girada más de `max_tilt_deg` (ahí el plano está mal puesto y conviene corregirlo)."""
+    face = _dominant_face(mesh, frame)
+    if face is None:
+        return None
+    n, c, _a = face
+    tilt = float(np.degrees(np.arccos(np.clip(n @ np.asarray(frame.axis, float), -1.0, 1.0))))
+    if tilt > max_tilt_deg:
+        return None
+    ref = np.asarray(frame.ref, float)
+    ref = ref - (ref @ n) * n
+    if np.linalg.norm(ref) < 1e-9:
+        return None
+    return PortFrame(c, n, ref / np.linalg.norm(ref)), tilt
 
 
 def describe_plane_failure(diag: dict, tol: float = FACE_TOL) -> str:

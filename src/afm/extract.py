@@ -34,7 +34,7 @@ from .params import Params
 from .parts import PieceMeta, make_origin
 from .pipeline import _sweep_range, align_to_symmetry
 from .planes import Plane
-from .ports import Port, PortError, PortFace, PortFrame, centroid_of_face_triangles, face_from_mesh
+from .ports import Port, PortError, PortFace, PortFrame, centroid_of_face_triangles, face_from_mesh, snap_frame_to_face
 from .project import Project
 from .waist import waist_plane
 
@@ -143,6 +143,23 @@ def _clean(mf, label: str, warnings: list):
     return tm
 
 
+def _port_face(tm, frame: PortFrame, place: str, warnings: list) -> tuple[PortFrame, PortFace]:
+    """Cara del puerto sobre la malla `tm`. Si el plano de corte quedó apenas girado respecto del eje supuesto del puerto
+    (el eje sale de `contact_axis`, p. ej. X, no de la cara real), el puerto sigue la cara real del corte y se avisa:
+    una cara de ~20 mm girada 1° se aparta 0,35 mm del plano y ya no cabe en la tolerancia. Más de `MAX_SNAP_TILT_DEG`
+    no se corrige: el error trae el diagnóstico y la interfaz pinta el plano."""
+    try:
+        return frame, face_from_mesh(tm, frame, place=place)
+    except PortError:
+        snapped = snap_frame_to_face(tm, frame)
+        if snapped is None:
+            raise
+        new, tilt = snapped
+        warnings.append(f"«{place}»: el plano de corte está girado {tilt:.1f}° respecto del eje de la unión; el puerto "
+                        "sigue la cara real del corte".replace(".", ","))
+        return new, face_from_mesh(tm, new, place=place)
+
+
 def _slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-") or "figura"
 
@@ -193,7 +210,8 @@ def extract_all(body: S.Manifold, project: Project, prefix: str = "figura", plac
         split = split_head(body, hs, p)
         n_fr = PortFrame(split.face.center.copy(), split.face.outward.copy(), reference_for(split.face.outward, (0.0, 1.0, 0.0)))
         head_tm = _clean(split.head, "cabeza", res.warnings)
-        head_port = Port("cuello", "enchufe", n_fr, face_from_mesh(head_tm, n_fr, place="cuello"))
+        n_fr, n_face = _port_face(head_tm, n_fr, "cuello", res.warnings)
+        head_port = Port("cuello", "enchufe", n_fr, n_face)
         if "cabeza" in want:
             res.pieces.append(Extracted(_meta("cabeza", prefix, {"cuello": head_port}, p, origin, "centro", False,
                                               descripcion=f"Cabeza de {prefix}"), head_tm))
@@ -219,7 +237,8 @@ def extract_all(body: S.Manifold, project: Project, prefix: str = "figura", plac
         frame = PortFrame(face.center.copy(), face.outward / np.linalg.norm(face.outward), reference_for(face.outward))
         place = "brazo" if kind == "arm" else "pierna"
         tm = _clean(limb, place, res.warnings)
-        port = Port(KIND_PORT[kind], "enchufe", frame, face_from_mesh(tm, frame, place=spec.name), tuple(float(x) for x in _sweep_range(spec, p)))
+        frame, pface = _port_face(tm, frame, spec.name, res.warnings)
+        port = Port(KIND_PORT[kind], "enchufe", frame, pface, tuple(float(x) for x in _sweep_range(spec, p)))
         ports_by_place[KIND_PORT[kind]] = port
         mesh, ports = tm, {port.clase: port}
         if kind == "arm" and wrist_points is not None:
@@ -324,7 +343,8 @@ def _torso_pieces(res: ExtractResult, torso: S.Manifold, project: Project, prefi
     common: dict[str, Port] = {}
     if head_port is not None:
         c = complement(head_port)
-        common["cuello"] = Port("cuello", "toma", c.frame, face_from_mesh(tm, c.frame, place="cuello"))   # la cara real: el torso viene cortado por el plano
+        c_frame, c_face = _port_face(tm, c.frame, "cuello", res.warnings)
+        common["cuello"] = Port("cuello", "toma", c_frame, c_face)   # la cara real: el torso viene cortado por el plano
     else:
         res.warnings.append("sin plano del cuello el torso no tiene puerto «cuello» (queda con la cabeza original)")
 
