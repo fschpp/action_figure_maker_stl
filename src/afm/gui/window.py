@@ -353,7 +353,7 @@ class MainWindow(Gtk.ApplicationWindow):
                 ("pins", "Mostrar todos los pines de articulación",
                  "Marcas de los pasadores (hombro, cadera, cuello) y ejes de las bisagras (rodilla, codo)"),
                 ("contours", "Mostrar todos los contornos", "Siluetas de los miembros (1.º y 2.º corte) y recortes manuales")):
-            chk = Gtk.CheckButton(label=label, active=True, tooltip_text=tip)
+            chk = Gtk.CheckButton(label=label, active=False, tooltip_text=tip)
             chk.connect("toggled", lambda b, g=group: None if self._updating else self.ctrl.set_group_visible(g, b.get_active()))
             sec.append(chk)
             self.chk_show[group] = chk

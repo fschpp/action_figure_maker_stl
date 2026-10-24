@@ -199,7 +199,7 @@ class Controller:
         self.message = "Abrí un STL para empezar."
         self.one_side = False                        # trabajar un solo lado (oculta x < 0)
         self.hidden: set[str] = set()                # ids de planos ocultos
-        self.show_groups: dict[str, bool] = {g: True for g in SHOW_GROUPS}   # interruptores generales (planos / pines / contornos)
+        self.show_groups: dict[str, bool] = {g: False for g in SHOW_GROUPS}   # interruptores generales (planos / pines / contornos)
         self.busy = False                            # generando la figura (la ventana bloquea la edición)
         self.plane_faults: dict[str, tuple[str, bytes]] = {}   # id de plano -> (por qué su corte falló, firma del plano): se pinta de rojo hasta que el plano cambie
         self.progress_prefix = "Generando"           # encabezado de los mensajes de progreso de la tarea en curso
