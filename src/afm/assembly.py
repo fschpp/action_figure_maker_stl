@@ -283,6 +283,10 @@ def synthesize_host(parts: dict, params=None) -> SyntheticHost:
         cp = upper.meta.puertos.get("cintura")
         if cp is None:
             raise AssemblyError(f"«{upper.meta.ref}» no tiene el puerto «cintura»")
+        lp = lower.meta.puertos.get("cintura")
+        if lp is None:
+            raise AssemblyError(f"«{lower.meta.ref}» no tiene el puerto «cintura»")
+        lower = transform_choice(lower, coupling_transform(lp.frame, cp.frame))
         body = S.union(body, _choice_mesh(lower))
         waist = WaistSpec(plane=Plane.from_normal(cp.frame.center, -cp.frame.axis, "cintura"))
     head = None
@@ -314,3 +318,15 @@ def synthesize_host(parts: dict, params=None) -> SyntheticHost:
                               pin_center=tuple(float(x) for x in c), sweep_deg=None if lp.sweep_deg is None else tuple(lp.sweep_deg),
                               mechanism=mech))
     return SyntheticHost(body, limbs, faces, parts, head, waist, notes)
+
+
+def transform_choice(choice: PartChoice, T) -> PartChoice:
+    """Copia rígida: transforma malla, puertos y articulaciones, sin alterar el catálogo."""
+    import copy
+    from .joints import JointSpec
+    meta = copy.deepcopy(choice.meta)
+    mesh = choice.mesh.copy()
+    mesh.apply_transform(T)
+    meta.puertos = {k: p.transformed(T) for k, p in meta.puertos.items()}
+    meta.articulaciones = [JointSpec.from_dict(j).transformed(T).to_dict() for j in meta.articulaciones]
+    return PartChoice(meta, mesh)

@@ -26,10 +26,15 @@ def run(stl_path: str, project: Project, outdir: str, name: str, progress=print,
         mesh.apply_transform([[-1, 0, 0, 0], [0, -1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]])
     mesh = P.align_to_symmetry(mesh, project.symmetry)
     body = S.to_manifold(mesh)
-    res = P.build(body, project.limbs, project.params, project.symmetry, progress=progress,
-                  trims=project.trims, head=project.head, joints=project.joints, waist=project.waist,
-                  hand=project.hand, parts=parts)
-    val = P.validate(res, project.params, project.limbs, joints=project.joints)
+    from .customize import needed, build_model
+    if needed(project):
+        res, limbs = build_model(body, project, parts, progress)
+        val = P.validate(res, project.params, limbs, joints=res.joint_specs)
+    else:
+        res = P.build(body, project.limbs, project.params, project.symmetry, progress=progress,
+                      trims=project.trims, head=project.head, joints=project.joints, waist=project.waist,
+                      hand=project.hand, parts=parts)
+        val = P.validate(res, project.params, project.limbs, joints=project.joints)
     files = P.export(res, outdir, name, orient=orient, max_angle=max_angle, flat=flat, params=project.params)
     info = {"carga": rep.__dict__, "construccion": res.report, "validacion": val, "archivos": files}
     with open(os.path.join(outdir, f"{name}_informe.json"), "w") as f:
@@ -101,6 +106,9 @@ def main(argv=None) -> int:
     b.add_argument("proyecto")
     b.add_argument("--out", default="out/figura")
     b.add_argument("--name", default=None)
+    b.add_argument("--escala-pieza", action="append", default=[], metavar="LUGAR=FACTOR",
+                   help="escala de la pieza de un lugar (torso, pelvis, cabeza o nombre del brazo/pierna): FACTOR uniforme o FX,FY,FZ "
+                        "por eje (X lateral, Y adelante-atrás, Z alto); repetible")
     b.add_argument("--orient", action="store_true", help="exportar apoyado en la cama en la pose de la vista previa (sentada, cabeza arriba)")
     b.add_argument("--sin-soportes", nargs="?", type=float, const=-1.0, default=None, metavar="MM",
                    help="aplanar piernas y cola con un corte horizontal a MM sobre la cola (por defecto Params.flat_depth) y "
@@ -304,6 +312,20 @@ def main(argv=None) -> int:
             project.hand = HandSpec(path=path, points=pts, yaw=yaw, overlap=overlap,
                                     invert=bool(args.mano_invertir or (cur.invert if cur else False)),
                                     join=args.mano_union or (cur.join if cur else "solape"))
+        if args.escala_pieza:
+            from .assembly import AssemblyError
+            from .customize import normalize_scale
+            allowed = {"torso", *(l.name for l in project.limbs)} | ({"pelvis"} if project.waist else set()) \
+                | ({"cabeza"} if project.head is not None else set())
+            for item in args.escala_pieza:
+                place, sep, value = item.partition("=")
+                try:
+                    k = normalize_scale([float(x) for x in value.replace(";", ",").split(",")])
+                except (ValueError, AssemblyError):
+                    ap.error(f"--escala-pieza «{item}»: se espera LUGAR=FACTOR o LUGAR=FX,FY,FZ (números mayores que cero)")
+                if not sep or place not in allowed:
+                    ap.error(f"--escala-pieza «{item}»: lugar inválido (hay {', '.join(sorted(allowed))}); pelvis requiere cintura y cabeza, cuello")
+                project.part_scales[place] = k
         if args.pieza:
             from .catalog import Catalog, CatalogError, parse_ref
             from .project import PartRef

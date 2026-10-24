@@ -3,6 +3,29 @@
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md` y `PLAN_piezas_intercambiables_catalogo.md`_
 
 ## Current Focus
+**Escala por pieza y por eje (2026-10-23, rama `escala_por_pieza_xyz`, merge de `catalogo_piezas` 24b485a + `piezas_intercambiables_fix` 4f6af35):** cada pieza del modelo (torso, pelvis, cabeza, brazo, pierna) se escala por separado en X, Y y Z —uniforme o por eje— sin tocar las demás, y el escalado también vale para la pieza de catálogo elegida en ese lugar. Resuelve que «Escalar la figura ×k» mueve todos los lugares a la vez y no puede dejar bien todas las uniones.
+
+## Todo List
+- [x] Merge de `piezas_intercambiables_fix` (`customize.py`, escala uniforme, GUI) sobre `catalogo_piezas` (conflicto sólo en `gui/session.py`; 38 tests de GUI/ajustes en verde antes de tocar nada).
+- [x] `customize.scale_choice` por eje: malla, puertos (eje con la inversa traspuesta, referencia ortogonalizada), caras de unión y articulaciones; punto fijo = unión principal (X = 0 en piezas simétricas).
+- [x] La cabeza es un lugar escalable (`Project.head` definido); la escala se aplica a la pieza del lugar, sea del modelo o de catálogo.
+- [x] `Project.part_scales`: número (uniforme) o `[sx, sy, sz]`; los `.proyecto` viejos cargan igual.
+- [x] CLI: `--escala-pieza LUGAR=F` o `LUGAR=FX,FY,FZ`.
+- [x] Vista previa: `PartPreview.scale_xyz` (`customize.fit_scale`: ancho y alto de la cara del modelo → los de la pieza, sin tocar el espesor) y botón «Ajustar ejes (X, Y, Z)».
+- [x] GUI: por lugar, tres campos X/Y/Z + «igual» (candado) + «Aplicar».
+- [x] Tests (`tests/test_piece_adjustments.py`: 36, incluida una construcción completa con escalas por eje).
+- [ ] Probar con Güemes/Belgrano reales (la pelvis ya da `ok`; pierna y brazo de Güemes piden ×2,4 y ×2,3 sobre Belgrano: ahora se pueden repartir por pieza y por eje).
+- [ ] Mirar el panel en GTK en el equipo del cliente (aquí no hay GTK: sólo `py_compile`).
+- [ ] Decidir qué hacer con `assembly.swap_pelvis`: con el merge, GUI y CLI pasan por `customize` cuando hay pelvis de catálogo o escalas; `swap_pelvis` sigue en `pipeline.build` para quien llame a `build(parts={"pelvis": …})` directo.
+
+## Latest Blockers/Discoveries
+- El merge entre ramas sólo chocó en `gui/session.py`; ambas ramas resolvían «pelvis sola» por caminos distintos (`swap_pelvis` en `pipeline.build` vs. `customize.prepare` con huésped sintetizado). Conviven; la GUI usa `customize` (`needed(project)`).
+- Una escala ×1 explícita **se guarda** a propósito: marca la figura como «dividida» y activa el camino por piezas (`customize.needed`).
+- Las piernas del muñeco salen del `build` en pose (sus ejes Y/Z quedan permutados respecto del modelo): para comprobar una escala por eje mirar las piezas crudas (`choices_for_model`), no el STL final.
+- La escala por eje cambia la cara de unión, no los pasadores ni las holguras (siguen en mm de impresión y se regeneran): hay que revisar IoU, escalón y pared después de escalar. Una escala X distinta de 1 en torso/pelvis/cabeza se hace respecto de X = 0 para no mover el plano de simetría.
+- Entorno: venv fuera del repo (`pip install -e . pytest`); sin GTK.
+
+## Current Focus (anterior)
 **Pelvis de catálogo sin reemplazar el torso (2026-10-23, sobre `main` c34b302):** ahora `parts["pelvis"]` (pieza `pelvis`, puerto `cintura`) cambia SOLO la pelvis del modelo; el torso de arriba, la cabeza y los miembros siguen siendo los del modelo. `assembly.swap_pelvis` saca la pelvis vieja (cuerpo bajo el plano de la cintura menos los prismas de corte de los miembros, que se conservan), acopla la nueva rígida y sin escala a la toma que deja el torso en ese plano (centro = centroide de su cara) y devuelve el cuerpo nuevo + `PlacedPart` (`kind="pelvis"`, lugar `cintura`) con la compatibilidad de la cara; `hip_notes` avisa si las caderas de la pelvis quedan a más de 1 mm de las piernas del modelo. `pipeline.build` lo aplica al principio (así `torso_mirror=False`, cabeza y `build_waist` usan el cuerpo nuevo); `report["piezas"]["pelvis"]` y `validate` ya lo recogen. Hace falta `WaistSpec` en el modelo (error claro si no). GUI: `Session.catalog_only()` ahora solo se activa con torso de catálogo (la pelvis sola no), `problems()` pide el plano de cintura, y `preflight.preview_part` revisa la pelvis sin generar. CLI: `afm build --pieza pelvis=REF`. Con torso de catálogo todo sigue como antes (`torso_sup` + `pelvis` → huésped sintetizado). Tests: 5 nuevos en `tests/test_assembly.py` (pelvis propia = figura directa ±3 %, pelvis con bulto cambia solo la pelvis, sin cintura falla, tipo equivocado falla, vista previa) y 1 en `tests/test_gui_catalog.py`; pasan `test_assembly -k pelvis`, `test_gui_catalog`, `test_preflight`, `test_parts_cli`, `test_recipe`. **No probado** con Güemes/Belgrano reales ni en la ventana GTK (aquí no hay GTK); no se corrió la suite completa.
 
 ## Current Focus (anterior)

@@ -42,6 +42,7 @@ class PartPreview:
     conflicts: list = field(default_factory=list)   # conflictos que impiden generar (articulación doble, etc.)
     notes: list = field(default_factory=list)       # cosas para saber que no son aviso ni error
     scale_hint: float | None = None         # factor para multiplicar la altura del modelo y que las caras coincidan
+    scale_xyz: tuple | None = None          # (sx, sy, sz) que iguala ancho y alto de la cara del modelo con los de la pieza
     error: str | None = None                # no se pudo ni revisar (el lugar no existe, no hay cara de corte…)
 
     # ------------------------------------------------------------------ textos
@@ -71,6 +72,7 @@ class PartPreview:
     def to_dict(self) -> dict:
         return {"lugar": self.place, "pieza": self.ref, "nivel": self.nivel, "error": self.error,
                 "conflictos": list(self.conflicts), "notas": list(self.notes), "escala_sugerida": self.scale_hint,
+                "escala_xyz_sugerida": None if self.scale_xyz is None else [round(float(x), 4) for x in self.scale_xyz],
                 "compat": None if self.compat is None else self.compat.to_dict()}
 
 
@@ -96,6 +98,14 @@ def scale_hint_for(part_face, host_face) -> float | None:
     if part_face is None or host_face is None or host_face.radius_eq <= 1e-9:
         return None
     return float(part_face.radius_eq / host_face.radius_eq)
+
+
+def _xyz_hint(part_face, host_face, frame):
+    """`customize.fit_scale` como tupla (o None): escala por eje de la pieza del MODELO que le da a su cara el ancho y el
+    alto de la de la pieza elegida."""
+    from .customize import fit_scale
+    k = fit_scale(part_face, host_face, frame)
+    return None if k is None else tuple(float(x) for x in k)
 
 
 def _overlay_shapes(part: Port, host_port_face):
@@ -162,6 +172,7 @@ def preview_part(place: str, choice: PartChoice, project, body: S.Manifold, half
     if host_port_face is not None:
         pv.part_shape, pv.host_shape = _overlay_shapes(choice.port(pv.kind), host_port_face)
         pv.scale_hint = scale_hint_for(choice.port(pv.kind).face, host_port_face)
+        pv.scale_xyz = _xyz_hint(choice.port(pv.kind).face, host_port_face, placed.port.frame)
     elif pv.kind == "head" and placed.compat is not None and placed.compat.escalon_mm is not None:
         pv.notes.append("la cara del cuello se mide dentro del corte de la cabeza: sin superposición dibujable")
     nivel = placed.compat.nivel if placed.compat is not None else "ok"
@@ -233,7 +244,13 @@ def advice(pv: PartPreview, session=None) -> list[str]:
     if k is not None and abs(k - 1.0) > 0.03:
         sentido = "agrandarlo" if k > 1.0 else "achicarlo"
         out.append(f"Si escalás TODO el modelo ×{k:.3f} ({sentido} {abs(k - 1) * 100:.0f} %) las caras de este lugar "
-                   "tendrían el mismo tamaño («Escalar la figura para este lugar»); ojo: mueve también los demás lugares.")
+                   "tendrían el mismo tamaño («Escalar la figura para este lugar»); ojo: mueve también los demás lugares. "
+                   "Para no tocar los demás, escalá solo la pieza del modelo que lleva esta unión, por separado en X, Y y Z "
+                   "(«Dividir figura actual y ajustar piezas»).")
+    xyz = pv.scale_xyz
+    if xyz is not None and max(abs(v - 1.0) for v in xyz) > 0.03:
+        out.append("Escala por eje de la pieza del modelo para igualar ancho y alto de la cara: "
+                   f"X ×{xyz[0]:.3f}, Y ×{xyz[1]:.3f}, Z ×{xyz[2]:.3f}.".replace(".", ","))
     for t in c.avisos:
         if not any(t in o for o in out):
             out.append(t[0].upper() + t[1:] + ("" if t.endswith(".") else "."))
