@@ -93,6 +93,23 @@ def _collapsible(parent: Gtk.Box, title: str, expanded: bool = True, sub: bool =
     return body
 
 
+def _no_scroll_change(widget: Gtk.Widget) -> None:
+    """Que la rueda del ratón sobre un spin / desplegable NO cambie su valor: el scroll lo hace el panel (ScrolledWindow)."""
+    ctl = Gtk.EventControllerScroll(flags=Gtk.EventControllerScrollFlags.VERTICAL)
+    ctl.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)      # antes de que el control lo consuma
+
+    def on_scroll(_c, _dx, dy):
+        sw = widget.get_ancestor(Gtk.ScrolledWindow)
+        if sw is not None:
+            adj = sw.get_vadjustment()
+            new = adj.get_value() + dy * adj.get_page_size() ** (2.0 / 3.0)    # mismo paso que usa GTK
+            adj.set_value(max(adj.get_lower(), min(new, adj.get_upper() - adj.get_page_size())))
+        return True                                              # consumido: el valor del control no cambia
+
+    ctl.connect("scroll", on_scroll)
+    widget.add_controller(ctl)
+
+
 def _help(parent: Gtk.Box, text: str) -> None:
     """Nota de ayuda: texto fijo (no se pliega ni se puede accionar), con ícono de información, fondo tenue y
     borde lateral para distinguirla de los controles que configuran algo."""
@@ -1180,6 +1197,7 @@ exportar; tarda un poco más.")
             # la pieza guardada puede traer versión fija («id@2»): se muestra la fila de esa pieza si está en la lista
             idx = 0 if cur is None else next((i + 1 for i, ref in enumerate(refs) if ref == cur or ref.split("@")[0] == cur.split("@")[0]), 0)
             dd.set_selected(idx)
+            _no_scroll_change(dd)
             dd.connect("notify::selected", self._on_part_selected, lugar, refs)
             dd.set_sensitive(bool(root and not ctrl.busy))
             line.append(dd)
@@ -1222,6 +1240,7 @@ exportar; tarda un poco más.")
             sp.set_value(val)
             sp.set_tooltip_text(tip)
             sp.connect("value-changed", linked)
+            _no_scroll_change(sp)
             spins.append(sp)
             line.append(sp)
         line.append(lock)
