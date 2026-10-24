@@ -442,3 +442,86 @@ def test_divided_figure_replaces_the_original_in_the_viewer_and_asks_for_review_
     assert c2.preview_parts() is not None and c2.needs_review_on_open() is False
     c2.sync(sc)
     assert "figura" not in sc.items and "parte:torso" in sc.items
+
+
+def _doll_with_head(tmp_path, project):
+    from afm import solids as S
+    path = str(tmp_path / "doll.stl")
+    make_doll().export(path)
+    ball = S.Manifold.sphere(15, 64)
+    flat = S.intersection(ball, S.Manifold.cube((100, 100, 100), center=True).translate((0, 0, 40)))
+    head = str(tmp_path / "otra_cabeza.stl")
+    S.to_trimesh(flat).export(head)
+    sess = Session(project)
+    sess.load(path)
+    sess.set_head(sess.plane_from_points([(-5, -5, 80.0), (5, -5, 80.0), (0, 5, 80.0)], "cabeza"))
+    c = Controller()
+    c.session = sess
+    return c, head
+
+
+def test_divided_figure_with_a_replacement_head_shows_pieces_and_the_new_head(tmp_path, project):
+    from test_gui_phases35 import FakeScene
+
+    c, head = _doll_with_head(tmp_path, project)
+    assert c.set_head_replacement(head)
+    assert c.divide_model(), c.message
+    sc = FakeScene()
+    c.sync(sc)
+    assert "figura" not in sc.items                               # las piezas reemplazan al modelo
+    assert "cabeza:reemplazo" in sc.items                         # la cabeza nueva (naranja)…
+    assert "parte:cabeza" not in sc.items and "parte:torso" in sc.items   # …y no la original del modelo debajo
+
+
+def test_head_cannot_change_while_a_task_runs(tmp_path, project):
+    c, head = _doll_with_head(tmp_path, project)
+    c.busy = True
+    assert c.set_head_replacement(head) is False and "tarea en curso" in c.message
+    assert c.session.project.head.replacement_path is None
+    c.busy = False
+    assert c.set_head_replacement(head) is True
+    c.busy = True
+    c.clear_head_replacement()
+    assert c.session.project.head.replacement_path == head        # no se tocó mientras corría la tarea
+
+
+def test_a_review_that_ends_after_a_change_is_not_shown_as_current(tmp_path, project, monkeypatch):
+    c, head = _doll_with_head(tmp_path, project)
+    sess = c.session
+    from afm import customize
+
+    real = customize.preview_model
+
+    def slow_preview(*a, **k):
+        res = real(*a, **k)
+        sess.project.params.clearance += 0.1                       # el usuario cambió algo mientras se revisaba
+        return res
+
+    monkeypatch.setattr(customize, "preview_model", slow_preview)
+    sess.project.part_scales = {"torso": 1.0, "pelvis": 1.0, "brazo": 1.0, "pierna": 1.0}
+    sess.preview_parts()
+    assert sess.part_preview_items() == {} and not sess.part_preview_fresh()
+
+
+def test_reopening_a_saved_project_with_replacement_head_and_pieces(tmp_path, project):
+    """Caso reportado: proyecto guardado con cabeza de reemplazo + piezas; al reabrirlo no se mezclan figura y piezas."""
+    from test_gui_phases35 import FakeScene
+
+    c, head = _doll_with_head(tmp_path, project)
+    assert c.set_head_replacement(head) and c.divide_model(), c.message
+    out = str(tmp_path / "guardado.proyecto")
+    c.session.save_project(out)
+
+    c2 = Controller()
+    c2.open_project(out, c.session.stl_path)
+    assert c2.session.project.head.replacement_path == head and c2.needs_review_on_open() is True
+    sc = FakeScene()
+    c2.sync(sc)
+    assert "figura" in sc.items                                    # mientras se revisa se ve el modelo tal cual
+    assert c2.preview_parts() is not None
+    c2.sync(sc)
+    assert "figura" not in sc.items and "parte:cabeza" not in sc.items
+    assert "cabeza:reemplazo" in sc.items and "parte:torso" in sc.items and "parte:pierna:espejo" in sc.items
+    c2.set_show_part_preview(False)                                # apagado el casillero: el modelo con su cabeza nueva
+    c2.sync(sc)
+    assert "figura" in sc.items and "cabeza:reemplazo" in sc.items and not [k for k in sc.items if k.startswith("parte:")]

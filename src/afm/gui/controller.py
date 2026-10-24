@@ -321,6 +321,13 @@ class Controller:
         self._changed(f"Proyecto guardado: {path.split('/')[-1]}", scene=False)
 
     # ---------------------------------------------------------------- modos
+    def _busy_for(self, what: str) -> bool:
+        """True (y avisa) si hay una tarea en un hilo (revisar, generar…): lo que ella lee no se puede cambiar a mitad."""
+        if not self.busy:
+            return False
+        self._changed(f"Hay una tarea en curso (revisando o generando): esperá a que termine para cambiar {what}.", scene=False)
+        return True
+
     def _need_loaded(self) -> bool:
         if not self.loaded:
             self._changed("Primero abrí un STL.", scene=False)
@@ -2118,6 +2125,12 @@ class Controller:
             return False
         return not s.part_preview_fresh()
 
+    def _replacement_head_shown(self) -> bool:
+        """True si se dibuja la cabeza de reemplazo (STL) en vez de la cabeza del modelo; salvo que la cabeza sea una pieza
+        elegida del catálogo, la «cabeza» de la revisión es la original del modelo y no se dibuja encima."""
+        head = self.session.project.head
+        return head is not None and bool(head.replacement_path) and "cabeza" not in self.session.project.parts
+
     def parts_replace_figure(self) -> bool:
         """True si las piezas revisadas cubren toda la figura (torso incluido): en el visor reemplazan al modelo, que deja
         de dibujarse (igual que la cabeza o la mano de reemplazo ocultan las originales)."""
@@ -2346,7 +2359,7 @@ class Controller:
         Controles (None = conservar el valor actual): `up` (eje «arriba»), `rx`/`ry`/`yaw` (giros en °) y `scale`
         (factor manual sobre la escala automática). `cut_points` es el plano de corte de la base (3 puntos en
         coordenadas del STL): «keep» conserva el actual, None lo quita."""
-        if not self._need_loaded():
+        if self._busy_for("la cabeza") or not self._need_loaded():
             return False
         cur = self.session.project.head
 
@@ -2416,6 +2429,8 @@ class Controller:
         self._changed(self._head_fit_message(info))
 
     def clear_head_cut_plane(self) -> None:
+        if self._busy_for("la cabeza"):
+            return
         self._changed("Se quitó el plano de corte de la base de la cabeza." if self.session.clear_head_cut_plane()
                       else "La cabeza no tenía plano de corte.")
 
@@ -2428,6 +2443,8 @@ class Controller:
         return self.session.head_replacement_preview() if self.loaded else None
 
     def clear_head_replacement(self) -> None:
+        if self._busy_for("la cabeza"):
+            return
         self._changed("Se vuelve a usar la cabeza original del modelo." if self.session.clear_head_replacement()
                       else "No había cabeza de reemplazo.")
 
@@ -2813,6 +2830,7 @@ class Controller:
         extra = {} if cplane is None else {"clip_plane": cplane}      # modo PIN o cabeza de reemplazo
         found = self.overhang_faces() if self.show_overhangs else None
         hfit = self.hand_fit() if not (found is not None and found[0].any()) else None   # con voladizos se ve la figura tal cual
+        parts_fig = pin_plane is None and hfit is None and self.parts_replace_figure()
         base = sess.work if hfit is None else hfit["figure"]          # con mano de reemplazo, sin la mano original
         drawn = []                                                   # (nombre, malla, color) para dibujar su espejo
         if found is not None and found[0].any():
@@ -2823,12 +2841,13 @@ class Controller:
             scene.set_mesh("figura", ok_mesh, clip_x=clip, **extra)
             scene.set_mesh("voladizos", over_mesh, color=(0.95, 0.25, 0.25, 1.0), clip_x=clip, **extra)
             drawn = [("figura", ok_mesh, _MIRROR_COLOR), ("voladizos", over_mesh, (0.95, 0.45, 0.45, 1.0))]
-        elif pin_plane is None and hprev is None and hfit is None and self.parts_replace_figure():
+        elif parts_fig:
             # las piezas de catálogo reemplazan a la figura: se ven ellas (con su espejo) y no el modelo original
             scene.remove("figura")
             scene.remove("voladizos")
             drawn = [(f"parte:{pl}", pv.mesh, _MIRROR_COLOR) for pl, pv in self.session.part_preview_items().items()
-                     if pv.mesh is not None and pv.kind not in ("arm", "leg")]      # brazos y piernas ya llevan su espejo
+                     if pv.mesh is not None and pv.kind not in ("arm", "leg")       # brazos y piernas ya llevan su espejo
+                     and not (pl == "cabeza" and self._replacement_head_shown())]
         else:
             scene.set_mesh("figura", base, clip_x=clip, **extra)
             scene.remove("voladizos")
@@ -2840,7 +2859,7 @@ class Controller:
             scene.remove("mano:reemplazo")
         if hprev is not None:
             scene.set_mesh("cabeza:reemplazo", hprev[0], color=_REPLACEMENT_HEAD_COLOR, clip_x=clip)
-            if pin_plane is None:                      # el espejo no lleva la cabeza original (la nueva no se simetriza)
+            if pin_plane is None and not parts_fig:    # el espejo no lleva la cabeza original (la nueva no se simetriza)
                 drawn = [("figura", self._work_without_head(), _MIRROR_COLOR)] + [d for d in drawn if d[0] == "mano:reemplazo"]
         else:
             scene.remove("cabeza:reemplazo")
@@ -2911,7 +2930,7 @@ class Controller:
         wanted = set()
         if self.show_part_preview and self.outcome_free():
             for place, pv in self.session.part_preview_items().items():
-                if pv.mesh is None:
+                if pv.mesh is None or (place == "cabeza" and self._replacement_head_shown()):
                     continue
                 color = _PART_PREVIEW_COLORS.get(pv.nivel, _PART_PREVIEW_COLORS["aviso"])
                 key = f"parte:{place}"

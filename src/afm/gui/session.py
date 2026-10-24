@@ -1260,10 +1260,13 @@ class Session:
 
         if self.work is None:
             raise ValueError("Primero abrí una figura.")
+        # La firma es la del estado con el que arranca la revisión: la revisión corre en un hilo y, si mientras tanto se
+        # cambia algo (la cabeza, una pieza, un parámetro), el resultado queda viejo y no se dibuja como si fuera vigente.
+        sig = self._preview_signature()
         from ..customize import needed, preview_model
         if needed(self.project):
             items = preview_model(S.to_manifold(self.work), self.project, self._resolved_parts())
-            self._part_preview = (self._preview_signature(), items)
+            self._part_preview = (sig, items)
             return items
         if not self.project.parts:
             self._part_preview = None
@@ -1279,13 +1282,13 @@ class Session:
             place_of = {kinds[l.kind]: l.name for l in self.project.limbs if l.name in self.project.parts}
             place_of.update({"torso_sup": "torso", "torso": "torso", "pelvis": "pelvis", "cabeza": "cabeza", "mano": "mano"})
             items = preview_catalog_only(self.project.params, choices, place_of)
-            self._part_preview = (self._preview_signature(), items)
+            self._part_preview = (sig, items)
             return items
         if self.project.symmetry is None:
             raise ValueError("Falta el plano de simetría")
         parts = self._resolved_parts()
         items = _preview(self.project, parts, S.to_manifold(self.work), progress)
-        self._part_preview = (self._preview_signature(), items)
+        self._part_preview = (sig, items)
         return items
 
     def resolve_joint_conflict(self, place: str, keep: str = "part") -> str:
