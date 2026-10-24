@@ -1371,6 +1371,15 @@ exportar; tarda un poco más.")
             self._run_task("Revisando las piezas", job, lambda items, err: self.ctrl.finish_preview_parts(items, err),
                            "Piezas revisadas")
 
+    def _review_on_open(self) -> None:
+        """Al abrir un proyecto (o su catálogo) con piezas de otra figura: las revisa en segundo plano para dibujarlas."""
+        if self.ctrl.needs_review_on_open():
+            self._on_catalog_review()
+
+    def _open_project_path(self, path: str) -> None:
+        self.ctrl.open_project(path)
+        self._review_on_open()
+
     def _on_align_all(self, *_):
         self.ctrl.align_cuts_to_line()
 
@@ -1428,7 +1437,8 @@ exportar; tarda un poco más.")
             except GLib.Error:
                 return                      # cancelado
             try:
-                self.ctrl.open_catalog(f.get_path())
+                if self.ctrl.open_catalog(f.get_path()):
+                    self._review_on_open()          # el proyecto ya traía piezas y faltaba el catálogo para verlas
             except Exception as e:          # noqa: BLE001
                 self._error(e)
 
@@ -1672,7 +1682,7 @@ exportar; tarda un poco más.")
         self._run_task("Abriendo el STL", job, done, "STL abierto")
 
     def _on_open_project(self, *_):
-        self._pick_file("Abrir proyecto", ["*.proyecto", "*.json"], "Proyectos", self.ctrl.open_project)
+        self._pick_file("Abrir proyecto", ["*.proyecto", "*.json"], "Proyectos", self._open_project_path)
 
     def _on_save_hand(self, *_):
         dlg = Gtk.FileDialog(title="Guardar mano estándar")
@@ -1721,6 +1731,7 @@ class Application(Gtk.Application):
         try:
             if self._project:
                 ctrl.open_project(self._project, self._stl)
+                self.win._review_on_open()
             elif self._stl:
                 ctrl.open_stl(self._stl)
         except Exception as e:              # noqa: BLE001

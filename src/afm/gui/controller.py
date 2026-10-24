@@ -2105,6 +2105,27 @@ class Controller:
         detail = "".join(f" {pv.place}: {pv.problems()[0]}." for pv in bad + warn if pv.problems())
         return head + detail
 
+    def needs_review_on_open(self) -> bool:
+        """True si el proyecto abierto trae piezas de catálogo (o la figura dividida) y todavía no se dibujaron: la ventana
+        las revisa sola al abrirlo, así el visor muestra las piezas reemplazadas como ya hace con la cabeza y la mano.
+        Con piezas elegidas hace falta el catálogo abierto (si no, no se pueden leer; el mensaje de apertura ya avisa)."""
+        s = self.session
+        if self.busy or not self.loaded:
+            return False
+        if not (s.project.parts or s.project.part_scales):
+            return False
+        if s.project.parts and not s.catalog_root:
+            return False
+        return not s.part_preview_fresh()
+
+    def parts_replace_figure(self) -> bool:
+        """True si las piezas revisadas cubren toda la figura (torso incluido): en el visor reemplazan al modelo, que deja
+        de dibujarse (igual que la cabeza o la mano de reemplazo ocultan las originales)."""
+        if not (self.show_part_preview and self.outcome_free()):
+            return False
+        torso = self.session.part_preview_items().get("torso")
+        return torso is not None and torso.mesh is not None
+
     def part_preview(self, place: str):
         """`PartPreview` vigente del lugar (o None si todavía no se revisó o cambió algo desde entonces)."""
         return self.session.part_preview_items().get(place)
@@ -2802,6 +2823,12 @@ class Controller:
             scene.set_mesh("figura", ok_mesh, clip_x=clip, **extra)
             scene.set_mesh("voladizos", over_mesh, color=(0.95, 0.25, 0.25, 1.0), clip_x=clip, **extra)
             drawn = [("figura", ok_mesh, _MIRROR_COLOR), ("voladizos", over_mesh, (0.95, 0.45, 0.45, 1.0))]
+        elif pin_plane is None and hprev is None and hfit is None and self.parts_replace_figure():
+            # las piezas de catálogo reemplazan a la figura: se ven ellas (con su espejo) y no el modelo original
+            scene.remove("figura")
+            scene.remove("voladizos")
+            drawn = [(f"parte:{pl}", pv.mesh, _MIRROR_COLOR) for pl, pv in self.session.part_preview_items().items()
+                     if pv.mesh is not None and pv.kind not in ("arm", "leg")]      # brazos y piernas ya llevan su espejo
         else:
             scene.set_mesh("figura", base, clip_x=clip, **extra)
             scene.remove("voladizos")

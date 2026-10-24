@@ -345,3 +345,32 @@ def test_catalog_only_preview_and_build(ctrl, root):
     assert out is not None, ctrl.message
     names = set(out.result.pieces)
     assert "torso" in names and any(n.startswith("brazo") for n in names) and any(n.startswith("pierna") for n in names)
+
+
+def test_project_with_catalog_parts_asks_for_a_review_on_open(ctrl, root, tmp_path, doll_stl):
+    """Al abrir un proyecto con piezas de otra figura la ventana las revisa sola (así el visor las dibuja)."""
+    from test_gui_phases35 import FakeScene
+
+    _catalogued(ctrl, root)
+    assert ctrl.needs_review_on_open() is True                    # elegida pero sin revisar
+    path = str(tmp_path / "g.proyecto")
+    ctrl.save_project(path)
+
+    c2 = Controller()
+    assert c2.needs_review_on_open() is False                     # nada abierto
+    c2.open_project(path, doll_stl)
+    assert c2.session.catalog_root and c2.needs_review_on_open() is True
+    sc = FakeScene()
+    c2.sync(sc)
+    assert not [k for k in sc.items if k.startswith("parte:")]    # todavía no se dibujó nada
+    c2.preview_parts()
+    assert c2.needs_review_on_open() is False
+    c2.sync(sc)
+    assert "parte:pierna" in sc.items
+
+    c2.forget_catalog()                                           # sin catálogo no hay cómo leer las piezas
+    assert c2.needs_review_on_open() is False
+
+
+def test_nothing_to_review_on_open_without_parts(ctrl):
+    assert ctrl.needs_review_on_open() is False

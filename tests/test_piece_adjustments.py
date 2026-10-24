@@ -407,3 +407,38 @@ def test_build_with_per_axis_scales_changes_only_the_asked_axes(body, project):
     h0, h1 = extent(base.pieces["cabeza"]), extent(res.pieces["cabeza"])
     assert h1[2] > h0[2] * 1.12 and h1[0] == pytest.approx(h0[0], rel=0.02)
     assert res.report["ajustes_piezas"]["escalas"] == {"torso": [1.0, 1.15, 1.0], "cabeza": [1.0, 1.0, 1.2]}
+
+
+def test_divided_figure_replaces_the_original_in_the_viewer_and_asks_for_review_on_open(tmp_path, project):
+    from test_gui_phases35 import FakeScene
+
+    path = str(tmp_path / "doll.stl")
+    make_doll().export(path)
+    sess = Session(project)
+    sess.load(path)
+    c = Controller()
+    c.session = sess
+    assert c.divide_model(), c.message
+    assert c.parts_replace_figure() is True
+    sc = FakeScene()
+    c.sync(sc)
+    assert "figura" not in sc.items and "parte:torso" in sc.items and "parte:pelvis" in sc.items
+    c.set_show_part_preview(False)                                # sin la vista previa se ve el modelo tal cual
+    c.sync(sc)
+    assert "figura" in sc.items and not [k for k in sc.items if k.startswith("parte:")]
+    c.set_show_part_preview(True)
+    assert c.set_part_scale("brazo", 1.1)                         # la revisión quedó vieja: vuelve el modelo
+    assert c.parts_replace_figure() is False
+    c.sync(sc)
+    assert "figura" in sc.items
+
+    out = str(tmp_path / "dividida.proyecto")
+    sess.save_project(out)
+    c2 = Controller()
+    c2.open_project(out, path)
+    assert c2.needs_review_on_open() is True                      # la figura dividida también se dibuja sola al abrir
+    c2.sync(sc)
+    assert "figura" in sc.items                                   # hasta que termina la revisión se ve el modelo
+    assert c2.preview_parts() is not None and c2.needs_review_on_open() is False
+    c2.sync(sc)
+    assert "figura" not in sc.items and "parte:torso" in sc.items
