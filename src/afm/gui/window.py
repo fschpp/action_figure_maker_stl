@@ -34,7 +34,7 @@ _MODE_TITLES = {Mode.VIEW: "", Mode.CROWN: "  ·  marcando coronilla", Mode.SYMM
 _TRIM_OPS = ("subtract", "union")
 
 
-TAB_FIGURA, TAB_PLANOS, TAB_MIEMBROS, TAB_RECORTES, TAB_PARAMS, TAB_GENERAR = range(6)
+TAB_FIGURA, TAB_PLANOS, TAB_CATALOGO, TAB_MIEMBROS, TAB_RECORTES, TAB_PARAMS, TAB_GENERAR = range(7)
 CUBE_PX = 120
 VIEW_ANIM_S = 0.25            # duración de la animación al elegir una vista en el cubo
 SCALE_SPIN_MIN = 1e-6         # el control no admite 0 (la escala debe ser > 0); 1e-6 es el menor valor que muestra con 6 decimales
@@ -388,45 +388,6 @@ class MainWindow(Gtk.ApplicationWindow):
                    "«Mano articulada»: en vez de soldarla, la mano sale como pieza aparte con un pasador que entra en el brazo y "
                    "gira libre (se achica solo si la muñeca es fina; ver Parámetros → Mano articulada).")
 
-        sec = _collapsible(box, "Piezas de catálogo")
-        self.btn_cat_new = self._button("Crear catálogo de la línea (carpeta nueva)…", self._on_catalog_new)
-        self.btn_cat_open = self._button("Abrir catálogo de la línea (carpeta)…", self._on_catalog_open)
-        self.lbl_catalog = Gtk.Label(label="Sin catálogo abierto", xalign=0, wrap=True)
-        self.btn_cat_add = self._button("Catalogar esta figura…", self._on_catalog_add)
-        for w in (self.btn_cat_new, self.btn_cat_open, self.lbl_catalog, self.btn_cat_add):
-            sec.append(w)
-        self.btn_cat_forget = self._button("Olvidar el catálogo recordado", lambda *_: self.ctrl.forget_catalog())
-        self.btn_cat_forget.set_tooltip_text("Cierra el catálogo y borra lo recordado: la próxima vez hay que abrirlo a mano. "
-                                             "No toca la carpeta ni el proyecto.")
-        self.btn_cat_review = self._button("Revisar las piezas elegidas (sin generar)", self._on_catalog_review)
-        self.btn_cat_scale = self._button("Escalar la figura a la altura de la línea", lambda *_: self.ctrl.scale_to_line())
-        self.btn_cat_align = self._button("Alinear todos los cortes a la línea", self._on_align_all)
-        self.chk_part_preview = Gtk.CheckButton(label="Dibujar las piezas elegidas antes de generar",
-                                                active=self.ctrl.show_part_preview)
-        self.chk_part_preview.connect("toggled", lambda b: None if self._updating else self.ctrl.set_show_part_preview(b.get_active()))
-        for w in (self.btn_cat_forget, self.btn_cat_review, self.btn_cat_scale, self.btn_cat_align, self.chk_part_preview):
-            sec.append(w)
-        self.btn_divide_model = self._button("Dividir figura actual y ajustar piezas…", self._on_divide_model)
-        self.btn_reset_piece_scales = self._button("Restablecer escalas por pieza", lambda *_: self.ctrl.reset_part_scales())
-        sec.append(self.btn_divide_model)
-        sec.append(self.btn_reset_piece_scales)
-        sec.append(Gtk.Label(label="Pieza de cada lugar (escala ×1 = original, X/Y/Z por separado; al cambiar hay que generar)", xalign=0, margin_top=8))
-        self.parts_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        sec.append(self.parts_box)
-        self._parts_sig = None
-        _help(sec, "«Crear catálogo» arma una carpeta nueva para la línea (nombre y altura de figura; es lo mismo que «afm catalogo "
-                   "crear») y la deja abierta. Si ya tenés una, abrila con «Abrir catálogo». «Catalogar esta figura» guarda "
-                   "sus piezas crudas (cabeza, torso, brazo, pierna, con los planos y siluetas que ya definiste) para usarlas en "
-                   "otras figuras. En cada lugar elegí «la del modelo» o una pieza del catálogo: «Generar figura» la pone en el "
-                   "puerto que el modelo tiene en ese lugar, sin escalarla, y la fila muestra cómo acopla (ok / aviso / no, "
-                   "IoU y escalón entre las caras). La mano de catálogo se acopla en la muñeca del brazo de catálogo. «Revisar» mide el acople de cada pieza SIN "
-                   "generar y la dibuja ya colocada (verde = ok, ámbar = aviso, rojo = no); «Ver por qué» superpone las dos "
-                   "caras. Una pelvis sola conserva el torso, brazos y piernas del modelo: definí antes el plano de cintura. "
-                   "«Dividir figura actual» separa las piezas crudas para ajustar su escala (una sola o por eje X, Y, Z; sirve para la pieza del modelo y para la de catálogo); los puertos acompañan el cambio "
-                   "y los pasadores se regeneran con las medidas del proyecto. Brazos y piernas se ajustan por par espejado. "
-                   "«Restablecer» vuelve a las proporciones originales. Con un torso de catálogo la figura sale entera del catálogo. El catálogo se reabre solo "
-                   "al cargar la figura.")
-
         sec = _collapsible(box, "Cabeza")
         self.btn_neck = self._button("Agregar plano del cuello / cabeza (3 puntos)", lambda *_: self.ctrl.start_neck_plane())
         self.btn_head_stl = self._button("Cabeza de reemplazo (STL)…", self._on_head_replacement)
@@ -486,6 +447,47 @@ En naranja se ve el contorno del pasador (vástago y cabeza); en verde, la posic
         self.chk_cut_numbers = Gtk.CheckButton(label="Numerar los cortes en el visor", active=self.ctrl.show_cut_numbers)
         self.chk_cut_numbers.connect("toggled", lambda b: None if self._updating else self.ctrl.set_show_cut_numbers(b.get_active()))
         sec.append(self.chk_cut_numbers)
+
+        # --------------------------------------------------------- Catálogo
+        box = self._tab_page("Catálogo")
+        sec = _collapsible(box, "Piezas de catálogo")
+        self.btn_cat_new = self._button("Crear catálogo de la línea (carpeta nueva)…", self._on_catalog_new)
+        self.btn_cat_open = self._button("Abrir catálogo de la línea (carpeta)…", self._on_catalog_open)
+        self.lbl_catalog = Gtk.Label(label="Sin catálogo abierto", xalign=0, wrap=True)
+        self.btn_cat_add = self._button("Catalogar esta figura…", self._on_catalog_add)
+        for w in (self.btn_cat_new, self.btn_cat_open, self.lbl_catalog, self.btn_cat_add):
+            sec.append(w)
+        self.btn_cat_forget = self._button("Olvidar el catálogo recordado", lambda *_: self.ctrl.forget_catalog())
+        self.btn_cat_forget.set_tooltip_text("Cierra el catálogo y borra lo recordado: la próxima vez hay que abrirlo a mano. "
+                                             "No toca la carpeta ni el proyecto.")
+        self.btn_cat_review = self._button("Revisar las piezas elegidas (sin generar)", self._on_catalog_review)
+        self.btn_cat_scale = self._button("Escalar la figura a la altura de la línea", lambda *_: self.ctrl.scale_to_line())
+        self.btn_cat_align = self._button("Alinear todos los cortes a la línea", self._on_align_all)
+        self.chk_part_preview = Gtk.CheckButton(label="Dibujar las piezas elegidas antes de generar",
+                                                active=self.ctrl.show_part_preview)
+        self.chk_part_preview.connect("toggled", lambda b: None if self._updating else self.ctrl.set_show_part_preview(b.get_active()))
+        for w in (self.btn_cat_forget, self.btn_cat_review, self.btn_cat_scale, self.btn_cat_align, self.chk_part_preview):
+            sec.append(w)
+        self.btn_divide_model = self._button("Dividir figura actual y ajustar piezas…", self._on_divide_model)
+        self.btn_reset_piece_scales = self._button("Restablecer escalas por pieza", lambda *_: self.ctrl.reset_part_scales())
+        sec.append(self.btn_divide_model)
+        sec.append(self.btn_reset_piece_scales)
+        sec.append(Gtk.Label(label="Pieza de cada lugar (escala ×1 = original, X/Y/Z por separado; al cambiar hay que generar)", xalign=0, margin_top=8))
+        self.parts_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        sec.append(self.parts_box)
+        self._parts_sig = None
+        _help(sec, "«Crear catálogo» arma una carpeta nueva para la línea (nombre y altura de figura; es lo mismo que «afm catalogo "
+                   "crear») y la deja abierta. Si ya tenés una, abrila con «Abrir catálogo». «Catalogar esta figura» guarda "
+                   "sus piezas crudas (cabeza, torso, brazo, pierna, con los planos y siluetas que ya definiste) para usarlas en "
+                   "otras figuras. En cada lugar elegí «la del modelo» o una pieza del catálogo: «Generar figura» la pone en el "
+                   "puerto que el modelo tiene en ese lugar, sin escalarla, y la fila muestra cómo acopla (ok / aviso / no, "
+                   "IoU y escalón entre las caras). La mano de catálogo se acopla en la muñeca del brazo de catálogo. «Revisar» mide el acople de cada pieza SIN "
+                   "generar y la dibuja ya colocada (verde = ok, ámbar = aviso, rojo = no); «Ver por qué» superpone las dos "
+                   "caras. Una pelvis sola conserva el torso, brazos y piernas del modelo: definí antes el plano de cintura. "
+                   "«Dividir figura actual» separa las piezas crudas para ajustar su escala (una sola o por eje X, Y, Z; sirve para la pieza del modelo y para la de catálogo); los puertos acompañan el cambio "
+                   "y los pasadores se regeneran con las medidas del proyecto. Brazos y piernas se ajustan por par espejado. "
+                   "«Restablecer» vuelve a las proporciones originales. Con un torso de catálogo la figura sale entera del catálogo. El catálogo se reabre solo "
+                   "al cargar la figura.")
 
         # --------------------------------------------------------- Miembros
         box = self._tab_page("Miembros")
