@@ -1352,6 +1352,61 @@ class Session:
             avisos += warns
         return {"piezas": metas, "avisos": avisos}
 
+    # ------------------------------------------------------------- gestor del catálogo (ver y eliminar piezas)
+    def catalog_pieces(self) -> list:
+        """Todas las versiones de todas las piezas del catálogo abierto, ordenadas por tipo, id y versión."""
+        return sorted(self._catalog().list(all_versions=True), key=lambda m: (m.tipo, m.id, m.version))
+
+    def catalog_load(self, ref: str):
+        """(meta, malla) de la pieza `id@versión` del catálogo abierto, para la vista previa (sin verificar el hash)."""
+        from ..catalog import CatalogError
+
+        try:
+            return self._catalog().load(ref, check_hash=False)
+        except CatalogError as exc:
+            raise ValueError(str(exc)) from exc
+
+    def _parts_using(self, cat, ref: str) -> list[str]:
+        """Lugares de ESTA figura que tienen elegida la pieza `ref` (una `PartRef` sin versión = la última del id)."""
+        from ..catalog import parse_ref
+
+        pid, ver = parse_ref(ref)
+        latest = max(cat.versions(pid), default=None)
+        return [place for place, pr in self.project.parts.items()
+                if pr.id == pid and pr.linea in (None, cat.name)
+                and (ver is None or (pr.version == ver if pr.version is not None else ver == latest))]
+
+    def catalog_usages(self, ref: str) -> list[str]:
+        """Dónde se usa `ref` (texto para mostrar): recetas del catálogo y lugares de la figura abierta. No mira otros
+        `.proyecto` del disco (para eso `afm catalogo usos --buscar`)."""
+        cat = self._catalog()
+        out = [f"receta «{os.path.basename(u['archivo'])}» (lugar «{u['lugar']}»)" for u in cat.usages(ref)]
+        out += [f"la figura abierta (lugar «{place}»)" for place in self._parts_using(cat, ref)]
+        return out
+
+    def catalog_delete(self, refs) -> dict:
+        """Elimina del catálogo las versiones `id@n` y deja la figura abierta coherente: los lugares que usaban una pieza
+        eliminada vuelven a la del modelo. Devuelve {"eliminadas": [ref], "quitadas": [lugar], "errores": [str]}."""
+        from ..catalog import CatalogError
+
+        cat = self._catalog()
+        try:
+            res = cat.delete_pieces(list(refs))
+        except CatalogError as exc:
+            raise ValueError(str(exc)) from exc
+        gone = set(res.refs)
+        left = {m.id for m in cat.list(all_versions=True)}
+        cleared = []
+        for place, pr in list(self.project.parts.items()):
+            if pr.linea not in (None, cat.name):
+                continue
+            hit = f"{pr.id}@{pr.version}" in gone if pr.version is not None else (pr.id not in left and any(r.startswith(pr.id + "@") for r in gone))
+            if hit and self.clear_part(place):
+                cleared.append(place)
+        if cleared:
+            self._part_preview = None
+        return {"eliminadas": res.refs, "quitadas": cleared, "errores": res.errors}
+
     def _resolved_parts(self):
         """`Project.parts` -> piezas cargadas del catálogo abierto (o de la ruta por defecto de su línea)."""
         if not self.project.parts:

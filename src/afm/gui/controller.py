@@ -2343,6 +2343,43 @@ class Controller:
             return False
         return self.catalog_add_done(res, None)
 
+    # ---- gestor del catálogo: ver y eliminar piezas
+    def catalog_pieces(self) -> list:
+        """Todas las versiones de las piezas del catálogo abierto (vacío si no hay catálogo o no se pudo leer)."""
+        try:
+            return self.session.catalog_pieces() if self.session.catalog_root else []
+        except ValueError:
+            return []
+
+    def catalog_usages(self, ref: str) -> list[str]:
+        try:
+            return self.session.catalog_usages(ref)
+        except ValueError:
+            return []
+
+    def catalog_delete(self, refs) -> bool:
+        """Elimina del catálogo abierto esas versiones (`id@n`). Los lugares de la figura que las usaban vuelven a la pieza
+        del modelo. No se puede deshacer: la ventana pide confirmación antes."""
+        refs = list(refs)
+        if self.busy:
+            self._changed("Esperá a que termine la tarea en curso para eliminar piezas.", scene=False)
+            return False
+        if not refs:
+            self._changed("No hay ninguna pieza elegida para eliminar.", scene=False)
+            return False
+        try:
+            res = self.session.catalog_delete(refs)
+        except ValueError as e:
+            self._changed(f"No se eliminó nada: {e}", scene=False)
+            return False
+        msg = f"Eliminadas {len(res['eliminadas'])} pieza(s): {', '.join(res['eliminadas'])}."
+        if res["quitadas"]:
+            msg += f" Vuelven a la pieza del modelo: {', '.join(res['quitadas'])} (hay que volver a generar la figura)."
+        if res["errores"]:
+            msg += " ERRORES: " + "; ".join(res["errores"])
+        self._changed(msg, scene=bool(res["quitadas"]))
+        return not res["errores"]
+
     def clear_hand(self) -> None:
         self._changed("Se vuelve a usar la mano original del modelo." if self.session.clear_hand()
                       else "No había mano de reemplazo.")

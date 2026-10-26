@@ -126,6 +126,8 @@ def _help(parent: Gtk.Box, text: str) -> None:
 
 
 class MainWindow(Gtk.ApplicationWindow):
+    _catalog_win = None                                # ventana «Administrar catálogo» abierta (una sola)
+
     def __init__(self, app: Gtk.Application, ctrl: Controller):
         super().__init__(application=app, title="Action Figure Maker", default_width=1240, default_height=780)
         self.ctrl = ctrl
@@ -472,7 +474,8 @@ En naranja se ve el contorno del pasador (vástago y cabeza); en verde, la posic
         self.btn_cat_open = self._button("Abrir catálogo de la línea (carpeta)…", self._on_catalog_open)
         self.lbl_catalog = Gtk.Label(label="Sin catálogo abierto", xalign=0, wrap=True)
         self.btn_cat_add = self._button("Catalogar esta figura…", self._on_catalog_add)
-        for w in (self.btn_cat_new, self.btn_cat_open, self.lbl_catalog, self.btn_cat_add):
+        self.btn_cat_manage = self._button("Administrar catálogo (ver y eliminar piezas)…", self._on_catalog_manage)
+        for w in (self.btn_cat_new, self.btn_cat_open, self.lbl_catalog, self.btn_cat_add, self.btn_cat_manage):
             sec.append(w)
         self.btn_cat_forget = self._button("Olvidar el catálogo recordado", lambda *_: self.ctrl.forget_catalog())
         self.btn_cat_forget.set_tooltip_text("Cierra el catálogo y borra lo recordado: la próxima vez hay que abrirlo a mano. "
@@ -501,7 +504,9 @@ En naranja se ve el contorno del pasador (vástago y cabeza); en verde, la posic
                    "IoU y escalón entre las caras). La mano de catálogo se acopla en la muñeca del brazo de catálogo. «Revisar» mide el acople de cada pieza SIN "
                    "generar y la dibuja ya colocada (verde = ok, ámbar = aviso, rojo = no); «Ver por qué» superpone las dos "
                    "caras. Una pelvis sola conserva el torso, brazos y piernas del modelo: definí antes el plano de cintura. "
-                   "«Dividir figura actual» separa las piezas crudas para ajustar su escala (una sola o por eje X, Y, Z; sirve para la pieza del modelo y para la de catálogo); los puertos acompañan el cambio "
+                   "«Administrar catálogo» abre una ventana con todas las versiones de pieza, una vista previa 3/4 de cada una "
+                   "y el borrado de una o varias (útil si se catalogó desde un proyecto equivocado); los lugares de esta figura que usaban una pieza "
+                   "borrada vuelven a la del modelo. «Dividir figura actual» separa las piezas crudas para ajustar su escala (una sola o por eje X, Y, Z; sirve para la pieza del modelo y para la de catálogo); los puertos acompañan el cambio "
                    "y los pasadores se regeneran con las medidas del proyecto. Brazos y piernas se ajustan por par espejado. "
                    "«Restablecer» vuelve a las proporciones originales. Con un torso de catálogo la figura sale entera del catálogo. El catálogo se reabre solo "
                    "al cargar la figura.")
@@ -1167,6 +1172,9 @@ exportar; tarda un poco más.")
         self.btn_cat_new.set_sensitive(not ctrl.busy)
         self.btn_cat_open.set_sensitive(not ctrl.busy)
         self.btn_cat_add.set_sensitive(bool(loaded and root and not ctrl.busy))
+        self.btn_cat_manage.set_sensitive(bool(root and not ctrl.busy))
+        if self._catalog_win is not None:
+            self._catalog_win.refresh_if_changed()
         self.lbl_catalog.set_text("Sin catálogo abierto" if not root else f"Catálogo: {root}")
         self.btn_cat_forget.set_sensitive(bool(root and not ctrl.busy))
         self.btn_cat_review.set_sensitive(bool(loaded and (ctrl.session.project.parts or ctrl.session.project.part_scales) and not ctrl.busy))
@@ -1443,6 +1451,23 @@ exportar; tarda un poco más.")
                 self._error(e)
 
         dlg.select_folder(self, None, finished)
+
+    def _on_catalog_manage(self, *_):
+        """«Administrar catálogo…»: ventana con la lista de piezas, vista previa 3/4 y eliminación (una sola ventana)."""
+        if self._catalog_win is not None:
+            self._catalog_win.refresh_if_changed()
+            self._catalog_win.present()
+            return
+        from .catalog_window import CatalogManagerWindow
+
+        win = CatalogManagerWindow(self, self.ctrl)
+        win.connect("close-request", self._on_catalog_manager_closed)
+        self._catalog_win = win
+        win.present()
+
+    def _on_catalog_manager_closed(self, *_) -> bool:
+        self._catalog_win = None
+        return False                                  # deja que GTK cierre la ventana
 
     def _on_catalog_add(self, *_):
         import re

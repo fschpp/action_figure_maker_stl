@@ -53,6 +53,7 @@ afm catalogo importar-mano ~/catalogos/proceres-130 out/mano/mano.stl   # mano e
 afm catalogo agregar-stl RUTA pierna.stl --tipo pierna --puerto cadera x1 y1 z1 x2 y2 z2 x3 y3 z3
 afm catalogo listar RUTA [--tipo mano] [--compatible-con brazo-01]
 afm catalogo verificar RUTA
+afm catalogo eliminar RUTA pierna-belgrano-01@1 brazo-belgrano-01@1 [--buscar DIR] [--si]   # borra versiones (id@n) del disco; avisa quién las usa
 ```
 
 ## Convenciones
