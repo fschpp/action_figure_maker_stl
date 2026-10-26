@@ -503,7 +503,7 @@ En naranja se ve el contorno del pasador (vástago y cabeza); en verde, la posic
         sec.append(self.parts_box)
         self._parts_sig = None
         _help(sec, "«Crear catálogo» arma una carpeta nueva para la línea (nombre y altura de figura; es lo mismo que «afm catalogo "
-                   "crear») y la deja abierta. Si ya tenés una, abrila con «Abrir catálogo». «Catalogar esta figura» guarda "
+                   "crear») y la deja abierta. Si ya tenés una, abrila con «Abrir catálogo». «Catalogar esta figura» (elegís los lugares y si va como versión nueva; con cabeza de reemplazo guarda ESA cabeza) guarda "
                    "sus piezas crudas (cabeza, torso, brazo, pierna, con los planos y siluetas que ya definiste) para usarlas en "
                    "otras figuras. En cada lugar elegí «la del modelo» o una pieza del catálogo: «Generar figura» la pone en el "
                    "puerto que el modelo tiene en ese lugar, sin escalarla, y la fila muestra cómo acopla (ok / aviso / no, "
@@ -1524,12 +1524,64 @@ exportar; tarda un poco más.")
         return False                                  # deja que GTK cierre la ventana
 
     def _on_catalog_add(self, *_):
-        import re
+        """«Catalogar esta figura…»: diálogo para elegir qué lugares guardar y si va como versión nueva."""
+        opts = self.ctrl.catalog_add_options()
+        if opts is None:
+            return
+        win = Gtk.Window(title="Catalogar esta figura", transient_for=self, modal=True, resizable=False)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_top=12, margin_bottom=12, margin_start=12, margin_end=12)
+        box.append(Gtk.Label(label=f"Piezas que se guardan en el catálogo (ids «…-{opts['prefijo']}-01»)", xalign=0, wrap=True,
+                             max_width_chars=60))
+        checks: dict[str, Gtk.CheckButton] = {}
+        for row in opts["lugares"]:
+            lugar = row["lugar"]
+            text = lugar.capitalize() + (f" — {row['nota']}" if row["nota"] else "")
+            if row["existentes"]:
+                text += f"  (ya está: {', '.join(row['existentes'])})"
+            chk = Gtk.CheckButton(label=text)
+            chk.set_sensitive(row["disponible"])
+            chk.set_active(bool(row["disponible"] and (not row["existentes"] or (lugar == "cabeza" and opts["cabeza_reemplazo"]))))
+            checks[lugar] = chk
+            box.append(chk)
+        newv = Gtk.CheckButton(label="Guardar como versión nueva si la pieza ya existe")
+        box.append(newv)
 
-        stl = self.ctrl.session.stl_path
-        prefix = re.sub(r"[^a-z0-9]+", "-", os.path.splitext(os.path.basename(stl or "figura"))[0].lower()).strip("-") or "figura"
-        self._run_task("Catalogando la figura…", lambda progress: self.ctrl.session.catalog_add(prefix),
-                       lambda res, err: self.ctrl.catalog_add_done(res, err), "Figura catalogada")
+        def sync(*_):
+            used = any(chk.get_active() and row["existentes"] for chk, row in zip(checks.values(), opts["lugares"]))
+            if used:
+                newv.set_active(True)
+
+        for chk in checks.values():
+            chk.connect("toggled", sync)
+        sync()
+        hint = ("La cabeza que se guarda es la de reemplazo que importaste (ya escalada a la base del cuello), no la del modelo. "
+                if opts["cabeza_reemplazo"] else "")
+        hint += ("Para subir solo una cabeza nueva dejá tildada únicamente «Cabeza» y «versión nueva»: el resto del catálogo no se toca "
+                 "y las figuras que ya usan la versión anterior siguen usándola.")
+        lab = Gtk.Label(label=hint, xalign=0, wrap=True, max_width_chars=60)
+        lab.add_css_class("dim-label")
+        box.append(lab)
+        row = Gtk.Box(spacing=6, halign=Gtk.Align.END, margin_top=6)
+        cancel, ok = Gtk.Button(label="Cancelar"), Gtk.Button(label="Catalogar")
+        ok.add_css_class("suggested-action")
+        row.append(cancel)
+        row.append(ok)
+        box.append(row)
+        win.set_child(box)
+        cancel.connect("clicked", lambda *_: win.close())
+
+        def go(*_):
+            places = [lugar for lugar, chk in checks.items() if chk.get_active()]
+            if not places:
+                return
+            nv, prefix = newv.get_active(), opts["prefijo"]
+            win.close()
+            self._run_task("Catalogando la figura…",
+                           lambda progress: self.ctrl.session.catalog_add(prefix, places=places, new_version=nv),
+                           lambda res, err: self.ctrl.catalog_add_done(res, err), "Figura catalogada")
+
+        ok.connect("clicked", go)
+        win.present()
 
     def _on_hand_replacement(self, *_):
         self._pick_file("Mano estándar (STL)", ["*.stl"], "Archivos STL", self.ctrl.start_hand_place)

@@ -21,6 +21,7 @@ Convenciones:
 from __future__ import annotations
 
 import dataclasses
+import os
 import re
 from dataclasses import dataclass, field
 
@@ -206,19 +207,24 @@ def extract_all(body: S.Manifold, project: Project, prefix: str = "figura", plac
     neck = None
     if project.head is not None:
         neck = neck_plane(project.head)
-        hs = dataclasses.replace(project.head, replacement_path=None)       # la cabeza original, no la de reemplazo
+        hs = dataclasses.replace(project.head, replacement_path=None)       # el cuello del MODELO: la cabeza original
         split = split_head(body, hs, p)
         n_fr = PortFrame(split.face.center.copy(), split.face.outward.copy(), reference_for(split.face.outward, (0.0, 1.0, 0.0)))
         head_tm = _clean(split.head, "cabeza", res.warnings)
         n_fr, n_face = _port_face(head_tm, n_fr, "cuello", res.warnings)
-        head_port = Port("cuello", "enchufe", n_fr, n_face)
+        head_port = Port("cuello", "enchufe", n_fr, n_face)       # el torso se acopla a este (el cuello del modelo)
         if "cabeza" in want:
-            res.pieces.append(Extracted(_meta("cabeza", prefix, {"cuello": head_port}, p, origin, "centro", False,
-                                              descripcion=f"Cabeza de {prefix}"), head_tm))
+            if project.head.replacement_path:
+                res.pieces.append(_replacement_head(project.head, neck, split.face, prefix, origin, p, res.warnings))
+            else:
+                res.pieces.append(Extracted(_meta("cabeza", prefix, {"cuello": head_port}, p, origin, "centro", False,
+                                                  descripcion=f"Cabeza de {prefix}"), head_tm))
         below = S.halfspace(Plane.from_normal(neck.origin, -neck.normal))
         half = S.intersection(half, below)
     elif "cabeza" in want:
         res.warnings.append("el proyecto no define el plano del cuello: no hay cabeza para extraer")
+    if want <= {"cabeza"}:                       # solo la cabeza (p. ej. catalogar la cabeza de reemplazo): sin separar miembros
+        return res
 
     # --- miembros
     ports_by_place: dict[str, Port] = {}        # puerto del miembro (lado +X), por clase
@@ -275,6 +281,35 @@ def extract_all(body: S.Manifold, project: Project, prefix: str = "figura", plac
         torso = _whole_torso(body, half, neck, limbs, cut_limbs, p, res.warnings)
         _torso_pieces(res, torso, project, prefix, origin, ports_by_place, head_port)
     return res
+
+
+def _replacement_head(spec: HeadSpec, neck: Plane, model_face, prefix: str, origin: dict, p: Params, warnings: list) -> Extracted:
+    """Pieza `cabeza` con la cabeza de REEMPLAZO del proyecto (la de más detalle que se importó en lugar de la del modelo).
+
+    Sale tal como la arma la GUI: orientada, con la base cortada y escalada (uniforme) para que su base iguale la del cuello
+    del modelo, apoyada sobre el plano del cuello, sin pasador (eso se genera al armar). El puerto `cuello` sale de la base
+    de ESTA cabeza; el torso sigue acoplándose al cuello del modelo, que la base igualada reproduce."""
+    from .head import MIN_BASE_IOU, _face_from_head, fit_replacement
+
+    path = spec.replacement_path
+    if not os.path.isfile(path):
+        raise ExtractError(f"la cabeza de reemplazo «{path}» ya no existe: elegí el STL de nuevo (o quitá la cabeza de reemplazo)")
+    try:
+        placed, info = fit_replacement(spec, neck, model_face)
+    except ValueError as exc:
+        raise ExtractError(f"la cabeza de reemplazo «{os.path.basename(path)}»: {exc}") from exc
+    face = _face_from_head(placed, neck)
+    fr = PortFrame(face.center.copy(), face.outward.copy(), reference_for(face.outward, (0.0, 1.0, 0.0)))
+    tm = _clean(placed, "cabeza", warnings)
+    fr, pface = _port_face(tm, fr, "cuello", warnings)
+    iou = info.get("coincidencia_base")
+    if iou is not None and iou < MIN_BASE_IOU:
+        warnings.append(f"cabeza de reemplazo: su base coincide solo un {100 * iou:.0f} % con el cuello del modelo: al armarla en "
+                        "otra figura el acople puede salir «aviso» o «no»")
+    name = os.path.basename(path)
+    meta = _meta("cabeza", prefix, {"cuello": Port("cuello", "enchufe", fr, pface)}, p, {**origin, "cabeza_reemplazo": name},
+                 "centro", False, descripcion=f"Cabeza de {prefix} (reemplazo: {name}, escala ×{info['escala']:.3g})")
+    return Extracted(meta, tm)
 
 
 def _closable(mf) -> bool:

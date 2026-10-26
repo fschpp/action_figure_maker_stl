@@ -2332,6 +2332,15 @@ class Controller:
                       scene=False)
         return True
 
+    def catalog_add_options(self) -> dict | None:
+        """Datos para el diálogo de «Catalogar esta figura…» (ver `Session.catalog_add_options`); None si no se puede."""
+        if not self._need_loaded():
+            return None
+        if not self.session.catalog_root:
+            self._changed("Primero abrí un catálogo de piezas.", scene=False)
+            return None
+        return self.session.catalog_add_options()
+
     def catalog_add_current(self, prefix: str, places=None, wrist_points=None, labels=(), new_version: bool = False) -> bool:
         """«Catalogar esta figura…»: guarda sus piezas crudas con puertos en el catálogo abierto."""
         if not self._need_loaded():
