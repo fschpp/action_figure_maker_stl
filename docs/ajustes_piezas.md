@@ -68,3 +68,25 @@ admite un brazo y una pierna de trabajo, con su par por espejo, al dividir el mo
 Las pruebas automáticas cubren la escala de mallas y puertos, preservación de articulaciones, pelvis desplazada en su
 archivo de origen, conservación del torso y miembros, guardado/reapertura, CLI y detección de resultados incompatibles.
 La GUI se prueba mediante Session/Controller sin depender de GTK; verificar visualmente el panel en el equipo del usuario.
+
+## Armar desde catálogo: abrir receta, mano y escalas
+
+En la ventana **Armar desde catálogo** (sin STL ni proyecto):
+
+- **Abrir receta…** carga una `*.receta.json` (por defecto se busca en `<catálogo>/figuras/`): piezas, clic de hombro y cadera,
+  ajustes de la mano y escalas. Tiene que ser de la línea del catálogo abierto; si una pieza ya no existe, ese lugar queda vacío y
+  la ventana lo avisa. Retocá y usá «Guardar receta» con **otro nombre** (la receta abierta no se modifica sola).
+- **Mano: giro y unión**: giro extra en grados alrededor de la muñeca, unión «solape» (la mano se hunde `solape` mm en el brazo y
+  queda soldada) o «giro» (pieza aparte con pasador, gira libre).
+- **Escala de cada pieza**: X (ancho), Y (profundidad) y Z (alto) por torso, pelvis, cabeza, brazo y pierna, con «igual» para escala
+  uniforme. Se escala alrededor de la unión principal de cada pieza (igual que en el modelo) y las demás se acoplan a los puertos
+  nuevos. La mano no se escala.
+
+En la receta (`afm-receta-1`) queda así, y `afm armar` lo respeta:
+
+```json
+"ajustes": {
+  "mano": {"yaw": 25, "union": "solape", "solape": 0.8},
+  "escalas": {"brazo": [1, 1, 1.15], "torso": 1.04}
+}
+```

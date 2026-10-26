@@ -14,12 +14,15 @@ from dataclasses import dataclass, field
 from . import pipeline as P
 from .assembly import AssemblyError, PartChoice, synthesize_host
 from .catalog import Catalog, CatalogError, default_root, parse_ref
+from .customize import scale_choice
 from .params import Params
 
 RECIPE_FORMAT = "afm-receta-1"
 PLACES = ("cabeza", "torso", "pelvis", "brazo", "pierna", "mano")
 OPTIONS = {"cintura": False, "clic_hombro": False, "clic_cadera": False, "torso_mirror": True}
 HAND_ADJUSTS = ("yaw", "union", "solape")
+AJUSTES = ("mano", "escalas")
+SCALE_PLACES = ("torso", "pelvis", "cabeza", "brazo", "pierna")     # la mano no se reescala (mm reales)
 
 
 class RecipeError(ValueError):
@@ -65,7 +68,8 @@ class Recipe:
     def problems(self) -> list[str]:
         out = [f"lugar desconocido «{k}» (hay {', '.join(PLACES)})" for k in self.lugares if k not in PLACES]
         out += [f"opción desconocida «{k}» (hay {', '.join(OPTIONS)})" for k in self.opciones if k not in OPTIONS]
-        out += [f"ajuste desconocido «{k}» (solo hay «mano»)" for k in self.ajustes if k != "mano"]
+        out += [f"ajuste desconocido «{k}» (hay {', '.join(AJUSTES)})" for k in self.ajustes if k not in AJUSTES]
+        out += self.scale_problems()
         out += [f"ajuste de mano desconocido «{k}» (hay {', '.join(HAND_ADJUSTS)})" for k in (self.ajustes.get("mano") or {})
                 if k not in HAND_ADJUSTS]
         un = (self.ajustes.get("mano") or {}).get("union")
@@ -84,6 +88,31 @@ class Recipe:
         if not self.options()["cintura"] and self.lugares.get("pelvis"):
             out.append("hay una pieza en «pelvis» pero la opción «cintura» está apagada")
         return out
+
+    def scale_problems(self) -> list[str]:
+        """Escalas por pieza mal formadas: lugar que no se escala o sin pieza, y factores que no son 1 o 3 números > 0."""
+        from .assembly import AssemblyError
+        from .customize import scale_vector
+
+        out = []
+        for lugar, k in (self.ajustes.get("escalas") or {}).items():
+            if lugar not in SCALE_PLACES:
+                out.append(f"escala de «{lugar}»: ese lugar no se escala (hay {', '.join(SCALE_PLACES)})")
+                continue
+            try:
+                scale_vector(k)
+            except (AssemblyError, TypeError, ValueError) as exc:
+                out.append(f"escala de «{lugar}»: {exc}")
+                continue
+            if not self.lugares.get(lugar):
+                out.append(f"escala de «{lugar}» pero ese lugar no tiene pieza")
+        return out
+
+    def scales(self) -> dict:
+        """Lugar -> escala (número o [sx, sy, sz]) sin las que son ×1."""
+        from .customize import is_identity, normalize_scale
+
+        return {k: normalize_scale(v) for k, v in (self.ajustes.get("escalas") or {}).items() if not is_identity(v)}
 
     def options(self) -> dict:
         return {**OPTIONS, **self.opciones}
@@ -132,6 +161,9 @@ def load_choices(recipe: Recipe, catalog_root: str | None = None) -> tuple[Catal
         choices = {key: PartChoice.from_catalog(cat, recipe.lugares[lugar]) for lugar, key in recipe.parts_keys().items()}
     except CatalogError as exc:
         raise RecipeError(str(exc)) from exc
+    keys = recipe.parts_keys()
+    for lugar, k in recipe.scales().items():              # cada pieza se escala por separado, alrededor de su unión principal
+        choices[keys[lugar]] = scale_choice(choices[keys[lugar]], k)
     return cat, choices
 
 

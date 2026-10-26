@@ -4,16 +4,18 @@ La lógica está en `figure_builder.py` (se prueba sin GTK). Acá: un desplegabl
 acopla a la ya elegida), vista previa 3/4 de la pieza elegida y, al armar, de la figura entera, y el armado en un hilo."""
 from __future__ import annotations
 
+import os
 import threading
 import time
 
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gdk, GLib, Gtk, Pango  # noqa: E402
+from gi.repository import Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 
 from .catalog_manager import PreviewRenderer, view_bounds  # noqa: E402,F401  (view_bounds: el encuadre lo hace PreviewRenderer)
-from .figure_builder import NONE_LABEL, PLACE_LABELS, PLACE_ORDER, FigureBuilder, summary  # noqa: E402
+from ..recipe import SCALE_PLACES  # noqa: E402
+from .figure_builder import HAND_JOINS, NONE_LABEL, PLACE_LABELS, PLACE_ORDER, FigureBuilder, summary  # noqa: E402
 
 
 class FigureBuilderWindow(Gtk.Window):
@@ -23,6 +25,9 @@ class FigureBuilderWindow(Gtk.Window):
         self.preview = PreviewRenderer()
         self._refs: dict[str, list] = {p: [] for p in PLACE_ORDER}      # lugar -> refs en el orden del desplegable
         self._dd: dict[str, Gtk.DropDown] = {}
+        self._scale_sp: dict[str, list[Gtk.SpinButton]] = {}      # lugar -> [X, Y, Z]
+        self._scale_lock: dict[str, Gtk.CheckButton] = {}
+        self._scale_row: dict[str, Gtk.Widget] = {}
         self._updating = False
         self._busy = False
         self._refill_pending = False
@@ -51,9 +56,16 @@ class FigureBuilderWindow(Gtk.Window):
         title.add_css_class("heading")
         box.append(title)
         box.append(Gtk.Label(label="Nombre de la figura", xalign=0))
+        name_row = Gtk.Box(spacing=6)
         self.ent_name = Gtk.Entry(text=self.builder.name, hexpand=True)
         self.ent_name.connect("changed", self._on_name)
-        box.append(self.ent_name)
+        name_row.append(self.ent_name)
+        self.btn_open = Gtk.Button(label="Abrir receta…")
+        self.btn_open.set_tooltip_text("Carga una receta guardada (piezas, opciones, mano y escalas) para retocarla. "
+                                       "Guardala con otro nombre para no pisar la original.")
+        self.btn_open.connect("clicked", self._on_open_recipe)
+        name_row.append(self.btn_open)
+        box.append(name_row)
         box.append(Gtk.Label(label="Pieza de cada lugar (empezá por el torso)", xalign=0, margin_top=6))
         for place in PLACE_ORDER:
             row = Gtk.Box(spacing=8)
@@ -69,6 +81,8 @@ class FigureBuilderWindow(Gtk.Window):
         for chk, key in ((self.chk_shoulder, "clic_hombro"), (self.chk_hip, "clic_cadera")):
             chk.connect("toggled", lambda b, k=key: self.builder.options.__setitem__(k, b.get_active()))
             box.append(chk)
+        box.append(self._build_hand_section())
+        box.append(self._build_scale_section())
         self.lbl_problems = Gtk.Label(xalign=0, wrap=True)
         self.lbl_problems.add_css_class("dim-label")
         box.append(self.lbl_problems)
@@ -91,6 +105,61 @@ class FigureBuilderWindow(Gtk.Window):
         hint.add_css_class("dim-label")
         box.append(hint)
         return box
+
+    def _build_hand_section(self) -> Gtk.Widget:
+        exp = Gtk.Expander(label="Mano: giro y unión")
+        self.exp_hand = exp
+        grid = Gtk.Grid(row_spacing=6, column_spacing=8, margin_top=6)
+        grid.attach(Gtk.Label(label="Giro extra (°)", xalign=0), 0, 0, 1, 1)
+        self.sp_yaw = Gtk.SpinButton.new_with_range(-360.0, 360.0, 5.0)
+        self.sp_yaw.set_digits(1)
+        self.sp_yaw.set_tooltip_text("Gira la mano alrededor de la muñeca. 0 = como la guarda el catálogo.")
+        self.sp_yaw.connect("value-changed", self._on_hand)
+        grid.attach(self.sp_yaw, 1, 0, 1, 1)
+        grid.attach(Gtk.Label(label="Unión", xalign=0), 0, 1, 1, 1)
+        self.dd_join = Gtk.DropDown.new_from_strings(["solape (mano soldada al brazo)", "giro (mano aparte, gira libre)"])
+        self.dd_join.set_tooltip_text("«solape»: la base de la mano se hunde en el brazo y queda soldada. «giro»: la mano es otra "
+                                      "pieza con pasador y gira sobre la muñeca.")
+        self.dd_join.connect("notify::selected", self._on_hand)
+        grid.attach(self.dd_join, 1, 1, 1, 1)
+        grid.attach(Gtk.Label(label="Solape (mm)", xalign=0), 0, 2, 1, 1)
+        self.sp_overlap = Gtk.SpinButton.new_with_range(0.0, 5.0, 0.1)
+        self.sp_overlap.set_digits(1)
+        self.sp_overlap.set_tooltip_text("Cuánto se hunde la base de la mano en el brazo (solo con unión «solape»).")
+        self.sp_overlap.connect("value-changed", self._on_hand)
+        grid.attach(self.sp_overlap, 1, 2, 1, 1)
+        exp.set_child(grid)
+        return exp
+
+    def _build_scale_section(self) -> Gtk.Widget:
+        exp = Gtk.Expander(label="Escala de cada pieza (X ancho · Y profundidad · Z alto)")
+        self.exp_scale = exp
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, margin_top=6)
+        for place in SCALE_PLACES:
+            row = Gtk.Box(spacing=4)
+            row.append(Gtk.Label(label=PLACE_LABELS[place], xalign=0, width_chars=7))
+            sps = []
+            for axis in "XYZ":
+                sp = Gtk.SpinButton.new_with_range(0.5, 2.0, 0.01)
+                sp.set_digits(2)
+                sp.set_value(1.0)
+                sp.set_width_chars(5)
+                sp.set_tooltip_text(f"Factor en {axis}: 1 = original, 1,10 = 10 % mayor, 0,95 = 5 % menor.")
+                sp.connect("value-changed", self._on_scale, place, axis)
+                sps.append(sp)
+                row.append(sp)
+            lock = Gtk.CheckButton(label="igual", active=True)
+            lock.set_tooltip_text("Los tres ejes se mueven juntos (escala uniforme).")
+            row.append(lock)
+            self._scale_sp[place], self._scale_lock[place], self._scale_row[place] = sps, lock, row
+            box.append(row)
+        note = Gtk.Label(label="La pieza se escala alrededor de su unión principal y las demás se vuelven a acoplar. Los pasadores y las "
+                               "holguras no se escalan (son mm de impresión). La mano va siempre en mm reales. Revisá la validación al armar.",
+                         xalign=0, wrap=True)
+        note.add_css_class("dim-label")
+        box.append(note)
+        exp.set_child(box)
+        return exp
 
     def _build_preview(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, margin_top=10, margin_bottom=10, margin_start=10, margin_end=10)
@@ -138,6 +207,7 @@ class FigureBuilderWindow(Gtk.Window):
                 dd.set_tooltip_text(None if metas else "El catálogo no tiene piezas de este tipo.")
         finally:
             self._updating = False
+        self._sync_controls()
         self._sync()
 
     def _sync(self) -> None:
@@ -146,6 +216,7 @@ class FigureBuilderWindow(Gtk.Window):
         self.btn_build.set_sensitive(not probs and not self._busy)
         self.btn_recipe.set_sensitive(not probs and not self._busy)
         self.ent_name.set_sensitive(not self._busy)
+        self.btn_open.set_sensitive(not self._busy)
 
     def _on_name(self, entry: Gtk.Entry) -> None:
         self.builder.name = entry.get_text().strip()
@@ -177,6 +248,96 @@ class FigureBuilderWindow(Gtk.Window):
         self._refill_pending = False
         self._refill()
         return False
+
+    # ------------------------------------------------------------ mano, escalas y receta abierta
+    def _sync_controls(self) -> None:
+        """Pone los controles de mano y escalas como están en el constructor y habilita solo los que tienen pieza."""
+        b = self.builder
+        self._updating = True
+        try:
+            self.sp_yaw.set_value(b.hand["yaw"])
+            self.dd_join.set_selected(HAND_JOINS.index(b.hand["union"]))
+            self.sp_overlap.set_value(b.hand["solape"])
+            for place in SCALE_PLACES:
+                k = b.scale_of(place)
+                for sp, v in zip(self._scale_sp[place], k):
+                    sp.set_value(v)
+                self._scale_lock[place].set_active(max(k) - min(k) < 1e-9)
+        finally:
+            self._updating = False
+        has_hand = bool(b.choices.get("mano")) and not self._busy
+        self.exp_hand.set_sensitive(has_hand)
+        self.sp_overlap.set_sensitive(b.hand["union"] == "solape")
+        for place in SCALE_PLACES:
+            self._scale_row[place].set_sensitive(bool(b.choices.get(place)) and not self._busy)
+
+    def _on_hand(self, *_args) -> None:
+        if self._updating:
+            return
+        try:
+            self.builder.set_hand(yaw=self.sp_yaw.get_value(), union=HAND_JOINS[self.dd_join.get_selected()],
+                                  solape=self.sp_overlap.get_value())
+        except ValueError as exc:
+            self.lbl_result.set_text(str(exc))
+        self.sp_overlap.set_sensitive(self.builder.hand["union"] == "solape")
+
+    def _on_scale(self, sp: Gtk.SpinButton, place: str, axis: str) -> None:
+        if self._updating:
+            return
+        sps = self._scale_sp[place]
+        if self._scale_lock[place].get_active():          # «igual»: el valor que se tocó pasa a los otros dos ejes
+            v = sp.get_value()
+            self._updating = True
+            try:
+                for other in sps:
+                    other.set_value(v)
+            finally:
+                self._updating = False
+        try:
+            self.builder.set_scale(place, [x.get_value() for x in sps])
+        except ValueError as exc:
+            self.lbl_result.set_text(str(exc))
+
+    def _on_open_recipe(self, *_) -> None:
+        dlg = Gtk.FileDialog(title="Abrir receta para retocarla")
+        flt = Gtk.FileFilter()
+        flt.set_name("Recetas (*.receta.json)")
+        flt.add_pattern("*.receta.json")
+        flt.add_pattern("*.json")
+        store = Gio.ListStore.new(Gtk.FileFilter)
+        store.append(flt)
+        dlg.set_filters(store)
+        start = os.path.join(self.builder.root, "figuras")
+        folder = start if os.path.isdir(start) else (self._last_dir if self._last_dir and os.path.isdir(self._last_dir) else self.builder.root)
+        dlg.set_initial_folder(Gio.File.new_for_path(folder))
+
+        def picked(d, res):
+            try:
+                path = d.open_finish(res).get_path()
+            except GLib.Error:
+                return                                        # cancelado
+            self._open_recipe(path)
+
+        dlg.open(self, None, picked)
+
+    def _open_recipe(self, path: str) -> None:
+        try:
+            warns = self.builder.load_recipe(path)
+        except ValueError as exc:
+            self.lbl_result.set_text(str(exc))
+            return
+        self.ent_name.set_text(self.builder.name)
+        self._sync_controls()
+        self.chk_shoulder.set_active(self.builder.options["clic_hombro"])
+        self.chk_hip.set_active(self.builder.options["clic_cadera"])
+        self._refill()
+        msg = f"Receta abierta: {path}\nRetocala y guardala con otro nombre, o armala."
+        if warns:
+            msg += "\nNo se pudo cargar todo:\n" + "\n".join(f"• {w}" for w in warns)
+        self.lbl_result.set_text(msg)
+        shown = self.builder.choices.get("torso")
+        if shown:
+            self._show_piece(shown)
 
     # ------------------------------------------------------------ vista previa
     def _show_piece(self, ref: str) -> None:

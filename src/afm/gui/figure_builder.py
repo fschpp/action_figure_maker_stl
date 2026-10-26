@@ -9,7 +9,9 @@ import os
 import re
 
 from ..catalog import Catalog, CatalogError
-from ..recipe import PLACES, Recipe
+from ..customize import is_identity, normalize_scale, scale_vector
+from ..hand import DEFAULT_OVERLAP_MM
+from ..recipe import PLACES, SCALE_PLACES, Recipe, RecipeError
 
 # lugar -> tipos de pieza que acepta (el torso puede ser entero o solo la parte de arriba)
 PLACE_TYPES = {"torso": ("torso", "torso_sup"), "pelvis": ("pelvis",), "cabeza": ("cabeza",), "brazo": ("brazo",),
@@ -17,6 +19,7 @@ PLACE_TYPES = {"torso": ("torso", "torso_sup"), "pelvis": ("pelvis",), "cabeza":
 PLACE_ORDER = ("torso", "pelvis", "cabeza", "brazo", "pierna", "mano")
 PLACE_LABELS = {"torso": "Torso", "pelvis": "Pelvis", "cabeza": "Cabeza", "brazo": "Brazo", "pierna": "Pierna", "mano": "Mano"}
 NONE_LABEL = "(ninguna)"
+HAND_JOINS = ("solape", "giro")
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _RANK = {"ok": 0, "aviso": 1, "no": 2}
 
@@ -29,6 +32,8 @@ class FigureBuilder:
         self.name = name
         self.choices: dict[str, str | None] = {p: None for p in PLACE_ORDER}      # lugar -> "id@versión"
         self.options = {"clic_hombro": False, "clic_cadera": False, "torso_mirror": True}
+        self.hand = {"yaw": 0.0, "union": "solape", "solape": DEFAULT_OVERLAP_MM}     # ajustes de la mano (grados, unión, mm)
+        self.scales: dict[str, list[float]] = {}                                        # lugar -> [sx, sy, sz] (solo los ≠ ×1)
 
     # ------------------------------------------------------------------ catálogo
     def catalog(self) -> Catalog:
@@ -99,13 +104,98 @@ class FigureBuilder:
         if place == "torso" and not self.waist:
             self.choices["pelvis"] = None             # un torso entero no lleva pelvis aparte
 
+    # ------------------------------------------------------------------ ajustes de mano y escalas
+    def set_hand(self, yaw: float | None = None, union: str | None = None, solape: float | None = None) -> None:
+        """Giro extra de la mano (°) alrededor de la muñeca, tipo de unión («solape»: mano soldada al brazo; «giro»: mano
+        aparte con pasador, gira libre) y cuánto se hunde la base de la mano en el brazo (mm, solo con «solape»)."""
+        if yaw is not None:
+            if not -360.0 <= float(yaw) <= 360.0:
+                raise ValueError("el giro de la mano va de −360° a 360°")
+            self.hand["yaw"] = float(yaw)
+        if union is not None:
+            if union not in HAND_JOINS:
+                raise ValueError(f"unión de la mano «{union}» (hay {', '.join(HAND_JOINS)})")
+            self.hand["union"] = union
+        if solape is not None:
+            if not 0.0 <= float(solape) <= 5.0:
+                raise ValueError("el solape de la mano va de 0 a 5 mm")
+            self.hand["solape"] = float(solape)
+
+    def set_scale(self, place: str, factor) -> None:
+        """Escala de la pieza de un lugar: un número (uniforme) o (sx, sy, sz) en X lateral, Y adelante-atrás, Z alto.
+        ×1 en los tres ejes la quita. La pieza se escala alrededor de su unión principal y el resto se vuelve a acoplar."""
+        if place not in SCALE_PLACES:
+            raise ValueError(f"«{place}» no se escala (hay {', '.join(SCALE_PLACES)}; la mano va en mm reales)")
+        try:
+            k = scale_vector(factor)
+        except Exception as exc:                                                  # AssemblyError: se muestra tal cual
+            raise ValueError(str(exc)) from exc
+        if is_identity(k):
+            self.scales.pop(place, None)
+        else:
+            self.scales[place] = [float(x) for x in k]
+
+    def scale_of(self, place: str) -> list[float]:
+        return list(self.scales.get(place, (1.0, 1.0, 1.0)))
+
     # ------------------------------------------------------------------ receta y armado
     def recipe(self) -> Recipe:
         cat = self.catalog()
         lugares = {p: self.choices.get(p) for p in PLACES}
         opciones = {"cintura": self.waist, **self.options}
-        ajustes = {"mano": {"yaw": 0, "union": "solape"}} if lugares.get("mano") else {}
+        ajustes: dict = {}
+        if lugares.get("mano"):
+            h = {"yaw": self.hand["yaw"], "union": self.hand["union"]}
+            if self.hand["union"] == "solape":
+                h["solape"] = self.hand["solape"]
+            ajustes["mano"] = h
+        esc = {p: normalize_scale(k) for p, k in self.scales.items() if lugares.get(p)}
+        if esc:
+            ajustes["escalas"] = esc
         return Recipe(self.name, cat.name, lugares, opciones, ajustes)
+
+    def load_recipe(self, path: str) -> list[str]:
+        """Carga una receta (`afm-receta-1`) para retocarla: piezas, opciones, mano y escalas pasan al constructor. Es de
+        la línea de este catálogo y sus piezas tienen que existir. Devuelve avisos (cosas que no se pudieron cargar)."""
+        try:
+            r = Recipe.load(path)
+        except (OSError, ValueError) as exc:                  # JSON roto, formato desconocido, lugares mal formados…
+            raise ValueError(f"no se pudo abrir la receta: {exc}") from exc
+        cat = self.catalog()
+        if r.linea != cat.name:
+            raise ValueError(f"la receta es de la línea «{r.linea}» y este catálogo es el de «{cat.name}»")
+        warns: list[str] = []
+        choices: dict[str, str | None] = {p: None for p in PLACE_ORDER}
+        for place in PLACE_ORDER:
+            ref = r.lugares.get(place)
+            if not ref:
+                continue
+            try:
+                meta = cat.meta(ref)
+            except CatalogError as exc:
+                warns.append(f"{place}: {exc} (queda sin pieza)")
+                continue
+            if meta.tipo not in PLACE_TYPES[place]:
+                warns.append(f"{place}: «{meta.ref}» es una pieza «{meta.tipo}» (queda sin pieza)")
+                continue
+            choices[place] = meta.ref
+        self.name = r.personaje
+        self.choices = choices
+        if not self.waist:
+            self.choices["pelvis"] = None
+        o = r.options()
+        self.options = {k: bool(o[k]) for k in ("clic_hombro", "clic_cadera", "torso_mirror")}
+        self.hand = {"yaw": 0.0, "union": "solape", "solape": DEFAULT_OVERLAP_MM}
+        self.set_hand(**{k: v for k, v in (r.ajustes.get("mano") or {}).items() if k in self.hand})
+        self.scales = {}
+        for place, k in (r.ajustes.get("escalas") or {}).items():
+            if place in SCALE_PLACES:
+                self.set_scale(place, k)
+        for place in list(self.scales):
+            if not choices.get(place):
+                warns.append(f"la escala de «{place}» se descartó: ese lugar quedó sin pieza")
+                del self.scales[place]
+        return warns
 
     def problems(self) -> list[str]:
         """Lo que falta o sobra antes de poder armar (vacío = listo)."""
