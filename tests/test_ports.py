@@ -111,3 +111,117 @@ def test_face_from_mesh_handles_a_ring():
     frame = PortFrame.from_points(PTS, ring.center_mass)
     face = face_from_mesh(ring, frame.with_center((0, 0, 0)))
     assert face.area == pytest.approx(np.pi * (36 - 9), rel=0.01) and len(face.polygons[0]["interiors"]) == 1
+
+
+def test_face_from_mesh_error_names_place_and_measures_tilt():
+    """Plano girado 4° respecto de la cara de la pieza: el error dice el lugar, el giro y el corrimiento."""
+    from afm.ports import diagnose_plane
+    mesh = cyl(5, 30)                                       # cara de unión en z = 0, mirando a −Z
+    tilt = np.radians(4.0)
+    axis = np.array([np.sin(tilt), 0.0, -np.cos(tilt)])    # eje del puerto girado 4° alrededor de Y
+    frame = PortFrame((0.0, 0.0, 0.0), axis, (1.0, 0.0, 0.0) - ((1.0, 0.0, 0.0) @ axis) * axis)
+    with pytest.raises(PortError) as exc:
+        face_from_mesh(mesh, frame, place="brazo")
+    err = exc.value
+    assert err.place == "brazo" and "«brazo»" in str(err)
+    assert err.diag["inclinacion_deg"] == pytest.approx(4.0, abs=0.2)
+    assert "4,0°" in str(err) and "girá el plano" in str(err)
+    assert diagnose_plane(mesh, frame)["en_plano"] == 0
+
+
+def test_diagnose_plane_far_from_piece_and_exact_face():
+    from afm.ports import diagnose_plane, describe_plane_failure
+    mesh = cyl(5, 30)
+    far = PortFrame((0.0, 0.0, 50.0), (0.0, 0.0, -1.0), (1.0, 0.0, 0.0))     # el plano no toca la pieza
+    d = diagnose_plane(mesh, far)
+    assert d["inclinacion_deg"] is None and "no toca la pieza" in describe_plane_failure(d)
+    ok = PortFrame((0.0, 0.0, 0.0), (0.0, 0.0, -1.0), (1.0, 0.0, 0.0))
+    d = diagnose_plane(mesh, ok)
+    assert d["en_plano"] > 0 and d["inclinacion_deg"] == pytest.approx(0.0, abs=1e-6)
+    offset = PortFrame((0.0, 0.0, -1.2), (0.0, 0.0, -1.0), (1.0, 0.0, 0.0))  # paralelo pero corrido
+    d = diagnose_plane(mesh, offset)
+    assert d["inclinacion_deg"] == pytest.approx(0.0, abs=1e-6) and abs(abs(d["desvio_mm"]) - 1.2) < 1e-6
+    assert "corrido" in describe_plane_failure(d)
+
+
+def test_snap_frame_follows_the_real_face_up_to_a_few_degrees():
+    """El eje supuesto del puerto (p. ej. X) puede quedar 1° girado respecto del corte real: el puerto sigue la cara."""
+    from afm.ports import snap_frame_to_face
+    mesh = cyl(5, 30)                                       # cara real en z = 0, normal −Z
+    for deg, expect in ((1.0, True), (2.5, True), (6.0, False)):
+        t = np.radians(deg)
+        axis = np.array([np.sin(t), 0.0, -np.cos(t)])
+        frame = PortFrame((0.0, 0.0, 0.0), axis, (1.0, 0.0, 0.0) - ((1.0, 0.0, 0.0) @ axis) * axis)
+        with pytest.raises(PortError):
+            face_from_mesh(mesh, frame)                     # con el eje girado la tolerancia de 1 µm no alcanza
+        snapped = snap_frame_to_face(mesh, frame)
+        assert (snapped is not None) is expect
+        if expect:
+            new, tilt = snapped
+            assert tilt == pytest.approx(deg, abs=0.05)
+            assert np.allclose(new.axis, (0.0, 0.0, -1.0), atol=1e-6)
+            assert abs(new.axis @ new.ref) < 1e-9
+            assert face_from_mesh(mesh, new).area == pytest.approx(np.pi * 25, rel=0.02)
+
+
+def test_extract_tolerates_a_slightly_tilted_cut_plane():
+    """Con el plano del brazo girado 1° la extracción no falla: avisa y deja el puerto en la cara real."""
+    from afm.extract import extract_all
+    from afm.planes import Plane
+    from afm.project import demo_project
+    from afm.testfigure import make_doll
+    proj = demo_project()
+    arm = next(l for l in proj.limbs if l.kind == "arm")
+    t = np.radians(1.0)
+    n = np.asarray(arm.plane.normal, float)
+    arm.plane = Plane.from_normal(arm.plane.origin, np.array([[np.cos(t), -np.sin(t), 0], [np.sin(t), np.cos(t), 0], [0, 0, 1]]) @ n,
+                                  arm.plane.name)
+    res = extract_all(S.to_manifold(make_doll()), proj, "doll", places=["brazo"])
+    assert any("girado 1,0°" in w for w in res.warnings)
+    port = res.pieces[0].meta.puertos["hombro"]
+    assert abs(port.frame.axis[1]) == pytest.approx(np.sin(t), abs=2e-3) and port.face.area > 1.0
+
+
+# ---- por qué el pasador no entra (cara chica / mal ubicado / centro fuera de la cara)
+def _face(*rings):
+    """PortFace en (u, v) a partir de rectángulos (u0, v0, u1, v1)."""
+    from shapely.geometry import box
+    from shapely.ops import unary_union
+    return PortFace.from_shape(unary_union([box(*r) for r in rings]))
+
+
+def _with_face(r, rol, face, up=True):
+    p = _port(r, rol, up=up)
+    p.face = face
+    return p
+
+
+def test_pin_reason_tiny_face_cannot_hold_any_pin():
+    """Cara en tira de 1,7 mm de ancho (hombro pegado al borde): el pasador no entra en NINGUNA posición."""
+    sliver = _face((-8.0, -0.85, 8.0, 0.85))
+    c = port_compat(_with_face(8, "enchufe", sliver), _port(8, "toma", up=False))
+    assert c.nivel == "no" and "B" not in c.cara_chica
+    assert any("no entra" in m and "demasiado chica" in m and "ninguna posición" in m for m in c.motivos)
+    cabe, hace_falta = c.cara_chica["A"]
+    assert cabe == pytest.approx(1.7, abs=0.05) and hace_falta == pytest.approx(4.1 + 2 * 1.2)
+    assert c.to_dict()["cara_chica_mm"]["A"] == [pytest.approx(1.7, abs=0.05), pytest.approx(6.5)]
+
+
+def test_pin_reason_off_center_pin_in_a_big_enough_face():
+    """Cara de 12 × 12 con el centro del puerto a 0,5 mm de un borde: sí entra un círculo de Ø12, solo hay que mover el pasador."""
+    big = _face((-0.5, -6.0, 11.5, 6.0))
+    c = port_compat(_with_face(8, "enchufe", big), _port(8, "toma", up=False))
+    assert c.nivel == "no" and not c.cara_chica
+    assert any("movelo" in m and "no entra" in m for m in c.motivos)
+
+
+def test_pin_reason_port_center_outside_the_face():
+    far = _face((3.0, -6.0, 15.0, 6.0))
+    c = port_compat(_port(8, "enchufe"), _with_face(8, "toma", far, up=False))
+    assert c.nivel == "no" and not c.cara_chica
+    assert any("FUERA" in m and "cara B (el modelo" in m for m in c.motivos)
+
+
+def test_ok_compat_has_no_extra_keys():
+    ok = port_compat(_port(8, "enchufe"), _port(8, "toma", up=False), 130, 130)
+    assert "cara_chica_mm" not in ok.to_dict() and not ok.cara_chica

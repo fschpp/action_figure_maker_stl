@@ -34,7 +34,7 @@ from .params import Params
 from .parts import PieceMeta, make_origin
 from .pipeline import _sweep_range, align_to_symmetry
 from .planes import Plane
-from .ports import Port, PortError, PortFace, PortFrame, centroid_of_face_triangles, face_from_mesh
+from .ports import Port, PortError, PortFace, PortFrame, centroid_of_face_triangles, face_from_mesh, snap_frame_to_face
 from .project import Project
 from .waist import waist_plane
 
@@ -44,7 +44,13 @@ SIDE_PORTS = {"hombro": "brazo", "cadera": "pierna"}
 
 
 class ExtractError(ValueError):
-    """No se pudo extraer una pieza (lugar que el proyecto no define, plano que no corta, etc.)."""
+    """No se pudo extraer una pieza (lugar que el proyecto no define, plano que no corta, etc.).
+
+    `place`: el lugar cuyo plano falló («cuello», «cintura» o el nombre del miembro), para que la interfaz lo pinte."""
+
+    def __init__(self, message: str = "", place: str | None = None):
+        super().__init__(message)
+        self.place = place
 
 
 @dataclass
@@ -137,6 +143,23 @@ def _clean(mf, label: str, warnings: list):
     return tm
 
 
+def _port_face(tm, frame: PortFrame, place: str, warnings: list) -> tuple[PortFrame, PortFace]:
+    """Cara del puerto sobre la malla `tm`. Si el plano de corte quedó apenas girado respecto del eje supuesto del puerto
+    (el eje sale de `contact_axis`, p. ej. X, no de la cara real), el puerto sigue la cara real del corte y se avisa:
+    una cara de ~20 mm girada 1° se aparta 0,35 mm del plano y ya no cabe en la tolerancia. Más de `MAX_SNAP_TILT_DEG`
+    no se corrige: el error trae el diagnóstico y la interfaz pinta el plano."""
+    try:
+        return frame, face_from_mesh(tm, frame, place=place)
+    except PortError:
+        snapped = snap_frame_to_face(tm, frame)
+        if snapped is None:
+            raise
+        new, tilt = snapped
+        warnings.append(f"«{place}»: el plano de corte está girado {tilt:.1f}° respecto del eje de la unión; el puerto "
+                        "sigue la cara real del corte".replace(".", ","))
+        return new, face_from_mesh(tm, new, place=place)
+
+
 def _slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-") or "figura"
 
@@ -187,7 +210,8 @@ def extract_all(body: S.Manifold, project: Project, prefix: str = "figura", plac
         split = split_head(body, hs, p)
         n_fr = PortFrame(split.face.center.copy(), split.face.outward.copy(), reference_for(split.face.outward, (0.0, 1.0, 0.0)))
         head_tm = _clean(split.head, "cabeza", res.warnings)
-        head_port = Port("cuello", "enchufe", n_fr, face_from_mesh(head_tm, n_fr))
+        n_fr, n_face = _port_face(head_tm, n_fr, "cuello", res.warnings)
+        head_port = Port("cuello", "enchufe", n_fr, n_face)
         if "cabeza" in want:
             res.pieces.append(Extracted(_meta("cabeza", prefix, {"cuello": head_port}, p, origin, "centro", False,
                                               descripcion=f"Cabeza de {prefix}"), head_tm))
@@ -201,14 +225,20 @@ def extract_all(body: S.Manifold, project: Project, prefix: str = "figura", plac
     cut_limbs: dict[str, S.Manifold] = {}
     hand_extract = None
     for kind, spec in limbs.items():
-        limb, face = separate_limb(half, spec, p.burr)
+        try:
+            limb, face = separate_limb(half, spec, p.burr)
+        except ValueError as exc:
+            if getattr(exc, "place", None) is not None:
+                raise
+            raise ExtractError(f"«{spec.name}»: {exc}", spec.name) from exc
         from .trims import apply_trims
         limb = apply_trims(limb, project.trims, spec.name)
         cut_limbs[kind] = limb
         frame = PortFrame(face.center.copy(), face.outward / np.linalg.norm(face.outward), reference_for(face.outward))
         place = "brazo" if kind == "arm" else "pierna"
         tm = _clean(limb, place, res.warnings)
-        port = Port(KIND_PORT[kind], "enchufe", frame, face_from_mesh(tm, frame), tuple(float(x) for x in _sweep_range(spec, p)))
+        frame, pface = _port_face(tm, frame, spec.name, res.warnings)
+        port = Port(KIND_PORT[kind], "enchufe", frame, pface, tuple(float(x) for x in _sweep_range(spec, p)))
         ports_by_place[KIND_PORT[kind]] = port
         mesh, ports = tm, {port.clase: port}
         if kind == "arm" and wrist_points is not None:
@@ -219,10 +249,10 @@ def extract_all(body: S.Manifold, project: Project, prefix: str = "figura", plac
                 raise ExtractError(f"muñeca: {exc}") from exc
             wf = PortFrame.from_wrist(ws.frame, toward_hand=True)
             mesh = _clean(ws.rest, "brazo (sin mano)", res.warnings)
-            ports["muneca"] = Port("muneca", "toma", wf, face_from_mesh(mesh, wf))
+            ports["muneca"] = Port("muneca", "toma", wf, face_from_mesh(mesh, wf, place="muneca"))
             hf = PortFrame.hand_standard()
             hand_local = _clean(to_local(ws.hand, ws.frame), "mano", res.warnings)
-            hand_extract = Extracted(_meta("mano", prefix, {"muneca": Port("muneca", "enchufe", hf, face_from_mesh(hand_local, hf))},
+            hand_extract = Extracted(_meta("mano", prefix, {"muneca": Port("muneca", "enchufe", hf, face_from_mesh(hand_local, hf, place="muneca"))},
                                            p, origin, "izq", True, descripcion=f"Mano de {prefix}"), hand_local)
         if place in want:
             meta = _meta(place, prefix, ports, p, origin, "izq", True, descripcion=f"{place.capitalize()} de {prefix}")
@@ -313,7 +343,8 @@ def _torso_pieces(res: ExtractResult, torso: S.Manifold, project: Project, prefi
     common: dict[str, Port] = {}
     if head_port is not None:
         c = complement(head_port)
-        common["cuello"] = Port("cuello", "toma", c.frame, face_from_mesh(tm, c.frame))   # la cara real: el torso viene cortado por el plano
+        c_frame, c_face = _port_face(tm, c.frame, "cuello", res.warnings)
+        common["cuello"] = Port("cuello", "toma", c_frame, c_face)   # la cara real: el torso viene cortado por el plano
     else:
         res.warnings.append("sin plano del cuello el torso no tiene puerto «cuello» (queda con la cabeza original)")
 
@@ -335,19 +366,19 @@ def _torso_pieces(res: ExtractResult, torso: S.Manifold, project: Project, prefi
     upper = S.intersection(torso, S.halfspace(plane))
     lower = S.intersection(torso, S.halfspace(Plane.from_normal(plane.origin, -n)))
     if upper.is_empty() or lower.is_empty():
-        raise ExtractError("el plano de la cintura no parte el torso (¿está fuera de la figura?)")
+        raise ExtractError("«cintura»: el plano de la cintura no parte el torso (¿está fuera de la figura?)", "cintura")
     pre = PortFrame(plane.origin.copy(), -n, reference_for(-n, (0.0, 1.0, 0.0)))           # el de arriba mira hacia abajo
     upper_tm, lower_tm = _clean(upper, "torso superior", res.warnings), _clean(lower, "pelvis", res.warnings)
     c = centroid_of_face_triangles(upper_tm, pre)
     if c is None:
-        raise ExtractError("el plano de la cintura no deja una cara plana en el torso de arriba")
+        raise ExtractError("«cintura»: el plano de la cintura no deja una cara plana en el torso de arriba", "cintura")
     c = np.asarray(c, float)
     c[0] = 0.0
     up_frame = pre.with_center(c)
     lo_frame = PortFrame(c.copy(), n.copy(), up_frame.ref.copy())
     up_ports = {**common, **{k: v for k, v in sides.items() if k.startswith("hombro")},
-                "cintura": Port("cintura", "toma", up_frame, face_from_mesh(upper_tm, up_frame))}
-    lo_ports = {"cintura": Port("cintura", "enchufe", lo_frame, face_from_mesh(lower_tm, lo_frame)),
+                "cintura": Port("cintura", "toma", up_frame, face_from_mesh(upper_tm, up_frame, place="cintura"))}
+    lo_ports = {"cintura": Port("cintura", "enchufe", lo_frame, face_from_mesh(lower_tm, lo_frame, place="cintura")),
                 **{k: v for k, v in sides.items() if k.startswith("cadera")}}
     res.pieces.append(Extracted(_meta("torso_sup", prefix, up_ports, p, origin, "centro", False,
                                       descripcion=f"Torso superior de {prefix} (cortado por la cintura)"), upper_tm))

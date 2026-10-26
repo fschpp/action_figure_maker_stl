@@ -18,7 +18,8 @@ from .limbs import ContactFace
 from .ports import Compat, Port, PortFace, PortFrame, coupling_transform, port_compat
 
 # Clase de miembro del huésped (`LimbSpec.kind`) -> (tipo de pieza de catálogo, puerto de la pieza)
-LIMB_PART = {"arm": ("brazo", "hombro"), "leg": ("pierna", "cadera"), "head": ("cabeza", "cuello")}
+LIMB_PART = {"arm": ("brazo", "hombro"), "leg": ("pierna", "cadera"), "head": ("cabeza", "cuello"),
+             "pelvis": ("pelvis", "cintura")}     # la pelvis no es un miembro: va en la cintura del torso del modelo
 
 
 class AssemblyError(ValueError):
@@ -136,6 +137,75 @@ def place_part(choice: PartChoice, kind: str, host_face: ContactFace, params=Non
     return PlacedPart(choice, kind, S.to_manifold(mesh), face, T, placed_port, compat)
 
 
+HIP_TOL_MM = 1.0        # distancia máxima entre la cadera de la pelvis de catálogo y la del miembro del modelo sin avisar
+
+
+def swap_pelvis(body: S.Manifold, limbs: list, waist, choice: PartChoice, params=None,
+                host_height: float | None = None) -> tuple[S.Manifold, PlacedPart]:
+    """Cambia SOLO la pelvis del modelo por la de catálogo `choice` (pieza `pelvis`, puerto `cintura`), dejando el torso de
+    arriba, la cabeza y todos los miembros del modelo tal cual.
+
+    La pelvis vieja es lo que queda del cuerpo bajo el plano de la cintura una vez sacados los prismas de corte de los
+    miembros (brazos que cuelgan y piernas se conservan: `build` los corta después como siempre). La nueva se acopla,
+    rígida y sin escala, a la toma que deja el torso de arriba en ese plano (centro = centroide de su cara de corte).
+    Devuelve el cuerpo nuevo y la pieza colocada (`PlacedPart`, `kind="pelvis"`) con la compatibilidad de la cara."""
+    from .extract import reference_for as ref_for
+    from .limbs import limb_prism
+    from .planes import Plane
+    from .waist import _face_on, waist_plane
+
+    if waist is None:
+        raise AssemblyError("el modelo no tiene plano de cintura: sin él no se sabe dónde cortar la pelvis (Planos → Cintura)")
+    port = choice.port("pelvis")                       # valida el tipo «pelvis» y el puerto «cintura»
+    plane = waist_plane(waist)
+    n = plane.normal
+    prisms = [limb_prism(l) for l in limbs]
+    region = S.union(*(prisms + [S.mirror_x(m) for m in prisms])) if prisms else None
+    torso_only = body if region is None else S.difference(body, region)
+    above = S.halfspace(plane)
+    below = S.halfspace(Plane.from_normal(plane.origin, -n))
+    upper = S.intersection(torso_only, above)
+    if upper.is_empty() or upper.volume() < 1.0:
+        raise AssemblyError("el plano de la cintura deja el torso sin parte de arriba: no hay dónde acoplar la pelvis")
+    try:
+        face = _face_on(upper, plane, -n)
+    except ValueError as exc:
+        raise AssemblyError(str(exc)) from exc
+    frame = PortFrame(np.asarray(face.center, float).copy(), -n, ref_for(-n, (0.0, 1.0, 0.0)))
+    T = coupling_transform(port.frame, frame)
+    mesh = choice.mesh.copy()
+    mesh.apply_transform(T)
+    placed_mf = S.to_manifold(mesh)
+    old = S.intersection(body, below)
+    if region is not None:
+        old = S.difference(old, region)
+    if old.is_empty():
+        raise AssemblyError("el modelo no tiene pelvis bajo el plano de la cintura (¿está por debajo de la figura?)")
+    new_body = S.union(S.difference(body, old), placed_mf)
+    host_port = Port("cintura", "toma", frame, face_of_triangles(face, frame))
+    try:
+        compat = port_compat(port, host_port, choice.meta.altura_figura_mm, host_height, params)
+    except Exception as exc:           # informativa: no debe impedir armar
+        compat = Compat("aviso", avisos=[f"no se pudo medir la compatibilidad: {exc}"])
+    return new_body, PlacedPart(choice, "pelvis", placed_mf, face, T, port.transformed(T), compat)
+
+
+def hip_notes(placed: PlacedPart, leg_faces: dict) -> list[str]:
+    """Avisos de que las caderas de la pelvis de catálogo (puerto `cadera_izq`, ya en el marco del modelo) no caen donde
+    el modelo tiene sus piernas: la pelvis se talla igual con el barrido de cada pierna, pero quedaría hueco o choque."""
+    hip = placed.choice.meta.puertos.get("cadera_izq")
+    if hip is None:
+        return ["la pelvis de catálogo no trae el puerto «cadera_izq»: no se pudo comprobar dónde quedan las caderas"]
+    c = np.asarray(hip.transformed(placed.T).frame.center, float)
+    out = []
+    for name, f in leg_faces.items():
+        d = float(np.linalg.norm(np.asarray(f.center, float) - c))
+        if d > HIP_TOL_MM:
+            out.append(f"la cadera de la pelvis queda a {d:.2f} mm de la de «{name}» (aviso desde {HIP_TOL_MM:g} mm): "
+                       "la pierna no coincide con el hueco de la pelvis")
+    return out
+
+
 def resolve_parts(refs: dict, catalog_root: str | None = None) -> dict[str, PartChoice]:
     """`Project.parts` (lugar -> `PartRef`) -> `pipeline.build(parts=)`. Abre el catálogo de la línea de cada pieza:
     `catalog_root` si se da, si no `$AFM_CATALOGO` o la ruta por defecto de la línea (`catalog.default_root`)."""
@@ -213,6 +283,10 @@ def synthesize_host(parts: dict, params=None) -> SyntheticHost:
         cp = upper.meta.puertos.get("cintura")
         if cp is None:
             raise AssemblyError(f"«{upper.meta.ref}» no tiene el puerto «cintura»")
+        lp = lower.meta.puertos.get("cintura")
+        if lp is None:
+            raise AssemblyError(f"«{lower.meta.ref}» no tiene el puerto «cintura»")
+        lower = transform_choice(lower, coupling_transform(lp.frame, cp.frame))
         body = S.union(body, _choice_mesh(lower))
         waist = WaistSpec(plane=Plane.from_normal(cp.frame.center, -cp.frame.axis, "cintura"))
     head = None
@@ -244,3 +318,15 @@ def synthesize_host(parts: dict, params=None) -> SyntheticHost:
                               pin_center=tuple(float(x) for x in c), sweep_deg=None if lp.sweep_deg is None else tuple(lp.sweep_deg),
                               mechanism=mech))
     return SyntheticHost(body, limbs, faces, parts, head, waist, notes)
+
+
+def transform_choice(choice: PartChoice, T) -> PartChoice:
+    """Copia rígida: transforma malla, puertos y articulaciones, sin alterar el catálogo."""
+    import copy
+    from .joints import JointSpec
+    meta = copy.deepcopy(choice.meta)
+    mesh = choice.mesh.copy()
+    mesh.apply_transform(T)
+    meta.puertos = {k: p.transformed(T) for k, p in meta.puertos.items()}
+    meta.articulaciones = [JointSpec.from_dict(j).transformed(T).to_dict() for j in meta.articulaciones]
+    return PartChoice(meta, mesh)

@@ -27,6 +27,8 @@ def ctrl(tmp_path):
     c.session.set_limb_polygon(name, plane.to_world(np.array([[-10, -10], [10, -10], [10, 10], [-10, 10]], float)))
     c.session.limb(name).pin_center = (30.0, 0.0, 60.0)
     c.add_trim_primitive("torso", "sphere", np.array([5.0, 0.0, 40.0]), 6.0, "subtract", 5.0)
+    for g in SHOW_GROUPS:                                  # al iniciar vienen apagados: las pruebas los prenden
+        c.set_group_visible(g, True)
     return c, name
 
 
@@ -43,7 +45,11 @@ def _vis(scene, prefix):
     return {k: it.visible for k, it in scene.items.items() if k.startswith(prefix) and not k.endswith(":borde")}
 
 
-def test_everything_is_visible_by_default(ctrl, scene):
+def test_the_three_switches_start_off(ctrl):
+    assert not any(Controller().group_visible(g) for g in SHOW_GROUPS)       # planos, pines y contornos apagados al iniciar
+
+
+def test_everything_is_visible_when_switched_on(ctrl, scene):
     c, name = ctrl
     c.sync(scene)
     assert all(c.group_visible(g) for g in SHOW_GROUPS)

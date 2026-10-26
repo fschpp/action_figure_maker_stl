@@ -35,7 +35,16 @@ COMPLEMENT = {"enchufe": "toma", "toma": "enchufe", "soldado": "soldado"}
 
 
 class PortError(ValueError):
-    """El puerto no sirve (puntos alineados, el plano no cae sobre una cara plana de la pieza…)."""
+    """El puerto no sirve (puntos alineados, el plano no cae sobre una cara plana de la pieza…).
+
+    Cuando el error es de un plano que no deja cara plana, lleva además `place` (a qué lugar pertenece el plano:
+    «cuello», «cintura», «muneca» o el nombre del miembro) y `diag` (resultado de `diagnose_plane`) para que la
+    interfaz pinte ESE plano y diga cuánto está girado o corrido."""
+
+    def __init__(self, message: str = "", place: str | None = None, diag: dict | None = None):
+        super().__init__(message)
+        self.place = place
+        self.diag = diag
 
 
 def port_class(name: str) -> str:
@@ -187,9 +196,104 @@ class Port:
                    tuple(d["barrido_deg"]) if d.get("barrido_deg") is not None else None)
 
 
-def face_from_mesh(mesh, frame: PortFrame, tol: float = FACE_TOL) -> PortFace:
+NEAR_FACE_MM = 3.0              # mm: cara «cercana» al plano del puerto (para decir cuánto está corrida o girada)
+TILT_OK_DEG = 0.3               # grados: por debajo de esto se considera que el plano coincide con la cara
+
+
+def _dominant_face(mesh, frame: PortFrame, near_mm: float = NEAR_FACE_MM):
+    """La cara plana más grande de `mesh` que mira hacia `frame.axis` (normal a menos de ~37°) y cuyo centro cae a
+    menos de `near_mm` del plano del puerto. Devuelve (normal unitaria, centroide ponderado por área, área) o None.
+    «Cara» = triángulos coplanares (a menos de `FACE_TOL`) con la misma normal que el de partida."""
+    tri = np.asarray(mesh.triangles, float)
+    if len(tri) == 0:
+        return None
+    axis = np.asarray(frame.axis, float)
+    nrm = np.asarray(mesh.face_normals, float)
+    dist = ((tri.reshape(-1, 3) - frame.center) @ axis).reshape(-1, 3)
+    idx = np.where((np.abs(dist.mean(axis=1)) < near_mm) & (nrm @ axis > 0.8))[0]
+    if len(idx) == 0:
+        return None
+    area = 0.5 * np.linalg.norm(np.cross(tri[idx, 1] - tri[idx, 0], tri[idx, 2] - tri[idx, 0]), axis=1)
+    best = None
+    for k in np.argsort(-area)[:8]:                       # varias semillas: la mayor cara plana, no solo el mayor triángulo
+        nb, p0 = nrm[idx[k]], tri[idx[k]][0]
+        off = np.abs((tri[idx].reshape(-1, 3) - p0) @ nb).reshape(-1, 3).max(axis=1)
+        sel = (off < FACE_TOL) & (nrm[idx] @ nb > 0.9999)
+        total = float(area[sel].sum())
+        if best is None or total > best[2]:
+            c = (tri[idx][sel].mean(axis=1) * area[sel, None]).sum(axis=0) / total
+            best = (nb / np.linalg.norm(nb), c, total)
+    return best
+
+
+def diagnose_plane(mesh, frame: PortFrame, tol: float = FACE_TOL, near_mm: float = NEAR_FACE_MM) -> dict:
+    """Por qué (o si) el plano del puerto cae sobre una cara plana de `mesh` que mira hacia `frame.axis`.
+
+    Devuelve: `triangulos` (de la pieza), `en_plano` (los que yacen sobre el plano, a menos de `tol`, mirando hacia
+    afuera), `cercanos` (los que miran hacia afuera con el centro a menos de `near_mm` del plano), y de la cara plana
+    dominante cercana: `inclinacion_deg` (ángulo entre su normal y el eje del puerto) y `desvio_mm` (distancia con
+    signo de la cara al plano, medida en el centro del puerto). `inclinacion_deg`/`desvio_mm` son None si no hay
+    ninguna cara cercana."""
+    tri = np.asarray(mesh.triangles, float)
+    out = {"triangulos": int(len(tri)), "en_plano": 0, "cercanos": 0, "inclinacion_deg": None, "desvio_mm": None}
+    if len(tri) == 0:
+        return out
+    axis = np.asarray(frame.axis, float)
+    nrm = np.asarray(mesh.face_normals, float)
+    dist = ((tri.reshape(-1, 3) - frame.center) @ axis).reshape(-1, 3)
+    facing = nrm @ axis
+    out["en_plano"] = int(((np.abs(dist) < tol).all(axis=1) & (facing > 0.999)).sum())
+    out["cercanos"] = int(((np.abs(dist.mean(axis=1)) < near_mm) & (facing > 0.8)).sum())
+    face = _dominant_face(mesh, frame, near_mm)
+    if face is not None:
+        n, c, _a = face
+        out["inclinacion_deg"] = float(np.degrees(np.arccos(np.clip(n @ axis, -1.0, 1.0))))
+        out["desvio_mm"] = float((c - frame.center) @ axis)
+    return out
+
+
+MAX_SNAP_TILT_DEG = 3.0         # grados: hasta este giro el puerto sigue la cara real del corte en vez de fallar
+
+
+def snap_frame_to_face(mesh, frame: PortFrame, max_tilt_deg: float = MAX_SNAP_TILT_DEG):
+    """Marco del puerto ajustado a la cara plana REAL de la pieza cercana al plano: eje = su normal, centro = su
+    centroide, referencia de giro = la anterior proyectada sobre la cara. Devuelve (marco, giro en grados) o None si no
+    hay cara cercana o está girada más de `max_tilt_deg` (ahí el plano está mal puesto y conviene corregirlo)."""
+    face = _dominant_face(mesh, frame)
+    if face is None:
+        return None
+    n, c, _a = face
+    tilt = float(np.degrees(np.arccos(np.clip(n @ np.asarray(frame.axis, float), -1.0, 1.0))))
+    if tilt > max_tilt_deg:
+        return None
+    ref = np.asarray(frame.ref, float)
+    ref = ref - (ref @ n) * n
+    if np.linalg.norm(ref) < 1e-9:
+        return None
+    return PortFrame(c, n, ref / np.linalg.norm(ref)), tilt
+
+
+def describe_plane_failure(diag: dict, tol: float = FACE_TOL) -> str:
+    """El diagnóstico en lenguaje llano (una frase): qué pasó con el plano y qué hacer."""
+    if diag["triangulos"] == 0:
+        return "la pieza quedó vacía: el plano no pasa por la figura"
+    ang, off = diag["inclinacion_deg"], diag["desvio_mm"]
+    if ang is None:
+        return (f"ninguna cara de la pieza mira hacia afuera a menos de {NEAR_FACE_MM:g} mm del plano: "
+                "el plano no toca la pieza o la cara de corte desapareció")
+    txt = f"hay una cara plana de la pieza girada {ang:.1f}° y a {abs(off):.2f} mm del plano".replace(".", ",")
+    if ang < TILT_OK_DEG and abs(off) < 0.05:
+        return txt + (": el plano coincide, pero ningún vértice cae dentro de la tolerancia de "
+                      f"{tol:g} mm (la reparación de la malla los movió)").replace(".", ",")
+    return txt + (": el plano no coincide con esa cara; girá el plano para igualarla"
+                  if ang >= TILT_OK_DEG else ": el plano está paralelo pero corrido; movelo hasta la cara")
+
+
+def face_from_mesh(mesh, frame: PortFrame, tol: float = FACE_TOL, place: str | None = None) -> PortFace:
     """Cara del puerto: unión de los triángulos de `mesh` (trimesh) que yacen sobre el plano del puerto y miran hacia
-    `frame.axis` (la normal de la cara sale de la pieza). Devuelve sus polígonos en (u, v) del puerto."""
+    `frame.axis` (la normal de la cara sale de la pieza). Devuelve sus polígonos en (u, v) del puerto.
+
+    `place`: a qué lugar pertenece el puerto (se guarda en el `PortError` para que la interfaz pinte ese plano)."""
     from shapely.geometry import Polygon
     from shapely.ops import unary_union
 
@@ -198,8 +302,9 @@ def face_from_mesh(mesh, frame: PortFrame, tol: float = FACE_TOL) -> PortFace:
     on_plane = (d < tol).all(axis=1) & (np.asarray(mesh.face_normals) @ frame.axis > 0.999)
     tri = tri[on_plane]
     if len(tri) == 0:
-        raise PortError("el plano del puerto no cae sobre una cara plana de la pieza que mire hacia afuera "
-                        "(¿los 3 puntos están sobre la cara de corte? ¿la pieza viene cortada por ese plano?)")
+        diag = diagnose_plane(mesh, frame, tol)
+        raise PortError(f"{'«' + place + '»: ' if place else ''}el plano del puerto no cae sobre una cara plana de la "
+                        f"pieza que mire hacia afuera — {describe_plane_failure(diag, tol)}", place, diag)
     polys = [Polygon(frame.to_uv(t)).buffer(0) for t in tri]
     return PortFace.from_shape(unary_union([q for q in polys if q.area > 1e-12]))
 
@@ -239,17 +344,62 @@ class Compat:
     margenes_mm: dict = field(default_factory=dict)   # margen del pasador (vástago al borde de la cara) por lado
     motivos: list = field(default_factory=list)       # por qué «no»
     avisos: list = field(default_factory=list)
+    # lado -> (Ø del mayor círculo que entra en la cara, Ø que hace falta con pared): caras donde el pasador no entra en
+    # NINGUNA posición, o sea que ni cambiar de pieza ni escalar lo arreglan: hay que agrandar esa cara.
+    cara_chica: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
-        return {"nivel": self.nivel, "iou": None if self.iou is None else round(self.iou, 4),
-                "escalon_mm": None if self.escalon_mm is None else round(self.escalon_mm, 4),
-                "margenes_mm": {k: round(v, 3) for k, v in self.margenes_mm.items()},
-                "motivos": list(self.motivos), "avisos": list(self.avisos)}
+        d = {"nivel": self.nivel, "iou": None if self.iou is None else round(self.iou, 4),
+             "escalon_mm": None if self.escalon_mm is None else round(self.escalon_mm, 4),
+             "margenes_mm": {k: round(v, 3) for k, v in self.margenes_mm.items()},
+             "motivos": list(self.motivos), "avisos": list(self.avisos)}
+        if self.cara_chica:
+            d["cara_chica_mm"] = {k: [round(a, 2), round(b, 2)] for k, (a, b) in self.cara_chica.items()}
+        return d
 
 
 def _pin_for(clase: str, params: Params) -> PinSpec | None:
     attr = PIN_OF_CLASS.get(clase)
     return getattr(params, attr) if attr else None
+
+
+_SIDE_NAME = {"A": "la pieza", "B": "el modelo"}
+
+
+def pin_diagnosis(face: PortFace, shaft_d: float) -> dict:
+    """Por qué un vástago de Ø`shaft_d` centrado en el puerto (u = v = 0) sobresale de `face`.
+
+    Devuelve `dentro` (el centro cae en la cara), `margen` (mm del vástago al borde; negativo = sobresale), `circulo_d` (Ø
+    del mayor círculo que cabe en la cara: ninguna posición del pasador puede ser mayor) y `desvio` (mm del centro al
+    centro de ese círculo). Con eso se distingue una cara demasiado chica (`circulo_d < shaft_d`: no se arregla moviendo el
+    pasador) de un pasador mal ubicado en una cara que sí alcanza."""
+    from shapely.geometry import Point
+    from shapely.ops import polylabel
+
+    shape = face.shape()
+    pt = Point(0.0, 0.0)
+    dentro = bool(shape.contains(pt))
+    d = float(shape.boundary.distance(pt))
+    geoms = list(shape.geoms) if hasattr(shape, "geoms") else [shape]
+    big = max(geoms, key=lambda g: g.area)
+    pole = polylabel(big, tolerance=0.01)
+    return {"dentro": dentro, "margen": (d if dentro else -d) - shaft_d / 2,
+            "circulo_d": 2.0 * float(big.boundary.distance(pole)), "desvio": float(pt.distance(pole))}
+
+
+def _pin_reason(lado: str, face: PortFace, shaft_d: float, min_wall: float) -> tuple[str, tuple | None]:
+    """(texto del motivo, (Ø del mayor círculo, Ø necesario) si la cara es demasiado chica para cualquier posición)."""
+    g = pin_diagnosis(face, shaft_d)
+    base = f"el pasador de {shaft_d:g} mm no entra en la cara {lado} ({_SIDE_NAME[lado]}; sobresale {-g['margen']:.2f} mm)"
+    if not g["dentro"]:
+        return (base + "; el centro del puerto cae FUERA de esa cara: el centro del pasador de esta unión está mal ubicado "
+                       "o la cara se midió incompleta", None)
+    if g["circulo_d"] < shaft_d:
+        return (base + f"; la cara es demasiado chica: el mayor círculo que entra mide Ø{g['circulo_d']:.1f} mm y el vástago "
+                       f"es de Ø{shaft_d:g} mm, así que no entra en ninguna posición",
+                (g["circulo_d"], shaft_d + 2 * min_wall))
+    return (base + f"; la cara admite un círculo de Ø{g['circulo_d']:.1f} mm: el pasador está a {g['desvio']:.1f} mm del mejor "
+                   "punto, movelo", None)
 
 
 def face_iou(a: PortFace, b: PortFace) -> float:
@@ -290,7 +440,10 @@ def port_compat(a: Port, b: Port, height_a: float | None = None, height_b: float
                 m = pin_fit(p.face.shape(), (0.0, 0.0), pin.shaft_d)[1]
                 c.margenes_mm[lado] = m
                 if m < 0:
-                    c.motivos.append(f"el pasador de {pin.shaft_d:g} mm no entra en la cara {lado} (sobresale {-m:.2f} mm)")
+                    why, chica = _pin_reason(lado, p.face, pin.shaft_d, params.min_wall)
+                    c.motivos.append(why)
+                    if chica is not None:
+                        c.cara_chica[lado] = chica
                 elif m < params.min_wall:
                     c.avisos.append(f"pared de {m:.2f} mm alrededor del pasador en la cara {lado} (mínimo {params.min_wall:g} mm)")
             if pin.shaft_d < params.min_pin_d:

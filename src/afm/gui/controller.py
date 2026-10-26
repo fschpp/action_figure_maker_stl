@@ -104,6 +104,8 @@ class PlaneEntry:
 _MIRROR_COLOR = (0.70, 0.78, 0.92, 1.0)      # el espejo se ve con un tinte azul para no confundirlo con el lado real
 _PART_PREVIEW_COLORS = {"ok": (0.30, 0.78, 0.45, 1.0), "aviso": (0.95, 0.75, 0.20, 1.0),
                         "no": (0.90, 0.30, 0.30, 1.0)}   # pieza de catálogo todavía sin generar, por nivel de acople
+_PLANE_STATUS_COLORS = {"no": (0.95, 0.12, 0.12, 0.45), "aviso": (1.0, 0.85, 0.1, 0.38),
+                        "ok": (0.2, 0.9, 0.35, 0.30)}       # plano que falló / girado respecto de la pieza elegida / coincide
 _REPLACEMENT_HEAD_COLOR = (0.95, 0.62, 0.25, 1.0)      # cabeza de reemplazo en la vista 3D (naranja)
 _EXTRACTED_HAND_COLOR = (0.25, 0.85, 0.55, 1.0)         # mano extraída (aún sin guardar) en la vista 3D (verde)
 _REPLACEMENT_HAND_COLOR = (0.25, 0.75, 0.85, 1.0)       # mano estándar pegada en el modelo (turquesa: no se confunde con la extraída)
@@ -197,8 +199,9 @@ class Controller:
         self.message = "Abrí un STL para empezar."
         self.one_side = False                        # trabajar un solo lado (oculta x < 0)
         self.hidden: set[str] = set()                # ids de planos ocultos
-        self.show_groups: dict[str, bool] = {g: True for g in SHOW_GROUPS}   # interruptores generales (planos / pines / contornos)
+        self.show_groups: dict[str, bool] = {g: False for g in SHOW_GROUPS}   # interruptores generales (planos / pines / contornos)
         self.busy = False                            # generando la figura (la ventana bloquea la edición)
+        self.plane_faults: dict[str, tuple[str, bytes]] = {}   # id de plano -> (por qué su corte falló, firma del plano): se pinta de rojo hasta que el plano cambie
         self.progress_prefix = "Generando"           # encabezado de los mensajes de progreso de la tarea en curso
         self.show_overhangs = False                  # pintar de rojo los voladizos de impresión
         self.overhang_angle = 45.0                   # grados desde la vertical (como `--max-angle`)
@@ -318,6 +321,13 @@ class Controller:
         self._changed(f"Proyecto guardado: {path.split('/')[-1]}", scene=False)
 
     # ---------------------------------------------------------------- modos
+    def _busy_for(self, what: str) -> bool:
+        """True (y avisa) si hay una tarea en un hilo (revisar, generar…): lo que ella lee no se puede cambiar a mitad."""
+        if not self.busy:
+            return False
+        self._changed(f"Hay una tarea en curso (revisando o generando): esperá a que termine para cambiar {what}.", scene=False)
+        return True
+
     def _need_loaded(self) -> bool:
         if not self.loaded:
             self._changed("Primero abrí un STL.", scene=False)
@@ -2062,8 +2072,8 @@ class Controller:
             return None
         if not self._need_loaded():
             return None
-        if not self.session.project.parts:
-            self._changed("No hay piezas de catálogo elegidas: nada que revisar.", scene=False)
+        if not self.session.project.parts and not self.session.project.part_scales:
+            self._changed("No hay piezas elegidas ni divididas: nada que revisar.", scene=False)
             return None
         self.busy = True
         self.progress_prefix = "Revisando"
@@ -2074,8 +2084,10 @@ class Controller:
         self.busy = False
         self.progress_prefix = "Generando"
         if error is not None or items is None:
-            self._changed(f"No se pudo revisar: {error}", scene=False)
+            self._register_plane_fault(error)
+            self._changed(f"No se pudo revisar: {error}{self._fault_hint()}")
             return
+        self.plane_faults = {}
         self._changed(self.preview_message(items))
 
     def preview_parts(self) -> dict | None:
@@ -2099,6 +2111,33 @@ class Controller:
                 f"{len(items) - len(bad) - len(warn)} bien, {len(warn)} con aviso, {len(bad)} con problema.")
         detail = "".join(f" {pv.place}: {pv.problems()[0]}." for pv in bad + warn if pv.problems())
         return head + detail
+
+    def needs_review_on_open(self) -> bool:
+        """True si el proyecto abierto trae piezas de catálogo (o la figura dividida) y todavía no se dibujaron: la ventana
+        las revisa sola al abrirlo, así el visor muestra las piezas reemplazadas como ya hace con la cabeza y la mano.
+        Con piezas elegidas hace falta el catálogo abierto (si no, no se pueden leer; el mensaje de apertura ya avisa)."""
+        s = self.session
+        if self.busy or not self.loaded:
+            return False
+        if not (s.project.parts or s.project.part_scales):
+            return False
+        if s.project.parts and not s.catalog_root:
+            return False
+        return not s.part_preview_fresh()
+
+    def _replacement_head_shown(self) -> bool:
+        """True si se dibuja la cabeza de reemplazo (STL) en vez de la cabeza del modelo; salvo que la cabeza sea una pieza
+        elegida del catálogo, la «cabeza» de la revisión es la original del modelo y no se dibuja encima."""
+        head = self.session.project.head
+        return head is not None and bool(head.replacement_path) and "cabeza" not in self.session.project.parts
+
+    def parts_replace_figure(self) -> bool:
+        """True si las piezas revisadas cubren toda la figura (torso incluido): en el visor reemplazan al modelo, que deja
+        de dibujarse (igual que la cabeza o la mano de reemplazo ocultan las originales)."""
+        if not (self.show_part_preview and self.outcome_free()):
+            return False
+        torso = self.session.part_preview_items().get("torso")
+        return torso is not None and torso.mesh is not None
 
     def part_preview(self, place: str):
         """`PartPreview` vigente del lugar (o None si todavía no se revisó o cambió algo desde entonces)."""
@@ -2149,6 +2188,66 @@ class Controller:
             return False
         return self.set_ref_height(h)
 
+    def divide_model(self) -> bool:
+        if self.busy or not self._need_loaded():
+            return False
+        try:
+            self.session.divide_model()
+        except ValueError as exc:
+            self._changed(f"No se pudo dividir: {exc}", scene=False)
+            return False
+        self._changed("Figura dividida: ajustá la escala de cada pieza y revisá los acoples antes de generar.")
+        return True
+
+    def set_part_scale(self, place: str, factor) -> bool:
+        """Escala de la pieza de `place`: un número (uniforme) o (sx, sy, sz) en X, Y, Z del modelo."""
+        if self.busy or not self._need_loaded():
+            return False
+        try:
+            self.session.set_part_scale(place, factor)
+        except ValueError as exc:
+            self._changed(str(exc), scene=False)
+            return False
+        sx, sy, sz = self.session.part_scale(place)
+        txt = f"×{sx:.3f}" if sx == sy == sz else f"X ×{sx:.3f}, Y ×{sy:.3f}, Z ×{sz:.3f}"
+        self._changed(f"{place}: escala {txt}. Volvé a revisar las piezas y generar.")
+        return True
+
+    def reset_part_scales(self) -> None:
+        if self.busy:
+            return
+        self.session.project.part_scales.clear()
+        self.session._part_preview = None
+        self.session.outcome = None
+        self._changed("Escalas por pieza restablecidas; se usa el modelo original.")
+
+    def host_piece_for(self, place: str) -> str:
+        """Pieza del MODELO que lleva la unión de `place` y que se escala para que la cara encaje: las piernas van en la pelvis
+        (si hay cintura); los brazos, la cintura y el cuello, en el torso."""
+        spec = next((l for l in self.session.project.limbs if l.name == place), None)
+        return "pelvis" if spec is not None and spec.kind == "leg" and self.session.project.waist else "torso"
+
+    def scale_host_for_part(self, place: str) -> bool:
+        """Ajusta, de forma uniforme, sólo la pieza del modelo que recibe la unión de `place` (torso o pelvis)."""
+        pv = self.part_preview(place)
+        if pv is None or pv.scale_hint is None:
+            self._changed("Primero revisá las piezas para medir sus caras.", scene=False)
+            return False
+        target = self.host_piece_for(place)
+        k = self.session.part_scale(target)[0] * pv.scale_hint
+        return self.set_part_scale(target, k)
+
+    def fit_host_xyz(self, place: str) -> bool:
+        """Como `scale_host_for_part` pero por eje: iguala ancho y alto de la cara del modelo con los de la pieza elegida,
+        sin tocar el espesor ni las demás piezas."""
+        pv = self.part_preview(place)
+        if pv is None or pv.scale_xyz is None:
+            self._changed("Primero revisá las piezas para medir sus caras.", scene=False)
+            return False
+        target = self.host_piece_for(place)
+        k = np.asarray(self.session.part_scale(target)) * np.asarray(pv.scale_xyz)
+        return self.set_part_scale(target, tuple(float(x) for x in k))
+
     def scale_to_fit_part(self, place: str) -> bool:
         """Escala TODA la figura por el factor que iguala la cara de corte de ese lugar con la de la pieza (`scale_hint`)."""
         pv = self.part_preview(place)
@@ -2168,7 +2267,7 @@ class Controller:
             return out
         for w in sess.catalog_warnings():
             out["avisos"].append(w)
-        if not sess.project.parts:
+        if not sess.project.parts and not sess.project.part_scales:
             return out
         if not sess.part_preview_fresh():
             out["stale"] = True
@@ -2244,6 +2343,43 @@ class Controller:
             return False
         return self.catalog_add_done(res, None)
 
+    # ---- gestor del catálogo: ver y eliminar piezas
+    def catalog_pieces(self) -> list:
+        """Todas las versiones de las piezas del catálogo abierto (vacío si no hay catálogo o no se pudo leer)."""
+        try:
+            return self.session.catalog_pieces() if self.session.catalog_root else []
+        except ValueError:
+            return []
+
+    def catalog_usages(self, ref: str) -> list[str]:
+        try:
+            return self.session.catalog_usages(ref)
+        except ValueError:
+            return []
+
+    def catalog_delete(self, refs) -> bool:
+        """Elimina del catálogo abierto esas versiones (`id@n`). Los lugares de la figura que las usaban vuelven a la pieza
+        del modelo. No se puede deshacer: la ventana pide confirmación antes."""
+        refs = list(refs)
+        if self.busy:
+            self._changed("Esperá a que termine la tarea en curso para eliminar piezas.", scene=False)
+            return False
+        if not refs:
+            self._changed("No hay ninguna pieza elegida para eliminar.", scene=False)
+            return False
+        try:
+            res = self.session.catalog_delete(refs)
+        except ValueError as e:
+            self._changed(f"No se eliminó nada: {e}", scene=False)
+            return False
+        msg = f"Eliminadas {len(res['eliminadas'])} pieza(s): {', '.join(res['eliminadas'])}."
+        if res["quitadas"]:
+            msg += f" Vuelven a la pieza del modelo: {', '.join(res['quitadas'])} (hay que volver a generar la figura)."
+        if res["errores"]:
+            msg += " ERRORES: " + "; ".join(res["errores"])
+        self._changed(msg, scene=bool(res["quitadas"]))
+        return not res["errores"]
+
     def clear_hand(self) -> None:
         self._changed("Se vuelve a usar la mano original del modelo." if self.session.clear_hand()
                       else "No había mano de reemplazo.")
@@ -2260,7 +2396,7 @@ class Controller:
         Controles (None = conservar el valor actual): `up` (eje «arriba»), `rx`/`ry`/`yaw` (giros en °) y `scale`
         (factor manual sobre la escala automática). `cut_points` es el plano de corte de la base (3 puntos en
         coordenadas del STL): «keep» conserva el actual, None lo quita."""
-        if not self._need_loaded():
+        if self._busy_for("la cabeza") or not self._need_loaded():
             return False
         cur = self.session.project.head
 
@@ -2330,6 +2466,8 @@ class Controller:
         self._changed(self._head_fit_message(info))
 
     def clear_head_cut_plane(self) -> None:
+        if self._busy_for("la cabeza"):
+            return
         self._changed("Se quitó el plano de corte de la base de la cabeza." if self.session.clear_head_cut_plane()
                       else "La cabeza no tenía plano de corte.")
 
@@ -2342,6 +2480,8 @@ class Controller:
         return self.session.head_replacement_preview() if self.loaded else None
 
     def clear_head_replacement(self) -> None:
+        if self._busy_for("la cabeza"):
+            return
         self._changed("Se vuelve a usar la cabeza original del modelo." if self.session.clear_head_replacement()
                       else "No había cabeza de reemplazo.")
 
@@ -2388,6 +2528,75 @@ class Controller:
         return f"{base} {i}"
 
     # ---------------------------------------------------------------- planos
+    # ---- diagnóstico visual de planos (qué plano falla y cuánto está girado)
+    @staticmethod
+    def plane_id_for_place(place: str | None) -> str | None:
+        """Id del plano (el de `plane_entries`) al que pertenece el lugar de un error de extracción. La muñeca no
+        tiene plano propio en la lista (se define con 3 puntos de la mano): devuelve None."""
+        if place is None or place == "muneca":
+            return None
+        return {"cuello": HEAD_NAME, "cintura": WAIST_NAME}.get(place, place)
+
+    def _register_plane_fault(self, error: Exception | None) -> None:
+        """Si el error trae el lugar cuyo plano falló, lo recuerda para pintar ese plano de rojo en el visor."""
+        self.plane_faults = {}
+        pid = self.plane_id_for_place(getattr(error, "place", None))
+        if pid is not None and any(e.id == pid for e in self.plane_entries()):
+            self.plane_faults[pid] = (str(error), self._plane_sig(pid))
+
+    def _plane_sig(self, pid: str) -> bytes:
+        """Firma del plano y del desplazamiento de su corte: si cambia, el fallo registrado ya no vale."""
+        e = next((x for x in self.plane_entries() if x.id == pid), None)
+        if e is None:
+            return b""
+        spec = self.session.limb(pid)
+        off = b"" if spec is None else repr(getattr(spec, "cut_offset", None)).encode()
+        return np.round(np.asarray(e.plane.origin, float), 6).tobytes() + np.round(np.asarray(e.plane.normal, float), 6).tobytes() + off
+
+    def _fault_hint(self) -> str:
+        if not self.plane_faults:
+            return ""
+        names = {e.id: e.label for e in self.plane_entries()}
+        return " — el plano «" + "», «".join(names.get(k, k) for k in self.plane_faults) + "» está pintado de rojo en el visor."
+
+    def plane_tilt_deg(self, place: str) -> float | None:
+        """Cuánto está girado (grados) el plano lateral de un miembro respecto de la cara de la pieza de catálogo elegida
+        en `place`, cuyo puerto es lateral (paralelo al plano de simetría). None si no hay pieza de catálogo con puerto
+        lateral o si el plano del miembro no es lateral (su corte no tiene que ser paralelo a la simetría)."""
+        from ..limbs import plane_is_lateral
+
+        spec = self.session.limb(place)
+        if spec is None or place not in self.session.project.parts or self.session.line_cut_x(place) is None:
+            return None
+        if not plane_is_lateral(spec.plane, spec.contact_axis):
+            return None
+        ax = np.asarray(spec.contact_axis, float)
+        n = np.asarray(spec.plane.normal, float)
+        c = abs(float(n @ ax)) / (np.linalg.norm(n) * np.linalg.norm(ax))
+        return float(np.degrees(np.arccos(min(1.0, c))))
+
+    def plane_status(self) -> dict[str, tuple[str, str]]:
+        """Estado de cada plano para pintarlo: {id: (nivel, texto)} con nivel «no» (rojo: su corte falló en la última
+        revisión), «aviso» (amarillo: está girado más de `TILT_OK_DEG` respecto de la cara de la pieza elegida) o «ok».
+        Los planos que no son de miembros ni fallaron no aparecen."""
+        from ..ports import TILT_OK_DEG
+
+        out: dict[str, tuple[str, str]] = {}
+        for e in self.plane_entries():
+            fault = self.plane_faults.get(e.id)
+            if fault is not None and fault[1] == self._plane_sig(e.id):
+                out[e.id] = ("no", fault[0])
+                continue
+            if e.kind in ("arm", "leg"):
+                t = self.plane_tilt_deg(e.id)
+                if t is None:
+                    continue
+                if t >= TILT_OK_DEG:
+                    out[e.id] = ("aviso", f"girado {t:.1f}° respecto del corte de la pieza elegida".replace(".", ","))
+                else:
+                    out[e.id] = ("ok", "coincide con el corte de la pieza elegida")
+        return out
+
     def plane_entries(self) -> list[PlaneEntry]:
         out = []
         if self.session.project.symmetry is not None:
@@ -2412,19 +2621,26 @@ class Controller:
         tipo, desplazamiento del corte (mm, solo miembros sobre el plano de simetría) y, si la pieza de catálogo elegida
         corta a otra distancia, la de la línea (`linea_mm`) y la diferencia (`dif_mm`)."""
         out = []
+        status = self.plane_status()
         for n, e in enumerate(self.plane_entries(), start=1):
             cur = line = None
             if e.kind in ("arm", "leg"):
                 cur = self.session.limb_offset(e.id)
                 line = self.session.line_cut_x(e.id) if cur is not None else None
+            st = status.get(e.id)
             out.append({"n": n, "id": e.id, "etiqueta": e.label, "tipo": e.kind, "corte_mm": cur, "linea_mm": line,
-                        "dif_mm": None if (cur is None or line is None) else line - cur})
+                        "dif_mm": None if (cur is None or line is None) else line - cur,
+                        "nivel": None if st is None else st[0], "estado": None if st is None else st[1]})
         return out
 
     @staticmethod
     def cut_row_text(row: dict) -> str:
         """«2 · Pierna — corte a 7,00 mm (la línea corta a 7,66: +0,66)»."""
         t = f"{row['n']} · {row['etiqueta']}"
+        if row.get("nivel") == "no":
+            t += " — ✗ FALLÓ: " + row["estado"].split("— ")[-1]
+        elif row.get("nivel") == "aviso":
+            t += " — ⚠ " + row["estado"]
         if row["corte_mm"] is None:
             return t
         t += f" — corte a {row['corte_mm']:.2f} mm".replace(".", ",")
@@ -2563,8 +2779,10 @@ class Controller:
         self.busy = False
         self.pose_view, self.pose_report = False, None      # la figura nueva reemplaza a la de la vista previa
         if error is not None:
-            self._changed(f"Falló la generación: {error}", scene=False)
+            self._register_plane_fault(error)
+            self._changed(f"Falló la generación: {error}{self._fault_hint()}")
         else:
+            self.plane_faults = {}
             self._changed(validation_summary(outcome.validation, self.session.project.params.clearance),
                           scene=False)
 
@@ -2649,6 +2867,7 @@ class Controller:
         extra = {} if cplane is None else {"clip_plane": cplane}      # modo PIN o cabeza de reemplazo
         found = self.overhang_faces() if self.show_overhangs else None
         hfit = self.hand_fit() if not (found is not None and found[0].any()) else None   # con voladizos se ve la figura tal cual
+        parts_fig = pin_plane is None and hfit is None and self.parts_replace_figure()
         base = sess.work if hfit is None else hfit["figure"]          # con mano de reemplazo, sin la mano original
         drawn = []                                                   # (nombre, malla, color) para dibujar su espejo
         if found is not None and found[0].any():
@@ -2659,6 +2878,13 @@ class Controller:
             scene.set_mesh("figura", ok_mesh, clip_x=clip, **extra)
             scene.set_mesh("voladizos", over_mesh, color=(0.95, 0.25, 0.25, 1.0), clip_x=clip, **extra)
             drawn = [("figura", ok_mesh, _MIRROR_COLOR), ("voladizos", over_mesh, (0.95, 0.45, 0.45, 1.0))]
+        elif parts_fig:
+            # las piezas de catálogo reemplazan a la figura: se ven ellas (con su espejo) y no el modelo original
+            scene.remove("figura")
+            scene.remove("voladizos")
+            drawn = [(f"parte:{pl}", pv.mesh, _MIRROR_COLOR) for pl, pv in self.session.part_preview_items().items()
+                     if pv.mesh is not None and pv.kind not in ("arm", "leg")       # brazos y piernas ya llevan su espejo
+                     and not (pl == "cabeza" and self._replacement_head_shown())]
         else:
             scene.set_mesh("figura", base, clip_x=clip, **extra)
             scene.remove("voladizos")
@@ -2670,7 +2896,7 @@ class Controller:
             scene.remove("mano:reemplazo")
         if hprev is not None:
             scene.set_mesh("cabeza:reemplazo", hprev[0], color=_REPLACEMENT_HEAD_COLOR, clip_x=clip)
-            if pin_plane is None:                      # el espejo no lleva la cabeza original (la nueva no se simetriza)
+            if pin_plane is None and not parts_fig:    # el espejo no lleva la cabeza original (la nueva no se simetriza)
                 drawn = [("figura", self._work_without_head(), _MIRROR_COLOR)] + [d for d in drawn if d[0] == "mano:reemplazo"]
         else:
             scene.remove("cabeza:reemplazo")
@@ -2686,10 +2912,12 @@ class Controller:
                    "head": (0.9, 0.5, 0.9, 0.22), "joint": (1.0, 0.85, 0.2, 0.22),
                    "waist": (0.95, 0.35, 0.35, 0.22)}
         wanted = set()
+        status = self.plane_status()
         for e in self.plane_entries():
             key = f"plano:{e.id}"
             wanted.add(key)
-            scene.set_plane(key, e.plane, hs, center=sess.work.bounds.mean(axis=0), color=palette[e.kind])
+            color = _PLANE_STATUS_COLORS.get((status.get(e.id) or ("",))[0], palette[e.kind])
+            scene.set_plane(key, e.plane, hs, center=sess.work.bounds.mean(axis=0), color=color)
             scene.show(key, e.visible and self.group_visible("planes"))
         for key in [k for k in scene.items if k.startswith("plano:") and not k.endswith(":borde")]:
             if key not in wanted:
@@ -2739,7 +2967,7 @@ class Controller:
         wanted = set()
         if self.show_part_preview and self.outcome_free():
             for place, pv in self.session.part_preview_items().items():
-                if pv.mesh is None:
+                if pv.mesh is None or (place == "cabeza" and self._replacement_head_shown()):
                     continue
                 color = _PART_PREVIEW_COLORS.get(pv.nivel, _PART_PREVIEW_COLORS["aviso"])
                 key = f"parte:{place}"

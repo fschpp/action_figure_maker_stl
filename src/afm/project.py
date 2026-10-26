@@ -35,6 +35,14 @@ class PartRef:
         return cls(id=d["id"], version=d.get("version"), linea=d.get("linea"))
 
 
+def _scale_from_json(v):
+    """Escala guardada: un número (proyectos viejos y uniformes) o tres números por eje."""
+    if isinstance(v, (list, tuple)):
+        k = [float(x) for x in v]
+        return k[0] if len(k) == 1 else k
+    return float(v)
+
+
 @dataclass
 class Project:
     params: Params = field(default_factory=Params)
@@ -48,6 +56,9 @@ class Project:
     waist: WaistSpec | None = None        # cintura articulada (plano de corte + pasador robusto); None = torso de una pieza
     hand: HandSpec | None = None          # mano estándar (STL) pegada en la muñeca; None = la mano original del modelo
     parts: dict[str, PartRef] = field(default_factory=dict)  # pieza de catálogo por nombre de miembro (LimbSpec.name)
+
+    # escala de la pieza de cada lugar (torso, pelvis, cabeza, nombre de miembro): un número = uniforme; [sx, sy, sz] = por eje
+    part_scales: dict[str, float | list[float]] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -63,6 +74,7 @@ class Project:
             "hand": None if self.hand is None else self.hand.to_dict(),
             "joints": [j.to_dict() for j in self.joints],
             "parts": {k: v.to_dict() for k, v in self.parts.items()},
+            "part_scales": {k: (list(v) if isinstance(v, (list, tuple)) else v) for k, v in self.part_scales.items()},
         }
 
     @classmethod
@@ -79,6 +91,7 @@ class Project:
             hand=None if d.get("hand") is None else HandSpec.from_dict(d["hand"]),
             joints=[JointSpec.from_dict(x) for x in d.get("joints", [])],
             parts={k: PartRef.from_dict(v) for k, v in (d.get("parts") or {}).items()},
+            part_scales={k: _scale_from_json(v) for k, v in (d.get("part_scales") or {}).items()},
         )
 
     def scale_geometry(self, k: float) -> None:

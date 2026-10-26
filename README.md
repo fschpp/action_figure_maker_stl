@@ -53,6 +53,8 @@ afm catalogo importar-mano ~/catalogos/proceres-130 out/mano/mano.stl   # mano e
 afm catalogo agregar-stl RUTA pierna.stl --tipo pierna --puerto cadera x1 y1 z1 x2 y2 z2 x3 y3 z3
 afm catalogo listar RUTA [--tipo mano] [--compatible-con brazo-01]
 afm catalogo verificar RUTA
+# en la GUI: «Armar desde catálogo…» arma una figura nueva con piezas del catálogo, sin abrir un STL (equivale a `afm armar` con una receta)
+afm catalogo eliminar RUTA pierna-belgrano-01@1 brazo-belgrano-01@1 [--buscar DIR] [--si]   # borra versiones (id@n) del disco; avisa quién las usa
 ```
 
 ## Convenciones
@@ -65,3 +67,8 @@ afm catalogo verificar RUTA
   Si el torso tiene un diseño asimétrico (banda cruzada, condecoraciones de un solo lado), poné
   `torso_mirror = 0` («Parámetros → Torso espejado» en la GUI): el torso conserva ambos lados del STL y solo
   los miembros se espejan (la cabeza ya sale entera del STL).
+
+### Ajustes de proporciones y pelvis de catálogo
+
+Podés conservar el torso del proyecto al importar una pelvis, dividir la figura actual y escalar sus piezas originales
+por separado antes de regenerar las uniones. Ver [uso en GUI y CLI](docs/ajustes_piezas.md).

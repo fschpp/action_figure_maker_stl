@@ -33,7 +33,7 @@ afm-gui figura.proyecto --stl nueva/ruta/figura.stl   # si el STL cambió de lug
 
 * **Barra superior:** abrir un STL, abrir un proyecto y guardar el proyecto.
 * **Visor 3D** (izquierda): la figura y los planos, con el **cubo de vista** arriba a la derecha.
-* **Barra lateral** (derecha): los controles, en **pestañas por tema** (Figura, Planos, Miembros, Recortes,
+* **Barra lateral** (derecha): los controles, en **pestañas por tema** (Figura, Planos, Catálogo, Miembros, Recortes,
   Parámetros, Generar). Cada pestaña tiene **secciones y subsecciones plegables** (clic en el título); los
   textos de ayuda largos están en subsecciones «Ayuda» plegadas. Al empezar una tarea (por ejemplo dibujar una
   silueta o colocar un pasador) la barra salta sola a la pestaña con los controles de esa tarea.

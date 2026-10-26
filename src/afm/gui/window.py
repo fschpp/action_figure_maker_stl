@@ -34,7 +34,7 @@ _MODE_TITLES = {Mode.VIEW: "", Mode.CROWN: "  ·  marcando coronilla", Mode.SYMM
 _TRIM_OPS = ("subtract", "union")
 
 
-TAB_FIGURA, TAB_PLANOS, TAB_MIEMBROS, TAB_RECORTES, TAB_PARAMS, TAB_GENERAR = range(6)
+TAB_FIGURA, TAB_PLANOS, TAB_CATALOGO, TAB_MIEMBROS, TAB_RECORTES, TAB_PARAMS, TAB_GENERAR = range(7)
 CUBE_PX = 120
 VIEW_ANIM_S = 0.25            # duración de la animación al elegir una vista en el cubo
 SCALE_SPIN_MIN = 1e-6         # el control no admite 0 (la escala debe ser > 0); 1e-6 es el menor valor que muestra con 6 decimales
@@ -93,6 +93,23 @@ def _collapsible(parent: Gtk.Box, title: str, expanded: bool = True, sub: bool =
     return body
 
 
+def _no_scroll_change(widget: Gtk.Widget) -> None:
+    """Que la rueda del ratón sobre un spin / desplegable NO cambie su valor: el scroll lo hace el panel (ScrolledWindow)."""
+    ctl = Gtk.EventControllerScroll(flags=Gtk.EventControllerScrollFlags.VERTICAL)
+    ctl.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)      # antes de que el control lo consuma
+
+    def on_scroll(_c, _dx, dy):
+        sw = widget.get_ancestor(Gtk.ScrolledWindow)
+        if sw is not None:
+            adj = sw.get_vadjustment()
+            new = adj.get_value() + dy * adj.get_page_size() ** (2.0 / 3.0)    # mismo paso que usa GTK
+            adj.set_value(max(adj.get_lower(), min(new, adj.get_upper() - adj.get_page_size())))
+        return True                                              # consumido: el valor del control no cambia
+
+    ctl.connect("scroll", on_scroll)
+    widget.add_controller(ctl)
+
+
 def _help(parent: Gtk.Box, text: str) -> None:
     """Nota de ayuda: texto fijo (no se pliega ni se puede accionar), con ícono de información, fondo tenue y
     borde lateral para distinguirla de los controles que configuran algo."""
@@ -109,6 +126,9 @@ def _help(parent: Gtk.Box, text: str) -> None:
 
 
 class MainWindow(Gtk.ApplicationWindow):
+    _catalog_win = None                                # ventana «Administrar catálogo» abierta (una sola)
+    _build_win = None                                  # ventana «Armar figura desde catálogo» abierta (una sola)
+
     def __init__(self, app: Gtk.Application, ctrl: Controller):
         super().__init__(application=app, title="Action Figure Maker", default_width=1240, default_height=780)
         self.ctrl = ctrl
@@ -156,6 +176,10 @@ class MainWindow(Gtk.ApplicationWindow):
             b.connect("clicked", cb)
             bar.pack_start(b)
             self.btn_open.append(b)
+        self.btn_build_cat = Gtk.Button(label="Armar desde catálogo…")
+        self.btn_build_cat.set_tooltip_text("Figura nueva solo con piezas del catálogo, sin abrir un STL ni un proyecto.")
+        self.btn_build_cat.connect("clicked", self._on_catalog_build)
+        bar.pack_start(self.btn_build_cat)
         self.btn_save = Gtk.Button(label="Guardar proyecto…")
         self.btn_save.connect("clicked", self._on_save_project)
         bar.pack_end(self.btn_save)
@@ -321,6 +345,25 @@ class MainWindow(Gtk.ApplicationWindow):
 
         # ------------------------------------------------------------ Planos
         box = self._tab_page("Planos")
+        sec = _collapsible(box, "Lista de planos")
+        _help(sec, "Durante la selección: Retroceso deshace el último punto, Esc cancela.")
+        self.chk_show: dict[str, Gtk.CheckButton] = {}
+        for group, label, tip in (
+                ("planes", "Mostrar todos los planos", "Interruptor general: se combina con el de cada plano de la lista"),
+                ("pins", "Mostrar todos los pines de articulación",
+                 "Marcas de los pasadores (hombro, cadera, cuello) y ejes de las bisagras (rodilla, codo)"),
+                ("contours", "Mostrar todos los contornos", "Siluetas de los miembros (1.º y 2.º corte) y recortes manuales")):
+            chk = Gtk.CheckButton(label=label, active=False, tooltip_text=tip)
+            chk.connect("toggled", lambda b, g=group: None if self._updating else self.ctrl.set_group_visible(g, b.get_active()))
+            sec.append(chk)
+            self.chk_show[group] = chk
+        self.planes_box = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+        self.planes_box.add_css_class("boxed-list")
+        sec.append(self.planes_box)
+        self.chk_cut_numbers = Gtk.CheckButton(label="Numerar los cortes en el visor", active=self.ctrl.show_cut_numbers)
+        self.chk_cut_numbers.connect("toggled", lambda b: None if self._updating else self.ctrl.set_show_cut_numbers(b.get_active()))
+        sec.append(self.chk_cut_numbers)
+
         sec = _collapsible(box, "Plano de simetría")
         self.btn_sym = self._button("Plano de simetría (3 puntos)", lambda *_: self.ctrl.start_symmetry())
         self.btn_sym_auto = self._button("Simetría automática (x = 0)", lambda *_: self.ctrl.auto_symmetry())
@@ -388,38 +431,6 @@ class MainWindow(Gtk.ApplicationWindow):
                    "«Mano articulada»: en vez de soldarla, la mano sale como pieza aparte con un pasador que entra en el brazo y "
                    "gira libre (se achica solo si la muñeca es fina; ver Parámetros → Mano articulada).")
 
-        sec = _collapsible(box, "Piezas de catálogo")
-        self.btn_cat_new = self._button("Crear catálogo de la línea (carpeta nueva)…", self._on_catalog_new)
-        self.btn_cat_open = self._button("Abrir catálogo de la línea (carpeta)…", self._on_catalog_open)
-        self.lbl_catalog = Gtk.Label(label="Sin catálogo abierto", xalign=0, wrap=True)
-        self.btn_cat_add = self._button("Catalogar esta figura…", self._on_catalog_add)
-        for w in (self.btn_cat_new, self.btn_cat_open, self.lbl_catalog, self.btn_cat_add):
-            sec.append(w)
-        self.btn_cat_forget = self._button("Olvidar el catálogo recordado", lambda *_: self.ctrl.forget_catalog())
-        self.btn_cat_forget.set_tooltip_text("Cierra el catálogo y borra lo recordado: la próxima vez hay que abrirlo a mano. "
-                                             "No toca la carpeta ni el proyecto.")
-        self.btn_cat_review = self._button("Revisar las piezas elegidas (sin generar)", self._on_catalog_review)
-        self.btn_cat_scale = self._button("Escalar la figura a la altura de la línea", lambda *_: self.ctrl.scale_to_line())
-        self.btn_cat_align = self._button("Alinear todos los cortes a la línea", self._on_align_all)
-        self.chk_part_preview = Gtk.CheckButton(label="Dibujar las piezas elegidas antes de generar",
-                                                active=self.ctrl.show_part_preview)
-        self.chk_part_preview.connect("toggled", lambda b: None if self._updating else self.ctrl.set_show_part_preview(b.get_active()))
-        for w in (self.btn_cat_forget, self.btn_cat_review, self.btn_cat_scale, self.btn_cat_align, self.chk_part_preview):
-            sec.append(w)
-        sec.append(Gtk.Label(label="Pieza de cada lugar (al cambiarla hay que volver a generar)", xalign=0, margin_top=8))
-        self.parts_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        sec.append(self.parts_box)
-        self._parts_sig = None
-        _help(sec, "«Crear catálogo» arma una carpeta nueva para la línea (nombre y altura de figura; es lo mismo que «afm catalogo "
-                   "crear») y la deja abierta. Si ya tenés una, abrila con «Abrir catálogo». «Catalogar esta figura» guarda "
-                   "sus piezas crudas (cabeza, torso, brazo, pierna, con los planos y siluetas que ya definiste) para usarlas en "
-                   "otras figuras. En cada lugar elegí «la del modelo» o una pieza del catálogo: «Generar figura» la pone en el "
-                   "puerto que el modelo tiene en ese lugar, sin escalarla, y la fila muestra cómo acopla (ok / aviso / no, "
-                   "IoU y escalón entre las caras). La mano de catálogo se acopla en la muñeca del brazo de catálogo. «Revisar» mide el acople de cada pieza SIN "
-                   "generar y la dibuja ya colocada (verde = ok, ámbar = aviso, rojo = no); «Ver por qué» superpone las dos "
-                   "caras. Con un torso (o pelvis) de catálogo la figura sale entera del catálogo. El catálogo se reabre solo "
-                   "al cargar la figura.")
-
         sec = _collapsible(box, "Cabeza")
         self.btn_neck = self._button("Agregar plano del cuello / cabeza (3 puntos)", lambda *_: self.ctrl.start_neck_plane())
         self.btn_head_stl = self._button("Cabeza de reemplazo (STL)…", self._on_head_replacement)
@@ -461,24 +472,51 @@ En naranja se ve el contorno del pasador (vástago y cabeza); en verde, la posic
                    "que forman pasa a ser la base (lo de abajo se descarta) y acompaña a la malla si después la girás. "
                    "Si la base coincide poco con la del cuello, probá otro giro, escala o corte: el ajuste se recalcula al instante.")
 
-        sec = _collapsible(box, "Lista de planos")
-        _help(sec, "Durante la selección: Retroceso deshace el último punto, Esc cancela.")
-        self.chk_show: dict[str, Gtk.CheckButton] = {}
-        for group, label, tip in (
-                ("planes", "Mostrar todos los planos", "Interruptor general: se combina con el de cada plano de la lista"),
-                ("pins", "Mostrar todos los pines de articulación",
-                 "Marcas de los pasadores (hombro, cadera, cuello) y ejes de las bisagras (rodilla, codo)"),
-                ("contours", "Mostrar todos los contornos", "Siluetas de los miembros (1.º y 2.º corte) y recortes manuales")):
-            chk = Gtk.CheckButton(label=label, active=True, tooltip_text=tip)
-            chk.connect("toggled", lambda b, g=group: None if self._updating else self.ctrl.set_group_visible(g, b.get_active()))
-            sec.append(chk)
-            self.chk_show[group] = chk
-        self.planes_box = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
-        self.planes_box.add_css_class("boxed-list")
-        sec.append(self.planes_box)
-        self.chk_cut_numbers = Gtk.CheckButton(label="Numerar los cortes en el visor", active=self.ctrl.show_cut_numbers)
-        self.chk_cut_numbers.connect("toggled", lambda b: None if self._updating else self.ctrl.set_show_cut_numbers(b.get_active()))
-        sec.append(self.chk_cut_numbers)
+        # --------------------------------------------------------- Catálogo
+        box = self._tab_page("Catálogo")
+        sec = _collapsible(box, "Piezas de catálogo")
+        self.btn_cat_new = self._button("Crear catálogo de la línea (carpeta nueva)…", self._on_catalog_new)
+        self.btn_cat_open = self._button("Abrir catálogo de la línea (carpeta)…", self._on_catalog_open)
+        self.lbl_catalog = Gtk.Label(label="Sin catálogo abierto", xalign=0, wrap=True)
+        self.btn_cat_add = self._button("Catalogar esta figura…", self._on_catalog_add)
+        self.btn_cat_manage = self._button("Administrar catálogo (ver y eliminar piezas)…", self._on_catalog_manage)
+        self.btn_cat_build = self._button("Armar figura desde catálogo (sin STL)…", self._on_catalog_build)
+        for w in (self.btn_cat_new, self.btn_cat_open, self.lbl_catalog, self.btn_cat_add, self.btn_cat_manage, self.btn_cat_build):
+            sec.append(w)
+        self.btn_cat_forget = self._button("Olvidar el catálogo recordado", lambda *_: self.ctrl.forget_catalog())
+        self.btn_cat_forget.set_tooltip_text("Cierra el catálogo y borra lo recordado: la próxima vez hay que abrirlo a mano. "
+                                             "No toca la carpeta ni el proyecto.")
+        self.btn_cat_review = self._button("Revisar las piezas elegidas (sin generar)", self._on_catalog_review)
+        self.btn_cat_scale = self._button("Escalar la figura a la altura de la línea", lambda *_: self.ctrl.scale_to_line())
+        self.btn_cat_align = self._button("Alinear todos los cortes a la línea", self._on_align_all)
+        self.chk_part_preview = Gtk.CheckButton(label="Dibujar las piezas elegidas antes de generar",
+                                                active=self.ctrl.show_part_preview)
+        self.chk_part_preview.connect("toggled", lambda b: None if self._updating else self.ctrl.set_show_part_preview(b.get_active()))
+        for w in (self.btn_cat_forget, self.btn_cat_review, self.btn_cat_scale, self.btn_cat_align, self.chk_part_preview):
+            sec.append(w)
+        self.btn_divide_model = self._button("Dividir figura actual y ajustar piezas…", self._on_divide_model)
+        self.btn_reset_piece_scales = self._button("Restablecer escalas por pieza", lambda *_: self.ctrl.reset_part_scales())
+        sec.append(self.btn_divide_model)
+        sec.append(self.btn_reset_piece_scales)
+        sec.append(Gtk.Label(label="Pieza de cada lugar (escala ×1 = original, X/Y/Z por separado; al cambiar hay que generar)", xalign=0, margin_top=8))
+        self.parts_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        sec.append(self.parts_box)
+        self._parts_sig = None
+        _help(sec, "«Crear catálogo» arma una carpeta nueva para la línea (nombre y altura de figura; es lo mismo que «afm catalogo "
+                   "crear») y la deja abierta. Si ya tenés una, abrila con «Abrir catálogo». «Catalogar esta figura» guarda "
+                   "sus piezas crudas (cabeza, torso, brazo, pierna, con los planos y siluetas que ya definiste) para usarlas en "
+                   "otras figuras. En cada lugar elegí «la del modelo» o una pieza del catálogo: «Generar figura» la pone en el "
+                   "puerto que el modelo tiene en ese lugar, sin escalarla, y la fila muestra cómo acopla (ok / aviso / no, "
+                   "IoU y escalón entre las caras). La mano de catálogo se acopla en la muñeca del brazo de catálogo. «Revisar» mide el acople de cada pieza SIN "
+                   "generar y la dibuja ya colocada (verde = ok, ámbar = aviso, rojo = no); «Ver por qué» superpone las dos "
+                   "caras. Una pelvis sola conserva el torso, brazos y piernas del modelo: definí antes el plano de cintura. "
+                   "«Armar figura desde catálogo» (también en la barra de arriba) arma una figura NUEVA sin abrir un STL: una pieza por lugar, "
+                   "cada una marcada con cómo acopla a la ya elegida, y exporta las piezas, la figura ensamblada y la receta. «Administrar catálogo» abre una ventana con todas las versiones de pieza, una vista previa 3/4 de cada una "
+                   "y el borrado de una o varias (útil si se catalogó desde un proyecto equivocado); los lugares de esta figura que usaban una pieza "
+                   "borrada vuelven a la del modelo. «Dividir figura actual» separa las piezas crudas para ajustar su escala (una sola o por eje X, Y, Z; sirve para la pieza del modelo y para la de catálogo); los puertos acompañan el cambio "
+                   "y los pasadores se regeneran con las medidas del proyecto. Brazos y piernas se ajustan por par espejado. "
+                   "«Restablecer» vuelve a las proporciones originales. Con un torso de catálogo la figura sale entera del catálogo. El catálogo se reabre solo "
+                   "al cargar la figura.")
 
         # --------------------------------------------------------- Miembros
         box = self._tab_page("Miembros")
@@ -1141,17 +1179,25 @@ exportar; tarda un poco más.")
         self.btn_cat_new.set_sensitive(not ctrl.busy)
         self.btn_cat_open.set_sensitive(not ctrl.busy)
         self.btn_cat_add.set_sensitive(bool(loaded and root and not ctrl.busy))
+        self.btn_cat_manage.set_sensitive(bool(root and not ctrl.busy))
+        self.btn_cat_build.set_sensitive(not ctrl.busy)
+        self.btn_build_cat.set_sensitive(not ctrl.busy)
+        if self._catalog_win is not None:
+            self._catalog_win.refresh_if_changed()
         self.lbl_catalog.set_text("Sin catálogo abierto" if not root else f"Catálogo: {root}")
         self.btn_cat_forget.set_sensitive(bool(root and not ctrl.busy))
-        self.btn_cat_review.set_sensitive(bool(loaded and root and ctrl.session.project.parts and not ctrl.busy))
+        self.btn_cat_review.set_sensitive(bool(loaded and (ctrl.session.project.parts or ctrl.session.project.part_scales) and not ctrl.busy))
+        self.btn_divide_model.set_sensitive(bool(loaded and not ctrl.busy and not ctrl.session.catalog_only()))
+        self.btn_reset_piece_scales.set_sensitive(bool(loaded and ctrl.session.project.part_scales and not ctrl.busy))
         self.btn_cat_scale.set_sensitive(bool(loaded and root and not ctrl.busy))
         self.btn_cat_align.set_sensitive(bool(loaded and root and ctrl.session.project.parts and not ctrl.busy))
         scale = ctrl.line_scale() if root else None
         self.btn_cat_scale.set_label("Escalar la figura a la altura de la línea" if scale is None else
                                      f"Escalar la figura a la altura de la línea (×{scale:.3f})".replace(".", ","))
-        rows = ctrl.catalog_rows() if root else []
-        choices = {r["lugar"]: [m.ref for m in ctrl.catalog_choices(r["lugar"])] for r in rows}
-        sig = (root, tuple((r["lugar"], r["pieza"], ctrl.catalog_row_text(r), tuple(choices[r["lugar"]]), r.get("nivel"),
+        rows = ctrl.catalog_rows() if loaded else []
+        choices = {r["lugar"]: [m.ref for m in ctrl.catalog_choices(r["lugar"])] if root else [] for r in rows}
+        sig = (root, ctrl.busy, tuple(sorted(ctrl.session.project.part_scales.items())),
+               tuple(ctrl.session.scale_places()), tuple((r["lugar"], r["pieza"], ctrl.catalog_row_text(r), tuple(choices[r["lugar"]]), r.get("nivel"),
                            tuple(r.get("conflictos") or ()), tuple(r.get("avisos") or ())) for r in rows))
         if sig == self._parts_sig:
             return
@@ -1168,9 +1214,13 @@ exportar; tarda un poco más.")
             # la pieza guardada puede traer versión fija («id@2»): se muestra la fila de esa pieza si está en la lista
             idx = 0 if cur is None else next((i + 1 for i, ref in enumerate(refs) if ref == cur or ref.split("@")[0] == cur.split("@")[0]), 0)
             dd.set_selected(idx)
+            _no_scroll_change(dd)
             dd.connect("notify::selected", self._on_part_selected, lugar, refs)
+            dd.set_sensitive(bool(root and not ctrl.busy))
             line.append(dd)
             box.append(line)
+            if lugar in ctrl.session.scale_places():
+                box.append(self._scale_line(lugar))
             if r["pieza"] is not None:
                 lbl = Gtk.Label(label=ctrl.catalog_row_text(r), xalign=0, wrap=True)
                 lbl.add_css_class("dim-label")
@@ -1178,6 +1228,46 @@ exportar; tarda un poco más.")
                 if r.get("previa"):
                     box.append(self._part_actions(lugar, r))
             self.parts_box.append(box)
+
+    def _scale_line(self, lugar: str) -> Gtk.Box:
+        """Fila de escala de la pieza de un lugar: X (ancho), Y (profundidad) y Z (alto), con «igual» para mantener la forma."""
+        ctrl = self.ctrl
+        k = ctrl.session.part_scale(lugar)
+        line = Gtk.Box(spacing=6)
+        line.append(Gtk.Label(label="Escala de la pieza ×", xalign=0))
+        lock = Gtk.CheckButton(label="igual", tooltip_text="Los tres ejes juntos (escala uniforme). Sin marcar, cada eje es independiente.")
+        lock.set_active(k[0] == k[1] == k[2])
+        spins = []
+        guard = {"on": False}
+
+        def linked(src, *_):
+            if guard["on"] or not lock.get_active():
+                return
+            guard["on"] = True
+            for sp in spins:
+                if sp is not src:
+                    sp.set_value(src.get_value())
+            guard["on"] = False
+
+        for name, tip, val in (("X", "lateral: ancho de la pieza", k[0]), ("Y", "adelante-atrás: profundidad", k[1]),
+                               ("Z", "vertical: alto", k[2])):
+            line.append(Gtk.Label(label=name, xalign=1, tooltip_text=tip))
+            sp = Gtk.SpinButton.new_with_range(0.05, 10.0, 0.01)
+            sp.set_digits(3)
+            sp.set_value(val)
+            sp.set_tooltip_text(tip)
+            sp.connect("value-changed", linked)
+            _no_scroll_change(sp)
+            spins.append(sp)
+            line.append(sp)
+        line.append(lock)
+        apply = Gtk.Button(label="Aplicar")
+        apply.connect("clicked", lambda *_: ctrl.set_part_scale(lugar, tuple(sp.get_value() for sp in spins)))
+        line.append(apply)
+        ok = bool(not ctrl.busy and not ctrl.session.catalog_only())
+        for w in (*spins, lock, apply):
+            w.set_sensitive(ok)
+        return line
 
     def _on_part_selected(self, dd: Gtk.DropDown, _p, lugar: str, refs: list) -> None:
         if self._updating:
@@ -1203,6 +1293,19 @@ exportar; tarda un poco más.")
                             tooltip_text="Escala TODA la figura para que la cara de este lugar tenga el tamaño de la de la pieza")
             sc.connect("clicked", lambda *_: ctrl.scale_to_fit_part(lugar))
             bar.append(sc)
+            if not ctrl.session.catalog_only():
+                local = Gtk.Button(label="Ajustar sólo torso / pelvis", tooltip_text="Iguala el radio de las caras de unión. Revisá luego IoU, escalón y pared.")
+                local.connect("clicked", lambda *_: ctrl.scale_host_for_part(lugar))
+                bar.append(local)
+        if (pv is not None and pv.scale_xyz is not None and not ctrl.session.catalog_only()
+                and max(abs(v - 1.0) for v in pv.scale_xyz) > 0.03):
+            sx, sy, sz = pv.scale_xyz
+            xyz = Gtk.Button(label=f"Ajustar ejes (X {sx:.2f}, Y {sy:.2f}, Z {sz:.2f})".replace(".", ","),
+                             tooltip_text="Escala por separado ancho, profundidad y alto de la pieza del modelo que lleva esta unión "
+                                          "para que su cara tenga el ancho y el alto de la de la pieza elegida; no toca el espesor "
+                                          "ni las demás piezas. Revisá luego IoU, escalón y pared.")
+            xyz.connect("clicked", lambda *_: ctrl.fit_host_xyz(lugar))
+            bar.append(xyz)
         if r.get("conflictos"):
             k1 = Gtk.Button(label="Usar la articulación de la pieza",
                             tooltip_text="Quita la rodilla/codo del modelo en este miembro")
@@ -1271,11 +1374,28 @@ exportar; tarda un poco más.")
                 cr.set_source_rgb(*rgb)
                 cr.stroke()
 
+    def _on_divide_model(self, *_):
+        if self.ctrl.busy:
+            return
+        self.ctrl.busy = True
+        self.ctrl._changed("Dividiendo la figura en piezas crudas…", scene=False)
+        self._run_task("Dividiendo la figura…", lambda progress: self.ctrl.session.divide_model(),
+                       lambda res, err: self.ctrl.finish_preview_parts(res, err), "Figura dividida")
+
     def _on_catalog_review(self, *_):
         job = self.ctrl.begin_preview_parts()
         if job is not None:
             self._run_task("Revisando las piezas", job, lambda items, err: self.ctrl.finish_preview_parts(items, err),
                            "Piezas revisadas")
+
+    def _review_on_open(self) -> None:
+        """Al abrir un proyecto (o su catálogo) con piezas de otra figura: las revisa en segundo plano para dibujarlas."""
+        if self.ctrl.needs_review_on_open():
+            self._on_catalog_review()
+
+    def _open_project_path(self, path: str) -> None:
+        self.ctrl.open_project(path)
+        self._review_on_open()
 
     def _on_align_all(self, *_):
         self.ctrl.align_cuts_to_line()
@@ -1334,11 +1454,74 @@ exportar; tarda un poco más.")
             except GLib.Error:
                 return                      # cancelado
             try:
-                self.ctrl.open_catalog(f.get_path())
+                if self.ctrl.open_catalog(f.get_path()):
+                    self._review_on_open()          # el proyecto ya traía piezas y faltaba el catálogo para verlas
             except Exception as e:          # noqa: BLE001
                 self._error(e)
 
         dlg.select_folder(self, None, finished)
+
+    def _on_catalog_build(self, *_):
+        """«Armar figura desde catálogo»: no hace falta un STL. Usa el catálogo abierto, el último que se usó o pide la carpeta."""
+        if self._build_win is not None:
+            self._build_win.present()
+            return
+        if not self.ctrl.session.catalog_root:
+            from . import settings as GUI_SETTINGS
+
+            last = GUI_SETTINGS.last_catalog()
+            if last and self.ctrl.open_catalog(last):
+                self._open_builder()
+                return
+            dlg = Gtk.FileDialog(title="Catálogo de la línea (carpeta)")
+
+            def finished(d, res):
+                try:
+                    f = d.select_folder_finish(res)
+                except GLib.Error:
+                    return                      # cancelado
+                try:
+                    if self.ctrl.open_catalog(f.get_path()):
+                        self._open_builder()
+                except Exception as e:          # noqa: BLE001
+                    self._error(e)
+
+            dlg.select_folder(self, None, finished)
+            return
+        self._open_builder()
+
+    def _open_builder(self) -> None:
+        from .figure_window import FigureBuilderWindow
+
+        try:
+            win = FigureBuilderWindow(self, self.ctrl.session.catalog_root)
+        except Exception as e:                  # noqa: BLE001
+            self._error(e)
+            return
+        win.connect("close-request", self._on_builder_closed)
+        self._build_win = win
+        win.present()
+
+    def _on_builder_closed(self, *_) -> bool:
+        self._build_win = None
+        return False
+
+    def _on_catalog_manage(self, *_):
+        """«Administrar catálogo…»: ventana con la lista de piezas, vista previa 3/4 y eliminación (una sola ventana)."""
+        if self._catalog_win is not None:
+            self._catalog_win.refresh_if_changed()
+            self._catalog_win.present()
+            return
+        from .catalog_window import CatalogManagerWindow
+
+        win = CatalogManagerWindow(self, self.ctrl)
+        win.connect("close-request", self._on_catalog_manager_closed)
+        self._catalog_win = win
+        win.present()
+
+    def _on_catalog_manager_closed(self, *_) -> bool:
+        self._catalog_win = None
+        return False                                  # deja que GTK cierre la ventana
 
     def _on_catalog_add(self, *_):
         import re
@@ -1578,7 +1761,7 @@ exportar; tarda un poco más.")
         self._run_task("Abriendo el STL", job, done, "STL abierto")
 
     def _on_open_project(self, *_):
-        self._pick_file("Abrir proyecto", ["*.proyecto", "*.json"], "Proyectos", self.ctrl.open_project)
+        self._pick_file("Abrir proyecto", ["*.proyecto", "*.json"], "Proyectos", self._open_project_path)
 
     def _on_save_hand(self, *_):
         dlg = Gtk.FileDialog(title="Guardar mano estándar")
@@ -1627,6 +1810,7 @@ class Application(Gtk.Application):
         try:
             if self._project:
                 ctrl.open_project(self._project, self._stl)
+                self.win._review_on_open()
             elif self._stl:
                 ctrl.open_stl(self._stl)
         except Exception as e:              # noqa: BLE001

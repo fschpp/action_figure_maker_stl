@@ -66,6 +66,18 @@ class Report:
         return not self.problems
 
 
+@dataclass
+class DeleteResult:
+    """Resultado de `Catalog.delete_pieces`: las piezas eliminadas y los errores de disco (si los hubo)."""
+
+    deleted: list
+    errors: list
+
+    @property
+    def refs(self) -> list[str]:
+        return [m.ref for m in self.deleted]
+
+
 class Catalog:
     def __init__(self, root: str, line: dict):
         self.root = os.path.abspath(root)
@@ -201,6 +213,51 @@ class Catalog:
         self.write_index()
         return m
 
+    def _piece_files(self, meta: P.PieceMeta) -> list[str]:
+        """Archivos de una pieza (`.pieza.json` primero, después el STL), buscados en `piezas/*/` aunque estén en otra carpeta."""
+        meta_file = P.meta_name(meta.id, meta.version)
+        found = sorted(glob.glob(os.path.join(self.root, "piezas", "*", meta_file)))
+        if not found:
+            return []
+        folder = os.path.dirname(found[0])
+        files = list(found)
+        stl = os.path.join(folder, os.path.basename(meta.stl or P.stl_name(meta.id, meta.version)))
+        if os.path.isfile(stl):
+            files.append(stl)
+        return files
+
+    def delete_pieces(self, refs: list[str]) -> "DeleteResult":
+        """Elimina del disco las versiones `id@n` indicadas (el `.pieza.json` y el STL) y regenera el índice.
+
+        Pide siempre `id@versión`: una `id` sola significa «la última» en el resto del catálogo y borrarla por error es
+        irreversible. Primero se comprueba que TODAS existan (si una no existe no se borra nada). Las demás versiones
+        del mismo id no cambian de número: queda un hueco, y una versión nueva sigue contando desde la mayor que quede.
+        También se quitan del `compat.json` los resultados que dependían de lo borrado. No toca las recetas ni los
+        proyectos que la usaban: `usages` dice cuáles son para avisar antes."""
+        if not refs:
+            raise CatalogError("no se indicó ninguna pieza para eliminar")
+        metas: dict[str, P.PieceMeta] = {}
+        for ref in refs:
+            pid, ver = parse_ref(ref)
+            if ver is None:
+                raise CatalogError(f"«{ref}»: para eliminar hay que indicar la versión (<id>@<n>)")
+            metas[f"{pid}@{ver}"] = self.meta(f"{pid}@{ver}")
+        deleted, errors = [], []
+        for meta in metas.values():
+            files = self._piece_files(meta)
+            try:
+                for path in files:              # el `.pieza.json` va primero: si algo falla, la pieza ya no figura en el catálogo
+                    os.remove(path)
+            except OSError as exc:
+                errors.append(f"{meta.ref}: {exc}")
+                continue
+            deleted.append(meta)
+        if deleted:
+            self.write_index()
+            from .compat import CompatCache
+            CompatCache(self.root).prune(self)
+        return DeleteResult(deleted, errors)
+
     # ------------------------------------------------------------------ compatibilidad barata
     def compatible_with(self, ref: str, params: Params | None = None) -> list[tuple[P.PieceMeta, str, str, Compat]]:
         """Piezas del catálogo que se acoplan con `ref` por algún puerto, con el resultado de la compatibilidad barata
@@ -269,14 +326,18 @@ class Catalog:
             if m.altura_figura_mm is not None and abs(m.altura_figura_mm - self.height_mm) > LINE_HEIGHT_TOL_MM:
                 warnings.append(f"{tag}: altura de origen {m.altura_figura_mm:g} mm, la línea usa {self.height_mm:g} mm")
         for pid, vs in by_id.items():
-            if sorted(vs) != list(range(1, len(vs) + 1)):
-                problems.append(f"{pid}: versiones no consecutivas {sorted(vs)}")
+            if len(set(vs)) != len(vs):
+                problems.append(f"{pid}: versiones repetidas {sorted(vs)}")
+            elif sorted(vs) != list(range(1, len(vs) + 1)):
+                # eliminar una versión (`delete_pieces`) deja un hueco a propósito: las recetas fijan `id@versión`
+                warnings.append(f"{pid}: versiones no consecutivas {sorted(vs)} (¿se eliminó alguna?)")
         return Report(problems, warnings)
 
     # ------------------------------------------------------------------ usos
-    def usages(self, ref: str, search: list[str] | None = None) -> list[dict]:
-        """Recetas (y `.proyecto` de las carpetas en `search`) que usan `ref`. Con `id` sin versión, cualquiera de sus
-        versiones; con `id@n`, solo esa. Sirve para saber qué figuras regenerar al cambiar una pieza."""
+    def usages(self, ref: str, search: list[str] | None = None, recursive: bool = True) -> list[dict]:
+        """Recetas (y `.proyecto` de las carpetas en `search`, con subcarpetas salvo `recursive=False`) que usan `ref`.
+        Con `id` sin versión, cualquiera de sus versiones; con `id@n`, solo esa. Sirve para saber qué figuras regenerar
+        al cambiar o eliminar una pieza."""
         pid, ver = parse_ref(ref)
 
         def hits(values) -> list[str]:
@@ -295,7 +356,8 @@ class Catalog:
         out = []
         files = sorted(glob.glob(os.path.join(self.root, "figuras", "*.receta.json")))
         for d in search or []:
-            files += sorted(glob.glob(os.path.join(d, "**", "*.proyecto"), recursive=True))
+            pattern = os.path.join(d, "**", "*.proyecto") if recursive else os.path.join(d, "*.proyecto")
+            files += sorted(glob.glob(pattern, recursive=recursive))
         for path in files:
             try:
                 with open(path) as f:
@@ -305,7 +367,8 @@ class Catalog:
             if path.endswith(".receta.json"):
                 slots = {k: v for k, v in (data.get("lugares") or {}).items()}
             else:                       # proyecto: `parts` (Fase 5) = {lugar: {id, version, …}}
-                slots = {k: (f"{v['id']}@{v['version']}" if isinstance(v, dict) and "id" in v else None)
+                slots = {k: ((f"{v['id']}@{v['version']}" if v.get("version") is not None else v["id"])
+                             if isinstance(v, dict) and "id" in v else None)
                          for k, v in (data.get("parts") or {}).items()}
             for place, v in slots.items():
                 if hits([v]):

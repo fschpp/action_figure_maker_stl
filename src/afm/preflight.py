@@ -19,9 +19,9 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from . import solids as S
-from .assembly import AssemblyError, PartChoice, face_of_triangles, host_frame, place_part
+from .assembly import AssemblyError, PartChoice, face_of_triangles, hip_notes, host_frame, place_part, swap_pelvis
 from .joints import JOINT_KIND_BY_LIMB, JointSpec
-from .ports import Compat, Port, PortError
+from .ports import Compat, Port, PortError, PortFrame
 
 # Lugares que se pueden revisar de antemano. La mano se acopla en la muñeca del brazo ya puesto: se mide al generar.
 SKIPPED = {"mano": "la mano se acopla en la muñeca del brazo: su acople se mide al generar"}
@@ -42,6 +42,7 @@ class PartPreview:
     conflicts: list = field(default_factory=list)   # conflictos que impiden generar (articulación doble, etc.)
     notes: list = field(default_factory=list)       # cosas para saber que no son aviso ni error
     scale_hint: float | None = None         # factor para multiplicar la altura del modelo y que las caras coincidan
+    scale_xyz: tuple | None = None          # (sx, sy, sz) que iguala ancho y alto de la cara del modelo con los de la pieza
     error: str | None = None                # no se pudo ni revisar (el lugar no existe, no hay cara de corte…)
 
     # ------------------------------------------------------------------ textos
@@ -71,6 +72,7 @@ class PartPreview:
     def to_dict(self) -> dict:
         return {"lugar": self.place, "pieza": self.ref, "nivel": self.nivel, "error": self.error,
                 "conflictos": list(self.conflicts), "notas": list(self.notes), "escala_sugerida": self.scale_hint,
+                "escala_xyz_sugerida": None if self.scale_xyz is None else [round(float(x), 4) for x in self.scale_xyz],
                 "compat": None if self.compat is None else self.compat.to_dict()}
 
 
@@ -96,6 +98,14 @@ def scale_hint_for(part_face, host_face) -> float | None:
     if part_face is None or host_face is None or host_face.radius_eq <= 1e-9:
         return None
     return float(part_face.radius_eq / host_face.radius_eq)
+
+
+def _xyz_hint(part_face, host_face, frame):
+    """`customize.fit_scale` como tupla (o None): escala por eje de la pieza del MODELO que le da a su cara el ancho y el
+    alto de la de la pieza elegida."""
+    from .customize import fit_scale
+    k = fit_scale(part_face, host_face, frame)
+    return None if k is None else tuple(float(x) for x in k)
 
 
 def _overlay_shapes(part: Port, host_port_face):
@@ -127,6 +137,19 @@ def preview_part(place: str, choice: PartChoice, project, body: S.Manifold, half
             placed = split.placed
             host_face = None            # la cara del cuello ya se midió dentro de `split_head`
             host_port_face = None
+        elif place == "pelvis":
+            pv.kind = "pelvis"
+            _body, placed = swap_pelvis(body, project.limbs, project.waist, choice, p, p.ref_height)
+            f = placed.port.frame                 # la toma del torso de arriba mira al revés que el enchufe de la pelvis
+            host_port_face = face_of_triangles(placed.face, PortFrame(f.center.copy(), -f.axis, f.ref.copy()))
+            legs = {}
+            for l in project.limbs:
+                if l.kind == "leg":
+                    try:
+                        legs[l.name] = separate_limb(half if half is not None else body.trim_by_plane((1.0, 0.0, 0.0), 0.0), l, p.burr)[1]
+                    except ValueError:
+                        pass
+            pv.notes += hip_notes(placed, legs)
         else:
             spec = next((l for l in project.limbs if l.name == place), None)
             if spec is None:
@@ -149,6 +172,7 @@ def preview_part(place: str, choice: PartChoice, project, body: S.Manifold, half
     if host_port_face is not None:
         pv.part_shape, pv.host_shape = _overlay_shapes(choice.port(pv.kind), host_port_face)
         pv.scale_hint = scale_hint_for(choice.port(pv.kind).face, host_port_face)
+        pv.scale_xyz = _xyz_hint(choice.port(pv.kind).face, host_port_face, placed.port.frame)
     elif pv.kind == "head" and placed.compat is not None and placed.compat.escalon_mm is not None:
         pv.notes.append("la cara del cuello se mide dentro del corte de la cabeza: sin superposición dibujable")
     nivel = placed.compat.nivel if placed.compat is not None else "ok"
@@ -212,6 +236,15 @@ def advice(pv: PartPreview, session=None) -> list[str]:
     k = pv.scale_hint
     for m in c.motivos:
         out.append(f"No se puede: {m}.")
+    for lado, (cabe, hace_falta) in c.cara_chica.items():
+        if lado == "B":
+            out.append(f"Cambiar de pieza o escalar no lo arregla: la cara de corte del MODELO en este lugar es chica (cabe un "
+                       f"círculo de Ø{cabe:.1f} mm y hacen falta Ø{hace_falta:.1f} mm con su pared). Agrandá esa cara: movela o "
+                       "girá el plano del miembro (Planos) o redibujá su silueta (Miembros) para que el corte atraviese una "
+                       "zona más gruesa; o achicá el vástago en Parámetros.")
+        else:
+            out.append(f"La cara de la PIEZA elegida es chica (cabe un círculo de Ø{cabe:.1f} mm y hacen falta Ø{hace_falta:.1f} "
+                       "mm con su pared): elegí otra pieza o achicá el vástago en Parámetros.")
     if c.iou is not None and c.iou < 0.8:
         out.append(f"Las caras coinciden solo {100 * c.iou:.0f} %: la parte verde de la imagen es lo que se toca; el resto "
                    "queda como escalón o hueco entre el modelo y la pieza.")
@@ -220,7 +253,13 @@ def advice(pv: PartPreview, session=None) -> list[str]:
     if k is not None and abs(k - 1.0) > 0.03:
         sentido = "agrandarlo" if k > 1.0 else "achicarlo"
         out.append(f"Si escalás TODO el modelo ×{k:.3f} ({sentido} {abs(k - 1) * 100:.0f} %) las caras de este lugar "
-                   "tendrían el mismo tamaño («Escalar la figura para este lugar»); ojo: mueve también los demás lugares.")
+                   "tendrían el mismo tamaño («Escalar la figura para este lugar»); ojo: mueve también los demás lugares. "
+                   "Para no tocar los demás, escalá solo la pieza del modelo que lleva esta unión, por separado en X, Y y Z "
+                   "(«Dividir figura actual y ajustar piezas»).")
+    xyz = pv.scale_xyz
+    if xyz is not None and max(abs(v - 1.0) for v in xyz) > 0.03:
+        out.append("Escala por eje de la pieza del modelo para igualar ancho y alto de la cara: "
+                   f"X ×{xyz[0]:.3f}, Y ×{xyz[1]:.3f}, Z ×{xyz[2]:.3f}.".replace(".", ","))
     for t in c.avisos:
         if not any(t in o for o in out):
             out.append(t[0].upper() + t[1:] + ("" if t.endswith(".") else "."))

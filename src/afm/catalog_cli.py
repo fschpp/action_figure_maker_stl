@@ -12,7 +12,7 @@ from .recipe import RecipeError
 
 
 def add_parsers(sub) -> None:
-    c = sub.add_parser("catalogo", help="catálogo de piezas de una línea (crear, listar, verificar, importar-mano, agregar, agregar-stl, usos, estado, compat, matriz)")
+    c = sub.add_parser("catalogo", help="catálogo de piezas de una línea (crear, listar, verificar, importar-mano, agregar, agregar-stl, usos, eliminar, estado, compat, matriz)")
     cs = c.add_subparsers(dest="catcmd", required=True)
 
     def root(p):
@@ -38,6 +38,12 @@ def add_parsers(sub) -> None:
     root(a)
     a.add_argument("ref", metavar="ID")
     a.add_argument("--buscar", action="append", default=[], metavar="DIR", help="carpeta con .proyecto donde buscar también (repetible)")
+    a = cs.add_parser("eliminar", help="eliminar del catálogo una o más versiones de pieza (<id>@<n>); no se puede deshacer")
+    root(a)
+    a.add_argument("refs", nargs="+", metavar="ID@N")
+    a.add_argument("--buscar", action="append", default=[], metavar="DIR",
+                   help="carpeta con .proyecto donde buscar también quién la usa (repetible; no recursiva)")
+    a.add_argument("--si", action="store_true", help="no pedir confirmación")
     a = cs.add_parser("importar-mano", help="importar una mano estándar afm-mano-1 (la de `afm extraer-mano`) como pieza")
     root(a)
     a.add_argument("stl")
@@ -146,6 +152,28 @@ def _run(args) -> int:
         for u in uses:
             print(f"{u['archivo']}: lugar «{u['lugar']}» → {u['pieza']}")
         return 0
+    if cmd == "eliminar":
+        metas = [cat.meta(r) for r in args.refs]            # falla antes de borrar nada si alguna no existe
+        for r in args.refs:
+            if "@" not in r:
+                raise CatalogError(f"«{r}»: para eliminar hay que indicar la versión (<id>@<n>)")
+        for m in metas:
+            uses = cat.usages(m.ref, args.buscar, recursive=False)
+            print(f"{m.ref:<28} {m.tipo:<10} origen: {m.origen.get('figura') or m.origen.get('nota') or '—'}")
+            for u in uses:
+                print(f"    la usa: {u['archivo']} (lugar «{u['lugar']}»)")
+        if not args.si:
+            if not sys.stdin.isatty():
+                raise CatalogError("falta confirmar: agregá --si para eliminar sin preguntar")
+            if input(f"¿Eliminar {len(metas)} pieza(s) del catálogo «{cat.name}»? No se puede deshacer [s/N] ").strip().lower() not in ("s", "si", "sí", "y", "yes"):
+                print("No se eliminó nada.")
+                return 1
+        res = cat.delete_pieces(args.refs)
+        for ref in res.refs:
+            print(f"Eliminada {ref}")
+        for e in res.errors:
+            print(f"ERROR: {e}", file=sys.stderr)
+        return 0 if not res.errors else 2
     if cmd == "importar-mano":
         meta, warns = cat.import_hand(args.stl, args.id, args.nueva_version)
         print(f"Mano guardada como {meta.ref} (muñeca Ø{2 * meta.puertos['muneca'].face.radius_eq:.2f} mm, {meta.volumen_mm3:.0f} mm³)")

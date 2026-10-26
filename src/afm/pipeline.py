@@ -14,7 +14,7 @@ from .hand import (HAND_MIN_SHAFT_D, HAND_NAME, HandError, HandSpec, WristFrame,
                    load_standard_hand)
 from .head import HEAD_NAME, MIN_BASE_IOU, HeadSpec, below_neck, build_head, neck_plane, split_head
 from .joints import JOINT_KIND_BY_LIMB, JointBuild, JointSpec, build_joint, flex_range, hinge_for, print_flex
-from .assembly import AssemblyError, PartChoice, PlacedPart, place_part
+from .assembly import AssemblyError, PartChoice, PlacedPart, hip_notes, place_part, swap_pelvis
 from .limbs import LimbSpec, ContactFace, check_limb_plane, limb_prism, pin_margin, separate_limb
 from .params import Params
 from .pins import mushroom_pin
@@ -110,6 +110,16 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
     parts = dict(parts or {})
     parts_src = set(parts)
     host_faces = dict(host_faces or {})
+    pelvis_part = parts.pop("pelvis", None)          # pelvis de catálogo: cambia solo la pelvis del modelo (su torso queda)
+    pelvis_pp = None
+    if pelvis_part is not None:
+        if host_faces:
+            raise ValueError("«pelvis»: con torso de catálogo la pelvis va con él (torso_sup + pelvis)")
+        say("Cambiando la pelvis…")
+        try:
+            body, pelvis_pp = swap_pelvis(body, limbs, waist, pelvis_part, p, p.ref_height)
+        except AssemblyError as exc:
+            raise ValueError(f"«pelvis»: {exc}") from exc
     for lname in host_faces:
         if lname not in parts:
             raise ValueError(f"«{lname}»: hay una toma sintetizada pero no una pieza de catálogo para ese lugar")
@@ -155,6 +165,8 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
     placed: dict[str, PlacedPart] = {}
     if head_build is not None and split.placed is not None:
         placed["cabeza"] = split.placed
+    if pelvis_pp is not None:
+        placed["pelvis"] = pelvis_pp
     for spec in limbs:
         say(f"Separando {spec.name}…")
         if spec.name in parts:
@@ -328,6 +340,10 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
             report["torso"] = {"espejado": False, "volumen_der_mm3": round(float(torso_half.volume()), 2),
                                "volumen_izq_mm3": round(float(other.volume()), 2)}
     pieces["torso"] = S.union(torso_half, S.mirror_x(torso_half) if torso_other is None else torso_other)
+    if pelvis_pp is not None:
+        legs = {n: b["face"] for n, b in built.items() if b["spec"].kind == "leg"}
+        if hip_msgs := hip_notes(pelvis_pp, legs):
+            part_notes.setdefault("pelvis", []).extend(hip_msgs)
     if placed:
         report["piezas"] = {name: pp.report() for name, pp in placed.items()}
         for name, notes in part_notes.items():
