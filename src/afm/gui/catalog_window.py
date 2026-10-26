@@ -63,13 +63,18 @@ class CatalogManagerWindow(Gtk.Window):
         self.listbox = Gtk.ListBox(selection_mode=Gtk.SelectionMode.MULTIPLE)
         self.listbox.add_css_class("boxed-list")
         self.listbox.connect("selected-rows-changed", self._on_selection)
+        # Clic simple = elegir SOLO esa pieza; Mayús o Ctrl + clic = agregarla / quitarla de lo elegido (GTK acumularía con cada clic)
+        click = Gtk.GestureClick(button=1)
+        click.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        click.connect("pressed", self._on_list_click)
+        self.listbox.add_controller(click)
         keys = Gtk.EventControllerKey()
         keys.connect("key-pressed", self._on_key)
         self.listbox.add_controller(keys)
         sw = Gtk.ScrolledWindow(vexpand=True, hexpand=True, min_content_width=380)
         sw.set_child(self.listbox)
         box.append(sw)
-        hint = Gtk.Label(label="Ctrl + clic o Mayús + clic para elegir varias. Filtrá por texto y usá «Elegir todas las que se ven» "
+        hint = Gtk.Label(label="Clic elige una sola pieza; Mayús + clic (o Ctrl + clic) agrega o quita otra. Filtrá por texto y usá «Elegir todas las que se ven» "
                                "para borrar de una vez, por ejemplo, todo lo catalogado desde un proyecto equivocado.",
                          xalign=0, wrap=True)
         hint.add_css_class("dim-label")
@@ -130,6 +135,24 @@ class CatalogManagerWindow(Gtk.Window):
             self.dd_type.set_selected(names.index(current) if current in names else 0)
         finally:
             self._updating = False
+
+    def _on_list_click(self, gesture: Gtk.GestureClick, _n: int, _x: float, y: float) -> None:
+        row = self.listbox.get_row_at_y(int(y))
+        if row is None:
+            return
+        gesture.set_state(Gtk.EventSequenceState.CLAIMED)          # el comportamiento por defecto de GTK no corre
+        extend = bool(gesture.get_current_event_state() & (Gdk.ModifierType.SHIFT_MASK | Gdk.ModifierType.CONTROL_MASK))
+        self._updating = True                                      # un solo redibujado al final, no uno por cada cambio
+        try:
+            if extend:
+                (self.listbox.unselect_row if row.is_selected() else self.listbox.select_row)(row)
+            else:
+                self.listbox.unselect_all()
+                self.listbox.select_row(row)
+        finally:
+            self._updating = False
+        self.listbox.grab_focus()
+        self._on_selection()
 
     def _selected_refs(self) -> list[str]:
         sel = {id(r) for r in self.listbox.get_selected_rows()}
