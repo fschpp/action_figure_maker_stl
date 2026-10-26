@@ -1323,9 +1323,14 @@ class Session:
 
         if self.work is None:
             raise ValueError("Primero abrí una figura.")
-        probs = self.problems()
-        if probs:
-            raise ValueError("; ".join(probs))
+        only_head = bool(places) and set(places) <= {"cabeza"}
+        if only_head:                       # la cabeza solo necesita el plano del cuello: el resto de la figura puede estar sin terminar
+            if self.project.head is None:
+                raise ValueError("Primero definí el plano del cuello (la cabeza que se cataloga).")
+        else:
+            probs = self.problems()
+            if probs:
+                raise ValueError("; ".join(probs))
         cat = self._catalog()
         name = os.path.basename(self.stl_path or "figura")
         try:
@@ -1344,6 +1349,10 @@ class Session:
                 k = self.project.part_scales.get(place, 1.0)
                 adjusted = scale_choice(PartChoice(piece.meta, piece.mesh), k)
                 piece.meta, piece.mesh = adjusted.meta, adjusted.mesh
+        dup = [e.meta.id for e in res.pieces if cat.versions(e.meta.id)]
+        if dup and not new_version:         # antes de guardar nada: no dejar el catálogo a medio llenar
+            raise ValueError(f"ya están en el catálogo: {', '.join(dup)}. Las piezas son inmutables: tildá «guardar como versión "
+                             "nueva» o elegí solo los lugares que faltan.")
         metas, avisos = [], list(res.warnings)
         for e in res.pieces:
             e.meta.etiquetas = list(labels)
@@ -1351,6 +1360,37 @@ class Session:
             metas.append(meta)
             avisos += warns
         return {"piezas": metas, "avisos": avisos}
+
+    CATALOG_ADD_PLACES = ("cabeza", "torso", "brazo", "pierna")
+
+    def catalog_prefix(self) -> str:
+        """Prefijo de los ids de las piezas que salen de esta figura (`cabeza-<prefijo>-01`): el nombre del STL."""
+        import re
+
+        base = os.path.splitext(os.path.basename(self.stl_path or "figura"))[0].lower()
+        return re.sub(r"[^a-z0-9]+", "-", base).strip("-") or "figura"
+
+    def catalog_add_options(self) -> dict:
+        """Lo que ofrece «Catalogar esta figura…»: {"prefijo", "lugares": [{"lugar", "disponible", "nota", "existentes"}],
+        "cabeza_reemplazo": nombre del STL o None}. `existentes` son las piezas de ese lugar que ya salieron de esta figura
+        (mismo prefijo): guardarlas otra vez pide «versión nueva»."""
+        prefix = self.catalog_prefix()
+        try:
+            have = [m for m in self._catalog().list(all_versions=True) if m.id.endswith(f"-{prefix}-01")] if self.catalog_root else []
+        except ValueError:
+            have = []
+        place_of = {"cabeza": "cabeza", "torso": "torso", "torso_sup": "torso", "pelvis": "torso", "brazo": "brazo", "pierna": "pierna"}
+        kinds = {l.kind for l in self.project.limbs}
+        head = self.project.head
+        rep = os.path.basename(head.replacement_path) if head is not None and head.replacement_path else None
+        avail = {"cabeza": (head is not None, f"cabeza de reemplazo «{rep}»" if rep else
+                            ("" if head is not None else "falta el plano del cuello")),
+                 "torso": (True, ""),
+                 "brazo": ("arm" in kinds, "" if "arm" in kinds else "el proyecto no define un brazo"),
+                 "pierna": ("leg" in kinds, "" if "leg" in kinds else "el proyecto no define una pierna")}
+        rows = [{"lugar": lugar, "disponible": avail[lugar][0], "nota": avail[lugar][1],
+                 "existentes": sorted(m.ref for m in have if place_of.get(m.tipo) == lugar)} for lugar in self.CATALOG_ADD_PLACES]
+        return {"prefijo": prefix, "lugares": rows, "cabeza_reemplazo": rep}
 
     # ------------------------------------------------------------- gestor del catálogo (ver y eliminar piezas)
     def catalog_pieces(self) -> list:
