@@ -178,3 +178,48 @@ def test_open_recipe_with_missing_pieces_or_other_line(root, tmp_path):
     p.write_text(json.dumps(d))
     with pytest.raises(ValueError, match="formato"):
         FB.FigureBuilder(root).load_recipe(str(p))
+
+
+# ---------------------------------------------------------------------- vista previa conjunta
+def _doll(root):
+    b = FB.FigureBuilder(root, "juntas")
+    for place, ref in (("torso", "torso-muneco-01"), ("cabeza", "cabeza-muneco-01"), ("brazo", "brazo-muneco-01"),
+                       ("pierna", "pierna-muneco-01"), ("mano", "mano-muneco-01")):
+        b.set_choice(place, ref)
+    return b
+
+
+def test_preview_puts_all_chosen_pieces_together_and_mirrors_the_other_side(root):
+    b = _doll(root)
+    parts, notes = b.preview()
+    names = [n for n, _m, _c in parts]
+    assert notes == [] and names == ["torso", "cabeza", "brazo", "brazo_der", "mano", "mano_der", "pierna", "pierna_der"]
+    by = {n: m for n, m, _c in parts}
+    assert by["brazo"].bounds[0][0] > 0 > by["brazo_der"].bounds[1][0]                  # izquierda +X, derecha −X
+    assert by["brazo"].bounds[0][0] == pytest.approx(-by["brazo_der"].bounds[1][0])
+    assert by["brazo_der"].volume > 0 and by["brazo_der"].is_watertight                 # el espejo conserva las caras bien orientadas
+    assert by["cabeza"].bounds[0][2] == pytest.approx(by["torso"].bounds[1][2])         # la cabeza apoya en el cuello
+    assert by["mano"].bounds[1][2] <= by["brazo"].bounds[0][2] + 1.0                     # la mano sigue al brazo por la muñeca
+    assert len({tuple(c) for _n, _m, c in parts}) == 5                                  # un color por lugar
+
+
+def test_preview_follows_scales_hand_and_choices(root):
+    b = _doll(root)
+    h0 = {n: m.extents for n, m, _c in b.preview()[0]}
+    b.set_scale("brazo", (1, 1, 1.3))
+    b.set_hand(yaw=90, union="giro")
+    parts, _ = b.preview()
+    h1 = {n: m.extents for n, m, _c in parts}
+    assert h1["brazo"][2] == pytest.approx(h0["brazo"][2] * 1.3) and h1["torso"][2] == pytest.approx(h0["torso"][2])
+    b.set_choice("mano", None)
+    b.set_choice("pierna", None)
+    assert [n for n, _m, _c in b.preview()[0]] == ["torso", "cabeza", "brazo", "brazo_der"]
+
+
+def test_preview_needs_a_torso_and_does_not_generate(root):
+    with pytest.raises(ValueError, match="torso"):
+        FB.FigureBuilder(root).preview()
+    b = _doll(root)
+    b.set_choice("brazo", None)
+    parts, notes = b.preview()                                                          # mano sin brazo: se dibuja el resto
+    assert "mano" not in [n for n, _m, _c in parts]

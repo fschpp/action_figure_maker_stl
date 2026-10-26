@@ -8,6 +8,8 @@ from __future__ import annotations
 import os
 import re
 
+import numpy as np
+
 from ..catalog import Catalog, CatalogError
 from ..customize import is_identity, normalize_scale, scale_vector
 from ..hand import DEFAULT_OVERLAP_MM
@@ -222,6 +224,10 @@ class FigureBuilder:
         self.recipe().save(path)
         return path
 
+    def preview(self) -> tuple[list, list[str]]:
+        """Vista previa conjunta de las piezas elegidas (ver `preview_parts`)."""
+        return preview_parts(self)
+
     def generate(self, outdir: str, progress=print, orient: bool | str = False) -> dict:
         """Arma, valida y exporta en `outdir` (lo mismo que `afm armar`). Devuelve el informe: {"receta", "construccion",
         "validacion", "archivos"} más `ensamblada` (ruta del STL de la figura entera, para la vista previa). Tarda minutos."""
@@ -236,6 +242,93 @@ class FigureBuilder:
         info = run_armar(recipe_path, outdir, self.name, self.root, progress=progress, orient=orient)
         info["ensamblada"] = os.path.join(outdir, info["archivos"]["ensamblada"])
         return info
+
+
+PREVIEW_COLORS = {"torso": (0.62, 0.70, 0.84, 1.0), "pelvis": (0.50, 0.62, 0.78, 1.0), "cabeza": (0.93, 0.78, 0.62, 1.0),
+                  "brazo": (0.55, 0.78, 0.60, 1.0), "pierna": (0.84, 0.62, 0.62, 1.0), "mano": (0.95, 0.88, 0.45, 1.0)}
+
+
+def _mirrored(mesh):
+    """Copia de `mesh` espejada en X (el otro lado de la figura), con las caras bien orientadas."""
+    m = mesh.copy()
+    m.vertices = m.vertices * np.array([-1.0, 1.0, 1.0])
+    m.invert()
+    return m
+
+
+def preview_parts(builder: "FigureBuilder") -> tuple[list, list[str]]:
+    """Todas las piezas elegidas puestas juntas, sin generar nada (solo transformaciones rígidas, instantáneo).
+
+    Devuelve ([(nombre, malla, color)], avisos). Cada pieza va en su puerto —la pelvis en la cintura del torso, la cabeza en
+    el cuello, el brazo y la pierna en las tomas `hombro_izq` / `cadera_izq`, la mano en la muñeca del brazo— con sus escalas
+    y el giro / solape de la mano; el otro lado sale por espejo. No incluye pasadores, holguras ni cavidades (eso lo hace
+    «Armar y exportar»): sirve para ver proporciones, uniones y escalas antes de esperar minutos."""
+    from ..assembly import AssemblyError, transform_choice
+    from ..hand import WristFrame, place_hand
+    from ..limbs import ContactFace
+    from ..ports import coupling_transform
+    from .. import solids as S
+    from ..assembly import host_frame
+    from ..recipe import load_choices
+
+    if not builder.choices.get("torso"):
+        raise ValueError("elegí un torso para ver la figura")
+    cat, ch = load_choices(builder.recipe(), builder.root)
+    notes: list[str] = []
+    out: list = []
+    upper = ch.get("torso_sup") or ch["torso"]
+    lower = ch.get("pelvis") if upper.meta.tipo == "torso_sup" else None
+    out.append(("torso", upper.mesh.copy(), "torso", False))
+    if lower is not None:
+        cp, lp = upper.meta.puertos.get("cintura"), lower.meta.puertos.get("cintura")
+        if cp is None or lp is None:
+            notes.append("falta el puerto «cintura»: la pelvis no se puede colocar")
+        else:
+            out.append(("pelvis", transform_choice(lower, coupling_transform(lp.frame, cp.frame)).mesh, "pelvis", False))
+    elif builder.choices.get("pelvis"):
+        notes.append("el torso elegido es entero: la pelvis no se usa")
+    if "cabeza" in ch:
+        neck = upper.meta.puertos.get("cuello")
+        if neck is None:
+            notes.append(f"«{upper.meta.ref}» no tiene puerto «cuello»: la cabeza no se puede colocar")
+        else:
+            hc = ch["cabeza"]
+            m = hc.mesh.copy()
+            m.apply_transform(coupling_transform(hc.port("head").frame, neck.frame))
+            out.append(("cabeza", m, "cabeza", False))
+    for place, kind, owner, toma in (("brazo", "arm", upper, "hombro_izq"), ("pierna", "leg", lower or upper, "cadera_izq")):
+        if place not in ch:
+            continue
+        port = owner.meta.puertos.get(toma)
+        if port is None:
+            notes.append(f"«{owner.meta.ref}» no tiene el puerto «{toma}»: {place} no se puede colocar")
+            continue
+        face = ContactFace(np.asarray(port.frame.center, float).copy(), -np.asarray(port.frame.axis, float), 0.0, None)
+        try:
+            T = coupling_transform(ch[place].port(kind).frame, host_frame(face))
+        except AssemblyError as exc:
+            notes.append(str(exc))
+            continue
+        m = ch[place].mesh.copy()
+        m.apply_transform(T)
+        out.append((place, m, place, True))
+        wrist = ch[place].meta.puertos.get("muneca") if place == "brazo" else None
+        if place == "brazo" and "mano" in ch:
+            if wrist is None:
+                notes.append("el brazo no trae puerto «muneca»: la mano no se puede colocar")
+                continue
+            wp = wrist.transformed(T)
+            fr = WristFrame(wp.frame.center.copy(), wp.frame.axis.copy(), wp.frame.ref.copy()).twisted(builder.hand["yaw"])
+            hand = S.to_printable_trimesh(place_hand(S.to_manifold(ch["mano"].mesh), fr))
+            if builder.hand["union"] == "solape":
+                hand.apply_translation(-fr.axis * builder.hand["solape"])
+            out.append(("mano", hand, "mano", True))
+    parts = []
+    for name, mesh, key, both in out:
+        parts.append((name, mesh, PREVIEW_COLORS[key]))
+        if both:
+            parts.append((f"{name}_der", _mirrored(mesh), PREVIEW_COLORS[key]))
+    return parts, notes
 
 
 def summary(info: dict) -> str:

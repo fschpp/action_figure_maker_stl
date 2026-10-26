@@ -151,6 +151,27 @@ class PreviewRenderer:
             cam.pitch = float(np.clip(PREVIEW_PITCH + pitch_off, -89.0, 89.0))
             return off.render(cam)
 
+    def render_parts(self, parts, yaw_off: float = 0.0, pitch_off: float = 0.0) -> np.ndarray:
+        """Imagen RGBA de varias piezas juntas, cada una con su color: `parts` = [(nombre, malla, color RGBA)]. Si `parts` es el
+        mismo objeto de la llamada anterior no se vuelve a subir a la GPU (arrastrar para girar solo mueve la cámara)."""
+        off = self._ensure()
+        if off is None:
+            raise RuntimeError(self.error or "sin vista previa")
+        if not parts:
+            raise ValueError("no hay piezas para dibujar")
+        with off.ctx:
+            if self._mesh is not parts:
+                off.scene.clear()
+                for name, mesh, color in parts:
+                    off.scene.set_mesh(name, mesh, color)
+                self._mesh = parts
+            lo = np.min([np.asarray(m.bounds, float)[0] for _n, m, _c in parts], axis=0)
+            hi = np.max([np.asarray(m.bounds, float)[1] for _n, m, _c in parts], axis=0)
+            cam = three_quarter_camera(np.array([lo, hi]), off.width / off.height)
+            cam.yaw = (PREVIEW_YAW + yaw_off) % 360.0
+            cam.pitch = float(np.clip(PREVIEW_PITCH + pitch_off, -89.0, 89.0))
+            return off.render(cam)
+
     def clear(self) -> None:
         """Suelta la malla de la GPU (cuando ya no hay nada elegido)."""
         if self._off is not None and self._mesh is not None:

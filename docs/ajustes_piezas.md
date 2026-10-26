@@ -82,6 +82,11 @@ En la ventana **Armar desde catálogo** (sin STL ni proyecto):
   uniforme. Se escala alrededor de la unión principal de cada pieza (igual que en el modelo) y las demás se acoplan a los puertos
   nuevos. La mano no se escala.
 
+- **Ver todas las piezas juntas**: botón sobre la vista previa. Coloca las piezas elegidas en sus uniones (con escalas, giro y
+  solape de la mano) y espeja el otro lado, sin generar nada, así que responde al instante y se actualiza al cambiar cualquier
+  elección. Cada lugar lleva un color. Es solo para ver proporciones y uniones: no muestra pasadores, holguras ni cavidades
+  (eso sale al «Armar y exportar», que tarda minutos y valida).
+
 En la receta (`afm-receta-1`) queda así, y `afm armar` lo respeta:
 
 ```json

@@ -33,6 +33,7 @@ class FigureBuilderWindow(Gtk.Window):
         self._refill_pending = False
         self._t0 = 0.0
         self._shown = None                      # (malla, meta | None) en la vista previa
+        self._group = None                      # [(nombre, malla, color)] de «todas las piezas juntas»
         self._dyaw = self._dpitch = 0.0
         self._drag0 = (0.0, 0.0)
         self._last_dir = remember_dir
@@ -176,6 +177,11 @@ class FigureBuilderWindow(Gtk.Window):
         reset = Gtk.Button(label="Vista 3/4")
         reset.connect("clicked", self._on_reset_view)
         row.append(reset)
+        self.tgl_all = Gtk.ToggleButton(label="Ver todas las piezas juntas")
+        self.tgl_all.set_tooltip_text("Pone las piezas elegidas en su lugar (con sus escalas y la mano) y las dibuja juntas, sin generar: "
+                                      "sirve para ver proporciones y uniones antes de esperar el armado. No incluye pasadores ni holguras.")
+        self.tgl_all.connect("toggled", self._on_toggle_all)
+        row.append(self.tgl_all)
         row.append(Gtk.Label(label="Arrastrá para girar", xalign=0, hexpand=True))
         self.spinner = Gtk.Spinner()
         row.append(self.spinner)
@@ -238,6 +244,8 @@ class FigureBuilderWindow(Gtk.Window):
         self._schedule_refill()          # NO ahora: GTK se cae si se cambia el modelo del desplegable que está avisando el cambio
         if ref:
             self._show_piece(ref)
+        else:
+            self._refresh_group()
 
     def _schedule_refill(self) -> None:
         if not self._refill_pending:
@@ -280,6 +288,7 @@ class FigureBuilderWindow(Gtk.Window):
         except ValueError as exc:
             self.lbl_result.set_text(str(exc))
         self.sp_overlap.set_sensitive(self.builder.hand["union"] == "solape")
+        self._refresh_group()
 
     def _on_scale(self, sp: Gtk.SpinButton, place: str, axis: str) -> None:
         if self._updating:
@@ -297,6 +306,7 @@ class FigureBuilderWindow(Gtk.Window):
             self.builder.set_scale(place, [x.get_value() for x in sps])
         except ValueError as exc:
             self.lbl_result.set_text(str(exc))
+        self._refresh_group()
 
     def _on_open_recipe(self, *_) -> None:
         dlg = Gtk.FileDialog(title="Abrir receta para retocarla")
@@ -337,10 +347,35 @@ class FigureBuilderWindow(Gtk.Window):
         self.lbl_result.set_text(msg)
         shown = self.builder.choices.get("torso")
         if shown:
-            self._show_piece(shown)
+            self._show_piece(shown)             # con «todas juntas» activo esto vuelve a dibujar el conjunto
 
     # ------------------------------------------------------------ vista previa
+    def _on_toggle_all(self, *_) -> None:
+        if self.tgl_all.get_active():
+            self._dyaw = self._dpitch = 0.0
+        self._refresh_group()
+
+    def _refresh_group(self) -> None:
+        """Con «Ver todas las piezas juntas» activo, vuelve a colocar y dibujar el conjunto (instantáneo)."""
+        if not self.tgl_all.get_active():
+            self._group = None
+            self._redraw()
+            return
+        try:
+            self._group, notes = self.builder.preview()
+        except Exception as exc:                              # noqa: BLE001  (sin torso, pieza rota…): se dice y se vuelve a la pieza
+            self._group = None
+            self.lbl_result.set_text(f"No se puede ver la figura: {exc}")
+            self._redraw()
+            return
+        if notes:
+            self.lbl_result.set_text("Vista conjunta (sin pasadores ni holguras):\n" + "\n".join(f"• {n}" for n in notes))
+        self._redraw()
+
     def _show_piece(self, ref: str) -> None:
+        if self.tgl_all.get_active():
+            self._refresh_group()
+            return
         try:
             meta, mesh = self.builder.catalog().load(ref, check_hash=False)
         except Exception as exc:                              # noqa: BLE001
@@ -354,11 +389,15 @@ class FigureBuilderWindow(Gtk.Window):
         self._redraw()
 
     def _redraw(self) -> None:
-        if self._shown is None:
+        group = self._group if self.tgl_all.get_active() else None
+        if group is None and self._shown is None:
             return
-        mesh, meta = self._shown
         try:
-            img = self.preview.render(mesh, meta, self._dyaw, self._dpitch)
+            if group is not None:
+                img = self.preview.render_parts(group, self._dyaw, self._dpitch)
+            else:
+                mesh, meta = self._shown
+                img = self.preview.render(mesh, meta, self._dyaw, self._dpitch)
         except Exception as exc:                              # noqa: BLE001  (sin EGL: el resto sigue andando)
             self.picture.set_paintable(None)
             self.lbl_result.set_text(f"La vista previa 3D no está disponible: {exc}")
@@ -441,6 +480,8 @@ class FigureBuilderWindow(Gtk.Window):
             self.lbl_result.set_text(f"No se pudo armar: {error}")
             return False
         self.lbl_result.set_text(summary(info) + f"\n\nExportado en {folder}")
+        if self.tgl_all.get_active():
+            self.tgl_all.set_active(False)       # se muestra la figura armada de verdad
         try:
             import trimesh
 
