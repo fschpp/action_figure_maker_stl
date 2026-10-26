@@ -127,6 +127,7 @@ def _help(parent: Gtk.Box, text: str) -> None:
 
 class MainWindow(Gtk.ApplicationWindow):
     _catalog_win = None                                # ventana «Administrar catálogo» abierta (una sola)
+    _build_win = None                                  # ventana «Armar figura desde catálogo» abierta (una sola)
 
     def __init__(self, app: Gtk.Application, ctrl: Controller):
         super().__init__(application=app, title="Action Figure Maker", default_width=1240, default_height=780)
@@ -175,6 +176,10 @@ class MainWindow(Gtk.ApplicationWindow):
             b.connect("clicked", cb)
             bar.pack_start(b)
             self.btn_open.append(b)
+        self.btn_build_cat = Gtk.Button(label="Armar desde catálogo…")
+        self.btn_build_cat.set_tooltip_text("Figura nueva solo con piezas del catálogo, sin abrir un STL ni un proyecto.")
+        self.btn_build_cat.connect("clicked", self._on_catalog_build)
+        bar.pack_start(self.btn_build_cat)
         self.btn_save = Gtk.Button(label="Guardar proyecto…")
         self.btn_save.connect("clicked", self._on_save_project)
         bar.pack_end(self.btn_save)
@@ -475,7 +480,8 @@ En naranja se ve el contorno del pasador (vástago y cabeza); en verde, la posic
         self.lbl_catalog = Gtk.Label(label="Sin catálogo abierto", xalign=0, wrap=True)
         self.btn_cat_add = self._button("Catalogar esta figura…", self._on_catalog_add)
         self.btn_cat_manage = self._button("Administrar catálogo (ver y eliminar piezas)…", self._on_catalog_manage)
-        for w in (self.btn_cat_new, self.btn_cat_open, self.lbl_catalog, self.btn_cat_add, self.btn_cat_manage):
+        self.btn_cat_build = self._button("Armar figura desde catálogo (sin STL)…", self._on_catalog_build)
+        for w in (self.btn_cat_new, self.btn_cat_open, self.lbl_catalog, self.btn_cat_add, self.btn_cat_manage, self.btn_cat_build):
             sec.append(w)
         self.btn_cat_forget = self._button("Olvidar el catálogo recordado", lambda *_: self.ctrl.forget_catalog())
         self.btn_cat_forget.set_tooltip_text("Cierra el catálogo y borra lo recordado: la próxima vez hay que abrirlo a mano. "
@@ -504,7 +510,8 @@ En naranja se ve el contorno del pasador (vástago y cabeza); en verde, la posic
                    "IoU y escalón entre las caras). La mano de catálogo se acopla en la muñeca del brazo de catálogo. «Revisar» mide el acople de cada pieza SIN "
                    "generar y la dibuja ya colocada (verde = ok, ámbar = aviso, rojo = no); «Ver por qué» superpone las dos "
                    "caras. Una pelvis sola conserva el torso, brazos y piernas del modelo: definí antes el plano de cintura. "
-                   "«Administrar catálogo» abre una ventana con todas las versiones de pieza, una vista previa 3/4 de cada una "
+                   "«Armar figura desde catálogo» (también en la barra de arriba) arma una figura NUEVA sin abrir un STL: una pieza por lugar, "
+                   "cada una marcada con cómo acopla a la ya elegida, y exporta las piezas, la figura ensamblada y la receta. «Administrar catálogo» abre una ventana con todas las versiones de pieza, una vista previa 3/4 de cada una "
                    "y el borrado de una o varias (útil si se catalogó desde un proyecto equivocado); los lugares de esta figura que usaban una pieza "
                    "borrada vuelven a la del modelo. «Dividir figura actual» separa las piezas crudas para ajustar su escala (una sola o por eje X, Y, Z; sirve para la pieza del modelo y para la de catálogo); los puertos acompañan el cambio "
                    "y los pasadores se regeneran con las medidas del proyecto. Brazos y piernas se ajustan por par espejado. "
@@ -1173,6 +1180,8 @@ exportar; tarda un poco más.")
         self.btn_cat_open.set_sensitive(not ctrl.busy)
         self.btn_cat_add.set_sensitive(bool(loaded and root and not ctrl.busy))
         self.btn_cat_manage.set_sensitive(bool(root and not ctrl.busy))
+        self.btn_cat_build.set_sensitive(not ctrl.busy)
+        self.btn_build_cat.set_sensitive(not ctrl.busy)
         if self._catalog_win is not None:
             self._catalog_win.refresh_if_changed()
         self.lbl_catalog.set_text("Sin catálogo abierto" if not root else f"Catálogo: {root}")
@@ -1451,6 +1460,51 @@ exportar; tarda un poco más.")
                 self._error(e)
 
         dlg.select_folder(self, None, finished)
+
+    def _on_catalog_build(self, *_):
+        """«Armar figura desde catálogo»: no hace falta un STL. Usa el catálogo abierto, el último que se usó o pide la carpeta."""
+        if self._build_win is not None:
+            self._build_win.present()
+            return
+        if not self.ctrl.session.catalog_root:
+            from . import settings as GUI_SETTINGS
+
+            last = GUI_SETTINGS.last_catalog()
+            if last and self.ctrl.open_catalog(last):
+                self._open_builder()
+                return
+            dlg = Gtk.FileDialog(title="Catálogo de la línea (carpeta)")
+
+            def finished(d, res):
+                try:
+                    f = d.select_folder_finish(res)
+                except GLib.Error:
+                    return                      # cancelado
+                try:
+                    if self.ctrl.open_catalog(f.get_path()):
+                        self._open_builder()
+                except Exception as e:          # noqa: BLE001
+                    self._error(e)
+
+            dlg.select_folder(self, None, finished)
+            return
+        self._open_builder()
+
+    def _open_builder(self) -> None:
+        from .figure_window import FigureBuilderWindow
+
+        try:
+            win = FigureBuilderWindow(self, self.ctrl.session.catalog_root)
+        except Exception as e:                  # noqa: BLE001
+            self._error(e)
+            return
+        win.connect("close-request", self._on_builder_closed)
+        self._build_win = win
+        win.present()
+
+    def _on_builder_closed(self, *_) -> bool:
+        self._build_win = None
+        return False
 
     def _on_catalog_manage(self, *_):
         """«Administrar catálogo…»: ventana con la lista de piezas, vista previa 3/4 y eliminación (una sola ventana)."""

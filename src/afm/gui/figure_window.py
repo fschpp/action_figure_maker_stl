@@ -1,0 +1,290 @@
+"""Ventana «Armar figura desde catálogo»: una figura nueva, sin STL ni proyecto, eligiendo una pieza del catálogo por lugar.
+
+La lógica está en `figure_builder.py` (se prueba sin GTK). Acá: un desplegable por lugar (cada pieza marcada con cómo
+acopla a la ya elegida), vista previa 3/4 de la pieza elegida y, al armar, de la figura entera, y el armado en un hilo."""
+from __future__ import annotations
+
+import threading
+import time
+
+import gi
+
+gi.require_version("Gtk", "4.0")
+from gi.repository import Gdk, GLib, Gtk, Pango  # noqa: E402
+
+from .catalog_manager import PreviewRenderer, view_bounds  # noqa: E402,F401  (view_bounds: el encuadre lo hace PreviewRenderer)
+from .figure_builder import NONE_LABEL, PLACE_LABELS, PLACE_ORDER, FigureBuilder, summary  # noqa: E402
+
+
+class FigureBuilderWindow(Gtk.Window):
+    def __init__(self, parent: Gtk.Window, catalog_root: str, remember_dir: str | None = None):
+        super().__init__(title="Armar figura desde catálogo", transient_for=parent, default_width=980, default_height=640)
+        self.builder = FigureBuilder(catalog_root)
+        self.preview = PreviewRenderer()
+        self._refs: dict[str, list] = {p: [] for p in PLACE_ORDER}      # lugar -> refs en el orden del desplegable
+        self._dd: dict[str, Gtk.DropDown] = {}
+        self._updating = False
+        self._busy = False
+        self._refill_pending = False
+        self._t0 = 0.0
+        self._shown = None                      # (malla, meta | None) en la vista previa
+        self._dyaw = self._dpitch = 0.0
+        self._drag0 = (0.0, 0.0)
+        self._last_dir = remember_dir
+
+        paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL, wide_handle=True)
+        paned.set_start_child(self._build_form())
+        paned.set_end_child(self._build_preview())
+        paned.set_position(400)
+        paned.set_resize_start_child(False)
+        paned.set_shrink_start_child(False)
+        paned.set_shrink_end_child(False)
+        self.set_child(paned)
+        self.connect("destroy", lambda *_: self.preview.close())
+        self._refill()
+
+    # ------------------------------------------------------------ construcción
+    def _build_form(self) -> Gtk.Widget:
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_top=10, margin_bottom=10, margin_start=10, margin_end=10)
+        cat = self.builder.catalog()
+        title = Gtk.Label(label=f"Línea «{cat.name}» · figuras de {cat.height_mm:g} mm\n{self.builder.root}", xalign=0, wrap=True)
+        title.add_css_class("heading")
+        box.append(title)
+        box.append(Gtk.Label(label="Nombre de la figura", xalign=0))
+        self.ent_name = Gtk.Entry(text=self.builder.name, hexpand=True)
+        self.ent_name.connect("changed", self._on_name)
+        box.append(self.ent_name)
+        box.append(Gtk.Label(label="Pieza de cada lugar (empezá por el torso)", xalign=0, margin_top=6))
+        for place in PLACE_ORDER:
+            row = Gtk.Box(spacing=8)
+            row.append(Gtk.Label(label=PLACE_LABELS[place], xalign=0, width_chars=7))
+            dd = Gtk.DropDown.new_from_strings([NONE_LABEL])
+            dd.set_hexpand(True)
+            dd.connect("notify::selected", self._on_pick, place)
+            self._dd[place] = dd
+            row.append(dd)
+            box.append(row)
+        self.chk_shoulder = Gtk.CheckButton(label="Clic en los hombros")
+        self.chk_hip = Gtk.CheckButton(label="Clic en las caderas")
+        for chk, key in ((self.chk_shoulder, "clic_hombro"), (self.chk_hip, "clic_cadera")):
+            chk.connect("toggled", lambda b, k=key: self.builder.options.__setitem__(k, b.get_active()))
+            box.append(chk)
+        self.lbl_problems = Gtk.Label(xalign=0, wrap=True)
+        self.lbl_problems.add_css_class("dim-label")
+        box.append(self.lbl_problems)
+
+        bar = Gtk.Box(spacing=6, margin_top=4)
+        self.btn_recipe = Gtk.Button(label="Guardar receta en el catálogo")
+        self.btn_recipe.set_tooltip_text("Guarda las piezas elegidas en <catálogo>/figuras/<nombre>.receta.json "
+                                         "(se puede volver a armar con «afm armar» y cuenta como uso de cada pieza).")
+        self.btn_recipe.connect("clicked", self._on_save_recipe)
+        self.btn_build = Gtk.Button(label="Armar y exportar…")
+        self.btn_build.add_css_class("suggested-action")
+        self.btn_build.connect("clicked", self._on_build)
+        bar.append(self.btn_recipe)
+        bar.append(self.btn_build)
+        box.append(bar)
+        hint = Gtk.Label(label="El torso arma el cuerpo: uno entero, o «torso_sup» + una pelvis (la figura lleva cintura). "
+                               "Cada pieza de la lista dice cómo acopla a la ya elegida (ok / aviso / no acopla). Armar tarda "
+                               "unos minutos; exporta las piezas, la figura ensamblada, el informe y la receta en la carpeta que elijas.",
+                         xalign=0, wrap=True)
+        hint.add_css_class("dim-label")
+        box.append(hint)
+        return box
+
+    def _build_preview(self) -> Gtk.Widget:
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, margin_top=10, margin_bottom=10, margin_start=10, margin_end=10)
+        self.picture = Gtk.Picture(content_fit=Gtk.ContentFit.CONTAIN, can_shrink=True, hexpand=True, vexpand=True)
+        self.picture.set_size_request(340, 300)
+        drag = Gtk.GestureDrag()
+        drag.connect("drag-begin", lambda *_: setattr(self, "_drag0", (self._dyaw, self._dpitch)))
+        drag.connect("drag-update", self._on_drag)
+        self.picture.add_controller(drag)
+        frame = Gtk.Frame()
+        frame.set_child(self.picture)
+        box.append(frame)
+        row = Gtk.Box(spacing=6)
+        reset = Gtk.Button(label="Vista 3/4")
+        reset.connect("clicked", self._on_reset_view)
+        row.append(reset)
+        row.append(Gtk.Label(label="Arrastrá para girar", xalign=0, hexpand=True))
+        self.spinner = Gtk.Spinner()
+        row.append(self.spinner)
+        box.append(row)
+        self.lbl_result = Gtk.Label(xalign=0, yalign=0, wrap=True, selectable=True)
+        self.lbl_result.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        sw = Gtk.ScrolledWindow(min_content_height=120, vexpand=False)
+        sw.set_child(self.lbl_result)
+        box.append(sw)
+        return box
+
+    # ------------------------------------------------------------ elecciones
+    def _refill(self) -> None:
+        """Vuelve a cargar los desplegables: cada pieza lleva la marca de cómo acopla a la ya elegida."""
+        b = self.builder
+        cat = b.catalog()
+        self._updating = True
+        try:
+            for place in PLACE_ORDER:
+                metas = b.pieces_for(place, cat)
+                fit = b.fit_labels(place, cat)
+                self._refs[place] = [m.ref for m in metas]
+                dd = self._dd[place]
+                dd.set_model(Gtk.StringList.new([NONE_LABEL] + [b.label(m, fit) for m in metas]))
+                cur = b.choices.get(place)
+                dd.set_selected(self._refs[place].index(cur) + 1 if cur in self._refs[place] else 0)
+                enabled = not self._busy and (place != "pelvis" or b.waist) and bool(metas)
+                dd.set_sensitive(enabled)
+                dd.set_tooltip_text(None if metas else "El catálogo no tiene piezas de este tipo.")
+        finally:
+            self._updating = False
+        self._sync()
+
+    def _sync(self) -> None:
+        probs = self.builder.problems()
+        self.lbl_problems.set_text("Falta: " + "; ".join(probs) if probs else "Listo para armar.")
+        self.btn_build.set_sensitive(not probs and not self._busy)
+        self.btn_recipe.set_sensitive(not probs and not self._busy)
+        self.ent_name.set_sensitive(not self._busy)
+
+    def _on_name(self, entry: Gtk.Entry) -> None:
+        self.builder.name = entry.get_text().strip()
+        self._sync()
+
+    def _on_pick(self, dd: Gtk.DropDown, _p, place: str) -> None:
+        if self._updating:
+            return
+        i = dd.get_selected()
+        refs = self._refs[place]
+        ref = refs[i - 1] if 0 < i <= len(refs) else None
+        if ref == self.builder.choices.get(place):
+            return          # GTK avisa el cambio de selección de un `set_model` / `set_selected` nuestro DESPUÉS de la guarda
+        try:
+            self.builder.set_choice(place, ref)
+        except ValueError as exc:
+            self.lbl_result.set_text(str(exc))
+        self._sync()
+        self._schedule_refill()          # NO ahora: GTK se cae si se cambia el modelo del desplegable que está avisando el cambio
+        if ref:
+            self._show_piece(ref)
+
+    def _schedule_refill(self) -> None:
+        if not self._refill_pending:
+            self._refill_pending = True
+            GLib.idle_add(self._refill_idle)
+
+    def _refill_idle(self) -> bool:
+        self._refill_pending = False
+        self._refill()
+        return False
+
+    # ------------------------------------------------------------ vista previa
+    def _show_piece(self, ref: str) -> None:
+        try:
+            meta, mesh = self.builder.catalog().load(ref, check_hash=False)
+        except Exception as exc:                              # noqa: BLE001
+            self.lbl_result.set_text(f"No se pudo leer {ref}: {exc}")
+            return
+        self._set_shown(mesh, meta)
+
+    def _set_shown(self, mesh, meta) -> None:
+        self._shown = (mesh, meta)
+        self._dyaw = self._dpitch = 0.0
+        self._redraw()
+
+    def _redraw(self) -> None:
+        if self._shown is None:
+            return
+        mesh, meta = self._shown
+        try:
+            img = self.preview.render(mesh, meta, self._dyaw, self._dpitch)
+        except Exception as exc:                              # noqa: BLE001  (sin EGL: el resto sigue andando)
+            self.picture.set_paintable(None)
+            self.lbl_result.set_text(f"La vista previa 3D no está disponible: {exc}")
+            return
+        h, w = img.shape[:2]
+        data = GLib.Bytes.new(img.tobytes())
+        self.picture.set_paintable(Gdk.MemoryTexture.new(w, h, Gdk.MemoryFormat.R8G8B8A8, data, w * 4))
+
+    def _on_drag(self, _g, dx: float, dy: float) -> None:
+        y0, p0 = self._drag0
+        self._dyaw, self._dpitch = y0 - dx * 0.4, p0 + dy * 0.4
+        self._redraw()
+
+    def _on_reset_view(self, *_) -> None:
+        self._dyaw = self._dpitch = 0.0
+        self._redraw()
+
+    # ------------------------------------------------------------ guardar receta y armar
+    def _on_save_recipe(self, *_) -> None:
+        try:
+            path = self.builder.save_recipe()
+        except Exception as exc:                              # noqa: BLE001
+            self.lbl_result.set_text(f"No se guardó la receta: {exc}")
+            return
+        self.lbl_result.set_text(f"Receta guardada en {path}")
+
+    def _on_build(self, *_) -> None:
+        dlg = Gtk.FileDialog(title="Carpeta donde exportar la figura")
+
+        def picked(d, res):
+            try:
+                folder = d.select_folder_finish(res).get_path()
+            except GLib.Error:
+                return                                        # cancelado
+            self._start_build(folder)
+
+        dlg.select_folder(self, None, picked)
+
+    def _set_busy(self, busy: bool) -> None:
+        self._busy = busy
+        if busy:
+            self.spinner.start()
+        else:
+            self.spinner.stop()
+        self._schedule_refill()
+        self._sync()
+
+    def _start_build(self, folder: str) -> None:
+        if self._busy:
+            return
+        self._t0 = time.monotonic()
+        self._set_busy(True)
+        last = {"text": "Armando…"}
+        self.lbl_result.set_text("Armando la figura… (tarda unos minutos)")
+
+        def tick() -> bool:
+            if not self._busy:
+                return False
+            self.lbl_result.set_text(f"{last['text']} · {int(time.monotonic() - self._t0)} s")
+            return True
+
+        GLib.timeout_add(500, tick)
+
+        def progress(text) -> None:
+            last["text"] = str(text)
+
+        def work() -> None:
+            try:
+                info = self.builder.generate(folder, progress)
+            except Exception as exc:                          # noqa: BLE001 — se informa en la ventana
+                GLib.idle_add(self._build_done, None, exc, folder)
+            else:
+                GLib.idle_add(self._build_done, info, None, folder)
+
+        threading.Thread(target=work, daemon=True, name="afm-armar").start()
+
+    def _build_done(self, info, error, folder: str) -> bool:
+        self._set_busy(False)
+        if error is not None:
+            self.lbl_result.set_text(f"No se pudo armar: {error}")
+            return False
+        self.lbl_result.set_text(summary(info) + f"\n\nExportado en {folder}")
+        try:
+            import trimesh
+
+            mesh = trimesh.load(info["ensamblada"], force="mesh")
+            self._set_shown(mesh, None)
+        except Exception as exc:                              # noqa: BLE001
+            self.lbl_result.set_text(self.lbl_result.get_text() + f"\n(sin vista previa: {exc})")
+        return False
