@@ -66,6 +66,9 @@ def run_armar(recipe_path: str, outdir: str, name: str | None = None, catalog_ro
     with open(os.path.join(outdir, f"{name}_informe.json"), "w") as f:
         json.dump(info, f, indent=2, default=float)
     recipe.save(os.path.join(outdir, f"{name}.receta.json"))
+    from . import catalog_project
+
+    info["proyecto"] = catalog_project.save(asm, os.path.join(outdir, f"{name}.proyecto"))   # la ventana principal lo abre sin STL
     return info
 
 

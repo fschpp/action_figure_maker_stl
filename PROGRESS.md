@@ -3,13 +3,27 @@
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md` y `PLAN_piezas_intercambiables_catalogo.md`_
 
 ## Current Focus
+**«Armar y exportar» escribe un `.proyecto` que la ventana principal abre SIN STL (2026-10-26, rama `proyecto_sin_stl`, sobre main 670a6d8):** `cli.run_armar` (= `afm armar` = «Armar y exportar…» de la ventana «Armar desde catálogo») ahora escribe `<figura>.proyecto` junto a los STL (`catalog_project.py`): `source: null`, `parts` con id + versión fijada + línea de cada pieza (sin rutas), `params` de la línea con las opciones de la receta, `limbs` / `head` / `waist` del huésped sintetizado, `hand` (giro, unión, solape) y un bloque `catalogo_solo` (`formato`, línea, carpeta del catálogo, receta completa). `recipe.Assembled` ahora trae el `host`. **Ventana principal:** `Session.open_project(path, stl, catalog_root)` abre un proyecto con `catalogo_solo` y sin STL: abre el catálogo (`catalog_root` → carpeta recordada de la línea en `gui.json` → carpeta donde se armó) y `load_catalog_body` usa como modelo de trabajo el cuerpo que arma `synthesize_host` (torso + pelvis + cabeza); la figura se ve por partes (brazo, pierna y mano revisados con `preview_parts`, que la ventana dispara sola al abrir). Las escalas por pieza de la receta se aplican en `_catalog_only_choices` (solo con `catalog_origin`: las figuras con STL siguen igual) y la mano de catálogo (`HandSpec.path == ""`) pasa al build. «Guardar proyecto» conserva `catalogo_solo`, así se puede reabrir sin STL. Si no se encuentra el catálogo se levanta `CatalogNeeded` y la ventana pide la carpeta (`_ask_catalog_for_project`, también al arrancar con `afm-gui x.proyecto`). Ventana «Armar desde catálogo»: tras armar aparece «Abrir la figura armada en la ventana principal». Tests: `tests/test_catalog_project.py` (7: escribe el proyecto, abre sin STL y se ve por partes, vuelve a generar, guardar y reabrir, catálogo movido, proyecto de STL sigue pidiendo su STL, escalas). **Pendiente:** probar en la ventana GTK real (aquí no hay Gtk: solo `py_compile` de `window.py` y `figure_window.py`).
+
+## Todo List (proyecto sin STL)
+- [x] «Armar y exportar» escribe `.proyecto` (piezas, escalas, mano, clic) abrible sin STL de origen.
+- [x] Abrir ese `.proyecto` en la ventana principal en modo `catalog_only` (parámetros, validación, pose, exportación) y verlo por partes.
+- [x] Pedir la carpeta del catálogo si no se encuentra; recordar la línea.
+- [ ] Probar en la ventana GTK real: botón «Abrir la figura armada…», diálogo de carpeta del catálogo, vista por partes y «Generar» desde ese proyecto.
+- [ ] Decidir si la figura sin STL debe mostrar también el plano de simetría / un solo lado (hoy `symmetry = None`, como el armado de catálogo).
+
+## Latest Blockers/Discoveries
+- `Session.set_part_scale` sigue negado con torso de catálogo: las escalas de un proyecto sin STL viven en la receta del bloque `catalogo_solo` y se editan desde «Armar desde catálogo».
+- `test_gui_catalog.py::test_cut_numbers_are_drawn_in_the_viewer` falla en este entorno sin mis cambios (ya estaba).
+
+## Current Focus (anterior)
 **Cabeza armada girada 180° con cuello inclinado (2026-10-26, sobre main f854527):** al «Armar y exportar» una figura con torso Belgrano + cabeza Belgrano @2 la cabeza salía «chueca» aunque la vista previa conjunta la mostraba bien. Causa: `assembly.host_frame` (usado por `place_part` al acoplar la cabeza en `split_head`) calculaba la referencia de giro con +Z, pero `extract_all` guarda el puerto `cuello` (cabeza y torso) con +Y. Con el cuello vertical las dos coinciden; con el inclinado ~24° de Belgrano (eje 0, 0.405, 0.914) quedan opuestas y la cabeza sale girada 180° sobre el eje del cuello (la vista previa acopla puerto con puerto y no lo mostraba). Verificado con los archivos del cliente: el eje de la base coincide, pero `prueba_cabeza.stl` es la cabeza del catálogo girada ≈180° sobre el eje del cuello. Arreglo: `host_frame(face, prefer=None)` y `NECK_REF_PREFER = (0, 1, 0)` en `assembly.py`; `place_part(..., kind="head")` lo usa. Test: `tests/test_head_neck_ref.py` (falla sin el arreglo con cuello inclinado hacia adelante). Pasan además `test_assembly`, `test_head_catalog`, `test_compat`, `test_ports`, `test_preflight`, `test_extract` (90). **Pendiente:** «Armar y exportar» escribe `.proyecto` y la ventana principal lo abre sin STL (`catalog_only`); no se pudo probar GTK en el entorno (PyGObject no importa).
 
 ## Todo List (cabeza torcida / puente a la ventana principal)
 - [x] Reproducir y arreglar la cabeza girada 180° con cuello inclinado.
 - [ ] Probar en la ventana GTK real que la figura de Belgrano sale con la cara al frente.
-- [ ] «Armar y exportar» escribe también un `.proyecto` (piezas, escalas, mano, clic) abrible sin STL de origen.
-- [ ] Abrir ese `.proyecto` en la ventana principal en modo `catalog_only` (parámetros, validación, pose, exportación).
+- [x] «Armar y exportar» escribe también un `.proyecto` (piezas, escalas, mano, clic) abrible sin STL de origen (ver arriba).
+- [x] Abrir ese `.proyecto` en la ventana principal en modo `catalog_only` (parámetros, validación, pose, exportación).
 
 ## Latest Blockers/Discoveries
 - `prueba_cabeza.stl` (cliente): normales laterales invertidas respecto de la cabeza del catálogo; búsqueda de giro sobre el eje del cuello da 179–180°.

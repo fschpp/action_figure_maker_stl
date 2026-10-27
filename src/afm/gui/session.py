@@ -48,6 +48,16 @@ def _raise_top(poly: np.ndarray, top: float | None, tol: float = 0.35) -> np.nda
 TORSO_PLACES = ("torso", "pelvis")        # lugares de catálogo que no son un miembro del modelo: el torso y la pelvis
 
 
+class CatalogNeeded(FileNotFoundError):
+    """El proyecto es de una figura toda de catálogo y no se encontró la carpeta del catálogo de su línea."""
+
+    def __init__(self, line: str, last_root: str | None = None):
+        self.line, self.last_root = line, last_root
+        where = f" (la última vez estaba en {last_root})" if last_root else ""
+        super().__init__(f"Este proyecto se armó con el catálogo de la línea «{line}»{where} y no lo encuentro: "
+                         "elegí la carpeta del catálogo.")
+
+
 @dataclass
 class BuildOutcome:
     result: P.BuildResult
@@ -64,6 +74,7 @@ class Session:
         self.work: trimesh.Trimesh | None = None
         self.outcome: BuildOutcome | None = None
         self._zmin_file = 0.0
+        self.catalog_origin: dict | None = None      # bloque `catalogo_solo` del .proyecto: figura toda de catálogo, sin STL
 
     # ------------------------------------------------------------------ carga
     def load(self, path: str, crown_z: float | None = None, progress=None) -> meshio.LoadReport:
@@ -1005,6 +1016,9 @@ class Session:
         self.outcome = None
         return cat
 
+    def catalog_name(self) -> str:
+        return self._catalog().name
+
     def create_catalog(self, root: str, name: str | None = None, height_mm: float | None = None):
         """Equivalente de `afm catalogo crear RUTA --linea NOMBRE --altura MM`: crea el catálogo de una línea en la carpeta
         `root` (nueva o vacía) y lo deja abierto. Sin `name` usa el de la carpeta; sin `height_mm` la altura de la figura
@@ -1166,18 +1180,34 @@ class Session:
 
     def _catalog_only_choices(self) -> dict:
         """`Project.parts` -> las claves que espera `synthesize_host` (`torso` | `torso_sup`, `pelvis`, `brazo`, `pierna`,
-        `cabeza`, `mano`)."""
+        `cabeza`, `mano`). En una figura sin STL (`catalog_origin`) cada pieza lleva la escala que traía la receta."""
         resolved = self._resolved_parts() or {}
+        scales = self._origin_scales()
         out = {}
         for place, choice in resolved.items():
             if place == "torso" and choice.meta.tipo == "torso_sup":
-                out["torso_sup"] = choice
+                key = "torso_sup"
             elif place in TORSO_PLACES or place in ("cabeza", "mano"):
-                out[place] = choice
+                key = place
             else:
                 spec = self.limb(place)
-                out[{"arm": "brazo", "leg": "pierna"}[spec.kind]] = choice
+                key = {"arm": "brazo", "leg": "pierna"}[spec.kind]
+            if place in scales:
+                from ..customize import scale_choice
+                choice = scale_choice(choice, scales[place])
+            out[key] = choice
         return out
+
+    def _origin_scales(self) -> dict:
+        """Escalas por pieza de la receta con la que se armó la figura sin STL (vacío si la figura viene de un STL)."""
+        if self.catalog_origin is None:
+            return {}
+        from ..recipe import Recipe
+
+        try:
+            return Recipe.from_dict(self.catalog_origin["receta"]).scales()
+        except (KeyError, ValueError, TypeError):
+            return {}
 
     def set_part(self, place: str, ref: str):
         """Pone la pieza `ref` (`id` o `id@versión`) en ese lugar; guarda en el proyecto la versión elegida."""
@@ -1486,7 +1516,8 @@ class Session:
         p = self.project.params
         try:
             host = synthesize_host(self._catalog_only_choices(), p)
-            res = P.build(host.body, host.limbs, p, None, True, progress, None, host.head, None, host.waist, None,
+            hand = self.project.hand if (self.project.hand is not None and not self.project.hand.path) else None   # mano de catálogo: giro y unión
+            res = P.build(host.body, host.limbs, p, None, True, progress, None, host.head, None, host.waist, hand,
                           host.parts, host_faces=host.faces)
         except AssemblyError as exc:
             raise ValueError(str(exc)) from exc
@@ -1512,16 +1543,59 @@ class Session:
     def save_project(self, path: str) -> None:
         d = self.project.to_dict()
         d["source"] = os.path.abspath(self.stl_path) if self.stl_path else None
+        if self.catalog_origin is not None and not self.stl_path:      # sin esto el proyecto no se podría reabrir sin STL
+            d["catalogo_solo"] = {**self.catalog_origin, **({"ruta": os.path.abspath(self.catalog_root)} if self.catalog_root else {})}
         with open(path, "w") as f:
             json.dump(d, f, indent=2)
 
     @classmethod
-    def open_project(cls, path: str, stl_path: str | None = None) -> "Session":
+    def open_project(cls, path: str, stl_path: str | None = None, catalog_root: str | None = None) -> "Session":
+        """Abre un `.proyecto`. Con STL (`stl_path` o el `source` del archivo) carga la figura; un proyecto de «Armar y
+        exportar» (`catalogo_solo`, `source: null`) se abre SIN STL: el cuerpo base sale del catálogo de su línea, en
+        `catalog_root`, o en la carpeta donde se armó."""
+        from ..catalog_project import origin
+
         with open(path) as f:
             d = json.load(f)
         src = stl_path or d.get("source")
-        if not src or not os.path.exists(src):
-            raise FileNotFoundError(f"No se encuentra el STL del proyecto: {src!r}. Indicá su ubicación.")
+        if src and os.path.exists(src):
+            sess = cls(Project.from_dict(d))
+            sess.load(src, sess.project.crown_z)
+            return sess
+        org = origin(d)
+        if org is not None and not stl_path:
+            return cls.from_catalog_project(d, org, catalog_root)
+        raise FileNotFoundError(f"No se encuentra el STL del proyecto: {src!r}. Indicá su ubicación.")
+
+    @classmethod
+    def from_catalog_project(cls, d: dict, org: dict, catalog_root: str | None = None) -> "Session":
+        """Figura toda de catálogo sin STL: abre el catálogo y arma el cuerpo base (torso, pelvis y cabeza) con `synthesize_host`."""
+        roots = [r for r in (catalog_root, org.get("ruta")) if r]
+        root = next((r for r in roots if os.path.isfile(os.path.join(r, "linea.json"))), None)
+        if root is None:
+            raise CatalogNeeded(org.get("linea") or "?", roots[-1] if roots else None)
         sess = cls(Project.from_dict(d))
-        sess.load(src, sess.project.crown_z)
+        sess.catalog_origin = dict(org)
+        sess.open_catalog(root)
+        sess.load_catalog_body()
         return sess
+
+    def load_catalog_body(self) -> None:
+        """Reemplaza el STL: el modelo de trabajo es el cuerpo que arma `synthesize_host` con las piezas de catálogo del proyecto."""
+        from ..assembly import AssemblyError, synthesize_host
+
+        probs = self.catalog_only_problems()
+        if probs:
+            raise ValueError("; ".join(probs))
+        try:
+            host = synthesize_host(self._catalog_only_choices(), self.project.params)
+        except AssemblyError as exc:
+            raise ValueError(str(exc)) from exc
+        mesh = S.to_trimesh(host.body)
+        ext = mesh.bounds[1] - mesh.bounds[0]
+        self.stl_path, self.base = None, mesh
+        self.report = meshio.LoadReport(original_height=float(ext[2]), was_watertight=True)
+        self._zmin_file = float(mesh.bounds[0][2])
+        self.outcome = None
+        self._part_preview = None
+        self._rebuild_frames()

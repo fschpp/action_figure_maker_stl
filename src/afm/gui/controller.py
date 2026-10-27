@@ -308,13 +308,24 @@ class Controller:
             msg += " — " + " ".join(session.report.warnings)
         self._changed(msg)
 
-    def open_project(self, path: str, stl_path: str | None = None) -> None:
-        self.session = Session.open_project(path, stl_path)
+    def open_project(self, path: str, stl_path: str | None = None, catalog_root: str | None = None) -> None:
+        """Abre un `.proyecto`. El de una figura toda de catálogo («Armar y exportar») se abre sin STL: el cuerpo base sale
+        del catálogo de su línea (`catalog_root`, el recordado para esa línea o donde se armó); si no está, levanta
+        `session.CatalogNeeded` y la ventana pide la carpeta."""
+        from ..catalog_project import peek
+
+        org = None if stl_path else peek(path)
+        if org is not None and catalog_root is None:
+            catalog_root = GUI_SETTINGS.catalog_for_line(org.get("linea"))
+        self.session = Session.open_project(path, stl_path, catalog_root)
         self.joint_guides = {}
         self.hidden.clear()
         self.hand_extract = self._hand_mesh = None
+        if org is not None and self.session.catalog_root:
+            GUI_SETTINGS.remember_catalog(self.session.catalog_name(), self.session.catalog_root)
         self._after_load()
-        self._changed(f"Proyecto abierto: {path.split('/')[-1]}" + self._auto_catalog())
+        what = " (figura armada con piezas de catálogo, sin STL)" if self.session.catalog_origin is not None else ""
+        self._changed(f"Proyecto abierto: {path.split('/')[-1]}{what}" + self._auto_catalog())
 
     def save_project(self, path: str) -> None:
         self.session.save_project(path)

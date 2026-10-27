@@ -99,9 +99,17 @@ class FigureBuilderWindow(Gtk.Window):
         bar.append(self.btn_recipe)
         bar.append(self.btn_build)
         box.append(bar)
+        self._last_project: str | None = None
+        self.btn_open_main = Gtk.Button(label="Abrir la figura armada en la ventana principal")
+        self.btn_open_main.set_tooltip_text("Abre el .proyecto recién exportado (sin STL: el cuerpo sale del catálogo) y la figura "\
+                                            "se ve por partes. Reemplaza lo que esté abierto en la ventana principal.")
+        self.btn_open_main.set_visible(False)
+        self.btn_open_main.connect("clicked", self._on_open_main)
+        box.append(self.btn_open_main)
         hint = Gtk.Label(label="El torso arma el cuerpo: uno entero, o «torso_sup» + una pelvis (la figura lleva cintura). "
                                "Cada pieza de la lista dice cómo acopla a la ya elegida (ok / aviso / no acopla). Armar tarda "
-                               "unos minutos; exporta las piezas, la figura ensamblada, el informe y la receta en la carpeta que elijas.",
+                               "unos minutos; exporta las piezas, la figura ensamblada, el informe, la receta y un .proyecto (abrible en la ventana "
+                               "principal sin el STL) en la carpeta que elijas.",
                          xalign=0, wrap=True)
         hint.add_css_class("dim-label")
         box.append(hint)
@@ -474,11 +482,22 @@ class FigureBuilderWindow(Gtk.Window):
 
         threading.Thread(target=work, daemon=True, name="afm-armar").start()
 
+    def _on_open_main(self, *_) -> None:
+        parent = self.get_transient_for()
+        if self._last_project is None or parent is None:
+            return
+        try:
+            parent._open_project_path(self._last_project, self.builder.root)
+        except Exception as exc:                              # noqa: BLE001
+            self.lbl_result.set_text(f"No se pudo abrir en la ventana principal: {exc}")
+
     def _build_done(self, info, error, folder: str) -> bool:
         self._set_busy(False)
         if error is not None:
             self.lbl_result.set_text(f"No se pudo armar: {error}")
             return False
+        self._last_project = info.get("proyecto")
+        self.btn_open_main.set_visible(bool(self._last_project))
         self.lbl_result.set_text(summary(info) + f"\n\nExportado en {folder}")
         if self.tgl_all.get_active():
             self.tgl_all.set_active(False)       # se muestra la figura armada de verdad

@@ -338,4 +338,6 @@ def summary(info: dict) -> str:
     lines += [f"✗ {t}" for t in val.get("problems", [])[:10]]
     lines += [f"• {t}" for t in (val.get("avisos", []) + val.get("avisos_pasador", []))[:10]]
     lines.append(f"Piezas exportadas: {len(info.get('archivos', {}).get('piezas', []))} (más la figura ensamblada y la lista de piezas).")
+    if info.get("proyecto"):
+        lines.append(f"Proyecto: {os.path.basename(info['proyecto'])} (se abre en la ventana principal sin el STL).")
     return "\n".join(lines)

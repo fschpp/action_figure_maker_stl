@@ -18,7 +18,7 @@ from gi.repository import Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 from ..head import MIN_BASE_IOU, REPLACEMENT_SCALE_RANGE, REPLACEMENT_UPS  # noqa: E402
 from .controller import JOINT_PREFIX, PARAM_FIELDS, TRIM_OP_LABELS, TRIM_SHAPE_LABELS, TRIM_SHAPES, Controller, Mode  # noqa: E402
 from .render import SceneRenderer  # noqa: E402
-from .session import Session  # noqa: E402
+from .session import CatalogNeeded, Session  # noqa: E402
 from .viewcube import ViewCube, interpolate_view, view_angles  # noqa: E402
 
 DRAG_THRESHOLD_PX = 4.0
@@ -1393,9 +1393,34 @@ exportar; tarda un poco más.")
         if self.ctrl.needs_review_on_open():
             self._on_catalog_review()
 
-    def _open_project_path(self, path: str) -> None:
-        self.ctrl.open_project(path)
+    def _open_project_path(self, path: str, catalog_root: str | None = None) -> None:
+        try:
+            self.ctrl.open_project(path, catalog_root=catalog_root)
+        except CatalogNeeded as exc:
+            if catalog_root is not None:            # la carpeta elegida tampoco es el catálogo: no insistir en bucle
+                raise
+            self._ask_catalog_for_project(path, exc)
+            return
         self._review_on_open()
+
+    def _ask_catalog_for_project(self, path: str, exc: "CatalogNeeded") -> None:
+        """El proyecto es de una figura armada solo con piezas de catálogo (sin STL) y no está el catálogo de su línea:
+        se pide la carpeta y se vuelve a abrir."""
+        dlg = Gtk.FileDialog(title=f"Catálogo de la línea «{exc.line}» (carpeta)")
+
+        def finished(d, res):
+            try:
+                f = d.select_folder_finish(res)
+            except GLib.Error:
+                self._error(exc)                    # cancelado: se explica por qué no se abrió
+                return
+            try:
+                self._open_project_path(path, f.get_path())
+            except Exception as e:          # noqa: BLE001
+                self._error(e)
+
+        dlg.select_folder(self, None, finished)
+
 
     def _on_align_all(self, *_):
         self.ctrl.align_cuts_to_line()
@@ -1861,8 +1886,12 @@ class Application(Gtk.Application):
         self.win.present()
         try:
             if self._project:
-                ctrl.open_project(self._project, self._stl)
-                self.win._review_on_open()
+                try:
+                    ctrl.open_project(self._project, self._stl)
+                except CatalogNeeded as exc:                      # figura de catálogo sin STL: pedir la carpeta del catálogo
+                    self.win._ask_catalog_for_project(self._project, exc)
+                else:
+                    self.win._review_on_open()
             elif self._stl:
                 ctrl.open_stl(self._stl)
         except Exception as e:              # noqa: BLE001

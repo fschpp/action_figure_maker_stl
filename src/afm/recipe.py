@@ -134,6 +134,7 @@ class Assembled:
     joints: list
     recipe: Recipe
     catalog: Catalog | None = None
+    host: object | None = None          # `assembly.SyntheticHost` (cuerpo, miembros, cabeza y cintura del armado)
 
 
 def recipe_params(recipe: Recipe, cat: Catalog) -> Params:
@@ -177,4 +178,4 @@ def assemble(recipe: Recipe, catalog_root: str | None = None, progress=None, sit
                       host.parts, host_faces=host.faces)
     except AssemblyError as exc:
         raise RecipeError(str(exc)) from exc
-    return Assembled(res, p, host.limbs, res.joint_specs, recipe, cat)
+    return Assembled(res, p, host.limbs, res.joint_specs, recipe, cat, host)
