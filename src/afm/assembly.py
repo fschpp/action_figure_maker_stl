@@ -69,17 +69,21 @@ class PlacedPart:
         return out
 
 
-def reference_for(axis) -> np.ndarray:
+def reference_for(axis, prefer=None) -> np.ndarray:
     from .extract import reference_for as _ref
-    return _ref(axis)
+    return _ref(axis) if prefer is None else _ref(axis, prefer)
 
 
-def host_frame(face: ContactFace) -> PortFrame:
+def host_frame(face: ContactFace, prefer=None) -> PortFrame:
     """Marco de la toma del huésped para la cara de contacto `face` del miembro del modelo: sale del torso hacia el
-    miembro (eje opuesto a `face.outward`, que sale del miembro hacia el torso). Misma convención que `extract_all`."""
+    miembro (eje opuesto a `face.outward`, que sale del miembro hacia el torso). Misma convención que `extract_all`.
+
+    `prefer` es la dirección que da la referencia de giro: los miembros usan +Z (por defecto) y el cuello, +Y, igual que
+    `extract_all` al guardar el puerto `cuello`. Con un cuello inclinado las dos referencias quedan opuestas y la cabeza
+    sale girada 180° sobre el eje del cuello."""
     out = np.asarray(face.outward, float)
     out = out / np.linalg.norm(out)
-    return PortFrame(np.asarray(face.center, float).copy(), -out, reference_for(out))
+    return PortFrame(np.asarray(face.center, float).copy(), -out, reference_for(out, prefer))
 
 
 def face_of_triangles(face: ContactFace, frame: PortFrame) -> PortFace | None:
@@ -113,6 +117,10 @@ def _face_triangles(port_face: PortFace, frame: PortFrame) -> np.ndarray:
     return np.concatenate(out)
 
 
+# Referencia de giro del cuello: la misma con la que `extract_all` guarda el puerto `cuello` (cabeza y torso).
+NECK_REF_PREFER = (0.0, 1.0, 0.0)
+
+
 def place_part(choice: PartChoice, kind: str, host_face: ContactFace, params=None, host_height: float | None = None) -> PlacedPart:
     """Lleva la pieza al lugar del miembro de tipo `kind` ("arm" | "leg") —o de la cabeza, `kind = "head"`— cuya cara de
     contacto en el huésped es `host_face` (para la cabeza, la cara del cuello; su `outward` mira hacia el cuerpo).
@@ -120,7 +128,7 @@ def place_part(choice: PartChoice, kind: str, host_face: ContactFace, params=Non
     Devuelve la malla colocada, la `ContactFace` equivalente (centro de pasador = centro del puerto) y la compatibilidad
     barata entre el puerto de la pieza y la toma del huésped."""
     port = choice.port(kind)
-    target = host_frame(host_face)
+    target = host_frame(host_face, NECK_REF_PREFER if kind == "head" else None)
     T = coupling_transform(port.frame, target)
     mesh = choice.mesh.copy()
     mesh.apply_transform(T)
