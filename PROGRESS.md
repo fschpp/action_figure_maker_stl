@@ -3,6 +3,20 @@
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md` y `PLAN_piezas_intercambiables_catalogo.md`_
 
 ## Current Focus
+**Tope de triángulos por pieza al exportar (2026-10-27, rama `decimado_exportacion`, sobre main dcff353):** un STL de entrada de ~0,5 MB (Güemes) salía en una `*_ensamblada.stl` de ~70 MB. `Params.decimate` solo reduce el torso, antes del clic/cintura/mano/cabeza/articulaciones; las piezas que salen de booleanas, `swept_offset` (marching cubes a 0,2 mm) y Minkowski nunca se decimaban. Nuevo `Params.export_max_tris` (150 000 por pieza; 0 = sin tope) y `pipeline.cap_export_triangles`, que `pipeline.export` llama tras el aplanado: solo toca piezas sobre el tope, decima con `S.decimate` y acepta el resultado si el volumen cambia < 0,2 % y la holgura mínima con cada otra pieza no baja > 0,02 mm (si no, prueba reducciones menores; si ninguna cumple, deja la pieza y lo informa). `info["triangulos_reducidos"] = {pieza: [antes, después]}`. Tests: `tests/test_export_cap.py` (4).
+
+## Todo List (tope de triángulos)
+- [x] `Params.export_max_tris` + `cap_export_triangles` + gancho en `export` (con progreso «Reducir triángulos de las piezas…»).
+- [x] Tests con esfera densa + vecino (volumen, holgura, solo piezas sobre el tope, STL más chico).
+- [ ] Probar con el proyecto real que daba 70 MB y ver qué pieza pesa (`triangulos_reducidos` en el informe).
+- [ ] Decidir si el tope se expone en la GUI / CLI (hoy solo en `params`).
+- [ ] Si el costo viene de `swept_offset` (pitch 0,2 mm), evaluar subir `pitch` o decimar ahí mismo (más rápido que decimar al final).
+
+## Latest Blockers/Discoveries
+- Con `examples/guemes.py` (sin clic) las piezas salen chicas (torso ≈ 39 800 triángulos, ≈ 2,4 MB en total): el tamaño de 70 MB no se reproduce con ese ejemplo. `examples/guemes_clic.py` no terminó en ~20 min en este entorno (sin medir).
+- No se pudo medir qué pieza explota: hace falta el `.proyecto`/`_informe.json` real o la salida de 70 MB.
+
+## Current Focus (anterior)
 **Barra de progreso con porcentaje, tareas pendientes y tiempo estimado (2026-10-27, rama `barra_progreso`, sobre main a30b7d7):** `src/afm/progress.py` (sin GTK): `Stage`, `ProgressTracker` (marca los pasos a medida que llegan los mensajes del motor; el porcentaje sale del peso de cada paso y avanza con el tiempo dentro del paso en curso; el tiempo restante se calibra con lo que tardaron los pasos ya terminados y no se muestra hasta tener uno), planes `build_plan` / `catalog_plan` / `preview_plan` y `describe`. `gui/progress_panel.py` dibuja la barra (porcentaje · «faltan unos N min» · tiempo transcurrido, «Ahora: …» y «Pendiente (N): …»); sin plan solo late con el cronómetro. Se muestra en la ventana principal (panel «Estado», todas las tareas largas vía `_run_task`; el plan lo deja `Controller.progress_stages` en `begin_generate` / `begin_export` / `begin_preview_parts` / `begin_open_stl`) y en «Armar desde catálogo» (`FigureBuilder.progress_stages`, `recipe.progress_stages`). El motor ahora anuncia también «Armando el cuerpo base», «Validando la figura», «Exportando las piezas», «Guardando el proyecto» y, dentro de `pipeline.export(progress=…)`, la escritura de cada pieza. Tests: `tests/test_progress.py` (6; incluye que cada paso planeado se anuncie de verdad y que el motor no anuncie nada fuera del plan). **Pendiente:** ver la barra en la ventana GTK real (aquí no hay Gtk: solo `py_compile`); afinar los pesos de cada paso con tiempos reales de una figura de la línea.
 
 ## Todo List (barra de progreso)

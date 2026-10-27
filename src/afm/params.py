@@ -94,6 +94,7 @@ class Params:
     min_tongue: float = 2.0          # espesor mínimo de lengüeta (validación)
     min_hinge_pin_d: float = 2.0     # diámetro mínimo del bulón de bisagra (validación; el de hongo usa min_pin_d)
     decimate: float = 0.6            # reducción de triángulos de las piezas al exportar (0 = desactivar)
+    export_max_tris: int = 150_000   # tope de triángulos por pieza en el STL exportado (0 = sin tope); ver pipeline.cap_export_triangles
     # --- mecanismo de clic (PLAN_mecanismo_clic_hombro_cadera.md): opción por articulación; False = pasador de hongo solo
     detent: DetentSpec = field(default_factory=DetentSpec)
     shoulder_detent: bool = False

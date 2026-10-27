@@ -507,6 +507,41 @@ def _decimate_keeping_clearance(pieces: dict, p: Params, tol: float = 0.02) -> S
     return torso
 
 
+def cap_export_triangles(pieces: dict, max_tris: int, tol: float = 0.02, max_vol_change: float = 0.002) -> tuple[dict, dict]:
+    """Limita los triángulos de cada pieza antes de escribir el STL (las booleanas, el barrido por marching cubes y las
+    holguras Minkowski multiplican las caras: un STL de entrada de 0,5 MB puede salir en decenas de MB).
+
+    Solo toca las piezas que superan `max_tris`: las decima (cuádrica, `S.decimate`) hasta ese tope y acepta el
+    resultado solo si el volumen cambia menos de `max_vol_change` y la holgura mínima con cada otra pieza no baja más de
+    `tol` mm; si no, prueba una reducción menor y, si ninguna cumple, deja la pieza como está. Devuelve
+    (piezas, {pieza: [antes, después]}) con las piezas que superaban el tope ([n, n] = no se pudo reducir)."""
+    out = dict(pieces)
+    rep: dict = {}
+    if not max_tris or max_tris <= 0:
+        return out, rep
+    for name, mf in pieces.items():
+        n0 = mf.num_tri()
+        if n0 <= max_tris:
+            continue
+        others = [m for n, m in out.items() if n != name]
+        base = [mf.min_gap(o, 5.0) for o in others]
+        red = 1.0 - 0.95 * max_tris / n0                   # 5 % por debajo del tope: la decimación no clava el objetivo
+        done = None
+        for k in (1.0, 0.8, 0.6, 0.4):
+            cand = S.decimate(mf, red * k, max_vol_change)
+            if cand is mf:
+                continue
+            if all(cand.min_gap(o, 5.0) >= g - tol for o, g in zip(others, base)):
+                done = cand
+                break
+        if done is not None:
+            out[name] = done
+            rep[name] = [n0, done.num_tri()]
+        else:
+            rep[name] = [n0, n0]
+    return out, rep
+
+
 # ------------------------------------------------------------------ validación
 def _nonmanifold_edges(mf: S.Manifold) -> int:
     """Aristas con != 2 caras tras soldar vértices coincidentes (lo que ve un slicer al leer el STL)."""
@@ -1446,6 +1481,13 @@ def export(res: BuildResult, outdir: str, name: str = "figura", orient: bool | s
         res = BuildResult(pieces=pieces, report=res.report, motion=res.motion, joints=res.joints, detent=res.detent,
                           detent_ref=res.detent_ref, waist=res.waist)
         info["sin_soportes"] = rep
+    cap = (params if params is not None else Params()).export_max_tris
+    if cap and cap > 0 and any(m.num_tri() > cap for m in res.pieces.values()):
+        say("Reduciendo triángulos de las piezas…")
+        capped, rep_tris = cap_export_triangles(res.pieces, cap)
+        info["triangulos_reducidos"] = rep_tris             # {pieza: [antes, después]}; [n, n] = no se pudo reducir sin perder holgura/volumen
+        res = BuildResult(pieces=capped, report=res.report, motion=res.motion, joints=res.joints, detent=res.detent,
+                          detent_ref=res.detent_ref, waist=res.waist)
     if orient:
         say("Calculando la orientación de impresión…")
         o = print_orientation(res, max_angle, extra_tilts, mode="auto" if orient == "auto" else "pose")
