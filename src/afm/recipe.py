@@ -153,6 +153,14 @@ def hand_spec(recipe: Recipe):
                     overlap=float(a.get("solape", DEFAULT_OVERLAP_MM)))
 
 
+def progress_stages(recipe: Recipe, catalog_root: str | None = None) -> list:
+    """Pasos de «Armar y exportar» para esta receta (porcentaje y pendientes de la barra de progreso)."""
+    from .progress import EXPORT, SAVE_PROJECT, VALIDATE, catalog_plan
+
+    cat, choices = load_choices(recipe, catalog_root)
+    return catalog_plan(choices, recipe_params(recipe, cat), hand_spec(recipe), epilogue=[VALIDATE, EXPORT, SAVE_PROJECT])
+
+
 def load_choices(recipe: Recipe, catalog_root: str | None = None) -> tuple[Catalog, dict]:
     root = catalog_root or default_root(recipe.linea)
     try:
@@ -173,6 +181,8 @@ def assemble(recipe: Recipe, catalog_root: str | None = None, progress=None, sit
     cat, choices = load_choices(recipe, catalog_root)
     p = recipe_params(recipe, cat)
     try:
+        if progress:
+            progress("Armando el cuerpo base…")
         host = synthesize_host(choices, p)
         res = P.build(host.body, host.limbs, p, None, sit, progress, None, host.head, None, host.waist, hand_spec(recipe),
                       host.parts, host_faces=host.faces)

@@ -55,7 +55,8 @@ afm catalogo listar RUTA [--tipo mano] [--compatible-con brazo-01]
 afm catalogo verificar RUTA
 # en la GUI: «Armar desde catálogo…» arma una figura nueva con piezas del catálogo, sin abrir un STL (equivale a `afm armar` con una receta).
 # «Armar y exportar» (y `afm armar`) escribe además `<figura>.proyecto`: se abre en la ventana principal SIN el STL (el cuerpo base sale del
-# catálogo de la línea y la figura se ve por partes); si el catálogo cambió de carpeta, la ventana pide dónde está
+# catálogo de la línea y la figura se ve por partes); si el catálogo cambió de carpeta, la ventana pide dónde está.
+# Las tareas largas (armar, generar, exportar, abrir STL) muestran una barra con porcentaje, tareas pendientes y tiempo estimado.
 afm catalogo eliminar RUTA pierna-belgrano-01@1 brazo-belgrano-01@1 [--buscar DIR] [--si]   # borra versiones (id@n) del disco; avisa quién las usa
 ```
 

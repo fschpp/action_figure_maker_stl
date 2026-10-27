@@ -202,6 +202,7 @@ class Controller:
         self.show_groups: dict[str, bool] = {g: False for g in SHOW_GROUPS}   # interruptores generales (planos / pines / contornos)
         self.busy = False                            # generando la figura (la ventana bloquea la edición)
         self.plane_faults: dict[str, tuple[str, bytes]] = {}   # id de plano -> (por qué su corte falló, firma del plano): se pinta de rojo hasta que el plano cambie
+        self.progress_stages: list | None = None      # pasos esperados de la tarea en curso (`progress.Stage`); None = sin plan
         self.progress_prefix = "Generando"           # encabezado de los mensajes de progreso de la tarea en curso
         self.show_overhangs = False                  # pintar de rojo los voladizos de impresión
         self.overhang_angle = 45.0                   # grados desde la vertical (como `--max-angle`)
@@ -282,6 +283,9 @@ class Controller:
             return None
         self.busy = True
         self.progress_prefix = "Abriendo"
+        from ..progress import Stage
+
+        self.progress_stages = [Stage("leyendo el STL", 3), Stage("reparando la malla", 4)]
         self._changed(f"Abriendo {path.split('/')[-1]}…", scene=False)
 
         def job(progress=None) -> Session:
@@ -2088,6 +2092,7 @@ class Controller:
             return None
         self.busy = True
         self.progress_prefix = "Revisando"
+        self.progress_stages = self.session.progress_plan("preview")
         self._changed("Revisando cómo acoplan las piezas elegidas (sin generar)…", scene=False)
         return lambda progress=None: self.session.preview_parts(progress)
 
@@ -2790,6 +2795,7 @@ class Controller:
         self.cancel(quiet=True)
         self.busy = True
         self._changed("Generando la figura… puede tardar varios minutos.", scene=False)
+        self.progress_stages = self.session.progress_plan("build")
         return lambda progress=None: self.session.build(progress)
 
     def report_progress(self, text: str) -> None:
@@ -2830,7 +2836,8 @@ class Controller:
         self.busy = True
         self._changed("Exportando las piezas… puede tardar.", scene=False)
         sess, angle = self.session, self.overhang_angle
-        return lambda progress=None: sess.export(outdir, orient=orient, max_angle=angle, flat=flat)
+        self.progress_stages = self.session.progress_plan("export", orient=orient, flat=flat)
+        return lambda progress=None: sess.export(outdir, orient=orient, max_angle=angle, flat=flat, progress=progress)
 
     def finish_export(self, info: dict | None, outdir: str, error: Exception | None = None) -> dict | None:
         self.busy = False

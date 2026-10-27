@@ -55,19 +55,23 @@ def run_armar(recipe_path: str, outdir: str, name: str | None = None, catalog_ro
     asm = assemble(recipe, catalog_root, progress=progress)
     if flat is not None and flat < 0:
         flat = asm.params.flat_depth
+    progress("Validando la figura…")
     val = P.validate(asm.res, asm.params, asm.limbs, joints=asm.joints)
     try:                          # compat.json: la figura ya está armada y validada, guardar el resultado no cuesta nada
         from .compat import record
         record(asm, val, time.time() - t0)
     except (OSError, ValueError) as exc:
         progress(f"AVISO: no se pudo guardar el resultado en compat.json: {exc}")
-    files = P.export(asm.res, outdir, name, orient=orient, max_angle=max_angle, flat=flat, params=asm.params)
+    progress("Exportando las piezas…")
+    files = P.export(asm.res, outdir, name, orient=orient, max_angle=max_angle, flat=flat, params=asm.params,
+                     progress=progress)
     info = {"receta": recipe.to_dict(), "construccion": asm.res.report, "validacion": val, "archivos": files}
     with open(os.path.join(outdir, f"{name}_informe.json"), "w") as f:
         json.dump(info, f, indent=2, default=float)
     recipe.save(os.path.join(outdir, f"{name}.receta.json"))
     from . import catalog_project
 
+    progress("Guardando el proyecto…")
     info["proyecto"] = catalog_project.save(asm, os.path.join(outdir, f"{name}.proyecto"))   # la ventana principal lo abre sin STL
     return info
 

@@ -247,6 +247,8 @@ def build_model(body, project, replacements=None, progress=None):
 
     # Con mano de reemplazo se corta la mano original antes de escalar el brazo:
     # la muñeca viaja como un puerto y attach_hand utiliza sus medidas actualizadas.
+    if progress:
+        progress("Armando el cuerpo base…")
     host, choices = prepare(body, project, replacements)
     hand = project.hand
     if hand is not None and hand.points:

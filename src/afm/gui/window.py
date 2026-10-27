@@ -17,6 +17,7 @@ from gi.repository import Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 
 from ..head import MIN_BASE_IOU, REPLACEMENT_SCALE_RANGE, REPLACEMENT_UPS  # noqa: E402
 from .controller import JOINT_PREFIX, PARAM_FIELDS, TRIM_OP_LABELS, TRIM_SHAPE_LABELS, TRIM_SHAPES, Controller, Mode  # noqa: E402
+from .progress_panel import ProgressPanel  # noqa: E402
 from .render import SceneRenderer  # noqa: E402
 from .session import CatalogNeeded, Session  # noqa: E402
 from .viewcube import ViewCube, interpolate_view, view_angles  # noqa: E402
@@ -269,6 +270,10 @@ class MainWindow(Gtk.ApplicationWindow):
         scroller.set_max_content_height(height)
         scroller.set_size_request(-1, height)
         scroller.set_child(self.status_view)
+        self.progress_panel = ProgressPanel()                # porcentaje, tarea en curso, pendientes y tiempo estimado
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        body.append(self.progress_panel)
+        body.append(scroller)
         self._task: dict | None = None                       # tarea larga en curso (ver `_run_task`)
         self.spinner = Gtk.Spinner(visible=False)
         self.lbl_task = Gtk.Label(xalign=0)
@@ -281,7 +286,7 @@ class MainWindow(Gtk.ApplicationWindow):
         frame.set_label_widget(head)
         for side in ("start", "end", "bottom"):
             getattr(frame, f"set_margin_{side}")(6)
-        frame.set_child(scroller)
+        frame.set_child(body)
         return frame
 
     def _set_status(self, message: str, problems: str) -> None:
@@ -1670,6 +1675,8 @@ exportar; tarda un poco más.")
         Mientras tanto el panel Estado muestra un spinner y un cronómetro con el tiempo transcurrido, para que se vea
         que el programa trabaja y no está colgado."""
         self._task = {"label": label, "done": done_label, "t0": time.monotonic()}
+        stages, self.ctrl.progress_stages = self.ctrl.progress_stages, None      # el plan lo deja `begin_*` del controlador
+        self.progress_panel.start(stages, label)
         self.spinner.set_visible(True)
         self.spinner.start()
         self._task_tick()
@@ -1697,11 +1704,13 @@ exportar; tarda un poco más.")
         self.spinner.stop()
         self.spinner.set_visible(False)
         took = self._fmt_elapsed(time.monotonic() - t["t0"]) if t else ""
+        self.progress_panel.finish(error is None, (t or {}).get("done", ""))
         self.lbl_task.set_text((f"✗ Falló a los {took}" if error else f"✓ {t['done']} en {took}") if t else "")
         done(result, error)
         return False
 
     def _progress_idle(self, text: str) -> bool:
+        self.progress_panel.feed(text)
         self.ctrl.report_progress(text)
         return False                        # no repetir
 

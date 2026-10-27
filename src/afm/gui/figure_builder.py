@@ -228,6 +228,12 @@ class FigureBuilder:
         """Vista previa conjunta de las piezas elegidas (ver `preview_parts`)."""
         return preview_parts(self)
 
+    def progress_stages(self) -> list:
+        """Pasos esperados de «Armar y exportar» con las piezas elegidas (para la barra de progreso)."""
+        from ..recipe import progress_stages
+
+        return progress_stages(self.recipe(), self.root)
+
     def generate(self, outdir: str, progress=print, orient: bool | str = False) -> dict:
         """Arma, valida y exporta en `outdir` (lo mismo que `afm armar`). Devuelve el informe: {"receta", "construccion",
         "validacion", "archivos"} más `ensamblada` (ruta del STL de la figura entera, para la vista previa). Tarda minutos."""

@@ -1488,6 +1488,37 @@ class Session:
         except AssemblyError as exc:
             raise ValueError(str(exc)) from exc
 
+    def progress_plan(self, task: str, orient: bool = False, flat: bool = False) -> list | None:
+        """Pasos que se esperan de `build` | `preview` | `export` con el estado actual (barra de progreso). Es una
+        estimación barata, sin sintetizar nada: los mensajes que no estén en el plan no la rompen. None = sin plan."""
+        from .. import progress as PR
+
+        p = self.project.params
+        if task == "export":
+            if self.outcome is None:
+                return None
+            st = [PR.Stage("Aplanando la base", 4)] if flat else []
+            st += [PR.Stage("Calculando la orientación de impresión", 5)] if orient else []
+            st += [PR.Stage(f"Escribiendo «{n}»", 2) for n in self.outcome.result.pieces]
+            return st + [PR.Stage("Escribiendo la figura ensamblada", 3), PR.Stage("Escribiendo la lista de piezas", 1),
+                         PR.Stage("Guardando el informe y el proyecto", 1)]
+        if task == "preview":
+            from ..customize import needed
+
+            if needed(self.project) or self.catalog_only() or not self.project.parts:
+                return None                                   # corre sin mensajes por lugar: barra sin porcentaje
+            return PR.preview_plan(list(self._resolved_parts() or {}))
+        if task != "build":
+            return None
+        from ..customize import needed
+
+        if not needed(self.project) and self.catalog_only():
+            return PR.catalog_plan(self._catalog_only_choices(), p, self.project.hand if (
+                self.project.hand is not None and not self.project.hand.path) else None, epilogue=[PR.VALIDATE])
+        prj = self.project
+        return PR.build_plan(prj.limbs, p, parts=self._resolved_parts(), head=prj.head, waist=prj.waist, hand=prj.hand,
+                             joints=prj.joints, prologue=[PR.BASE_BODY] if needed(prj) else None, epilogue=[PR.VALIDATE])
+
     def build(self, progress=None) -> BuildOutcome:
         probs = self.problems()
         if probs:
@@ -1495,6 +1526,8 @@ class Session:
         from ..customize import needed, build_model
         if needed(self.project):
             res, limbs = build_model(S.to_manifold(self.work), self.project, self._resolved_parts(), progress)
+            if progress:
+                progress("Validando la figura…")
             val = P.validate(res, self.project.params, limbs, joints=res.joint_specs)
             self.outcome = BuildOutcome(res, val)
             return self.outcome
@@ -1505,6 +1538,8 @@ class Session:
         res = P.build(body, self.project.limbs, self.project.params, self.project.symmetry,
                       progress=progress, trims=self.project.trims, head=self.project.head,
                       joints=self.project.joints, waist=self.project.waist, hand=self.project.hand, parts=parts)
+        if progress:
+            progress("Validando la figura…")
         val = P.validate(res, self.project.params, self.project.limbs, joints=self.project.joints)
         self.outcome = BuildOutcome(res, val)
         return self.outcome
@@ -1515,24 +1550,31 @@ class Session:
 
         p = self.project.params
         try:
+            if progress:
+                progress("Armando el cuerpo base…")
             host = synthesize_host(self._catalog_only_choices(), p)
             hand = self.project.hand if (self.project.hand is not None and not self.project.hand.path) else None   # mano de catálogo: giro y unión
             res = P.build(host.body, host.limbs, p, None, True, progress, None, host.head, None, host.waist, hand,
                           host.parts, host_faces=host.faces)
         except AssemblyError as exc:
             raise ValueError(str(exc)) from exc
+        if progress:
+            progress("Validando la figura…")
         val = P.validate(res, p, host.limbs, joints=res.joint_specs)
         self.outcome = BuildOutcome(res, val)
         return self.outcome
 
     def export(self, outdir: str, name: str | None = None, orient: bool = False, max_angle: float = 45.0,
-               flat: bool = False) -> dict:
+               flat: bool = False, progress=None) -> dict:
         if self.outcome is None:
             raise ValueError("Primero generá la figura")
         name = name or (os.path.splitext(os.path.basename(self.stl_path or "figura"))[0])
         os.makedirs(outdir, exist_ok=True)
         files = P.export(self.outcome.result, outdir, name, orient=orient, max_angle=max_angle,
-                         flat=self.project.params.flat_depth if flat else None, params=self.project.params)
+                         flat=self.project.params.flat_depth if flat else None, params=self.project.params,
+                         progress=progress)
+        if progress:
+            progress("Guardando el informe y el proyecto…")
         info = {"validacion": self.outcome.validation, "construccion": self.outcome.result.report, "archivos": files}
         with open(os.path.join(outdir, f"{name}_informe.json"), "w") as f:
             json.dump(info, f, indent=2, default=float)

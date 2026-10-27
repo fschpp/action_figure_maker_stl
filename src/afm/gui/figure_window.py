@@ -15,6 +15,7 @@ from gi.repository import Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 
 from .catalog_manager import PreviewRenderer, view_bounds  # noqa: E402,F401  (view_bounds: el encuadre lo hace PreviewRenderer)
 from ..recipe import SCALE_PLACES  # noqa: E402
+from .progress_panel import ProgressPanel  # noqa: E402
 from .figure_builder import HAND_JOINS, NONE_LABEL, PLACE_LABELS, PLACE_ORDER, FigureBuilder, summary  # noqa: E402
 
 
@@ -100,6 +101,8 @@ class FigureBuilderWindow(Gtk.Window):
         bar.append(self.btn_build)
         box.append(bar)
         self._last_project: str | None = None
+        self.progress_panel = ProgressPanel()                # porcentaje, tarea en curso, pendientes y tiempo estimado
+        box.append(self.progress_panel)
         self.btn_open_main = Gtk.Button(label="Abrir la figura armada en la ventana principal")
         self.btn_open_main.set_tooltip_text("Abre el .proyecto recién exportado (sin STL: el cuerpo sale del catálogo) y la figura "\
                                             "se ve por partes. Reemplaza lo que esté abierto en la ventana principal.")
@@ -458,19 +461,13 @@ class FigureBuilderWindow(Gtk.Window):
             return
         self._t0 = time.monotonic()
         self._set_busy(True)
-        last = {"text": "Armando…"}
         self.lbl_result.set_text("Armando la figura… (tarda unos minutos)")
-
-        def tick() -> bool:
-            if not self._busy:
-                return False
-            self.lbl_result.set_text(f"{last['text']} · {int(time.monotonic() - self._t0)} s")
-            return True
-
-        GLib.timeout_add(500, tick)
-
-        def progress(text) -> None:
-            last["text"] = str(text)
+        try:
+            stages = self.builder.progress_stages()
+        except Exception:                                     # noqa: BLE001 — sin plan la barra solo late
+            stages = None
+        self.progress_panel.start(stages, "Armando la figura…")
+        progress = self.progress_panel.feed
 
         def work() -> None:
             try:
@@ -493,6 +490,7 @@ class FigureBuilderWindow(Gtk.Window):
 
     def _build_done(self, info, error, folder: str) -> bool:
         self._set_busy(False)
+        self.progress_panel.finish(error is None, "Figura armada y exportada")
         if error is not None:
             self.lbl_result.set_text(f"No se pudo armar: {error}")
             return False

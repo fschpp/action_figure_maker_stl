@@ -1430,34 +1430,41 @@ def parts_list_markdown(lst: dict) -> str:
 
 
 def export(res: BuildResult, outdir: str, name: str = "figura", orient: bool | str = False,
-           max_angle: float = 45.0, extra_tilts=(0.0,), flat: float | None = None, params: Params | None = None) -> dict:
+           max_angle: float = 45.0, extra_tilts=(0.0,), flat: float | None = None, params: Params | None = None,
+           progress=None) -> dict:
     """Escribe el ensamblado y un STL por parte. Con `orient=True` apoya todo el conjunto en la cama en la pose de
     la vista previa (sentada, cabeza arriba); con `orient="auto"` lo gira a la orientación de menor voladizo.
     En ambos casos informa la orientación. Con `flat` (altura del corte en mm sobre la cola; `Params.flat_depth`) antes se aplana la base y se
     giran los brazos para imprimir sin soportes (`flat_for_print`); el informe va en `info["sin_soportes"]`."""
+    say = progress or (lambda *_: None)
     os.makedirs(os.path.join(outdir, "piezas"), exist_ok=True)
     T = None
     info: dict = {}
     if flat is not None:
+        say("Aplanando la base…")
         pieces, rep = flat_for_print(res, flat, params)
         res = BuildResult(pieces=pieces, report=res.report, motion=res.motion, joints=res.joints, detent=res.detent,
                           detent_ref=res.detent_ref, waist=res.waist)
         info["sin_soportes"] = rep
     if orient:
+        say("Calculando la orientación de impresión…")
         o = print_orientation(res, max_angle, extra_tilts, mode="auto" if orient == "auto" else "pose")
         T = o.rotation
         info["orientacion"] = {"etiqueta": o.label, "voladizo_mm2": round(o.overhang_area, 2),
                                "base_mm2": round(o.base_area, 2), "angulo_max": max_angle}
     meshes = []
     for part, mf in res.pieces.items():
+        say(f"Escribiendo «{part}»…")
         tm = S.to_printable_trimesh(mf)
         if T is not None:
             tm.apply_transform(T)
         tm.export(os.path.join(outdir, "piezas", f"{name}_{part}.stl"))
         meshes.append(tm)
+    say("Escribiendo la figura ensamblada…")
     asm = trimesh.util.concatenate(meshes)
     asm.export(os.path.join(outdir, f"{name}_ensamblada.stl"))
     info.update({"ensamblada": f"{name}_ensamblada.stl", "piezas": sorted(res.pieces)})
+    say("Escribiendo la lista de piezas…")
     lst = parts_list(res, name)
     if lst is not None:
         import json
