@@ -411,6 +411,24 @@ y la mano queda orientada igual en todos los modelos sin tocar grados.
 * **Límites:** sin articular, la unión es solo por solape. Si el modelo tiene la mano soldada a otra parte del cuerpo (apoyada en
   el muslo), esa parte viaja con ella. La mano articulada no está probada en GTK real ni impresa.
 
+
+### 7.2g Agarre para accesorios (armas con lengüetas)
+
+Sección «Agarre para accesorios» (plegada por defecto). Sirve para que un arma se sujete en el puño sin pegamento: la
+empuñadura lleva dos lengüetas con un dentado que se cierran al entrar por el puño y se abren al salir. Código: `src/afm/props.py`.
+
+1. «Taladrar una mano estándar (STL)…» → elegí la mano. El programa busca el canal que dejan los dedos con la palma y lo taladra al
+   Ø pedido (hasta un minuto; la ventana sigue viva). Con la mano de Güemes, 2,4 mm es casi el máximo: con más se abre el anillo.
+2. El texto de la sección muestra el canal natural, el largo, la pared mínima del anillo, cuánto del contorno apoya el hombro del
+   dentado (con menos de 270° se avisa: el agarre es más flojo que con un tubo completo) y, por cada dentado, la interferencia y la
+   deformación de la lengüeta (ε; PLA ≈ 1 % máximo).
+3. «Guardar mano con agarre…» escribe el STL y su `.mano.json` (con el eje y el Ø del agujero); se pega con «Mano de reemplazo (STL)…».
+4. «Guardar placa de espadas de prueba…» escribe una placa con una espada por cada Ø de dentado, acostadas y con fondo plano. Imprimila
+   (PETG de preferencia) y quedate con el dentado que sujeta sin romper la lengüeta.
+
+Si cambiás el Ø del taladro después de taladrar, hay que volver a taladrar para guardar la mano (la placa usa el taladro ya hecho).
+Por consola: `afm agarre mano.stl --out out/agarre`.
+
 ### 7.3 Generar y exportar
 
 Con la simetría definida y cada miembro con su silueta, el Estado deja de listar pendientes y se puede:

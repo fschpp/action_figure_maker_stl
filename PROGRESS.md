@@ -11,7 +11,10 @@ _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic
 - [x] Fondo plano común en el accesorio (el dentado sobresalía por debajo del eje: acostado quedaba flotando).
 - [ ] Imprimir la placa y ver qué dentado sujeta sin romper la lengüeta (PETG recomendado a este tamaño).
 - [ ] Si el agarre queda flojo: rebaje anular en la cara de salida para que el hombro apoye en todo el contorno (hoy ≈ 180°).
-- [ ] Integrar el accesorio al catálogo de piezas (puerto «agarre» en la mano) y probeta de calibración propia.
+- [x] GUI fase 1: sección «Agarre para accesorios» (ventana principal, tras «Mano estándar»): campos, «Taladrar una mano estándar (STL)…» en el hilo de tareas, resumen con avisos, guardar mano y placa. Lógica en `Controller` (`begin_grip`/`finish_grip`, `save_grip_hand`, `save_grip_plate`, `GRIP_FIELDS`) y `props.compute_grip`/`write_grip_*`; `tests/test_gui_grip.py` (8, sin ventana). **No se pudo probar la ventana: el sandbox no tiene GTK.**
+- [ ] Probar la sección en la ventana real (diseño de los campos, tarea en hilo, selector de archivos).
+- [ ] GUI fase 2: ver el accesorio en la mano de la figura (vista 3D) con `props.place_in_hand` y el marco de muñeca del modelo.
+- [ ] GUI fase 3 / catálogo: guardar el agarre en los metadatos de la mano del catálogo y piezas «accesorio» con puerto de agarre; probeta de calibración propia.
 
 ## Latest Blockers/Discoveries
 - Maximizar el círculo libre del canal elige zonas con pared de 0,2–0,3 mm: hay que puntuar por la pared que queda tras taladrar.

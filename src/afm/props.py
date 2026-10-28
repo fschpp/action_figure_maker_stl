@@ -347,31 +347,90 @@ def probe_plate(spec: GripSpec, hole_len: float, barbs=(2.7, 2.9, 3.1), spacing:
     return S.union(*parts)
 
 
-# ------------------------------------------------------------------ todo junto (CLI)
-def run_grip(hand_path: str, outdir: str, spec: GripSpec | None = None, barbs=(2.7, 2.9, 3.1), name: str | None = None) -> dict:
-    from . import hand as H
-    from . import meshio
+# ------------------------------------------------------------------ todo junto (CLI y GUI)
+DEFAULT_BARBS = (2.7, 2.9, 3.1)
 
+
+def parse_barbs(text: str) -> tuple[float, ...]:
+    """«2.7, 2.9, 3.1» → (2.7, 2.9, 3.1); ValueError si está vacío, no son números o hay más de 6 (cabe una fila de la placa)."""
+    try:
+        vals = tuple(float(x) for x in text.replace(";", ",").replace(" ", ",").split(",") if x.strip())
+    except ValueError:
+        raise ValueError("los dentados son números separados por comas, p. ej. 2.7,2.9,3.1") from None
+    if not vals:
+        raise ValueError("falta al menos un Ø de dentado")
+    if len(vals) > 6:
+        raise ValueError("como mucho 6 dentados por placa")
+    if min(vals) <= 0:
+        raise ValueError("los Ø de dentado son positivos")
+    return vals
+
+
+@dataclass
+class GripResult:
+    """Mano ya taladrada, con el canal y el ajuste que se midieron (lo que `compute_grip` deja listo para guardar)."""
+    source: str
+    hand: S.Manifold             # mano con el taladro, en su marco local
+    meta: dict                   # JSON de la mano estándar de origen (o el mínimo) más la clave «agarre»
+    channel: HandChannel
+    fit: GripFit
+    spec: GripSpec
+
+
+def compute_grip(hand_path: str, spec: GripSpec | None = None, progress=None) -> GripResult:
+    """Carga la mano estándar, busca su canal y la taladra. No escribe nada (ver `write_grip_hand`)."""
+    from . import hand as H
+
+    say = progress or (lambda text: None)
     spec = spec or GripSpec()
     hand, meta = H.load_standard_hand(hand_path)
+    say("buscando el canal de la mano")
     ch = find_channel(hand, spec.bore_d)
+    say(f"taladrando Ø{spec.bore_d:g} mm")
     carved, fit = carve_grip(hand, spec, ch)
-    stem = name or os.path.splitext(os.path.basename(hand_path))[0]
-    os.makedirs(outdir, exist_ok=True)
     meta = dict(meta or {"formato": H.HAND_FORMAT})
     meta["agarre"] = {**fit.to_dict(), "canal_natural_mm": round(ch.free_d, 3), "especificacion": asdict(spec)}
-    hand_out = os.path.join(outdir, f"{stem}_agarre.stl")
-    H.save_standard_hand(hand_out, carved, meta)
-    plate = probe_plate(spec, fit.length, barbs)
-    plate_out = os.path.join(outdir, f"{stem}_espadas_prueba.stl")
-    meshio.save_stl(S.to_printable_trimesh(plate), plate_out)
-    rows = []
-    for bd in barbs:
-        from dataclasses import replace
-        sp = replace(spec, barb_d=float(bd))
-        rows.append({"dentado_mm": float(bd), "interferencia_mm": round((bd - spec.bore_d) / 2, 3),
-                     "deformacion_pct": round(100 * grip_strain(sp), 3)})
-    info = {"mano": hand_out, "placa": plate_out, "canal_natural_mm": round(ch.free_d, 3), **fit.to_dict(), "variantes": rows}
+    return GripResult(source=hand_path, hand=carved, meta=meta, channel=ch, fit=fit, spec=spec)
+
+
+def grip_variants(spec: GripSpec, barbs=DEFAULT_BARBS) -> list[dict]:
+    from dataclasses import replace
+
+    return [{"dentado_mm": float(bd), "interferencia_mm": round((bd - spec.bore_d) / 2, 3),
+             "deformacion_pct": round(100 * grip_strain(replace(spec, barb_d=float(bd))), 3)} for bd in barbs]
+
+
+def write_grip_hand(res: GripResult, path: str) -> str:
+    """Guarda la mano con el taladro como mano estándar (STL + `.mano.json` con el eje y el Ø del agujero)."""
+    from . import hand as H
+
+    H.save_standard_hand(path, res.hand, res.meta)
+    return path
+
+
+def write_grip_plate(res: GripResult, path: str, spec: GripSpec | None = None, barbs=DEFAULT_BARBS) -> str:
+    """Guarda la placa de espadas de prueba. `spec` puede cambiar vástago, ranura y lengüeta sin volver a taladrar;
+    el Ø del taladro es siempre el de la mano ya taladrada."""
+    from dataclasses import replace
+
+    from . import meshio
+
+    sp = replace(spec or res.spec, bore_d=res.spec.bore_d)
+    plate = probe_plate(sp, res.fit.length, barbs)
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    meshio.save_stl(S.to_printable_trimesh(plate), path)
+    return path
+
+
+def run_grip(hand_path: str, outdir: str, spec: GripSpec | None = None, barbs=DEFAULT_BARBS, name: str | None = None) -> dict:
+    spec = spec or GripSpec()
+    res = compute_grip(hand_path, spec)
+    stem = name or os.path.splitext(os.path.basename(hand_path))[0]
+    os.makedirs(outdir, exist_ok=True)
+    hand_out = write_grip_hand(res, os.path.join(outdir, f"{stem}_agarre.stl"))
+    plate_out = write_grip_plate(res, os.path.join(outdir, f"{stem}_espadas_prueba.stl"), spec, barbs)
+    info = {"mano": hand_out, "placa": plate_out, "canal_natural_mm": round(res.channel.free_d, 3), **res.fit.to_dict(),
+            "variantes": grip_variants(spec, barbs)}
     with open(os.path.join(outdir, f"{stem}_agarre_informe.json"), "w") as f:
         json.dump(info, f, indent=2, ensure_ascii=False, default=float)
     return info

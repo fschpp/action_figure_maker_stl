@@ -16,7 +16,7 @@ gi.require_version("Gdk", "4.0")
 from gi.repository import Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 
 from ..head import MIN_BASE_IOU, REPLACEMENT_SCALE_RANGE, REPLACEMENT_UPS  # noqa: E402
-from .controller import JOINT_PREFIX, PARAM_FIELDS, TRIM_OP_LABELS, TRIM_SHAPE_LABELS, TRIM_SHAPES, Controller, Mode  # noqa: E402
+from .controller import GRIP_FIELDS, JOINT_PREFIX, PARAM_FIELDS, TRIM_OP_LABELS, TRIM_SHAPE_LABELS, TRIM_SHAPES, Controller, Mode  # noqa: E402
 from .progress_panel import ProgressPanel  # noqa: E402
 from .render import SceneRenderer  # noqa: E402
 from .session import CatalogNeeded, Session  # noqa: E402
@@ -436,6 +436,39 @@ class MainWindow(Gtk.ApplicationWindow):
                    "«Mano articulada»: en vez de soldarla, la mano sale como pieza aparte con un pasador que entra en el brazo y "
                    "gira libre (se achica solo si la muñeca es fina; ver Parámetros → Mano articulada).")
 
+        sec = _collapsible(box, "Agarre para accesorios", expanded=False)
+        self.btn_grip = self._button("Taladrar una mano estándar (STL)…", self._on_grip_pick)
+        sec.append(self.btn_grip)
+        self.grip_spins: dict[str, Gtk.SpinButton] = {}
+        for key, label, lo, hi, step, digits in GRIP_FIELDS:
+            row = Gtk.Box(spacing=6)
+            row.append(Gtk.Label(label=label, xalign=0, hexpand=True))
+            spin = Gtk.SpinButton.new_with_range(lo, hi, step)
+            spin.set_digits(digits)
+            spin.set_value(getattr(self.ctrl.grip_spec, key))
+            spin.connect("value-changed", lambda b, k=key: None if self._updating else self.ctrl.set_grip_param(k, b.get_value()))
+            self.grip_spins[key] = spin
+            row.append(spin)
+            sec.append(row)
+        row = Gtk.Box(spacing=6)
+        row.append(Gtk.Label(label="Ø de los dentados a probar (mm)", xalign=0, hexpand=True))
+        self.ent_grip_barbs = Gtk.Entry(text=", ".join(f"{b:g}" for b in self.ctrl.grip_barbs), width_chars=12)
+        self.ent_grip_barbs.connect("changed", lambda e: None if self._updating else self.ctrl.set_grip_barbs(e.get_text()))
+        row.append(self.ent_grip_barbs)
+        sec.append(row)
+        self.btn_grip_hand = self._button("Guardar mano con agarre…", self._on_grip_save_hand)
+        self.btn_grip_plate = self._button("Guardar placa de espadas de prueba…", self._on_grip_save_plate)
+        sec.append(self.btn_grip_hand)
+        sec.append(self.btn_grip_plate)
+        self.lbl_grip = Gtk.Label(label="", xalign=0, wrap=True, selectable=True)
+        sec.append(self.lbl_grip)
+        _help(sec, "Para armas y otros accesorios que se sujetan en el puño sin pegamento. Elegí el STL de la mano estándar: el "
+                   "programa busca el canal que dejan los dedos con la palma y lo taladra al Ø pedido (con la mano de Güemes, 2,4 mm "
+                   "es casi el máximo; más abre el anillo). Guardá la mano con agarre y pegala con «Mano de reemplazo (STL)…». "
+                   "La placa de pruebas trae una espada por cada Ø de dentado, acostadas (las lengüetas flexionan en el plano "
+                   "de la cama): imprimila, de preferencia en PETG, y fijate cuál sujeta sin romper la lengüeta. El taladro se "
+                   "hace una vez sobre la mano estándar: toda la línea de figuras la comparte.")
+
         sec = _collapsible(box, "Cabeza")
         self.btn_neck = self._button("Agregar plano del cuello / cabeza (3 puntos)", lambda *_: self.ctrl.start_neck_plane())
         self.btn_head_stl = self._button("Cabeza de reemplazo (STL)…", self._on_head_replacement)
@@ -732,6 +765,16 @@ exportar; tarda un poco más.")
                       self.chk_over, self.spin_over):
                 b.set_sensitive(loaded)
             self.btn_save.set_sensitive(loaded and not ctrl.busy)
+            has_grip = ctrl.grip is not None
+            self.btn_grip.set_sensitive(not ctrl.busy)
+            self.btn_grip_hand.set_sensitive(has_grip and not ctrl.grip_stale)
+            self.btn_grip_plate.set_sensitive(has_grip)
+            txt = ctrl.grip_summary()
+            if self.lbl_grip.get_text() != txt:           # no pisar la selección del texto en cada refresco
+                self.lbl_grip.set_text(txt)
+            for key, spin in self.grip_spins.items():
+                if abs(spin.get_value() - getattr(ctrl.grip_spec, key)) > 1e-9:
+                    spin.set_value(getattr(ctrl.grip_spec, key))
             for b in self.btn_open:
                 b.set_sensitive(not ctrl.busy)          # no se cambia de archivo en medio de una tarea
             has_sym = ctrl.session.project.symmetry is not None
@@ -1848,6 +1891,48 @@ exportar; tarda un poco más.")
 
     def _on_open_project(self, *_):
         self._pick_file("Abrir proyecto", ["*.proyecto", "*.json"], "Proyectos", self._open_project_path)
+
+    def _on_grip_pick(self, *_):
+        self._pick_file("Mano estándar (STL)", ["*.stl"], "Archivos STL", self._grip_task)
+
+    def _grip_task(self, path: str) -> None:
+        """Busca el canal y taladra la mano en un hilo (tarda hasta un minuto y la interfaz no debe congelarse)."""
+        job = self.ctrl.begin_grip(path)
+        if job is None:
+            return
+
+        def done(res, err) -> None:
+            self.ctrl.finish_grip(res, err)
+            if err is not None:
+                self._error(err)
+
+        self._run_task("Taladrando la mano estándar", job, done, "Mano taladrada")
+
+    def _save_as(self, title: str, name: str, done) -> None:
+        dlg = Gtk.FileDialog(title=title)
+        dlg.set_initial_name(name)
+
+        def finished(d, res):
+            try:
+                f = d.save_finish(res)
+            except GLib.Error:
+                return                      # cancelado
+            try:
+                done(f.get_path())
+            except Exception as e:          # noqa: BLE001 — se informa al usuario
+                self._error(e)
+
+        dlg.save(self, None, finished)
+
+    def _grip_stem(self) -> str:
+        g = self.ctrl.grip
+        return os.path.splitext(os.path.basename(g.source))[0] if g is not None else "mano"
+
+    def _on_grip_save_hand(self, *_):
+        self._save_as("Guardar mano con agarre", f"{self._grip_stem()}_agarre.stl", self.ctrl.save_grip_hand)
+
+    def _on_grip_save_plate(self, *_):
+        self._save_as("Guardar placa de espadas de prueba", f"{self._grip_stem()}_espadas_prueba.stl", self.ctrl.save_grip_plate)
 
     def _on_save_hand(self, *_):
         dlg = Gtk.FileDialog(title="Guardar mano estándar")

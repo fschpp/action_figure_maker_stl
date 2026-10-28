@@ -138,6 +138,15 @@ def validation_summary(val: dict, clearance: float) -> str:
 
 
 # Parámetros editables en la GUI: (clave con punto, etiqueta, mínimo, máximo, paso, decimales)
+# Agarre para accesorios (`afm.props`): (clave de GripSpec, rótulo, mínimo, máximo, paso, decimales)
+GRIP_FIELDS = (
+    ("bore_d", "Ø del taladro en el puño (mm)", 1.5, 3.5, 0.1, 1),
+    ("shaft_d", "Ø de la empuñadura (mm)", 1.2, 3.0, 0.1, 1),
+    ("slit_w", "Ranura entre lengüetas (mm)", 0.3, 1.5, 0.1, 1),
+    ("finger_len", "Largo de la lengüeta (mm)", 3.0, 14.0, 0.5, 1),
+)
+
+
 PARAM_FIELDS = (
     ("clearance", "Holgura miembro–cavidad (mm)", 0.1, 1.5, 0.05, 2),
     ("burr", "Rebaba a rebajar en la cara (mm)", 0.0, 3.0, 0.05, 2),
@@ -228,6 +237,10 @@ class Controller:
         self.hand_extract: dict | None = None        # mano extraída sin guardar: hand (local), split, points, invert
         self._hand_mesh = None                       # (split, malla de la mano en el mundo) para dibujarla en verde
         self._hand_path_pending: str | None = None   # STL de la mano estándar elegida, a la espera de los 3 clics de la muñeca
+        from ..props import DEFAULT_BARBS, GripSpec
+        self.grip_spec = GripSpec()                  # agarre para accesorios: valores a usar (se editan en la sección «Agarre»)
+        self.grip_barbs: tuple[float, ...] = DEFAULT_BARBS
+        self.grip = None                             # props.GripResult de la última mano taladrada (None = ninguna)
         self.show_cut_numbers = True                 # rotular cada corte con su número en el visor
         self.show_part_preview = True                # dibujar las piezas de catálogo elegidas antes de generar
         self.scene_dirty = True
@@ -1944,6 +1957,120 @@ class Controller:
             msg += f" AVISO: la línea usa figuras de {LINE_HEIGHT_MM:g} mm."
         self._changed(msg, scene=False)
         return meta
+
+    # ------------------------------------------------------------------ agarre para accesorios (afm.props)
+    def set_grip_param(self, key: str, value: float) -> bool:
+        from dataclasses import replace
+
+        spec = next((f for f in GRIP_FIELDS if f[0] == key), None)
+        if spec is None or not (spec[2] <= value <= spec[3]):
+            return False
+        self.grip_spec = replace(self.grip_spec, **{key: float(value)})
+        self._changed(scene=False)
+        return True
+
+    def set_grip_barbs(self, text: str) -> bool:
+        from ..props import parse_barbs
+
+        try:
+            self.grip_barbs = parse_barbs(text)
+        except ValueError as e:
+            self._changed(f"Dentados: {e}", scene=False)
+            return False
+        self._changed(scene=False)
+        return True
+
+    @property
+    def grip_stale(self) -> bool:
+        """El Ø del taladro pedido ya no es el de la mano taladrada: hay que volver a taladrar para guardarla."""
+        return self.grip is not None and abs(self.grip.spec.bore_d - self.grip_spec.bore_d) > 1e-9
+
+    def begin_grip(self, path: str):
+        """Valida y devuelve el trabajo pesado ``job(progress=None) -> GripResult`` (busca el canal y taladra la mano estándar
+        de `path`), apto para un hilo; después hay que llamar `finish_grip`."""
+        if self.busy:
+            return None
+        self.busy = True
+        self.progress_prefix = "Taladrando la mano"
+        self._changed("Taladrando la mano estándar… busca el canal y puede tardar un minuto.", scene=False)
+        spec = self.grip_spec
+
+        def job(progress=None):
+            from ..props import compute_grip
+
+            return compute_grip(path, spec, progress)
+
+        return job
+
+    def finish_grip(self, result, error: Exception | None = None) -> bool:
+        self.busy = False
+        if error is not None:
+            self._changed(f"No se pudo taladrar la mano: {error}", scene=False)
+            return False
+        self.grip = result
+        self._changed(self.grip_summary(), scene=False)
+        return True
+
+    def run_grip(self, path: str):
+        """Taladra la mano con los valores actuales sin hilos (pruebas y uso programático)."""
+        job = self.begin_grip(path)
+        if job is None:
+            return None
+        try:
+            res = job()
+        except Exception as e:
+            self.finish_grip(None, e)
+            return None
+        self.finish_grip(res)
+        return res
+
+    def grip_summary(self) -> str:
+        """Texto para la sección «Agarre»: lo medido en la mano taladrada, los dentados y los avisos."""
+        from ..props import grip_variants
+
+        g = self.grip
+        if g is None:
+            return ""
+        f = g.fit
+        lines = [f"Taladro Ø{f.bore_d:g} mm (canal natural Ø{g.channel.free_d:.1f}) · largo {f.length:.1f} mm · "
+                 f"pared mín. {f.wall_min:.1f} mm · el dentado apoya en ≈ {f.support_deg:.0f}° del contorno"]
+        lines += [f"Dentado Ø{v['dentado_mm']:g}: interferencia {v['interferencia_mm']:.2f} mm/lado · lengüeta ε ≈ "
+                  f"{v['deformacion_pct']:.2f} %" for v in grip_variants(g.spec, self.grip_barbs)]
+        if f.support_deg < 270:
+            lines.append("AVISO: el hombro apoya solo en parte del taladro; importa cómo gira la espada al entrar y el agarre "
+                         "es más flojo que con un tubo completo.")
+        if self.grip_stale:
+            lines.append("El Ø del taladro cambió: volvé a taladrar para guardar la mano con ese valor (la placa usa el taladro ya hecho).")
+        return "\n".join(lines)
+
+    def save_grip_hand(self, path: str) -> bool:
+        from ..props import write_grip_hand
+
+        if self.grip is None:
+            self._changed("Primero taladrá una mano estándar.", scene=False)
+            return False
+        if self.grip_stale:
+            self._changed("El Ø del taladro cambió desde que se taladró la mano: volvé a taladrar antes de guardarla.", scene=False)
+            return False
+        write_grip_hand(self.grip, path)
+        self._changed(f"Mano con agarre guardada: {path.split('/')[-1]} (eje y Ø del taladro en el .mano.json). "
+                      f"Pegala con «Mano de reemplazo (STL)…».", scene=False)
+        return True
+
+    def save_grip_plate(self, path: str) -> bool:
+        from ..props import GripError, write_grip_plate
+
+        if self.grip is None:
+            self._changed("Primero taladrá una mano estándar.", scene=False)
+            return False
+        try:
+            write_grip_plate(self.grip, path, self.grip_spec, self.grip_barbs)
+        except GripError as e:
+            self._changed(f"No se pudo generar la placa: {e}", scene=False)
+            return False
+        self._changed(f"Placa de espadas de prueba guardada: {path.split('/')[-1]} ({len(self.grip_barbs)} dentados). "
+                      f"Imprimila acostada, de preferencia en PETG.", scene=False)
+        return True
 
     def hand_preview(self):
         """Malla de la mano extraída en el marco de trabajo (para dibujarla), o None."""
