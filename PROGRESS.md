@@ -3,6 +3,22 @@
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md` y `PLAN_piezas_intercambiables_catalogo.md`_
 
 ## Current Focus
+**Agarre de accesorios en la mano estándar (2026-10-28, rama `agarre_armas`, sobre main 9253580):** nuevo `src/afm/props.py` y comando `afm agarre MANO.stl`. Busca el canal que dejan los dedos con la palma (`find_channel`: prueba ~500 direcciones y puntúa cada una por la pared mínima del anillo que queda tras taladrar Ø`bore_d`, medida en la silueta 2D), lo taladra (`carve_grip`, Ø2,4 por defecto) y genera una placa de espadas de prueba con empuñadura de dos lengüetas y dentado (`make_prop`, `probe_plate`; ε = 1,5·t·δ/L² como `detent.tongue_strain`). Con la mano de Güemes: canal natural Ø≈0,9 mm → taladro Ø2,4 (quita 6,3 mm³, 1,9 %), largo 10,1 mm, pared mín. 2,4 mm, apoyo del dentado ≈ 180°. Tests: `tests/test_props.py` (8).
+
+## Todo List (agarre)
+- [x] `find_channel` / `carve_grip` / `make_prop` / `probe_plate` / `run_grip` + comando `afm agarre` + README.
+- [x] Medida de pared independiente del centro y con 8 vecinos (la primera versión daba paredes de 1 píxel como cerradas).
+- [x] Fondo plano común en el accesorio (el dentado sobresalía por debajo del eje: acostado quedaba flotando).
+- [ ] Imprimir la placa y ver qué dentado sujeta sin romper la lengüeta (PETG recomendado a este tamaño).
+- [ ] Si el agarre queda flojo: rebaje anular en la cara de salida para que el hombro apoye en todo el contorno (hoy ≈ 180°).
+- [ ] Integrar el accesorio al catálogo de piezas (puerto «agarre» en la mano) y probeta de calibración propia.
+
+## Latest Blockers/Discoveries
+- Maximizar el círculo libre del canal elige zonas con pared de 0,2–0,3 mm: hay que puntuar por la pared que queda tras taladrar.
+- Un voxelizado denso de una pieza de 15 mm a 0,05 mm agotó la memoria del sandbox (3,9 GB): `_solid_points` limita a 4e6 vóxeles.
+- La placa de la primera entrega (`espadas_prueba_agarre.stl`) tenía el dentado por debajo del eje: reemplazada.
+
+## Current Focus (anterior)
 **Tope de triángulos por pieza al exportar (2026-10-27, rama `decimado_exportacion`, sobre main dcff353):** un STL de entrada de ~0,5 MB (Güemes) salía en una `*_ensamblada.stl` de ~70 MB. `Params.decimate` solo reduce el torso, antes del clic/cintura/mano/cabeza/articulaciones; las piezas que salen de booleanas, `swept_offset` (marching cubes a 0,2 mm) y Minkowski nunca se decimaban. Nuevo `Params.export_max_tris` (150 000 por pieza; 0 = sin tope) y `pipeline.cap_export_triangles`, que `pipeline.export` llama tras el aplanado: solo toca piezas sobre el tope, decima con `S.decimate` y acepta el resultado si el volumen cambia < 0,2 % y la holgura mínima con cada otra pieza no baja > 0,02 mm (si no, prueba reducciones menores; si ninguna cumple, deja la pieza y lo informa). `info["triangulos_reducidos"] = {pieza: [antes, después]}`. Tests: `tests/test_export_cap.py` (4).
 
 ## Todo List (tope de triángulos)

@@ -45,6 +45,14 @@ afm demo --out out/demo            # genera una figura sintética y la articula
 afm build figura.stl proyecto.json --out out/figura
 ```
 
+Accesorios para la mano estándar (espadas, fusiles… con empuñadura dentada que encaja en el puño sin pegamento; `src/afm/props.py`):
+
+```bash
+afm agarre out/mano/mano.stl --out out/agarre      # taladra el puño y genera una placa de espadas de prueba con 3 dentados
+# opciones: --taladro 2.4 --vastago 2.0 --ranura 0.5 --largo-lengueta 8 --dentados 2.7,2.9,3.1
+# escribe <mano>_agarre.stl (+ .mano.json con el eje y el Ø del taladro), <mano>_espadas_prueba.stl (acostadas, fondo plano) e informe .json
+```
+
 Catálogo de piezas de una línea (plan `docs/PLAN_piezas_intercambiables_catalogo.md`, fases 0–2):
 
 ```bash

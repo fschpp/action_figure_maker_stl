@@ -190,6 +190,14 @@ def main(argv=None) -> int:
     pr.add_argument("--gaps", default=None, help="solo clic: holguras punta/muesca; una placa por valor (por defecto 0.2,0.3,0.4)")
     pr.add_argument("--espesores", default=None, help="solo clic: espesores de lengüeta a probar (mm)")
     pr.add_argument("--axiales", default=None, help="solo bisagra: holguras axiales a probar, p. ej. 0.25,0.35,0.45")
+    ag = sub.add_parser("agarre", help="taladrar un agujero de agarre en la mano estándar y generar espadas de prueba con empuñadura dentada (snap-fit)")
+    ag.add_argument("mano", help="STL de la mano estándar (`afm extraer-mano`); el .mano.json de al lado es opcional")
+    ag.add_argument("--out", default="out/agarre")
+    ag.add_argument("--taladro", type=float, default=2.4, help="Ø del agujero en el puño (mm); con la mano de Güemes ≥ 2,6–2,8 abre el anillo")
+    ag.add_argument("--vastago", type=float, default=2.0, help="Ø de la empuñadura (mm)")
+    ag.add_argument("--ranura", type=float, default=0.5, help="ancho de la ranura entre las dos lengüetas (mm)")
+    ag.add_argument("--largo-lengueta", type=float, default=8.0, help="largo de la lengüeta (mm)")
+    ag.add_argument("--dentados", default="2.7,2.9,3.1", help="Ø del dentado a probar, uno por espada (mm)")
     from .catalog_cli import add_parsers
     add_parsers(sub)
     args = ap.parse_args(argv)
@@ -233,6 +241,24 @@ def main(argv=None) -> int:
               f"largo {meta['largo_mm']:.1f} mm · figura a {meta['altura_figura_mm']:g} mm")
         if meta.get("aviso_altura"):
             print("  AVISO:", meta["aviso_altura"])
+        return 0
+    if args.cmd == "agarre":
+        from .hand import HandError
+        from .props import GripError, GripSpec, run_grip
+        try:
+            spec = GripSpec(bore_d=args.taladro, shaft_d=args.vastago, slit_w=args.ranura, finger_len=args.largo_lengueta)
+            info = run_grip(args.mano, args.out, spec, tuple(float(x) for x in args.dentados.split(",")))
+        except (HandError, GripError) as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
+        print(f"Mano con agarre: {info['mano']}")
+        print(f"  canal natural Ø{info['canal_natural_mm']:.2f} mm → taladro Ø{info['diametro_taladro_mm']:g} mm · largo {info['largo_canal_mm']:.1f} mm · "
+              f"pared mín. del anillo {info['pared_min_mm']:.2f} mm · apoyo del dentado ≈ {info['apoyo_dentado_grados']:.0f}°")
+        print(f"Placa de espadas de prueba: {info['placa']}")
+        for v in info["variantes"]:
+            print(f"  dentado Ø{v['dentado_mm']:g}: interferencia {v['interferencia_mm']:.2f} mm/lado · lengüeta ε ≈ {v['deformacion_pct']:.2f} %")
+        if info["apoyo_dentado_grados"] < 270:
+            print("  AVISO: el hombro apoya solo en parte del contorno del taladro; la orientación de la espada importa y el agarre es más flojo que con un tubo completo")
         return 0
     if args.cmd == "probe":
         from . import probes
