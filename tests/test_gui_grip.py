@@ -98,3 +98,97 @@ def test_plate_reports_bad_spec(hand_stl, tmp_path):
     _short_fingers(c)
     c.set_grip_barbs("2.3")                                      # no supera el taladro: no retiene
     assert c.save_grip_plate(str(tmp_path / "p.stl")) is False and "no retiene" in c.message
+
+
+# ---------------------------------------------------------------- fase 2: la espada en la mano pegada de la figura
+from afm.hand import load_standard_hand, save_standard_hand          # noqa: E402
+
+from test_gui_hand_place import WRIST, _armed, feed, std_hand         # noqa: E402,F401  (fixtures)
+from test_gui_phases35 import FakeScene                              # noqa: E402
+
+# agarre inventado sobre la mano de prueba (una esfera): para colocar la espada solo importan el eje, el centro y el largo
+FAKE_GRIP = {"diametro_taladro_mm": 2.4, "centro": [0.0, 0.0, 3.0], "eje": [0.0, 0.0, 1.0], "largo_canal_mm": 6.0,
+             "t_entrada_mm": -3.0, "t_salida_mm": 3.0, "pared_min_mm": 2.0, "apoyo_dentado_grados": 180.0}
+
+
+@pytest.fixture()
+def grip_hand(tmp_path, std_hand):
+    hand, meta = load_standard_hand(std_hand)
+    path = str(tmp_path / "mano_agarre.stl")
+    save_standard_hand(path, hand, {**meta, "agarre": FAKE_GRIP})
+    return path
+
+
+@pytest.fixture()
+def placed(tmp_path, grip_hand):
+    stl = str(tmp_path / "modelo.stl")
+    S.to_trimesh(_armed(3.5)).export(stl)
+    c = Controller()
+    c.open_stl(stl)
+    c.auto_symmetry()
+    c.start_hand_place(grip_hand)
+    feed(c, WRIST)
+    assert c.session.project.hand is not None
+    return c
+
+
+def test_grip_fit_roundtrip_and_matrix():
+    fit = P.GripFit.from_dict(FAKE_GRIP)
+    assert fit.length == pytest.approx(6.0) and np.allclose(fit.axis, [0, 0, 1])
+    m = P.prop_to_hand_matrix(fit)
+    assert np.allclose(m[:3, 3], [0, 0, 0.0])                      # centro (z=3) + eje·t_in (−3)
+    assert abs(np.linalg.det(m[:3, :3]) - 1.0) < 1e-9              # giro puro, sin espejo ni escala
+
+
+def test_hand_fit_matrix_puts_the_standard_hand_where_it_is_drawn(placed, grip_hand):
+    fit = placed.hand_fit()
+    hand_local, _ = load_standard_hand(grip_hand)
+    world = hand_local.transform(fit["matrix"][:3, :].astype(np.float64))
+    hand_drawn = S.to_manifold(fit["hand"])
+    inside = S.intersection(world, hand_drawn).volume()
+    assert inside == pytest.approx(world.volume(), rel=0.02)       # la mano local, movida con la matriz, está en la dibujada
+
+
+def test_preview_needs_a_hand_with_grip(tmp_path, std_hand):
+    stl = str(tmp_path / "modelo.stl")
+    S.to_trimesh(_armed(3.5)).export(stl)
+    c = Controller()
+    c.open_stl(stl)
+    c.auto_symmetry()
+    c.start_hand_place(std_hand)                                   # mano sin clave «agarre»
+    feed(c, WRIST)
+    assert c.set_grip_show(True) is False and not c.grip_show and "no tiene agarre" in c.message
+    assert c.grip_prop_preview(c.hand_fit()) is None
+
+
+def test_preview_places_the_sword_at_the_fist(placed):
+    _short = placed.set_grip_param("finger_len", 5.5) and placed.set_grip_barbs("2.7")
+    assert _short and placed.set_grip_show(True)
+    fit = placed.hand_fit()
+    mesh = placed.grip_prop_preview(fit)
+    assert mesh is not None and len(mesh.faces) > 100
+    # la cara de la guarda cae sobre el eje del taladro, en la cara de entrada de la mano, ya llevado al mundo
+    gf = P.GripFit.from_dict(FAKE_GRIP)
+    expected = (fit["matrix"] @ np.append(gf.center + gf.axis * gf.t_in, 1.0))[:3]
+    assert np.min(np.linalg.norm(mesh.vertices - expected, axis=1)) < 1.2
+    assert placed.grip_prop_preview(fit) is mesh                   # cacheada mientras nada cambie
+
+
+def test_sync_draws_and_removes_the_sword(placed):
+    placed.set_grip_param("finger_len", 5.5)
+    placed.set_grip_barbs("2.7")
+    scene = FakeScene()
+    placed.sync(scene)
+    assert "accesorio:agarre" not in scene.items and "mano:reemplazo" in scene.items
+    placed.set_grip_show(True)
+    placed.sync(scene)
+    assert "accesorio:agarre" in scene.items
+    placed.set_grip_show(False)
+    placed.sync(scene)
+    assert "accesorio:agarre" not in scene.items
+
+
+def test_bad_spec_reports_instead_of_drawing(placed):
+    placed.set_grip_show(True)                                     # lengüeta de 8 mm en un canal de 6: no entra
+    assert placed.grip_prop_preview(placed.hand_fit()) is None
+    assert "lengüetas" in placed.grip_summary()

@@ -13,10 +13,13 @@ _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic
 - [ ] Si el agarre queda flojo: rebaje anular en la cara de salida para que el hombro apoye en todo el contorno (hoy ≈ 180°).
 - [x] GUI fase 1: sección «Agarre para accesorios» (ventana principal, tras «Mano estándar»): campos, «Taladrar una mano estándar (STL)…» en el hilo de tareas, resumen con avisos, guardar mano y placa. Lógica en `Controller` (`begin_grip`/`finish_grip`, `save_grip_hand`, `save_grip_plate`, `GRIP_FIELDS`) y `props.compute_grip`/`write_grip_*`; `tests/test_gui_grip.py` (8, sin ventana). **No se pudo probar la ventana: el sandbox no tiene GTK.**
 - [ ] Probar la sección en la ventana real (diseño de los campos, tarea en hilo, selector de archivos).
-- [ ] GUI fase 2: ver el accesorio en la mano de la figura (vista 3D) con `props.place_in_hand` y el marco de muñeca del modelo.
-- [ ] GUI fase 3 / catálogo: guardar el agarre en los metadatos de la mano del catálogo y piezas «accesorio» con puerto de agarre; probeta de calibración propia.
+- [x] GUI fase 2: casilla «Ver una espada de prueba en la mano pegada…» (`Controller.set_grip_show`/`grip_prop_preview`, malla `accesorio:agarre` en `sync`); `Session._fit_hand` devuelve `matrix` (mano local → mundo con giro y unión). Tests con el muñeco de `test_gui_hand_place`. Tampoco probada en la ventana real.
+- [x] Catálogo (fase 3a): la mano con agarre se importa como pieza `mano` con `mecanismo.agarre`; piezas `accesorio` (`parts.piece_accessory`, `Catalog.add_accessory`) con su agarre; `props.grip_compat` (compatibilidad barata mano↔accesorio), `Catalog.compatible_grips` (aparte de `compatible_with`: el agarre no es un puerto), verificación y índice; CLI `afm agarre --catalogo`, `afm catalogo importar-accesorio`, `listar --compatible-con` incluye agarres; ficha de la ventana «Catálogo». Probado de punta a punta con la mano de Güemes. `tests/test_catalog_grip.py` (16).
+- [ ] Armado desde catálogo con accesorio: lugar «accesorio» en la receta (`recipe.PLACES`) y pieza colocada en el puño en `assemble`/`pipeline.build` (matriz de la mano + `props.prop_to_hand_matrix`), en «Armar desde catálogo» y en la validación/compat completa.
+- [ ] Probeta de calibración propia (diámetros de taladro y alturas de dentado en una sola placa).
 
 ## Latest Blockers/Discoveries
+- El marco (eje, ref, up) del agarre era zurdo (det = −1): la espada se habría dibujado reflejada. `_ref_up` ahora devuelve up = eje × ref; hay un test del determinante. Las manos y placas ya entregadas no cambian (eje liso de revolución).
 - Maximizar el círculo libre del canal elige zonas con pared de 0,2–0,3 mm: hay que puntuar por la pared que queda tras taladrar.
 - Un voxelizado denso de una pieza de 15 mm a 0,05 mm agotó la memoria del sandbox (3,9 GB): `_solid_points` limita a 4e6 vóxeles.
 - La placa de la primera entrega (`espadas_prueba_agarre.stl`) tenía el dentado por debajo del eje: reemplazada.

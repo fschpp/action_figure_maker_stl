@@ -256,4 +256,25 @@ def piece_from_standard_hand(stl_path: str, piece_id: str | None = None, version
                      descripcion="Mano estándar importada de afm-mano-1",
                      origen=make_origin(hand_meta.get("origen_figura", ""), note="afm-mano-1"),
                      altura_figura_mm=hand_meta.get("altura_figura_mm"), lado=side, estado=estado, etiquetas=list(etiquetas))
+    if hand_meta.get("agarre"):                          # mano taladrada con `afm agarre`: el catálogo sabe qué accesorios admite
+        from .props import grip_problems
+        bad = grip_problems(hand_meta["agarre"], "mano")
+        if bad:
+            raise PieceError(f"«{stl_path}»: {'; '.join(bad)}")
+        meta.mecanismo = {"agarre": hand_meta["agarre"]}
+    return meta, mesh
+
+
+def piece_accessory(mesh, piece_id: str, agarre: dict, descripcion: str = "", figura: str = "", version: int = 1,
+                    estado: str = "borrador", etiquetas=("propia",)) -> tuple[PieceMeta, object]:
+    """Pieza `accesorio` (arma, herramienta…) con empuñadura de agarre. La malla va en el marco del accesorio (ver
+    `props.GRIP_FRAME_NOTE`); `agarre` es `props.accessory_grip(...)`. No lleva puertos: se sujeta por el taladro de la mano."""
+    from .props import grip_problems
+
+    bad = grip_problems(agarre, "accesorio")
+    if bad:
+        raise PieceError("; ".join(bad))
+    meta = PieceMeta(id=piece_id, version=version, tipo="accesorio", puertos={}, descripcion=descripcion or "Accesorio con empuñadura dentada",
+                     origen=make_origin(figura, note="afm agarre"), altura_figura_mm=None, lado="centro", espejable=False,
+                     estado=estado, etiquetas=list(etiquetas), mecanismo={"agarre": agarre})
     return meta, mesh

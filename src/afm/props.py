@@ -83,6 +83,16 @@ class GripFit:
     def length(self) -> float:
         return self.t_out - self.t_in
 
+    @classmethod
+    def from_dict(cls, d: dict) -> "GripFit":
+        """Reconstruye el ajuste desde la clave «agarre» del `.mano.json` (lo que escribe `to_dict`)."""
+        axis = np.asarray(d["eje"], float)
+        axis = axis / np.linalg.norm(axis)
+        ref, up = _ref_up(axis)
+        return cls(axis=axis, center=np.asarray(d["centro"], float), ref=ref, up=up, bore_d=float(d["diametro_taladro_mm"]),
+                   t_in=float(d["t_entrada_mm"]), t_out=float(d["t_salida_mm"]), wall_min=float(d.get("pared_min_mm", 0.0)),
+                   support_deg=float(d.get("apoyo_dentado_grados", 0.0)))
+
     def to_dict(self) -> dict:
         return {"diametro_taladro_mm": self.bore_d, "centro": self.center.round(4).tolist(),
                 "eje": self.axis.round(5).tolist(), "largo_canal_mm": round(self.length, 3),
@@ -224,7 +234,7 @@ def _ref_up(d: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     if np.linalg.norm(ref) < 1e-6:
         ref = np.cross(d, [1.0, 0, 0])
     ref /= np.linalg.norm(ref)
-    return ref, np.cross(ref, d)
+    return ref, np.cross(d, ref)                    # (d, ref, up) positivo: sin espejo al colocar el accesorio
 
 
 def _free_component(img: np.ndarray, cell) -> tuple[np.ndarray | None, np.ndarray]:
@@ -330,10 +340,17 @@ def make_prop(spec: GripSpec, hole_len: float, blade_len: float = 34.0, blade_w:
     return S.intersection(S.difference(body, slit), _box(-1e3, 1e3, -1e3, 1e3, z0, 1e3))
 
 
+def prop_to_hand_matrix(fit: GripFit) -> np.ndarray:
+    """4×4 marco del accesorio → marco local de la mano: guarda contra la cara de entrada, empuñadura por el taladro."""
+    m = np.eye(4)
+    m[:3, 0], m[:3, 1], m[:3, 2] = fit.axis, fit.ref, fit.up
+    m[:3, 3] = fit.center + fit.axis * fit.t_in
+    return m
+
+
 def place_in_hand(prop: S.Manifold, fit: GripFit) -> S.Manifold:
-    """Coloca el accesorio en el marco de la mano: guarda contra la cara de entrada, empuñadura por el taladro."""
-    R = np.c_[fit.axis, fit.ref, fit.up]
-    return prop.transform(np.c_[R, fit.center + fit.axis * fit.t_in].astype(np.float64))
+    """Coloca el accesorio en el marco de la mano (ver `prop_to_hand_matrix`)."""
+    return prop.transform(prop_to_hand_matrix(fit)[:3, :].astype(np.float64))
 
 
 def probe_plate(spec: GripSpec, hole_len: float, barbs=(2.7, 2.9, 3.1), spacing: float | None = None) -> S.Manifold:
@@ -422,9 +439,11 @@ def write_grip_plate(res: GripResult, path: str, spec: GripSpec | None = None, b
     return path
 
 
-def run_grip(hand_path: str, outdir: str, spec: GripSpec | None = None, barbs=DEFAULT_BARBS, name: str | None = None) -> dict:
+def run_grip(hand_path: str, outdir: str, spec: GripSpec | None = None, barbs=DEFAULT_BARBS, name: str | None = None,
+             res: GripResult | None = None) -> dict:
+    """Taladra la mano y escribe mano, placa e informe en `outdir`; `res` evita repetir el cálculo si ya se hizo."""
     spec = spec or GripSpec()
-    res = compute_grip(hand_path, spec)
+    res = res or compute_grip(hand_path, spec)
     stem = name or os.path.splitext(os.path.basename(hand_path))[0]
     os.makedirs(outdir, exist_ok=True)
     hand_out = write_grip_hand(res, os.path.join(outdir, f"{stem}_agarre.stl"))
@@ -434,3 +453,101 @@ def run_grip(hand_path: str, outdir: str, spec: GripSpec | None = None, barbs=DE
     with open(os.path.join(outdir, f"{stem}_agarre_informe.json"), "w") as f:
         json.dump(info, f, indent=2, ensure_ascii=False, default=float)
     return info
+
+
+# ------------------------------------------------------------------ catálogo: agarre de la mano y del accesorio
+GRIP_FRAME_NOTE = "eje de la empuñadura = +X; origen en la cara de la guarda que mira a la mano; fondo plano en z = −vástago/2"
+HAND_GRIP_KEYS = ("diametro_taladro_mm", "centro", "eje", "largo_canal_mm", "t_entrada_mm", "t_salida_mm")
+ACC_GRIP_KEYS = ("taladro_mm", "vastago_mm", "ranura_mm", "largo_lengueta_mm", "dentado_mm", "largo_canal_mm", "juego_axial_mm")
+
+
+def accessory_grip(spec: GripSpec, hole_len: float) -> dict:
+    """Clave «agarre» de una pieza `accesorio`: para qué taladro y qué largo de canal se diseñó la empuñadura."""
+    return {"taladro_mm": float(spec.bore_d), "vastago_mm": float(spec.shaft_d), "ranura_mm": float(spec.slit_w),
+            "largo_lengueta_mm": float(spec.finger_len), "dentado_mm": float(spec.barb_d), "largo_canal_mm": round(float(hole_len), 3),
+            "juego_axial_mm": float(spec.play), "marco": GRIP_FRAME_NOTE}
+
+
+def grip_problems(d: dict | None, kind: str) -> list[str]:
+    """Problemas de formato de la clave «agarre» de una pieza `mano` (kind=«mano») o `accesorio` (kind=«accesorio»)."""
+    keys = HAND_GRIP_KEYS if kind == "mano" else ACC_GRIP_KEYS
+    if not isinstance(d, dict):
+        return ["agarre: no es un objeto"]
+    out = [f"agarre: falta «{k}»" for k in keys if k not in d]
+    if out:
+        return out
+    try:
+        if kind == "mano":
+            if not (0.5 <= float(d["diametro_taladro_mm"]) <= 6.0) or float(d["largo_canal_mm"]) <= 0:
+                out.append("agarre: el Ø del taladro o el largo del canal no son razonables")
+            if abs(float(np.linalg.norm(d["eje"])) - 1.0) > 1e-2:
+                out.append("agarre: el eje no es unitario")
+        else:
+            if float(d["dentado_mm"]) <= float(d["vastago_mm"]) or float(d["vastago_mm"]) >= float(d["taladro_mm"]):
+                out.append("agarre: hace falta vástago < taladro < dentado")
+            if float(d["largo_lengueta_mm"]) <= 0 or float(d["largo_canal_mm"]) <= 0:
+                out.append("agarre: los largos deben ser positivos")
+    except (TypeError, ValueError):
+        out.append("agarre: valores que no son números")
+    return out
+
+
+def grip_compat(hand: dict, acc: dict, bore_tol: float = 0.05, max_strain: float = 0.01):
+    """¿Entra y se sujeta este accesorio en esta mano? Compatibilidad «barata» (solo metadatos de `mano` y `accesorio`).
+
+    `hand` es la clave «agarre» de la pieza `mano`; `acc`, la del `accesorio`. «no» si el taladro no coincide, el vástago no
+    entra, el dentado no retiene o su hombro quedaría dentro del canal; «aviso» si la lengüeta se deforma de más, el juego axial
+    es grande o la mano apoya el dentado en poco contorno."""
+    from .ports import Compat
+
+    motivos: list[str] = []
+    avisos: list[str] = []
+    bore = float(hand["diametro_taladro_mm"])
+    if abs(float(acc["taladro_mm"]) - bore) > bore_tol:
+        motivos.append(f"el accesorio se diseñó para un taladro de Ø{float(acc['taladro_mm']):g} mm y la mano tiene Ø{bore:g} mm")
+    radial = (bore - float(acc["vastago_mm"])) / 2
+    if radial < 0.05:
+        motivos.append(f"el vástago (Ø{float(acc['vastago_mm']):g} mm) no entra en el taladro (Ø{bore:g} mm): holgura {radial:.2f} mm por lado")
+    elif radial > 0.4:
+        avisos.append(f"holgura radial de {radial:.2f} mm por lado: la empuñadura baila en el taladro")
+    inter = (float(acc["dentado_mm"]) - bore) / 2
+    if inter <= 0:
+        motivos.append(f"el dentado (Ø{float(acc['dentado_mm']):g} mm) no supera el taladro: no retiene")
+    t = (float(acc["vastago_mm"]) - float(acc["ranura_mm"])) / 2
+    eps = 1.5 * t * max(inter, 0.0) / float(acc["largo_lengueta_mm"]) ** 2 if t > 0 else float("inf")
+    if eps > 2 * max_strain:
+        motivos.append(f"la lengüeta se deforma {100 * eps:.2f} % al pasar por el taladro (máximo {100 * max_strain:.1f} %): se rompe")
+    elif eps > max_strain:
+        avisos.append(f"la lengüeta se deforma {100 * eps:.2f} % (> {100 * max_strain:.1f} %): puede romperse en PLA; probá PETG")
+    axial = float(acc["largo_canal_mm"]) + float(acc["juego_axial_mm"]) - float(hand["largo_canal_mm"])
+    if axial < -0.1:
+        motivos.append(f"el hombro del dentado queda {-axial:.1f} mm dentro del canal de la mano ({float(hand['largo_canal_mm']):g} mm): no pasa")
+    elif axial > 1.5:
+        avisos.append(f"el accesorio se diseñó para un canal de {float(acc['largo_canal_mm']):g} mm y la mano tiene "
+                      f"{float(hand['largo_canal_mm']):g} mm: queda {axial:.1f} mm de juego axial")
+    if float(hand.get("apoyo_dentado_grados", 360.0)) < 270.0:
+        avisos.append(f"la mano apoya el dentado en ≈ {float(hand['apoyo_dentado_grados']):.0f}° del contorno: agarre más flojo que con un tubo completo")
+    nivel = "no" if motivos else ("aviso" if avisos else "ok")
+    return Compat(nivel=nivel, margenes_mm={"holgura_radial": round(radial, 3), "interferencia": round(inter, 3)},
+                  motivos=motivos, avisos=avisos)
+
+
+def add_to_catalog(res: GripResult, cat, barb: float | None = None, hand_id: str | None = None, acc_id: str | None = None,
+                   new_version: bool = False, spec: GripSpec | None = None) -> tuple:
+    """Guarda en el catálogo la mano taladrada (pieza `mano` con su agarre) y una espada de prueba (pieza `accesorio`).
+
+    Devuelve (meta de la mano, meta del accesorio, avisos). El dentado es `barb` (por defecto el de `res.spec`)."""
+    import tempfile
+    from dataclasses import replace
+
+    sp = replace(spec or res.spec, bore_d=res.spec.bore_d)
+    if barb is not None:
+        sp = replace(sp, barb_d=float(barb))
+    prop = make_prop(sp, res.fit.length)                          # valida deformación y largo de lengüeta antes de tocar el catálogo
+    with tempfile.TemporaryDirectory() as tmp:
+        hand_path = write_grip_hand(res, os.path.join(tmp, "mano_agarre.stl"))
+        hand_meta, w1 = cat.import_hand(hand_path, hand_id, new_version)
+    stem = os.path.splitext(os.path.basename(res.source))[0]
+    acc_meta, w2 = cat.add_accessory(S.to_printable_trimesh(prop), acc_id or "espada-prueba-01", accessory_grip(sp, res.fit.length),
+                                     new_version, f"Espada de prueba con dentado Ø{sp.barb_d:g} mm", stem)
+    return hand_meta, acc_meta, list(w1) + list(w2)

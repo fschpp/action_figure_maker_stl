@@ -198,6 +198,11 @@ def main(argv=None) -> int:
     ag.add_argument("--ranura", type=float, default=0.5, help="ancho de la ranura entre las dos lengüetas (mm)")
     ag.add_argument("--largo-lengueta", type=float, default=8.0, help="largo de la lengüeta (mm)")
     ag.add_argument("--dentados", default="2.7,2.9,3.1", help="Ø del dentado a probar, uno por espada (mm)")
+    ag.add_argument("--catalogo", default=None, help="ruta de un catálogo de línea: guarda además la mano taladrada (pieza «mano» con agarre) "
+                                                      "y una espada de prueba (pieza «accesorio») con el dentado del medio de --dentados")
+    ag.add_argument("--id-mano", default=None)
+    ag.add_argument("--id-accesorio", default=None)
+    ag.add_argument("--nueva-version", action="store_true", help="con --catalogo: si el id ya existe, guardar la versión siguiente")
     from .catalog_cli import add_parsers
     add_parsers(sub)
     args = ap.parse_args(argv)
@@ -244,10 +249,11 @@ def main(argv=None) -> int:
         return 0
     if args.cmd == "agarre":
         from .hand import HandError
-        from .props import GripError, GripSpec, run_grip
+        from .props import GripError, GripSpec, compute_grip, run_grip
         try:
             spec = GripSpec(bore_d=args.taladro, shaft_d=args.vastago, slit_w=args.ranura, finger_len=args.largo_lengueta)
-            info = run_grip(args.mano, args.out, spec, tuple(float(x) for x in args.dentados.split(",")))
+            res = compute_grip(args.mano, spec)
+            info = run_grip(args.mano, args.out, spec, tuple(float(x) for x in args.dentados.split(",")), res=res)
         except (HandError, GripError) as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
             return 2
@@ -259,6 +265,19 @@ def main(argv=None) -> int:
             print(f"  dentado Ø{v['dentado_mm']:g}: interferencia {v['interferencia_mm']:.2f} mm/lado · lengüeta ε ≈ {v['deformacion_pct']:.2f} %")
         if info["apoyo_dentado_grados"] < 270:
             print("  AVISO: el hombro apoya solo en parte del contorno del taladro; la orientación de la espada importa y el agarre es más flojo que con un tubo completo")
+        if args.catalogo:
+            from .catalog import Catalog, CatalogError
+            from .props import add_to_catalog
+            barbs = tuple(float(x) for x in args.dentados.split(","))
+            try:
+                cat = Catalog.open(args.catalogo)
+                mano, acc, warns = add_to_catalog(res, cat, barbs[len(barbs) // 2], args.id_mano, args.id_accesorio, args.nueva_version, spec)
+            except (CatalogError, GripError, HandError, ValueError) as exc:
+                print(f"ERROR: {exc}", file=sys.stderr)
+                return 2
+            print(f"Catálogo «{cat.name}»: mano {mano.ref} y accesorio {acc.ref} (dentado Ø{barbs[len(barbs) // 2]:g} mm)")
+            for w in warns:
+                print("  AVISO:", w)
         return 0
     if args.cmd == "probe":
         from . import probes

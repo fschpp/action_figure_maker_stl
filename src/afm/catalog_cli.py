@@ -49,6 +49,19 @@ def add_parsers(sub) -> None:
     a.add_argument("stl")
     a.add_argument("--id", default=None)
     a.add_argument("--nueva-version", action="store_true", help="si el id ya existe, guardar la versión siguiente")
+    a = cs.add_parser("importar-accesorio", help="importar un accesorio (arma, herramienta…) con empuñadura dentada como pieza «accesorio»: STL en el marco del accesorio + los datos de su agarre")
+    root(a)
+    a.add_argument("stl", help="STL cerrado: eje de la empuñadura = +X, origen en la cara de la guarda que mira a la mano (ver props.py)")
+    a.add_argument("--id", default=None)
+    a.add_argument("--largo-canal", type=float, required=True, help="largo del canal de la mano para el que se diseñó la empuñadura (mm; está en el .mano.json de la mano con agarre)")
+    a.add_argument("--taladro", type=float, default=2.4, help="Ø del taladro de la mano (mm)")
+    a.add_argument("--vastago", type=float, default=2.0)
+    a.add_argument("--ranura", type=float, default=0.5)
+    a.add_argument("--largo-lengueta", type=float, default=8.0)
+    a.add_argument("--dentado", type=float, default=2.9)
+    a.add_argument("--juego", type=float, default=0.4, help="juego axial entre el hombro del dentado y la cara de salida (mm)")
+    a.add_argument("--descripcion", default="")
+    a.add_argument("--nueva-version", action="store_true")
     a = cs.add_parser("agregar-stl", help="agregar una pieza suelta: STL cerrado + 3 puntos por puerto sobre su cara de unión")
     root(a)
     a.add_argument("stl")
@@ -126,6 +139,8 @@ def _run(args) -> int:
             keep = {}
             for other, na, nb, c in cat.compatible_with(args.compatible_con):
                 keep.setdefault(other.id, []).append((na, nb, c))
+            for other, c in cat.compatible_grips(args.compatible_con):
+                keep.setdefault(other.id, []).append(("agarre", "agarre", c))
             metas = [m for m in metas if m.id in keep]
         if not metas:
             print("(sin piezas)")
@@ -133,7 +148,9 @@ def _run(args) -> int:
             print(f"{m.ref:<28} {m.tipo:<10} {m.estado:<9} {','.join(m.etiquetas) or '-':<8} puertos: {', '.join(m.puertos)}")
             if args.compatible_con:
                 for na, nb, c in keep[m.id]:
-                    det = f"IoU {c.iou:.2f}, escalón {c.escalon_mm:.2f} mm" if c.iou is not None else "sin cara"
+                    det = (f"IoU {c.iou:.2f}, escalón {c.escalon_mm:.2f} mm" if c.iou is not None else
+                           f"holgura {c.margenes_mm['holgura_radial']:.2f} mm/lado, interferencia {c.margenes_mm['interferencia']:.2f} mm/lado"
+                           if na == "agarre" else "sin cara")
                     print(f"    {args.compatible_con}:{na} ↔ {nb}: {c.nivel} ({det})" + "".join(f"\n      aviso: {x}" for x in c.avisos))
         return 0
     if cmd == "verificar":
@@ -174,6 +191,22 @@ def _run(args) -> int:
         for e in res.errors:
             print(f"ERROR: {e}", file=sys.stderr)
         return 0 if not res.errors else 2
+    if cmd == "importar-accesorio":
+        from .props import GripSpec, accessory_grip
+        mesh = P.load_mesh(args.stl)
+        if not mesh.is_watertight:
+            raise P.PieceError(f"«{args.stl}» no es estanco: repararlo antes")
+        spec = GripSpec(bore_d=args.taladro, shaft_d=args.vastago, slit_w=args.ranura, finger_len=args.largo_lengueta,
+                        barb_d=args.dentado, play=args.juego)
+        pid = args.id or f"accesorio-{_slug(os.path.splitext(os.path.basename(args.stl))[0])}-01"
+        meta, warns = cat.add_accessory(mesh, pid, accessory_grip(spec, args.largo_canal), args.nueva_version, args.descripcion,
+                                        os.path.basename(args.stl))
+        print(f"Accesorio guardado como {meta.ref} ({meta.volumen_mm3:.0f} mm³; agarre Ø{args.taladro:g} mm, canal {args.largo_canal:g} mm)")
+        for w in warns:
+            print("AVISO:", w)
+        for other, c in cat.compatible_grips(meta.ref):
+            print(f"  sirve en {other.ref}: {c.nivel}" + "".join(f"\n    aviso: {x}" for x in c.avisos))
+        return 0
     if cmd == "importar-mano":
         meta, warns = cat.import_hand(args.stl, args.id, args.nueva_version)
         print(f"Mano guardada como {meta.ref} (muñeca Ø{2 * meta.puertos['muneca'].face.radius_eq:.2f} mm, {meta.volumen_mm3:.0f} mm³)")

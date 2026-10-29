@@ -63,6 +63,13 @@ def detail_text(meta: PieceMeta, uses: list[str] | None = None) -> str:
     lines.append(f"Origen: {org or '—'}" + (f" · proyecto {proj}" if proj else "") + (f" · {meta.origen['fecha']}" if meta.origen.get("fecha") else ""))
     if meta.puertos:
         lines.append("Puertos: " + ", ".join(f"{n} ({p.rol})" for n, p in meta.puertos.items()))
+    ag = (meta.mecanismo or {}).get("agarre")
+    if ag and meta.tipo == "mano" and "diametro_taladro_mm" in ag:
+        lines.append(f"Agarre: taladro Ø{ag['diametro_taladro_mm']:g} mm · canal {ag.get('largo_canal_mm', 0):g} mm · el dentado apoya "
+                     f"en ≈ {ag.get('apoyo_dentado_grados', 0):.0f}°".replace(".", ","))
+    elif ag and meta.tipo == "accesorio" and "taladro_mm" in ag:
+        lines.append(f"Agarre: para taladro Ø{ag['taladro_mm']:g} mm · vástago Ø{ag.get('vastago_mm', 0):g} · dentado Ø{ag.get('dentado_mm', 0):g} · "
+                     f"lengüeta {ag.get('largo_lengueta_mm', 0):g} mm · canal {ag.get('largo_canal_mm', 0):g} mm".replace(".", ","))
     if meta.descripcion:
         lines.append(meta.descripcion)
     if uses is not None:

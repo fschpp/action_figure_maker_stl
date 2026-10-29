@@ -109,6 +109,7 @@ _PLANE_STATUS_COLORS = {"no": (0.95, 0.12, 0.12, 0.45), "aviso": (1.0, 0.85, 0.1
 _REPLACEMENT_HEAD_COLOR = (0.95, 0.62, 0.25, 1.0)      # cabeza de reemplazo en la vista 3D (naranja)
 _EXTRACTED_HAND_COLOR = (0.25, 0.85, 0.55, 1.0)         # mano extraída (aún sin guardar) en la vista 3D (verde)
 _REPLACEMENT_HAND_COLOR = (0.25, 0.75, 0.85, 1.0)       # mano estándar pegada en el modelo (turquesa: no se confunde con la extraída)
+_ACCESSORY_COLOR = (0.82, 0.82, 0.88, 1.0)             # espada de prueba puesta en el puño de la mano pegada (gris claro)
 SHOW_GROUPS = ("planes", "pins", "contours")     # lo que se puede mostrar / ocultar de una vez desde la lista de planos
 FLAT_NUDGE_MM = 0.1            # paso de las flechas al ajustar el plano de corte «sin soportes» (Mayús = 10 veces más)
 NUDGE_MM = 0.1                 # paso de las flechas al ajustar el pasador (Mayús = 10 veces más)
@@ -241,6 +242,10 @@ class Controller:
         self.grip_spec = GripSpec()                  # agarre para accesorios: valores a usar (se editan en la sección «Agarre»)
         self.grip_barbs: tuple[float, ...] = DEFAULT_BARBS
         self.grip = None                             # props.GripResult de la última mano taladrada (None = ninguna)
+        self.grip_show = False                       # dibujar una espada de prueba en la mano pegada de la figura
+        self._grip_fit_cache: tuple = (None, None)   # ((ruta, mtime), GripFit | None) de la mano pegada
+        self._grip_prop_cache: tuple = (None, None)  # (clave, malla en el mundo)
+        self._grip_prop_error = ""
         self.show_cut_numbers = True                 # rotular cada corte con su número en el visor
         self.show_part_preview = True                # dibujar las piezas de catálogo elegidas antes de generar
         self.scene_dirty = True
@@ -2030,7 +2035,7 @@ class Controller:
 
         g = self.grip
         if g is None:
-            return ""
+            return f"No se puede dibujar la espada: {self._grip_prop_error}" if self.grip_show and self._grip_prop_error else ""
         f = g.fit
         lines = [f"Taladro Ø{f.bore_d:g} mm (canal natural Ø{g.channel.free_d:.1f}) · largo {f.length:.1f} mm · "
                  f"pared mín. {f.wall_min:.1f} mm · el dentado apoya en ≈ {f.support_deg:.0f}° del contorno"]
@@ -2041,7 +2046,73 @@ class Controller:
                          "es más flojo que con un tubo completo.")
         if self.grip_stale:
             lines.append("El Ø del taladro cambió: volvé a taladrar para guardar la mano con ese valor (la placa usa el taladro ya hecho).")
+        if self.grip_show and self._grip_prop_error:
+            lines.append(f"No se puede dibujar la espada: {self._grip_prop_error}")
         return "\n".join(lines)
+
+    def _hand_grip_fit(self):
+        """Ajuste del agarre de la mano pegada (clave «agarre» de su .mano.json) o None si no tiene; cacheado por archivo."""
+        import os
+
+        spec = self.session.project.hand
+        if spec is None:
+            return None
+        try:
+            key = (spec.path, os.stat(spec.path).st_mtime_ns)
+        except OSError:
+            return None
+        if self._grip_fit_cache[0] != key:
+            from ..hand import load_standard_hand
+            from ..props import GripFit
+
+            fit = None
+            try:
+                ag = (load_standard_hand(spec.path)[1] or {}).get("agarre")
+                fit = GripFit.from_dict(ag) if ag else None
+            except Exception:                       # noqa: BLE001 — una mano ilegible simplemente no tiene agarre
+                fit = None
+            self._grip_fit_cache = (key, fit)
+        return self._grip_fit_cache[1]
+
+    def set_grip_show(self, on: bool) -> bool:
+        """Muestra u oculta una espada de prueba en el puño de la mano pegada (necesita una mano con agarre)."""
+        if on and self._hand_grip_fit() is None:
+            self.grip_show = False
+            self._changed("La mano pegada no tiene agarre: guardá la mano con agarre (sección «Agarre para accesorios») y "
+                          "pegala con «Mano de reemplazo (STL)…».", scene=False)
+            return False
+        self.grip_show = bool(on)
+        self._grip_prop_error = ""
+        self._changed()
+        return True
+
+    def grip_prop_preview(self, hfit):
+        """Malla (mundo) de la espada de prueba en el puño de la mano pegada, o None. `hfit` es `hand_fit()`: trae la matriz
+        mano → mundo con el giro y la unión ya aplicados. Usa el dentado del medio de la lista y el vástago/ranura/lengüeta
+        actuales; el Ø del taladro es el de la mano."""
+        if not self.grip_show or hfit is None or "matrix" not in hfit:
+            return None
+        fit = self._hand_grip_fit()
+        if fit is None:
+            return None
+        from dataclasses import asdict, replace
+
+        from ..props import GripError, make_prop, prop_to_hand_matrix
+
+        spec = replace(self.grip_spec, bore_d=fit.bore_d, barb_d=self.grip_barbs[len(self.grip_barbs) // 2])
+        key = (tuple(asdict(spec).values()), round(fit.length, 6), hfit["matrix"].tobytes())
+        if self._grip_prop_cache[0] == key:
+            return self._grip_prop_cache[1]
+        try:
+            prop = make_prop(spec, fit.length)
+        except GripError as e:
+            self._grip_prop_error = str(e)
+            return None
+        self._grip_prop_error = ""
+        mesh = S.to_trimesh(prop)
+        mesh.apply_transform(hfit["matrix"] @ prop_to_hand_matrix(fit))
+        self._grip_prop_cache = (key, mesh)
+        return mesh
 
     def save_grip_hand(self, path: str) -> bool:
         from ..props import write_grip_hand
@@ -3046,8 +3117,14 @@ class Controller:
         if hfit is not None:
             scene.set_mesh("mano:reemplazo", hfit["hand"], color=_REPLACEMENT_HAND_COLOR, clip_x=clip)
             drawn.append(("mano:reemplazo", hfit["hand"], _MIRROR_COLOR))
+            acc = self.grip_prop_preview(hfit)             # sin espejo: la espada va en una sola mano
+            if acc is not None:
+                scene.set_mesh("accesorio:agarre", acc, color=_ACCESSORY_COLOR, clip_x=clip)
+            else:
+                scene.remove("accesorio:agarre")
         else:
             scene.remove("mano:reemplazo")
+            scene.remove("accesorio:agarre")
         if hprev is not None:
             scene.set_mesh("cabeza:reemplazo", hprev[0], color=_REPLACEMENT_HEAD_COLOR, clip_x=clip)
             if pin_plane is None and not parts_fig:    # el espejo no lleva la cabeza original (la nueva no se simetriza)

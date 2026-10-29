@@ -855,7 +855,13 @@ class Session:
         cache = self.__dict__.setdefault("_hand_pin_cache", {})        # el giro de la mano no cambia el ajuste del pasador
         hb = apply_hand(full.trim_by_plane((1.0, 0.0, 0.0), 0.0), spec, self.project.params.ref_height,
                         self.project.params, cache)
-        return {"figure": S.to_trimesh(S.difference(full, hb.original)), "hand": S.to_trimesh(hb.hand), "info": hb.info}
+        m = hb.frame.matrix()                                     # marco local de la mano → mundo (para colocar accesorios en el puño)
+        if spec.join == "giro":
+            m[:3, 3] += hb.frame.axis * float(self.project.params.clearance)
+        elif spec.overlap > 0:
+            m[:3, 3] -= hb.frame.axis * float(spec.overlap)
+        return {"figure": S.to_trimesh(S.difference(full, hb.original)), "hand": S.to_trimesh(hb.hand), "info": hb.info,
+                "matrix": m}
 
     def _hand_fit_key(self, spec):
         p = self.project.params

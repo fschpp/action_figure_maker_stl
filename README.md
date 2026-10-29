@@ -51,7 +51,14 @@ Accesorios para la mano estándar (espadas, fusiles… con empuñadura dentada q
 afm agarre out/mano/mano.stl --out out/agarre      # taladra el puño y genera una placa de espadas de prueba con 3 dentados
 # opciones: --taladro 2.4 --vastago 2.0 --ranura 0.5 --largo-lengueta 8 --dentados 2.7,2.9,3.1
 # escribe <mano>_agarre.stl (+ .mano.json con el eje y el Ø del taladro), <mano>_espadas_prueba.stl (acostadas, fondo plano) e informe .json
+afm agarre out/mano/mano.stl --catalogo RUTA --id-mano mano-guemes-agarre-01 --id-accesorio espada-prueba-01   # además lo guarda en el catálogo
+afm catalogo importar-accesorio RUTA espada.stl --largo-canal 10.1 --taladro 2.4 --dentado 2.9               # un arma propia con su empuñadura
+afm catalogo listar RUTA --compatible-con mano-guemes-agarre-01    # qué accesorios se sujetan en esa mano (y al revés)
 ```
+
+En el catálogo, la mano con agarre es una pieza `mano` y el arma una pieza `accesorio`; el agarre (Ø del taladro, canal, vástago, dentado…) va en
+`mecanismo.agarre` de cada una y `afm catalogo verificar` lo comprueba. La compatibilidad es barata (solo metadatos): Ø del taladro, vástago,
+dentado que retiene, deformación de la lengüeta, hombro del dentado contra el largo del canal y contorno de apoyo.
 
 Catálogo de piezas de una línea (plan `docs/PLAN_piezas_intercambiables_catalogo.md`, fases 0–2):
 

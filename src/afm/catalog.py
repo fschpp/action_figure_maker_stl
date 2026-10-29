@@ -188,6 +188,11 @@ class Catalog:
         meta, mesh = P.piece_from_standard_hand(stl_path, piece_id)
         return self.add_piece(mesh, meta, new_version)
 
+    def add_accessory(self, mesh, piece_id: str, agarre: dict, new_version: bool = False, descripcion: str = "", figura: str = ""):
+        """Guarda una pieza `accesorio` con su agarre (ver `parts.piece_accessory`)."""
+        meta, mesh = P.piece_accessory(mesh, piece_id, agarre, descripcion, figura)
+        return self.add_piece(mesh, meta, new_version)
+
     def list(self, tipo: str | None = None, tag: str | None = None, state: str | None = None,
              all_versions: bool = False) -> list[P.PieceMeta]:
         """Piezas del catálogo (por defecto solo la última versión de cada id), con filtros."""
@@ -280,6 +285,26 @@ class Catalog:
                         out.append((other, na, nb, c))
         return out
 
+    def compatible_grips(self, ref: str) -> list[tuple[P.PieceMeta, Compat]]:
+        """Accesorios que se sujetan en la mano `ref` (o manos donde se sujeta el accesorio `ref`), por el agarre de ambos;
+        sin los pares `no`. Aparte de `compatible_with` a propósito: el agarre no es un puerto (no tiene cara de unión)."""
+        from .props import grip_compat
+
+        me = self.meta(ref)
+        mine = (me.mecanismo or {}).get("agarre")
+        if not mine or me.tipo not in ("mano", "accesorio"):
+            return []
+        want = "accesorio" if me.tipo == "mano" else "mano"
+        out = []
+        for other in self.list(tipo=want):
+            theirs = (other.mecanismo or {}).get("agarre")
+            if not theirs:
+                continue
+            c = grip_compat(mine, theirs) if me.tipo == "mano" else grip_compat(theirs, mine)
+            if c.nivel != "no":
+                out.append((other, c))
+        return out
+
     # ------------------------------------------------------------------ verificar
     def verify(self) -> Report:
         """Formato, hash, mallas cerradas, puertos, caras y altura de cada pieza; versiones salteadas."""
@@ -312,6 +337,10 @@ class Catalog:
                 continue
             if not mesh.is_watertight:
                 problems.append(f"{tag}: la malla no es estanca")
+            ag = (m.mecanismo or {}).get("agarre")
+            if ag is not None and m.tipo in ("mano", "accesorio"):
+                from .props import grip_problems
+                problems += [f"{tag}: {x}" for x in grip_problems(ag, m.tipo)]
             if len(m.puertos) < 1 and m.tipo != "accesorio":
                 problems.append(f"{tag}: sin puertos")
             for name, p in m.puertos.items():
@@ -389,8 +418,11 @@ class Catalog:
             lines += ["| Pieza | Tipo | Estado | Etiquetas | Puertos | Origen | Volumen (mm³) |", "|---|---|---|---|---|---|---|"]
             for m in metas:
                 origen = m.origen.get("figura") or m.origen.get("nota") or ""
+                ag = (m.mecanismo or {}).get("agarre") or {}
+                grip = (f"agarre Ø{ag['diametro_taladro_mm']:g}" if m.tipo == "mano" and "diametro_taladro_mm" in ag
+                        else f"agarre Ø{ag['taladro_mm']:g}" if m.tipo == "accesorio" and "taladro_mm" in ag else "")
                 lines.append(f"| `{m.ref}` | {m.tipo} | {m.estado} | {', '.join(m.etiquetas) or '—'} | "
-                             f"{', '.join(m.puertos) or '—'} | {origen} | {m.volumen_mm3:.0f} |")
+                             f"{', '.join(list(m.puertos) + ([grip] if grip else [])) or '—'} | {origen} | {m.volumen_mm3:.0f} |")
         path = os.path.join(self.root, "CATALOGO.md")
         with open(path, "w") as f:
             f.write("\n".join(lines) + "\n")

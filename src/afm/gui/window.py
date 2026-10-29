@@ -460,6 +460,9 @@ class MainWindow(Gtk.ApplicationWindow):
         self.btn_grip_plate = self._button("Guardar placa de espadas de prueba…", self._on_grip_save_plate)
         sec.append(self.btn_grip_hand)
         sec.append(self.btn_grip_plate)
+        self.chk_grip_show = Gtk.CheckButton(label="Ver una espada de prueba en la mano pegada de la figura")
+        self.chk_grip_show.connect("toggled", lambda b: None if self._updating else self.ctrl.set_grip_show(b.get_active()))
+        sec.append(self.chk_grip_show)
         self.lbl_grip = Gtk.Label(label="", xalign=0, wrap=True, selectable=True)
         sec.append(self.lbl_grip)
         _help(sec, "Para armas y otros accesorios que se sujetan en el puño sin pegamento. Elegí el STL de la mano estándar: el "
@@ -772,6 +775,8 @@ exportar; tarda un poco más.")
             txt = ctrl.grip_summary()
             if self.lbl_grip.get_text() != txt:           # no pisar la selección del texto en cada refresco
                 self.lbl_grip.set_text(txt)
+            if self.chk_grip_show.get_active() != ctrl.grip_show:
+                self.chk_grip_show.set_active(ctrl.grip_show)
             for key, spin in self.grip_spins.items():
                 if abs(spin.get_value() - getattr(ctrl.grip_spec, key)) > 1e-9:
                     spin.set_value(getattr(ctrl.grip_spec, key))

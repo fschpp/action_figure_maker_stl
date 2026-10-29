@@ -426,6 +426,15 @@ empuñadura lleva dos lengüetas con un dentado que se cierran al entrar por el 
 4. «Guardar placa de espadas de prueba…» escribe una placa con una espada por cada Ø de dentado, acostadas y con fondo plano. Imprimila
    (PETG de preferencia) y quedate con el dentado que sujeta sin romper la lengüeta.
 
+5. Con la mano con agarre ya pegada en la figura (`.mano.json` con la clave «agarre»), la casilla «Ver una espada de prueba en la mano
+   pegada de la figura» dibuja una espada en el puño (gris claro, solo en una mano, sin espejo) con el dentado del medio de la lista y
+   el vástago, ranura y lengüeta actuales: sirve para comprobar la orientación antes de imprimir. Si la mano pegada no tiene agarre, o
+   la lengüeta no entra en el canal, el texto de la sección lo dice.
+
+6. En la ventana «Catálogo» las manos con agarre y los accesorios se ven como cualquier pieza (tipo «mano» y «accesorio»); la ficha
+   muestra el agarre. Cargarlas se hace por consola: `afm agarre … --catalogo RUTA` (mano taladrada + espada de prueba) o
+   `afm catalogo importar-accesorio` (un arma propia), y `afm catalogo listar RUTA --compatible-con <pieza>` dice cuáles se sujetan.
+
 Si cambiás el Ø del taladro después de taladrar, hay que volver a taladrar para guardar la mano (la placa usa el taladro ya hecho).
 Por consola: `afm agarre mano.stl --out out/agarre`.
 
