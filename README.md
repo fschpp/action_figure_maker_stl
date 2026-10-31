@@ -82,6 +82,8 @@ Catálogo de piezas de una línea (plan `docs/PLAN_piezas_intercambiables_catalo
 afm catalogo crear ~/catalogos/proceres-130 --linea proceres-130 --altura 130
 afm catalogo importar-mano ~/catalogos/proceres-130 out/mano/mano.stl   # mano estándar de `afm extraer-mano`
 afm catalogo agregar-stl RUTA pierna.stl --tipo pierna --puerto cadera x1 y1 z1 x2 y2 z2 x3 y3 z3
+# brazo del catálogo con la mano pegada → versión nueva sin mano (puerto «muneca») + pieza «mano» aparte (el original no se toca):
+afm catalogo cortar-muneca RUTA brazo-guemes-01 --muneca x1 y1 z1 x2 y2 z2 x3 y3 z3   # punto 1 = lado del pulgar
 afm catalogo listar RUTA [--tipo mano] [--compatible-con brazo-01]
 afm catalogo verificar RUTA
 # en la GUI: «Armar desde catálogo…» arma una figura nueva con piezas del catálogo, sin abrir un STL (equivale a `afm armar` con una receta).

@@ -3,6 +3,8 @@
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md` y `PLAN_piezas_intercambiables_catalogo.md`_
 
 ## Current Focus
+**Cortar la muñeca de un brazo ya catalogado (2026-10-31):** `Catalog.cut_wrist` y `afm catalogo cortar-muneca RUTA BRAZO --muneca x1 … z3`. Parte el brazo del catálogo por el plano de muñeca (`split_at_wrist`), guarda una versión nueva SIN mano con el puerto `muneca` (toma) y la mano como pieza `mano` (`mano-<resto del id>`, enchufe). No hace falta la figura ni el `.proyecto`; el brazo original queda intacto (inmutable) y las recetas que lo fijan siguen armando igual. Valida todo antes de escribir (se guardan las dos piezas o ninguna), espeja los puntos si caen en −X y avisa si el brazo ya tiene versiones más nuevas. Tests: `tests/test_cut_wrist.py` (8), incluido el armado de una receta que antes fallaba con «la mano de catálogo necesita el plano de muñeca…». Sin GUI todavía.
+
 **Agarre de accesorios en la mano estándar (2026-10-28, rama `agarre_armas`, sobre main 9253580):** nuevo `src/afm/props.py` y comando `afm agarre MANO.stl`. Busca el canal que dejan los dedos con la palma (`find_channel`: prueba ~500 direcciones y puntúa cada una por la pared mínima del anillo que queda tras taladrar Ø`bore_d`, medida en la silueta 2D), lo taladra (`carve_grip`, Ø2,4 por defecto) y genera una placa de espadas de prueba con empuñadura de dos lengüetas y dentado (`make_prop`, `probe_plate`; ε = 1,5·t·δ/L² como `detent.tongue_strain`). Con la mano de Güemes: canal natural Ø≈0,9 mm → taladro Ø2,4 (quita 6,3 mm³, 1,9 %), largo 10,1 mm, pared mín. 2,4 mm, apoyo del dentado ≈ 180°. Tests: `tests/test_props.py` (8).
 
 ## Todo List (agarre)

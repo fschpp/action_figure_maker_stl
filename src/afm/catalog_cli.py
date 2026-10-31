@@ -12,7 +12,7 @@ from .recipe import RecipeError
 
 
 def add_parsers(sub) -> None:
-    c = sub.add_parser("catalogo", help="catálogo de piezas de una línea (crear, listar, verificar, importar-mano, agregar, agregar-stl, usos, eliminar, estado, compat, matriz)")
+    c = sub.add_parser("catalogo", help="catálogo de piezas de una línea (crear, listar, verificar, importar-mano, agregar, agregar-stl, cortar-muneca, usos, eliminar, estado, compat, matriz)")
     cs = c.add_subparsers(dest="catcmd", required=True)
 
     def root(p):
@@ -103,6 +103,15 @@ def add_parsers(sub) -> None:
     a.add_argument("--muneca-invertir", action="store_true", help="la mano es el lado grande del corte de muñeca")
     a.add_argument("--etiqueta", action="append", default=[], choices=P.TAGS, help="estandar / propia (se aplica a todas las piezas)")
     a.add_argument("--nueva-version", action="store_true", help="si un id ya existe, guardar la versión siguiente")
+    a = cs.add_parser("cortar-muneca", help="cortarle la mano a un brazo que ya está en el catálogo: guarda una versión nueva del brazo sin mano (puerto «muneca») y la mano como pieza aparte")
+    root(a)
+    a.add_argument("ref", metavar="BRAZO", help="id o id@n del brazo con la mano pegada (el original no se toca)")
+    a.add_argument("--muneca", type=float, nargs=9, required=True, metavar="N",
+                   help="x1 y1 z1 x2 y2 z2 x3 y3 z3 de la muñeca, en el marco de la pieza (el mismo de `agregar --muneca`); el punto 1 fija el giro: "
+                        "marcalo siempre en el mismo lugar (p. ej. el lado del pulgar). Con signo igual (--muneca=-3 …) si el primer número es negativo")
+    a.add_argument("--muneca-invertir", action="store_true", help="la mano es el lado grande del corte")
+    a.add_argument("--mano-id", default=None, help="id de la mano (por defecto mano-<resto del id del brazo>)")
+    a.add_argument("--mano-nueva-version", action="store_true", help="si el id de la mano ya existe, guardar la versión siguiente")
     a = cs.add_parser("compat", help="compatibilidad completa (build + validate) de las recetas del catálogo; el resultado queda en compat.json")
     root(a)
     a.add_argument("--receta", action="append", default=[], metavar="ARCHIVO",
@@ -300,6 +309,14 @@ def _run(args) -> int:
             print(f"{meta.ref:<28} {meta.tipo:<10} {meta.volumen_mm3:>9.0f} mm³  puertos: {', '.join(meta.puertos)}")
             for w in warns:
                 print("AVISO:", w)
+        return 0
+    if cmd == "cortar-muneca":
+        res = cat.cut_wrist(args.ref, args.muneca, args.muneca_invertir, args.mano_id, args.mano_nueva_version)
+        print(f"Brazo sin mano: {res.arm.ref} (desde {res.from_ref}; {res.arm.volumen_mm3:.0f} mm³; puertos: {', '.join(res.arm.puertos)})")
+        print(f"Mano: {res.hand.ref} (muñeca Ø{2 * res.wrist_radius_mm:.2f} mm, {res.hand.volumen_mm3:.0f} mm³)")
+        for w in res.warnings:
+            print("AVISO:", w)
+        print(f"Las recetas que usan {res.from_ref} siguen armando igual; para usar la mano separada, apuntalas a {res.arm.ref} y poné {res.hand.id} en el lugar «mano».")
         return 0
     if cmd == "compat":
         from . import compat

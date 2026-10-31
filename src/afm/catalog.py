@@ -78,6 +78,18 @@ class DeleteResult:
         return [m.ref for m in self.deleted]
 
 
+@dataclass
+class WristCut:
+    """Resultado de `Catalog.cut_wrist`: el brazo nuevo (sin mano, con puerto `muneca`), la mano y de qué versión salió."""
+
+    arm: P.PieceMeta
+    hand: P.PieceMeta
+    from_ref: str
+    warnings: list
+    hand_volume_mm3: float
+    wrist_radius_mm: float
+
+
 class Catalog:
     def __init__(self, root: str, line: dict):
         self.root = os.path.abspath(root)
@@ -187,6 +199,89 @@ class Catalog:
         """Importa una mano estándar `afm-mano-1` (la de `afm extraer-mano`) como pieza `mano`."""
         meta, mesh = P.piece_from_standard_hand(stl_path, piece_id)
         return self.add_piece(mesh, meta, new_version)
+
+    def cut_wrist(self, ref: str, points, invert: bool = False, hand_id: str | None = None,
+                  new_hand_version: bool = False) -> "WristCut":
+        """Le corta la mano a un brazo que ya está en el catálogo (no se vuelve a necesitar la figura ni su `.proyecto`).
+
+        `ref`: `id` o `id@n` de una pieza `brazo` sin puerto `muneca` (la mano pegada). `points`: 3 puntos de la muñeca en el
+        marco de la pieza (el de la figura de origen: el mismo de `afm catalogo agregar --muneca`); si caen en el lado −X se
+        espejan a +X. El punto 1 es la referencia de giro (siempre en el mismo lugar anatómico, p. ej. el lado del pulgar).
+
+        Las piezas son inmutables: el brazo original queda como está (las recetas que lo fijan por `id@n` siguen armando igual)
+        y se guarda una versión nueva SIN mano, con el puerto `muneca` (toma), más una pieza `mano` aparte (enchufe) en el
+        marco estándar. `hand_id`: id de la mano (por defecto `mano-<resto del id del brazo>`, como en `agregar`); si ya
+        existe hace falta `new_hand_version=True`. No se escribe nada hasta que el corte, las mallas y los puertos son válidos."""
+        import copy
+
+        import numpy as np
+
+        from . import solids as S
+        from .extract import _clean
+        from .hand import HandError, WristFrame, split_at_wrist, to_local
+        from .ports import Port, PortError, PortFrame, face_from_mesh
+
+        arm_meta, arm_mesh = self.load(ref)
+        if arm_meta.tipo != "brazo":
+            raise CatalogError(f"«{arm_meta.ref}» es una pieza «{arm_meta.tipo}»: el corte de muñeca es para un «brazo»")
+        if "muneca" in arm_meta.puertos:
+            raise CatalogError(f"«{arm_meta.ref}» ya tiene el puerto «muneca» (ya está sin mano); elegí la versión con la mano pegada")
+        later = [v for v in self.versions(arm_meta.id) if v > arm_meta.version]
+        pid = hand_id or f"mano-{re.sub(r'^brazo-', '', arm_meta.id)}"
+        if not P.ID_RE.match(pid):
+            raise CatalogError(f"id de mano inválido «{pid}»: minúsculas, números y guiones (p. ej. mano-guemes-01)")
+        if self.versions(pid) and not new_hand_version:
+            raise CatalogError(f"la mano «{pid}» ya existe (versiones {self.versions(pid)}): pasá otro id o pedí una versión nueva")
+        if self.versions(pid) and self.meta(pid).tipo != "mano":
+            raise CatalogError(f"«{pid}» es una pieza «{self.meta(pid).tipo}», no una mano")
+
+        pts = np.asarray(points, float).reshape(-1, 3)
+        if pts.shape != (3, 3):
+            raise CatalogError("el plano de muñeca necesita 3 puntos (x, y, z)")
+        mirrored = bool(pts[:, 0].mean() < 0)
+        if mirrored:
+            pts = pts * np.array([-1.0, 1.0, 1.0])
+        warnings: list[str] = []
+        if mirrored:
+            warnings.append("los 3 puntos estaban en el lado −X: se espejaron a +X, que es donde está la pieza")
+        if later:
+            warnings.append(f"«{arm_meta.id}» ya tiene versiones más nuevas ({later}); la nueva sale de la {arm_meta.version} y las pasa por encima")
+
+        try:
+            ws = split_at_wrist(S.to_manifold(arm_mesh), WristFrame.from_points(pts), invert=invert)
+        except (HandError, S.MeshNotManifold) as exc:
+            raise CatalogError(f"muñeca de «{arm_meta.ref}»: {exc}") from exc
+        rest = _clean(ws.rest, "brazo (sin mano)", warnings)
+        hand_local = _clean(to_local(ws.hand, ws.frame), "mano", warnings)
+        wf = PortFrame.from_wrist(ws.frame, toward_hand=True)
+        hf = PortFrame.hand_standard()
+        try:
+            wrist_port = Port("muneca", "toma", wf, face_from_mesh(rest, wf, place="muneca"))
+            hand_port = Port("muneca", "enchufe", hf, face_from_mesh(hand_local, hf, place="muneca"))
+        except PortError as exc:
+            raise CatalogError(f"muñeca de «{arm_meta.ref}»: {exc}") from exc
+
+        arm_new = copy.deepcopy(arm_meta)
+        arm_new.puertos["muneca"] = wrist_port
+        arm_new.estado = "borrador"
+        arm_new.origen = {**arm_new.origen, "nota": f"sin mano: muñeca cortada de {arm_meta.ref}", "fecha": P.make_origin()["fecha"],
+                          "motor": __version__}
+        origin = {**P.make_origin(arm_meta.origen.get("figura", ""), arm_meta.origen.get("proyecto", ""),
+                                  note=f"mano cortada de {arm_meta.ref}")}
+        hand_meta = P.PieceMeta(id=pid, version=1, tipo="mano", puertos={"muneca": hand_port}, descripcion=f"Mano de {arm_meta.id}",
+                                origen=origin, altura_figura_mm=arm_meta.altura_figura_mm, lado=arm_meta.lado,
+                                espejable=arm_meta.espejable, etiquetas=list(arm_meta.etiquetas))
+        for m in (arm_new, hand_meta):                       # todo se valida antes de escribir: o se guardan las dos o ninguna
+            bad = m.problems()
+            if bad:
+                raise CatalogError(f"{m.id}: {'; '.join(bad)}")
+        for label, tm in (("brazo", rest), ("mano", hand_local)):
+            if not tm.is_watertight:
+                raise CatalogError(f"el corte dejó la malla del {label} sin cerrar: no se guarda (probá otros 3 puntos de muñeca)")
+        hand_saved, w1 = self.add_piece(hand_local, hand_meta, new_version=bool(self.versions(pid)))
+        arm_saved, w2 = self.add_piece(rest, arm_new, new_version=True)
+        return WristCut(arm=arm_saved, hand=hand_saved, from_ref=arm_meta.ref, warnings=warnings + [w for w in dict.fromkeys(w1 + w2)],
+                        hand_volume_mm3=float(ws.hand_volume), wrist_radius_mm=float(ws.face_radius))
 
     def add_accessory(self, mesh, piece_id: str, agarre: dict, new_version: bool = False, descripcion: str = "", figura: str = "",
                       extra: dict | None = None):
