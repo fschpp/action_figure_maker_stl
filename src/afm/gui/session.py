@@ -1576,12 +1576,20 @@ class Session:
             raise ValueError("Primero generá la figura")
         name = name or (os.path.splitext(os.path.basename(self.stl_path or "figura"))[0])
         os.makedirs(outdir, exist_ok=True)
+        from ..accessories import finish_export, load_project_items
+
+        items = load_project_items(self.project, progress=progress)              # las armas viajan con la figura
         files = P.export(self.outcome.result, outdir, name, orient=orient, max_angle=max_angle,
                          flat=self.project.params.flat_depth if flat else None, params=self.project.params,
-                         progress=progress)
+                         progress=progress, extras=[i["mesh"] for i in items])
+        acc_info = finish_export(items, outdir, name, progress)
+        if acc_info:
+            files["accesorios"] = [a["archivo"] for a in acc_info]
         if progress:
             progress("Guardando el informe y el proyecto…")
         info = {"validacion": self.outcome.validation, "construccion": self.outcome.result.report, "archivos": files}
+        if acc_info:
+            info["accesorios"] = acc_info
         with open(os.path.join(outdir, f"{name}_informe.json"), "w") as f:
             json.dump(info, f, indent=2, default=float)
         self.save_project(os.path.join(outdir, f"{name}.proyecto"))

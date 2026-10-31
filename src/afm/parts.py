@@ -266,7 +266,7 @@ def piece_from_standard_hand(stl_path: str, piece_id: str | None = None, version
 
 
 def piece_accessory(mesh, piece_id: str, agarre: dict, descripcion: str = "", figura: str = "", version: int = 1,
-                    estado: str = "borrador", etiquetas=("propia",)) -> tuple[PieceMeta, object]:
+                    estado: str = "borrador", etiquetas=("propia",), extra: dict | None = None) -> tuple[PieceMeta, object]:
     """Pieza `accesorio` (arma, herramienta…) con empuñadura de agarre. La malla va en el marco del accesorio (ver
     `props.GRIP_FRAME_NOTE`); `agarre` es `props.accessory_grip(...)`. No lleva puertos: se sujeta por el taladro de la mano."""
     from .props import grip_problems
@@ -276,5 +276,5 @@ def piece_accessory(mesh, piece_id: str, agarre: dict, descripcion: str = "", fi
         raise PieceError("; ".join(bad))
     meta = PieceMeta(id=piece_id, version=version, tipo="accesorio", puertos={}, descripcion=descripcion or "Accesorio con empuñadura dentada",
                      origen=make_origin(figura, note="afm agarre"), altura_figura_mm=None, lado="centro", espejable=False,
-                     estado=estado, etiquetas=list(etiquetas), mecanismo={"agarre": agarre})
+                     estado=estado, etiquetas=list(etiquetas), mecanismo={**(extra or {}), "agarre": agarre})
     return meta, mesh

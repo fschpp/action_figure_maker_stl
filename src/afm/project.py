@@ -9,6 +9,7 @@ from .head import HeadSpec
 from .joints import JointSpec
 from .limbs import LimbSpec
 from .params import Params, PinSpec
+from .accessories import AccessoryRef
 from .planes import Plane
 from .trims import Trim
 from .waist import WaistSpec
@@ -56,11 +57,18 @@ class Project:
     waist: WaistSpec | None = None        # cintura articulada (plano de corte + pasador robusto); None = torso de una pieza
     hand: HandSpec | None = None          # mano estándar (STL) pegada en la muñeca; None = la mano original del modelo
     parts: dict[str, PartRef] = field(default_factory=dict)  # pieza de catálogo por nombre de miembro (LimbSpec.name)
+    accesorios: list = field(default_factory=list)          # accesorios.AccessoryRef: armas/accesorios del catálogo que viajan con la figura
 
     # escala de la pieza de cada lugar (torso, pelvis, cabeza, nombre de miembro): un número = uniforme; [sx, sy, sz] = por eje
     part_scales: dict[str, float | list[float]] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
+        d = self._to_dict_base()
+        if self.accesorios:                                   # solo si hay: los proyectos anteriores no cambian
+            d["accesorios"] = [a.to_dict() for a in self.accesorios]
+        return d
+
+    def _to_dict_base(self) -> dict:
         return {
             "version": 1,
             "params": self.params.to_dict(),
@@ -92,6 +100,7 @@ class Project:
             joints=[JointSpec.from_dict(x) for x in d.get("joints", [])],
             parts={k: PartRef.from_dict(v) for k, v in (d.get("parts") or {}).items()},
             part_scales={k: _scale_from_json(v) for k, v in (d.get("part_scales") or {}).items()},
+            accesorios=[AccessoryRef.from_dict(x) for x in (d.get("accesorios") or [])],
         )
 
     def scale_geometry(self, k: float) -> None:

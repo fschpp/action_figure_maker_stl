@@ -304,12 +304,9 @@ def _box(x0, x1, y0, y1, z0, z1) -> S.Manifold:
     return S.Manifold.cube((x1 - x0, y1 - y0, z1 - z0)).translate((x0, y0, z0))
 
 
-def make_prop(spec: GripSpec, hole_len: float, blade_len: float = 34.0, blade_w: float = 4.0, blade_t: float = 0.8,
-              guard_w: float = 10.0, guard_t: float = 2.0) -> S.Manifold:
-    """Espada de prueba con la empuñadura dentada de `spec` (marco del accesorio, ver docstring del módulo)."""
-    r = spec.shaft_d / 2
-    xs = hole_len + spec.play                                # hombro del dentado
-    x_end = xs + spec.back_len
+def _check_grip(spec: GripSpec, hole_len: float) -> float:
+    """Valida la empuñadura (largo de lengüeta, dentado, deformación) y devuelve la posición del final de la rampa de salida."""
+    x_end = hole_len + spec.play + spec.back_len
     if x_end - spec.finger_len < 0.5:
         raise GripError(f"las lengüetas ({spec.finger_len:g} mm) son más largas que la empuñadura ({x_end:.1f} mm)")
     if spec.barb_d <= spec.bore_d:
@@ -318,26 +315,39 @@ def make_prop(spec: GripSpec, hole_len: float, blade_len: float = 34.0, blade_w:
     if eps > spec.max_strain:
         raise GripError(f"la lengüeta se deforma {100 * eps:.2f} % > {100 * spec.max_strain:.1f} %: dentado más bajo, "
                         f"lengüeta más larga o ranura más ancha")
+    return x_end
 
-    def along_x(mf, x):
-        return mf.rotate((0, 90, 0)).translate((x, 0, 0))
 
+def _along_x(mf: S.Manifold, x: float) -> S.Manifold:
+    return mf.rotate((0, 90, 0)).translate((x, 0, 0))
+
+
+def grip_stub(spec: GripSpec, hole_len: float, overlap: float = 1.0) -> S.Manifold:
+    """Empuñadura sola, lista para pegar a un arma: eje +X por (y=0, z=0) desde x = −`overlap` (esa parte queda dentro del arma)
+    hasta el dentado. Dos lengüetas separadas por una ranura vertical (flexionan en Y: impresa acostada, en el plano de la cama);
+    el fondo del dentado se recorta a ras del eje (z = −shaft_d/2) para que no sobresalga por debajo."""
+    r = spec.shaft_d / 2
+    xs = hole_len + spec.play                                # hombro del dentado
+    x_end = _check_grip(spec, hole_len)
+    shaft = _along_x(S.Manifold.cylinder(x_end + overlap, r, r, spec.segments), -overlap)
+    entry = _along_x(S.Manifold.cylinder(spec.entry_len, r, spec.barb_d / 2, spec.segments), xs - spec.entry_len)
+    back = _along_x(S.Manifold.cylinder(spec.back_len, spec.barb_d / 2, r * 0.95, spec.segments), xs)
+    slit = _box(x_end - spec.finger_len, x_end + 1.0, -spec.slit_w / 2, spec.slit_w / 2, -2 * r, 2 * r)
+    return S.intersection(S.difference(S.union(shaft, entry, back), slit), _box(-1e3, 1e3, -1e3, 1e3, -r, 1e3))
+
+
+def make_prop(spec: GripSpec, hole_len: float, blade_len: float = 34.0, blade_w: float = 4.0, blade_t: float = 0.8,
+              guard_w: float = 10.0, guard_t: float = 2.0) -> S.Manifold:
+    """Espada de prueba con la empuñadura dentada de `spec` (marco del accesorio, ver docstring del módulo)."""
+    r = spec.shaft_d / 2
     z0 = -r
     pts = np.array([[x, y, z] for x, y in ((-guard_t - blade_len, 0.0), (-guard_t - blade_len + 6, -blade_w / 2),
                                            (-guard_t, -blade_w / 2), (-guard_t, blade_w / 2),
                                            (-guard_t - blade_len + 6, blade_w / 2))
                     for z in (z0, z0 + blade_t)])
-    hm = trimesh.Trimesh(pts).convex_hull
-    blade = S.to_manifold(hm)
+    blade = S.to_manifold(trimesh.Trimesh(pts).convex_hull)
     guard = _box(-guard_t, 0.0, -guard_w / 2, guard_w / 2, z0, z0 + max(guard_t, spec.shaft_d))
-    shaft = along_x(S.Manifold.cylinder(x_end, r, r, spec.segments), 0.0)
-    entry = along_x(S.Manifold.cylinder(spec.entry_len, r, spec.barb_d / 2, spec.segments), xs - spec.entry_len)
-    back = along_x(S.Manifold.cylinder(spec.back_len, spec.barb_d / 2, r * 0.95, spec.segments), xs)
-    body = S.union(blade, guard, shaft, entry, back)
-    slit = _box(x_end - spec.finger_len, x_end + 1.0, -spec.slit_w / 2, spec.slit_w / 2, -2 * r, 2 * r)
-    # fondo plano: acostada, el dentado (Ø mayor que el eje) sobresaldría por debajo y dejaría el resto flotando sobre la
-    # cama; se recorta a ras de la parte baja del eje, la hoja y la guarda (las lengüetas flexionan de costado, no de arriba abajo)
-    return S.intersection(S.difference(body, slit), _box(-1e3, 1e3, -1e3, 1e3, z0, 1e3))
+    return S.union(blade, guard, grip_stub(spec, hole_len, overlap=guard_t))
 
 
 def prop_to_hand_matrix(fit: GripFit) -> np.ndarray:

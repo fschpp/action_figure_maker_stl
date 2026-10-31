@@ -28,8 +28,14 @@ def project_from_assembled(asm) -> Project:
         if ref:
             meta = cat.meta(ref)
             parts[lugar] = PartRef(id=meta.id, version=meta.version, linea=cat.name)
+    from .accessories import AccessoryRef
+
+    accs = []
+    for ref in recipe.accesorios:
+        meta = cat.meta(ref)
+        accs.append(AccessoryRef(catalogo=os.path.abspath(cat.root), pieza=meta.ref, sha256=meta.sha256))
     return Project(params=asm.params, symmetry=None, limbs=list(host.limbs), head=host.head, waist=host.waist,
-                   hand=hand_spec(recipe), parts=parts)
+                   hand=hand_spec(recipe), parts=parts, accesorios=accs)
 
 
 def to_dict(asm) -> dict:

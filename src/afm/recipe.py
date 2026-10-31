@@ -36,12 +36,16 @@ class Recipe:
     lugares: dict = field(default_factory=dict)          # lugar -> "id" | "id@versión" | None
     opciones: dict = field(default_factory=dict)
     ajustes: dict = field(default_factory=dict)
+    accesorios: list = field(default_factory=list)       # ["id@versión", …]: piezas «accesorio» que acompañan a la figura (no van en el puño)
 
     # ------------------------------------------------------------------ formato
     def to_dict(self) -> dict:
-        return {"formato": RECIPE_FORMAT, "personaje": self.personaje, "linea": self.linea,
-                "lugares": {k: self.lugares.get(k) for k in PLACES}, "opciones": {**OPTIONS, **self.opciones},
-                "ajustes": self.ajustes}
+        d = {"formato": RECIPE_FORMAT, "personaje": self.personaje, "linea": self.linea,
+             "lugares": {k: self.lugares.get(k) for k in PLACES}, "opciones": {**OPTIONS, **self.opciones},
+             "ajustes": self.ajustes}
+        if self.accesorios:                                  # solo si hay: las recetas anteriores no cambian
+            d["accesorios"] = list(self.accesorios)
+        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> "Recipe":
@@ -50,7 +54,11 @@ class Recipe:
         for k in ("personaje", "linea"):
             if not d.get(k):
                 raise RecipeError(f"a la receta le falta «{k}»")
-        r = cls(d["personaje"], d["linea"], dict(d.get("lugares") or {}), dict(d.get("opciones") or {}), dict(d.get("ajustes") or {}))
+        acc = d.get("accesorios") or []
+        if not isinstance(acc, list):
+            raise RecipeError("«accesorios» tiene que ser una lista de id@versión")
+        r = cls(d["personaje"], d["linea"], dict(d.get("lugares") or {}), dict(d.get("opciones") or {}), dict(d.get("ajustes") or {}),
+                list(acc))
         bad = [k for k in r.problems()]
         if bad:
             raise RecipeError("; ".join(bad))
@@ -81,6 +89,16 @@ class Recipe:
                     parse_ref(v)
                 except CatalogError as exc:
                     out.append(f"{k}: {exc}")
+        seen: set[str] = set()
+        for ref in self.accesorios:
+            try:
+                pid, _v = parse_ref(ref)
+            except (CatalogError, TypeError, AttributeError) as exc:
+                out.append(f"accesorio «{ref}»: {exc}")
+                continue
+            if pid in seen:
+                out.append(f"el accesorio «{pid}» está repetido")
+            seen.add(pid)
         if not self.lugares.get("torso"):
             out.append("falta el lugar «torso»: sin figura de origen es el que arma el cuerpo")
         if self.options()["cintura"] and not self.lugares.get("pelvis"):
@@ -174,6 +192,61 @@ def load_choices(recipe: Recipe, catalog_root: str | None = None) -> tuple[Catal
     for lugar, k in recipe.scales().items():              # cada pieza se escala por separado, alrededor de su unión principal
         choices[keys[lugar]] = scale_choice(choices[keys[lugar]], k)
     return cat, choices
+
+
+def accessory_fit_grip(hand_agarre: dict | None, acc_meta, label: str | None) -> dict:
+    """Cómo se lleva el accesorio con una mano (su clave «agarre»; `label` la nombra en los avisos; None = la figura no tiene
+    mano): {nivel: ok | aviso | no | sin_datos, motivos, avisos}. «no» no impide acompañar a la figura (puede ser un accesorio
+    que no se empuña): solo avisa que no se sujeta en esa mano."""
+    from .props import grip_compat
+
+    acc = (acc_meta.mecanismo or {}).get("agarre")
+    if acc is None:
+        return {"nivel": "sin_datos", "motivos": [], "avisos": ["el accesorio no tiene datos de agarre: no se sabe si se sujeta en la mano"]}
+    if label is None:
+        return {"nivel": "sin_datos", "motivos": [], "avisos": ["la figura no tiene una mano donde sujetarlo"]}
+    if hand_agarre is None:
+        return {"nivel": "no", "motivos": [f"la mano «{label}» no tiene agarre (taladro): el accesorio no se sujeta"], "avisos": []}
+    c = grip_compat(hand_agarre, acc)
+    return {"nivel": c.nivel, "motivos": list(c.motivos), "avisos": list(c.avisos)}
+
+
+def accessory_fit(hand_meta, acc_meta) -> dict:
+    """`accessory_fit_grip` con la pieza `mano` del catálogo (None = la figura no tiene mano de catálogo)."""
+    if hand_meta is None:
+        return accessory_fit_grip(None, acc_meta, None)
+    return accessory_fit_grip((hand_meta.mecanismo or {}).get("agarre"), acc_meta, hand_meta.ref)
+
+
+def load_accessories(recipe: Recipe, cat: Catalog) -> list[dict]:
+    """Fichas de los accesorios de la receta: {meta, mesh (pose de impresión), ficha sin `archivo`}."""
+    from .accessories import print_pose
+
+    hand = cat.meta(recipe.lugares["mano"]) if recipe.lugares.get("mano") else None
+    out = []
+    for ref in recipe.accesorios:
+        try:
+            meta, mesh = cat.load(ref)
+        except CatalogError as exc:
+            raise RecipeError(f"accesorio «{ref}»: {exc}") from exc
+        if meta.tipo != "accesorio":
+            raise RecipeError(f"accesorio «{ref}»: es una pieza «{meta.tipo}», no un accesorio")
+        fit = accessory_fit(hand, meta)
+        out.append({"meta": meta, "mesh": print_pose(mesh),
+                    "ficha": {"pieza": meta.ref, "id": meta.id, "version": meta.version, "sha256": meta.sha256,
+                              "origen": meta.origen.get("figura") or meta.origen.get("nota") or "", "compat": fit["nivel"],
+                              "motivos": fit["motivos"], "avisos": fit["avisos"]}})
+    return out
+
+
+def export_accessories(recipe: Recipe, cat: Catalog, outdir: str, name: str) -> list[dict]:
+    """Escribe en `<outdir>/piezas/` el STL de cada accesorio de la receta (pose de impresión, mm reales) y devuelve una ficha por
+    accesorio (pieza, sha256, archivo, compatibilidad con la mano de la figura). No toca la lista de piezas ni el ensamblado."""
+    from .accessories import write_files
+
+    items = load_accessories(recipe, cat)
+    rel = write_files([(i["ficha"]["id"], i["mesh"]) for i in items], outdir, name)
+    return [{**i["ficha"], "archivo": r} for i, r in zip(items, rel)]
 
 
 def assemble(recipe: Recipe, catalog_root: str | None = None, progress=None, sit: bool = True) -> Assembled:

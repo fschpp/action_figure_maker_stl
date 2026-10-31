@@ -55,6 +55,7 @@ class Mode(Enum):
     SYMMETRY = "simetria"
     LIMB_PLANE = "plano_miembro"
     NECK_PLANE = "plano_cuello"
+    WEAPON_CUT_PLANE = "plano_corte_arma"   # 3 clics sobre el arma importada: plano que le corta el mango original
     HEAD_CUT_PLANE = "plano_corte_cabeza"   # 3 clics sobre la cabeza de reemplazo (naranja): plano que corta su base
     HAND_EXTRACT = "extraer_mano"   # 3 clics en la muñeca izquierda: corta la mano y la deja lista para guardar como mano estándar
     HAND_PLACE = "pegar_mano"       # 3 clics en la muñeca de ESTE modelo: se descarta su mano y se pega la mano estándar (STL) elegida
@@ -243,6 +244,9 @@ class Controller:
         self.grip_barbs: tuple[float, ...] = DEFAULT_BARBS
         self.grip = None                             # props.GripResult de la última mano taladrada (None = ninguna)
         self.grip_show = False                       # dibujar una espada de prueba en la mano pegada de la figura
+        self.weapon = None                           # weapon_session.WeaponSession del arma que se está importando (None = ninguna)
+        self.weapon_active = False                   # el visor muestra el arma en lugar de la figura
+        self.weapon_catalog = ""                     # carpeta del catálogo de la línea para armas y accesorios del proyecto
         self._grip_fit_cache: tuple = (None, None)   # ((ruta, mtime), GripFit | None) de la mano pegada
         self._grip_prop_cache: tuple = (None, None)  # (clave, malla en el mundo)
         self._grip_prop_error = ""
@@ -266,6 +270,7 @@ class Controller:
         self.picker = Picker(self.session.work) if self.session.work is not None else None
 
     def _after_load(self) -> None:
+        self.weapon_active = False                  # se abrió una figura: el visor vuelve a ella
         self._rebuild_picker()
         self.camera.frame(self.session.work.bounds)
         self.camera.set_view("frente")
@@ -683,8 +688,8 @@ class Controller:
         was = self.mode
         self.mode, self.pending, self.pending_kind = Mode.VIEW, [], None
         self._hand_path_pending = None
-        if was == Mode.HEAD_CUT_PLANE:
-            self._rebuild_picker()           # durante el corte el picker apuntaba a la cabeza de reemplazo
+        if was in (Mode.HEAD_CUT_PLANE, Mode.WEAPON_CUT_PLANE):
+            self._rebuild_picker()           # durante el corte el picker apuntaba a la cabeza de reemplazo / al arma
         self.clear_hover()
         self.draft, self.edit_limb, self.edit_cross = None, None, False
         self.pin_limb, self.pin_prev = None, None
@@ -1771,7 +1776,7 @@ class Controller:
     def hover_active(self) -> bool:
         """True en los modos en que se eligen puntos sobre la figura (planos de 3 puntos, guías de 4)."""
         return (self.picker is not None and not self.busy and
-                self.mode in (Mode.SYMMETRY, Mode.LIMB_PLANE, Mode.NECK_PLANE, Mode.HEAD_CUT_PLANE, Mode.WAIST_PLANE, Mode.HAND_EXTRACT,
+                self.mode in (Mode.SYMMETRY, Mode.LIMB_PLANE, Mode.NECK_PLANE, Mode.HEAD_CUT_PLANE, Mode.WEAPON_CUT_PLANE, Mode.WAIST_PLANE, Mode.HAND_EXTRACT,
                               Mode.HAND_PLACE, Mode.JOINT_PLANE, Mode.JOINT_LINES, Mode.JOINT_SIDE))
 
     def update_hover(self, px: float, py: float, width: float, height: float) -> bool:
@@ -1848,6 +1853,8 @@ class Controller:
                 self._finish_neck_plane()
             elif self.mode == Mode.HEAD_CUT_PLANE:
                 self._finish_head_cut_plane()
+            elif self.mode == Mode.WEAPON_CUT_PLANE:
+                self._finish_weapon_cut_plane()
             elif self.mode == Mode.WAIST_PLANE:
                 self._finish_waist_plane()
             elif self.mode == Mode.HAND_EXTRACT:
@@ -2113,6 +2120,207 @@ class Controller:
         mesh.apply_transform(hfit["matrix"] @ prop_to_hand_matrix(fit))
         self._grip_prop_cache = (key, mesh)
         return mesh
+
+    # ------------------------------------------------------------------ armas: importar, escalar, cortar el mango, guardar en el catálogo
+    def set_weapon_catalog(self, root: str) -> bool:
+        """Elige el catálogo de la línea: de su mano con agarre sale la empuñadura de las armas, y de él los accesorios del proyecto."""
+        from ..weapon import WeaponError
+        from .weapon_session import WeaponSession
+
+        ws = self.weapon or WeaponSession()
+        try:
+            ws.set_catalog(root)
+        except WeaponError as exc:
+            self._changed(str(exc), scene=False)
+            return False
+        self.weapon, self.weapon_catalog = ws, root
+        self._changed(f"Catálogo «{ws.catalog.name}»: las armas llevan la empuñadura de la mano {ws.hand.ref}.", scene=bool(self.weapon_active))
+        return True
+
+    def open_weapon(self, path: str) -> bool:
+        """Carga un STL cualquiera como arma: lo muestra a escala (0,40 × la altura de la línea) para elegir el plano de corte."""
+        from ..weapon import WeaponError
+        from .weapon_session import WeaponSession
+
+        if self._busy_for("el arma"):
+            return False
+        ws = self.weapon or WeaponSession()
+        root = self.weapon_catalog or self.session.catalog_root or GUI_SETTINGS.last_catalog()
+        if ws.catalog is None and root:                          # el catálogo ya abierto (o el último usado) da la empuñadura de la línea
+            try:
+                ws.set_catalog(root)
+                self.weapon_catalog = root
+            except WeaponError:
+                pass
+        try:
+            ws.load(path)
+        except WeaponError as exc:
+            self._changed(f"No se pudo cargar el arma: {exc}", scene=False)
+            return False
+        self.cancel(quiet=True)
+        self.weapon, self.weapon_active = ws, True
+        self.camera.frame(ws.scaled.bounds)
+        self.camera.set_view("frente")
+        self._changed(f"Arma cargada: {ws.summary().splitlines()[0]}. Ajustá la escala y elegí el plano de corte (3 clics sobre el mango).")
+        return True
+
+    def close_weapon(self) -> None:
+        """Vuelve el visor a la figura."""
+        self.cancel(quiet=True)
+        self.weapon_active = False
+        if self.session.work is not None:
+            self.camera.frame(self.session.work.bounds)
+        self._changed("Se volvió a la figura.")
+
+    def set_weapon_scale(self, factor: float | None = None, length_mm: float | None = None) -> bool:
+        from ..weapon import WeaponError
+
+        if self.weapon is None or not self.weapon.loaded:
+            self._changed("Primero cargá un arma (STL).", scene=False)
+            return False
+        try:
+            if factor is not None:
+                self.weapon.set_scale(factor)
+            elif length_mm is not None:
+                self.weapon.set_length(length_mm)
+        except WeaponError as exc:
+            self._changed(str(exc), scene=False)
+            return False
+        self._changed(self.weapon.summary().splitlines()[0])
+        return True
+
+    def start_weapon_cut_plane(self) -> None:
+        """Pide 3 puntos sobre el arma que definen el plano que le corta el mango original."""
+        from .picking import Picker
+
+        if self.weapon is None or not self.weapon.loaded:
+            self._changed("Primero cargá un arma (STL).", scene=False)
+            return
+        self.cancel(quiet=True)
+        self.mode = Mode.WEAPON_CUT_PLANE
+        self.picker = Picker(self.weapon.scaled)                  # los clics caen sobre el arma, no sobre la figura
+        self._changed("Corte del mango: elegí 3 puntos sobre el arma, en el mango, donde querés cortar (2 a los lados y 1 al frente). "
+                      "Se descarta el lado hacia el que apunta la normal; «Invertir lado» lo cambia. Retroceso deshace el último punto, Esc cancela.")
+
+    def _finish_weapon_cut_plane(self) -> None:
+        pts, self.pending = self.pending, []
+        try:
+            self.weapon.set_cut(pts)
+        except Exception as e:                                    # noqa: BLE001
+            self._changed(f"No sirve: {e}. Elegí 3 puntos de nuevo.")
+            return
+        self.mode = Mode.VIEW
+        self.picker = None
+        self._changed(self.weapon.summary().replace("\n", " · "))
+
+    def flip_weapon_cut(self) -> None:
+        if self.weapon is None or not self.weapon.loaded or not self.weapon.spec.cut_points:
+            self._changed("Primero elegí el plano de corte.", scene=False)
+            return
+        self.weapon.flip()
+        self._changed(self.weapon.summary().replace("\n", " · "))
+
+    def set_weapon_roll(self, degrees: float | None) -> None:
+        """Giro del arma sobre el eje de la empuñadura; None = el que la deja más baja (acostada)."""
+        if self.weapon is None or not self.weapon.loaded:
+            return
+        self.weapon.set_roll(degrees)
+        self._changed(self.weapon.summary().replace("\n", " · "))
+
+    def weapon_summary(self) -> str:
+        return self.weapon.summary() if self.weapon is not None else ""
+
+    def save_weapon(self, piece_id: str | None = None, new_version: bool = False) -> bool:
+        """Guarda el arma preparada en el catálogo de la línea como pieza `accesorio`."""
+        from ..catalog import CatalogError
+        from ..weapon import WeaponError
+
+        if self.weapon is None or not self.weapon.loaded:
+            self._changed("Primero cargá un arma (STL).", scene=False)
+            return False
+        try:
+            meta, warns = self.weapon.save(piece_id or None, new_version)
+        except (WeaponError, CatalogError, ValueError) as exc:
+            self._changed(f"No se pudo guardar el arma: {exc}", scene=False)
+            return False
+        self._changed(f"Arma guardada en el catálogo como {meta.ref}." + "".join(f" AVISO: {w}" for w in warns), scene=False)
+        return True
+
+    def _sync_weapon(self, scene) -> None:
+        """El visor muestra el arma: el original a escala (translúcido si ya hay resultado), el resultado con la empuñadura
+        nueva encima, el plano de corte y los puntos elegidos."""
+        ws = self.weapon
+        scene.clear()
+        res = ws.result_mesh()
+        scene.set_mesh("arma:original", ws.scaled, color=(0.72, 0.74, 0.80, 0.30 if res is not None else 1.0))
+        if res is not None:
+            scene.set_mesh("arma:resultado", res, color=_ACCESSORY_COLOR)
+        pl = ws.plane()
+        if pl is not None:
+            hs = float(np.max(ws.scaled.extents)) * 0.35
+            scene.set_plane("arma:plano", pl, hs, center=pl.origin, color=(1.0, 0.55, 0.1, 0.25))
+        if self.pending:
+            pts = np.array(self.pending)
+            scene.set_points("pendientes", pts, (1.0, 0.25, 0.25, 1.0), 14.0, on_top=True)
+            scene.set_lines("pendientes:lineas", pts, (1.0, 0.25, 0.25, 1.0), closed=len(pts) == 3, on_top=True)
+        if self.hover_vertex is not None and self.hover_active():
+            scene.set_points("hover:vertice", self.hover_vertex[None], (1.0, 0.0, 0.0, 1.0), 18.0, on_top=True)
+
+    # ------------------------------------------------------------------ accesorios del proyecto (viajan con la figura)
+    def _accessory_catalog(self):
+        """Catálogo de donde salen los accesorios: el elegido para armas, el abierto en la ventana o el último usado (None si no hay)."""
+        from ..catalog import Catalog, CatalogError
+
+        root = self.weapon_catalog or self.session.catalog_root or GUI_SETTINGS.last_catalog()
+        if not root:
+            return None
+        try:
+            return Catalog.open(root)
+        except (CatalogError, OSError):
+            return None
+
+    def accessory_pieces(self) -> list:
+        """Piezas «accesorio» del catálogo (todas las versiones)."""
+        cat = self._accessory_catalog()
+        if cat is None:
+            return []
+        return sorted((m for m in cat.list(all_versions=True) if m.tipo == "accesorio"), key=lambda m: (m.id, m.version))
+
+    def project_accessory_labels(self) -> dict[str, str]:
+        """{ref: «ok» | «aviso» | «no se sujeta» | …} de cada accesorio respecto de la mano pegada en este proyecto."""
+        from ..accessories import project_accessory_fit
+        from .figure_builder import FIT_TEXT
+
+        return {m.ref: FIT_TEXT.get(project_accessory_fit(self.session.project, m)["nivel"], "") for m in self.accessory_pieces()}
+
+    def set_project_accessory(self, ref: str, on: bool = True) -> bool:
+        """Agrega o quita un accesorio del proyecto: sale con la figura al exportar y queda guardado en el `.proyecto`.
+        Una sola versión por id. No invalida la figura generada: los accesorios no cambian las piezas."""
+        import os
+
+        from ..accessories import AccessoryRef
+
+        if on:
+            cat = self._accessory_catalog()
+            if cat is None:
+                self._changed("Primero abrí o elegí el catálogo de la línea.", scene=False)
+                return False
+            try:
+                meta = cat.meta(ref)
+            except ValueError as exc:
+                self._changed(str(exc), scene=False)
+                return False
+            if meta.tipo != "accesorio":
+                self._changed(f"«{meta.ref}» es una pieza «{meta.tipo}», no un accesorio.", scene=False)
+                return False
+            keep = [a for a in self.session.project.accesorios if a.pieza.split("@")[0] != meta.id]
+            self.session.project.accesorios = keep + [AccessoryRef(os.path.abspath(cat.root), meta.ref, meta.sha256)]
+            self._changed(f"«{meta.ref}» viaja con la figura: sale en piezas/ y al lado de la figura en el ensamblado.", scene=False)
+        else:
+            pid = ref.split("@")[0]
+            self.session.project.accesorios = [a for a in self.session.project.accesorios if a.pieza.split("@")[0] != pid]
+            self._changed(f"«{pid}» ya no viaja con la figura.", scene=False)
+        return True
 
     def save_grip_hand(self, path: str) -> bool:
         from ..props import write_grip_hand
@@ -3074,6 +3282,9 @@ class Controller:
     def sync(self, scene) -> None:
         """Vuelca el estado al `SceneRenderer` (llamar con el contexto GL activo)."""
         sess = self.session
+        if self.weapon_active and self.weapon is not None and self.weapon.loaded:
+            self._sync_weapon(scene)
+            return
         if sess.work is None:
             scene.clear()
             return

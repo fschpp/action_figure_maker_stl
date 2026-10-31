@@ -35,8 +35,17 @@ def run(stl_path: str, project: Project, outdir: str, name: str, progress=print,
                       trims=project.trims, head=project.head, joints=project.joints, waist=project.waist,
                       hand=project.hand, parts=parts)
         val = P.validate(res, project.params, project.limbs, joints=project.joints)
-    files = P.export(res, outdir, name, orient=orient, max_angle=max_angle, flat=flat, params=project.params)
+    from .accessories import finish_export, load_project_items
+
+    items = load_project_items(project, progress=print)
+    files = P.export(res, outdir, name, orient=orient, max_angle=max_angle, flat=flat, params=project.params,
+                     extras=[i["mesh"] for i in items])
+    acc_info = finish_export(items, outdir, name, progress=print)
+    if acc_info:
+        files["accesorios"] = [a["archivo"] for a in acc_info]
     info = {"carga": rep.__dict__, "construccion": res.report, "validacion": val, "archivos": files}
+    if acc_info:
+        info["accesorios"] = acc_info
     with open(os.path.join(outdir, f"{name}_informe.json"), "w") as f:
         json.dump(info, f, indent=2, default=float)
     project.save(os.path.join(outdir, f"{name}.proyecto"))
@@ -62,10 +71,22 @@ def run_armar(recipe_path: str, outdir: str, name: str | None = None, catalog_ro
         record(asm, val, time.time() - t0)
     except (OSError, ValueError) as exc:
         progress(f"AVISO: no se pudo guardar el resultado en compat.json: {exc}")
+    items = []
+    if recipe.accesorios:                 # acompañan a la figura: STL aparte en piezas/ y al lado de la figura en el ensamblado, no en el puño
+        from .recipe import load_accessories
+
+        items = load_accessories(recipe, asm.catalog)
     progress("Exportando las piezas…")
     files = P.export(asm.res, outdir, name, orient=orient, max_angle=max_angle, flat=flat, params=asm.params,
-                     progress=progress)
+                     progress=progress, extras=[i["mesh"] for i in items])
+    from .accessories import finish_export
+
+    acc_info = finish_export(items, outdir, name, progress)
+    if acc_info:
+        files["accesorios"] = [a["archivo"] for a in acc_info]
     info = {"receta": recipe.to_dict(), "construccion": asm.res.report, "validacion": val, "archivos": files}
+    if acc_info:
+        info["accesorios"] = acc_info
     with open(os.path.join(outdir, f"{name}_informe.json"), "w") as f:
         json.dump(info, f, indent=2, default=float)
     recipe.save(os.path.join(outdir, f"{name}.receta.json"))

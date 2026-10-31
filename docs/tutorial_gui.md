@@ -435,6 +435,20 @@ empuñadura lleva dos lengüetas con un dentado que se cierran al entrar por el 
    muestra el agarre. Cargarlas se hace por consola: `afm agarre … --catalogo RUTA` (mano taladrada + espada de prueba) o
    `afm catalogo importar-accesorio` (un arma propia), y `afm catalogo listar RUTA --compatible-con <pieza>` dice cuáles se sujetan.
 
+7. En «Armar desde catálogo…», la sección «Accesorios que acompañan a la figura» lista los accesorios del catálogo con una casilla cada uno,
+   marcados según la mano elegida (ok / aviso / no se sujeta / sin datos de agarre). Los que tildes salen al exportar como STL aparte en
+   `piezas/` (listos para imprimir) y figuran en la lista de piezas y el informe; la figura ensamblada no los lleva. Se guardan en la receta
+   (`accesorios`) y «Abrir receta…» los vuelve a cargar.
+
+8. **Armas propias.** Con el catálogo de la línea abierto (tiene que tener una mano con agarre), sección «Arma (accesorio)»:
+   «Importar un arma (STL)…» muestra el arma a escala (largo sugerido 0,40 × la altura de la línea; se ajusta con «Largo» o «Escala»).
+   «Elegir plano de corte del mango (3 clics)» pide 3 puntos sobre el mango: se descarta el lado hacia el que apunta la normal («Invertir…» lo
+   cambia) y el programa pega la empuñadura dentada de la línea en el centro de la sección de corte. El resultado se ve en gris claro encima del
+   arma original (translúcida); el texto da dimensiones, porcentaje conservado y avisos (sección de corte que no rodea el vástago; vástago por
+   encima de la cama → soporte). «Guardar el arma en el catálogo» la deja como pieza «accesorio»; «Volver a la figura» devuelve el visor.
+9. **Que viaje con la figura.** Sección «Accesorios que viajan con la figura»: tildá los accesorios (cada uno dice si se sujeta en la mano pegada).
+   Al exportar salen en `piezas/<figura>_<id>.stl` y dentro de `<figura>_ensamblada.stl`, a la derecha de la figura. Se guardan en el `.proyecto`.
+
 Si cambiás el Ø del taladro después de taladrar, hay que volver a taladrar para guardar la mano (la placa usa el taladro ya hecho).
 Por consola: `afm agarre mano.stl --out out/agarre`.
 

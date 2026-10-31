@@ -85,6 +85,7 @@ class FigureBuilderWindow(Gtk.Window):
             box.append(chk)
         box.append(self._build_hand_section())
         box.append(self._build_scale_section())
+        box.append(self._build_accessory_section())
         self.lbl_problems = Gtk.Label(xalign=0, wrap=True)
         self.lbl_problems.add_css_class("dim-label")
         box.append(self.lbl_problems)
@@ -142,6 +143,45 @@ class FigureBuilderWindow(Gtk.Window):
         grid.attach(self.sp_overlap, 1, 2, 1, 1)
         exp.set_child(grid)
         return exp
+
+    def _build_accessory_section(self) -> Gtk.Widget:
+        """Accesorios del catálogo que acompañan a la figura: se exportan aparte (STL en piezas/ y en la lista de piezas)."""
+        self.exp_acc = Gtk.Expander(label="Accesorios que acompañan a la figura", expanded=False)
+        self.box_acc = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, margin_start=12, margin_top=4)
+        self.exp_acc.set_child(self.box_acc)
+        self._acc_checks: dict[str, Gtk.CheckButton] = {}
+        return self.exp_acc
+
+    def _refill_accessories(self, cat) -> None:
+        """Una casilla por accesorio del catálogo, marcada con cómo se lleva con la mano elegida (ok / aviso / no se sujeta)."""
+        b = self.builder
+        while (child := self.box_acc.get_first_child()) is not None:
+            self.box_acc.remove(child)
+        self._acc_checks = {}
+        metas = b.accessory_pieces(cat)
+        fits = b.accessory_fits(cat)
+        if not metas:
+            lbl = Gtk.Label(label="El catálogo no tiene accesorios (afm agarre --catalogo, o afm catalogo importar-accesorio).",
+                            xalign=0, wrap=True)
+            lbl.add_css_class("dim-label")
+            self.box_acc.append(lbl)
+        for m in metas:
+            chk = Gtk.CheckButton(label=b.accessory_label(m, fits))
+            chk.set_active(m.ref in b.accessories)
+            chk.set_sensitive(not self._busy)
+            chk.connect("toggled", self._on_accessory, m.ref)
+            self._acc_checks[m.ref] = chk
+            self.box_acc.append(chk)
+        self.exp_acc.set_sensitive(bool(metas))
+
+    def _on_accessory(self, chk: Gtk.CheckButton, ref: str) -> None:
+        if self._updating:
+            return
+        try:
+            self.builder.set_accessory(ref, chk.get_active())
+        except ValueError as exc:
+            self.lbl_result.set_text(str(exc))
+        self._sync()
 
     def _build_scale_section(self) -> Gtk.Widget:
         exp = Gtk.Expander(label="Escala de cada pieza (X ancho · Y profundidad · Z alto)")
@@ -222,6 +262,11 @@ class FigureBuilderWindow(Gtk.Window):
                 enabled = not self._busy and (place != "pelvis" or b.waist) and bool(metas)
                 dd.set_sensitive(enabled)
                 dd.set_tooltip_text(None if metas else "El catálogo no tiene piezas de este tipo.")
+        finally:
+            self._updating = False
+        self._updating = True
+        try:
+            self._refill_accessories(cat)
         finally:
             self._updating = False
         self._sync_controls()

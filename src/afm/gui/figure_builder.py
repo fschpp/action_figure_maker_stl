@@ -13,7 +13,7 @@ import numpy as np
 from ..catalog import Catalog, CatalogError
 from ..customize import is_identity, normalize_scale, scale_vector
 from ..hand import DEFAULT_OVERLAP_MM
-from ..recipe import PLACES, SCALE_PLACES, Recipe, RecipeError
+from ..recipe import PLACES, SCALE_PLACES, Recipe, RecipeError, accessory_fit
 
 # lugar -> tipos de pieza que acepta (el torso puede ser entero o solo la parte de arriba)
 PLACE_TYPES = {"torso": ("torso", "torso_sup"), "pelvis": ("pelvis",), "cabeza": ("cabeza",), "brazo": ("brazo",),
@@ -24,6 +24,7 @@ NONE_LABEL = "(ninguna)"
 HAND_JOINS = ("solape", "giro")
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _RANK = {"ok": 0, "aviso": 1, "no": 2}
+FIT_TEXT = {"ok": "ok", "aviso": "aviso", "no": "no se sujeta", "sin_datos": "sin datos de agarre"}   # accesorio vs. mano elegida
 
 
 class FigureBuilder:
@@ -36,6 +37,7 @@ class FigureBuilder:
         self.options = {"clic_hombro": False, "clic_cadera": False, "torso_mirror": True}
         self.hand = {"yaw": 0.0, "union": "solape", "solape": DEFAULT_OVERLAP_MM}     # ajustes de la mano (grados, unión, mm)
         self.scales: dict[str, list[float]] = {}                                        # lugar -> [sx, sy, sz] (solo los ≠ ×1)
+        self.accessories: list[str] = []                                                # «id@versión» de los accesorios que acompañan a la figura
 
     # ------------------------------------------------------------------ catálogo
     def catalog(self) -> Catalog:
@@ -106,6 +108,33 @@ class FigureBuilder:
         if place == "torso" and not self.waist:
             self.choices["pelvis"] = None             # un torso entero no lleva pelvis aparte
 
+    # ------------------------------------------------------------------ accesorios (acompañan a la figura; no van en el puño)
+    def accessory_pieces(self, cat: Catalog | None = None) -> list:
+        """Todas las versiones de las piezas «accesorio» del catálogo, por id y versión."""
+        cat = cat or self.catalog()
+        return sorted((m for m in cat.list(all_versions=True) if m.tipo == "accesorio"), key=lambda m: (m.id, m.version))
+
+    def accessory_fits(self, cat: Catalog | None = None) -> dict[str, str]:
+        """{ref: nivel} de cada accesorio respecto de la mano elegida (ok | aviso | no | sin_datos). Sirve para marcarlos en la
+        lista: un accesorio que «no se sujeta» igual puede acompañar a la figura."""
+        cat = cat or self.catalog()
+        hand = cat.meta(self.choices["mano"]) if self.choices.get("mano") else None
+        return {m.ref: accessory_fit(hand, m)["nivel"] for m in self.accessory_pieces(cat)}
+
+    def accessory_label(self, meta, fits: dict[str, str]) -> str:
+        return f"{meta.ref} — {FIT_TEXT.get(fits.get(meta.ref), '')}".rstrip(" —")
+
+    def set_accessory(self, ref: str, on: bool = True) -> None:
+        """Agrega (`on`) o quita un accesorio. Una sola versión por id: elegir otra versión reemplaza la anterior."""
+        if on:
+            meta = self.catalog().meta(ref)                          # CatalogError (ValueError) si no existe
+            if meta.tipo != "accesorio":
+                raise ValueError(f"«{meta.ref}» es una pieza «{meta.tipo}», no un accesorio")
+            self.accessories = [r for r in self.accessories if r.split("@")[0] != meta.id] + [meta.ref]
+        else:
+            pid = ref.split("@")[0]
+            self.accessories = [r for r in self.accessories if r.split("@")[0] != pid]
+
     # ------------------------------------------------------------------ ajustes de mano y escalas
     def set_hand(self, yaw: float | None = None, union: str | None = None, solape: float | None = None) -> None:
         """Giro extra de la mano (°) alrededor de la muñeca, tipo de unión («solape»: mano soldada al brazo; «giro»: mano
@@ -154,7 +183,7 @@ class FigureBuilder:
         esc = {p: normalize_scale(k) for p, k in self.scales.items() if lugares.get(p)}
         if esc:
             ajustes["escalas"] = esc
-        return Recipe(self.name, cat.name, lugares, opciones, ajustes)
+        return Recipe(self.name, cat.name, lugares, opciones, ajustes, list(self.accessories))
 
     def load_recipe(self, path: str) -> list[str]:
         """Carga una receta (`afm-receta-1`) para retocarla: piezas, opciones, mano y escalas pasan al constructor. Es de
@@ -181,6 +210,12 @@ class FigureBuilder:
                 warns.append(f"{place}: «{meta.ref}» es una pieza «{meta.tipo}» (queda sin pieza)")
                 continue
             choices[place] = meta.ref
+        self.accessories = []
+        for ref in r.accesorios:
+            try:
+                self.set_accessory(ref, True)
+            except ValueError as exc:
+                warns.append(f"accesorio: {exc} (se descartó)")
         self.name = r.personaje
         self.choices = choices
         if not self.waist:

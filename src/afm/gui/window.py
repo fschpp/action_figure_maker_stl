@@ -26,7 +26,7 @@ DRAG_THRESHOLD_PX = 4.0
 # flechas -> (derecha, arriba) sobre la cara de contacto vista de frente
 _ARROWS = {Gdk.KEY_Left: (-1, 0), Gdk.KEY_Right: (1, 0), Gdk.KEY_Up: (0, 1), Gdk.KEY_Down: (0, -1)}
 _MODE_TITLES = {Mode.VIEW: "", Mode.CROWN: "  ·  marcando coronilla", Mode.SYMMETRY: "  ·  plano de simetría",
-                Mode.LIMB_PLANE: "  ·  plano de un miembro", Mode.NECK_PLANE: "  ·  plano del cuello", Mode.HEAD_CUT_PLANE: "  ·  corte de la base de la cabeza", Mode.WAIST_PLANE: "  ·  plano de la cintura", Mode.HAND_EXTRACT: "  ·  muñeca: extraer mano", Mode.HAND_PLACE: "  ·  muñeca: pegar mano estándar", Mode.POLYGON: "  ·  dibujando silueta",
+                Mode.LIMB_PLANE: "  ·  plano de un miembro", Mode.NECK_PLANE: "  ·  plano del cuello", Mode.HEAD_CUT_PLANE: "  ·  corte de la base de la cabeza", Mode.WEAPON_CUT_PLANE: "  ·  corte del mango del arma", Mode.WAIST_PLANE: "  ·  plano de la cintura", Mode.HAND_EXTRACT: "  ·  muñeca: extraer mano", Mode.HAND_PLACE: "  ·  muñeca: pegar mano estándar", Mode.POLYGON: "  ·  dibujando silueta",
                 Mode.PIN: "  ·  colocando pasador", Mode.TRIM_PICK: "  ·  colocando recorte",
                 Mode.JOINT_PLANE: "  ·  plano de articulación", Mode.JOINT_AXIS: "  ·  colocando eje de bisagra",
                 Mode.JOINT_LINES: "  ·  codo con 2 líneas (de frente)", Mode.JOINT_SIDE: "  ·  guías de la articulación (de costado)",
@@ -472,6 +472,58 @@ class MainWindow(Gtk.ApplicationWindow):
                    "de la cama): imprimila, de preferencia en PETG, y fijate cuál sujeta sin romper la lengüeta. El taladro se "
                    "hace una vez sobre la mano estándar: toda la línea de figuras la comparte.")
 
+        sec = _collapsible(box, "Arma (accesorio)", expanded=False)
+        self.btn_weapon_open = self._button("Importar un arma (STL)…", self._on_weapon_open)
+        sec.append(self.btn_weapon_open)
+        row = Gtk.Box(spacing=6)
+        row.append(Gtk.Label(label="Largo del arma (mm)", xalign=0, hexpand=True))
+        self.spin_weapon_len = Gtk.SpinButton.new_with_range(5.0, 400.0, 0.5)
+        self.spin_weapon_len.set_digits(1)
+        self.spin_weapon_len.connect("value-changed", lambda b: None if self._updating else self.ctrl.set_weapon_scale(length_mm=b.get_value()))
+        row.append(self.spin_weapon_len)
+        sec.append(row)
+        row = Gtk.Box(spacing=6)
+        row.append(Gtk.Label(label="Escala sobre las unidades del STL", xalign=0, hexpand=True))
+        self.spin_weapon_scale = Gtk.SpinButton.new_with_range(0.0001, 10000.0, 0.01)
+        self.spin_weapon_scale.set_digits(4)
+        self.spin_weapon_scale.connect("value-changed", lambda b: None if self._updating else self.ctrl.set_weapon_scale(factor=b.get_value()))
+        row.append(self.spin_weapon_scale)
+        sec.append(row)
+        self.btn_weapon_cut = self._button("Elegir plano de corte del mango (3 clics)", lambda *_: self.ctrl.start_weapon_cut_plane())
+        self.btn_weapon_flip = self._button("Invertir el lado que se descarta", lambda *_: self.ctrl.flip_weapon_cut())
+        sec.append(self.btn_weapon_cut)
+        sec.append(self.btn_weapon_flip)
+        self.chk_weapon_roll = Gtk.CheckButton(label="Giro automático sobre la empuñadura (arma acostada)", active=True)
+        self.spin_weapon_roll = Gtk.SpinButton.new_with_range(0.0, 179.0, 5.0)
+        self.chk_weapon_roll.connect("toggled", lambda *_: None if self._updating else self._on_weapon_roll())
+        self.spin_weapon_roll.connect("value-changed", lambda *_: None if self._updating else self._on_weapon_roll())
+        row = Gtk.Box(spacing=6)
+        row.append(self.chk_weapon_roll)
+        row.append(self.spin_weapon_roll)
+        sec.append(row)
+        self.ent_weapon_id = Gtk.Entry(placeholder_text="id en el catálogo (p. ej. excalibur-01)", hexpand=True)
+        sec.append(self.ent_weapon_id)
+        self.chk_weapon_ver = Gtk.CheckButton(label="Si el id ya existe, guardar una versión nueva")
+        sec.append(self.chk_weapon_ver)
+        self.btn_weapon_save = self._button("Guardar el arma en el catálogo", self._on_weapon_save)
+        self.btn_weapon_close = self._button("Volver a la figura", lambda *_: self.ctrl.close_weapon())
+        sec.append(self.btn_weapon_save)
+        sec.append(self.btn_weapon_close)
+        self.lbl_weapon = Gtk.Label(label="", xalign=0, wrap=True, selectable=True)
+        sec.append(self.lbl_weapon)
+        _help(sec, "Importa cualquier STL como arma de la línea: se escala (por defecto, 0,40 × la altura de la línea), le elegís con 3 clics el "
+                   "plano que corta el mango original y el programa le pone la empuñadura dentada que encaja en la mano con agarre del catálogo "
+                   "abierto. El resultado se ve encima del arma (translúcida). Con «Guardar» queda en el catálogo como pieza «accesorio» "
+                   "y se puede elegir para cualquier figura de la línea. Si el mango queda más grueso que el vástago, imprimila con soporte bajo el vástago.")
+
+        sec = _collapsible(box, "Accesorios que viajan con la figura", expanded=False)
+        self.box_proj_acc = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        sec.append(self.box_proj_acc)
+        self._acc_sig = None
+        _help(sec, "Armas y accesorios del catálogo que acompañan a esta figura: al exportar salen como STL aparte en piezas/ (listos para imprimir) y "
+                   "dentro del ensamblado, al lado de la figura. Quedan guardados en el .proyecto. No se pegan en el puño. Cada uno dice si se sujeta "
+                   "en la mano pegada de esta figura.")
+
         sec = _collapsible(box, "Cabeza")
         self.btn_neck = self._button("Agregar plano del cuello / cabeza (3 puntos)", lambda *_: self.ctrl.start_neck_plane())
         self.btn_head_stl = self._button("Cabeza de reemplazo (STL)…", self._on_head_replacement)
@@ -775,6 +827,26 @@ exportar; tarda un poco más.")
             txt = ctrl.grip_summary()
             if self.lbl_grip.get_text() != txt:           # no pisar la selección del texto en cada refresco
                 self.lbl_grip.set_text(txt)
+            ws = ctrl.weapon
+            has_w = ws is not None and ws.loaded
+            free = has_w and not ctrl.busy
+            for wdg in (self.spin_weapon_len, self.spin_weapon_scale, self.btn_weapon_cut, self.chk_weapon_roll, self.ent_weapon_id,
+                        self.chk_weapon_ver):
+                wdg.set_sensitive(bool(free))
+            self.btn_weapon_open.set_sensitive(not ctrl.busy)
+            self.btn_weapon_flip.set_sensitive(bool(free and ws.spec.cut_points))
+            self.spin_weapon_roll.set_sensitive(bool(free and not self.chk_weapon_roll.get_active()))
+            self.btn_weapon_save.set_sensitive(bool(free and ws.build is not None))
+            self.btn_weapon_close.set_sensitive(bool(ctrl.weapon_active))
+            if has_w:
+                if abs(self.spin_weapon_len.get_value() - ws.length_mm) > 0.05:
+                    self.spin_weapon_len.set_value(ws.length_mm)
+                if abs(self.spin_weapon_scale.get_value() - ws.scale) > 1e-4 * max(1.0, ws.scale):
+                    self.spin_weapon_scale.set_value(ws.scale)
+            txt = ctrl.weapon_summary()
+            if self.lbl_weapon.get_text() != txt:
+                self.lbl_weapon.set_text(txt)
+            self._refill_project_accessories()
             if self.chk_grip_show.get_active() != ctrl.grip_show:
                 self.chk_grip_show.set_active(ctrl.grip_show)
             for key, spin in self.grip_spins.items():
@@ -1896,6 +1968,39 @@ exportar; tarda un poco más.")
 
     def _on_open_project(self, *_):
         self._pick_file("Abrir proyecto", ["*.proyecto", "*.json"], "Proyectos", self._open_project_path)
+
+    def _on_weapon_open(self, *_):
+        self._pick_file("Arma (STL)", ["*.stl"], "Archivos STL", lambda path: self.ctrl.open_weapon(path))
+
+    def _on_weapon_roll(self) -> None:
+        self.ctrl.set_weapon_roll(None if self.chk_weapon_roll.get_active() else self.spin_weapon_roll.get_value())
+
+    def _on_weapon_save(self, *_):
+        self.ctrl.save_weapon(self.ent_weapon_id.get_text().strip() or None, self.chk_weapon_ver.get_active())
+
+    def _refill_project_accessories(self) -> None:
+        """Una casilla por accesorio del catálogo, marcada con cómo se lleva con la mano pegada; solo se rehace si algo cambió."""
+        ctrl = self.ctrl
+        metas = ctrl.accessory_pieces()
+        labels = ctrl.project_accessory_labels() if metas else {}
+        chosen = {a.pieza for a in ctrl.session.project.accesorios}
+        sig = (tuple((m.ref, labels.get(m.ref, ""), m.ref in chosen) for m in metas), bool(ctrl.busy))
+        if sig == self._acc_sig:
+            return
+        self._acc_sig = sig
+        while (child := self.box_proj_acc.get_first_child()) is not None:
+            self.box_proj_acc.remove(child)
+        if not metas:
+            lbl = Gtk.Label(label="El catálogo abierto no tiene accesorios: importá un arma arriba.", xalign=0, wrap=True)
+            lbl.add_css_class("dim-label")
+            self.box_proj_acc.append(lbl)
+        for m in metas:
+            text = m.ref + (f" — {labels[m.ref]}" if labels.get(m.ref) else "")
+            chk = Gtk.CheckButton(label=text)
+            chk.set_active(m.ref in chosen)
+            chk.set_sensitive(not ctrl.busy)
+            chk.connect("toggled", lambda b, r=m.ref: None if self._updating else self.ctrl.set_project_accessory(r, b.get_active()))
+            self.box_proj_acc.append(chk)
 
     def _on_grip_pick(self, *_):
         self._pick_file("Mano estándar (STL)", ["*.stl"], "Archivos STL", self._grip_task)

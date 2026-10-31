@@ -188,9 +188,10 @@ class Catalog:
         meta, mesh = P.piece_from_standard_hand(stl_path, piece_id)
         return self.add_piece(mesh, meta, new_version)
 
-    def add_accessory(self, mesh, piece_id: str, agarre: dict, new_version: bool = False, descripcion: str = "", figura: str = ""):
-        """Guarda una pieza `accesorio` con su agarre (ver `parts.piece_accessory`)."""
-        meta, mesh = P.piece_accessory(mesh, piece_id, agarre, descripcion, figura)
+    def add_accessory(self, mesh, piece_id: str, agarre: dict, new_version: bool = False, descripcion: str = "", figura: str = "",
+                      extra: dict | None = None):
+        """Guarda una pieza `accesorio` con su agarre (ver `parts.piece_accessory`); `extra` suma claves al mecanismo (p. ej. «arma»)."""
+        meta, mesh = P.piece_accessory(mesh, piece_id, agarre, descripcion, figura, extra=extra)
         return self.add_piece(mesh, meta, new_version)
 
     def list(self, tipo: str | None = None, tag: str | None = None, state: str | None = None,
@@ -395,6 +396,8 @@ class Catalog:
                 continue
             if path.endswith(".receta.json"):
                 slots = {k: v for k, v in (data.get("lugares") or {}).items()}
+                for i, acc in enumerate(data.get("accesorios") or []):      # los accesorios que acompañan a la figura
+                    slots[f"accesorio{i + 1}"] = acc
             else:                       # proyecto: `parts` (Fase 5) = {lugar: {id, version, …}}
                 slots = {k: ((f"{v['id']}@{v['version']}" if v.get("version") is not None else v["id"])
                              if isinstance(v, dict) and "id" in v else None)

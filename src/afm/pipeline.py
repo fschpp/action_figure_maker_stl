@@ -1459,14 +1459,36 @@ def parts_list_markdown(lst: dict) -> str:
         rows.append(f"| {lugar} | {r['pieza']} | {r.get('origen') or '-'} | {r.get('compat') or '-'} | `{(r.get('sha256') or '')[:12]}` |")
     out = [f"# Lista de piezas: {lst['figura']}", "", *rows]
     notes = [(lugar, a) for lugar, r in lst["piezas"].items() for a in r["avisos"]]
+    acc = lst.get("accesorios") or []
+    if acc:
+        out += ["", "## Accesorios", "", "| Accesorio | Archivo | Mano de la figura | sha256 |", "|---|---|---|---|"]
+        out += [f"| {a['pieza']} | `{a['archivo']}` | {a.get('compat') or '-'} | `{(a.get('sha256') or '')[:12]}` |" for a in acc]
+        notes += [(a["pieza"], x) for a in acc for x in list(a.get("motivos") or []) + list(a.get("avisos") or [])]
     if notes:
         out += ["", "## Avisos", *[f"- **{lugar}**: {a}" for lugar, a in notes]]
     return "\n".join(out) + "\n"
 
 
+def attach_accessories_to_parts_list(outdir: str, name: str, accesorios: list[dict]) -> bool:
+    """Agrega los accesorios a la lista de piezas ya escrita por `export` (JSON y Markdown). False si no hay lista."""
+    import json
+
+    path = os.path.join(outdir, f"{name}_lista_de_piezas.json")
+    if not accesorios or not os.path.isfile(path):
+        return False
+    with open(path, encoding="utf-8") as fh:
+        lst = json.load(fh)
+    lst["accesorios"] = accesorios
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(lst, fh, ensure_ascii=False, indent=2)
+    with open(os.path.join(outdir, f"{name}_lista_de_piezas.md"), "w", encoding="utf-8") as fh:
+        fh.write(parts_list_markdown(lst))
+    return True
+
+
 def export(res: BuildResult, outdir: str, name: str = "figura", orient: bool | str = False,
            max_angle: float = 45.0, extra_tilts=(0.0,), flat: float | None = None, params: Params | None = None,
-           progress=None) -> dict:
+           progress=None, extras=None) -> dict:
     """Escribe el ensamblado y un STL por parte. Con `orient=True` apoya todo el conjunto en la cama en la pose de
     la vista previa (sentada, cabeza arriba); con `orient="auto"` lo gira a la orientación de menor voladizo.
     En ambos casos informa la orientación. Con `flat` (altura del corte en mm sobre la cola; `Params.flat_depth`) antes se aplana la base y se
@@ -1504,6 +1526,11 @@ def export(res: BuildResult, outdir: str, name: str = "figura", orient: bool | s
         meshes.append(tm)
     say("Escribiendo la figura ensamblada…")
     asm = trimesh.util.concatenate(meshes)
+    if extras:                      # accesorios (armas): al lado de la figura, en el mismo archivo; sus STL propios los escribe quien llama
+        from .accessories import place_beside
+
+        asm = trimesh.util.concatenate([asm] + place_beside(asm, list(extras)))
+        info["accesorios_en_ensamblada"] = len(extras)
     asm.export(os.path.join(outdir, f"{name}_ensamblada.stl"))
     info.update({"ensamblada": f"{name}_ensamblada.stl", "piezas": sorted(res.pieces)})
     say("Escribiendo la lista de piezas…")

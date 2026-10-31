@@ -56,6 +56,22 @@ afm catalogo importar-accesorio RUTA espada.stl --largo-canal 10.1 --taladro 2.4
 afm catalogo listar RUTA --compatible-con mano-guemes-agarre-01    # qué accesorios se sujetan en esa mano (y al revés)
 ```
 
+Armas propias (cualquier STL → arma de la línea, con la empuñadura que ya sabemos que encaja; `src/afm/weapon.py`):
+
+```bash
+# 1) escalar (--largo MM o --escala F; por defecto 0,40 × la altura de la línea) y 2) cortar el mango original por un plano de 3 puntos
+#    (coordenadas del STL original; con el signo igual para que un primer número negativo no se tome por opción) y ponerle la empuñadura
+afm catalogo importar-arma RUTA excalibur.stl --corte=44,0,0;44,1,0;44,0,1 --largo 51 --id excalibur-01
+# 3) queda como pieza «accesorio» de la línea (con la mano con agarre más reciente del catálogo; --mano REF para otra)
+afm catalogo listar RUTA --tipo accesorio
+# 4) viaja con la figura: receta con "accesorios": ["excalibur-01"] (afm armar) o el proyecto de la ventana principal
+```
+
+En la ventana principal: sección «Arma (accesorio)» (importar el STL, largo/escala, plano de corte con 3 clics, invertir lado, giro, guardar en el
+catálogo abierto) y sección «Accesorios que viajan con la figura» (casillas con los accesorios del catálogo). Al exportar, el arma sale como STL
+aparte en `piezas/<figura>_<id>.stl` (acostada, lista para imprimir) y TAMBIÉN dentro de `<figura>_ensamblada.stl`, a la derecha de la figura y a
+la altura de su cama, con 10 mm de separación; no va en el puño. Los `.proyecto` y las recetas la guardan como referencia al catálogo (ruta + id@versión + sha256).
+
 En el catálogo, la mano con agarre es una pieza `mano` y el arma una pieza `accesorio`; el agarre (Ø del taladro, canal, vástago, dentado…) va en
 `mecanismo.agarre` de cada una y `afm catalogo verificar` lo comprueba. La compatibilidad es barata (solo metadatos): Ø del taladro, vástago,
 dentado que retiene, deformación de la lengüeta, hombro del dentado contra el largo del canal y contorno de apoyo.
@@ -72,6 +88,10 @@ afm catalogo verificar RUTA
 # «Armar y exportar» (y `afm armar`) escribe además `<figura>.proyecto`: se abre en la ventana principal SIN el STL (el cuerpo base sale del
 # catálogo de la línea y la figura se ve por partes); si el catálogo cambió de carpeta, la ventana pide dónde está.
 # Las tareas largas (armar, generar, exportar, abrir STL) muestran una barra con porcentaje, tareas pendientes y tiempo estimado.
+# Accesorios que acompañan a la figura: la receta admite «accesorios»: ["espada-prueba-01@1"] (piezas `accesorio` del catálogo; en la GUI,
+# sección «Accesorios que acompañan a la figura» de «Armar desde catálogo»). `afm armar` los escribe aparte en piezas/<figura>_<id>.stl (apoyados en la
+# cama, mm reales), los suma a <figura>_lista_de_piezas.{json,md} y al informe con su compatibilidad con la mano de la figura; NO van en el
+# ensamblado ni en el puño. Un accesorio que «no se sujeta» en esa mano (sin taladro, o Ø distinto) igual la acompaña, con aviso.
 afm catalogo eliminar RUTA pierna-belgrano-01@1 brazo-belgrano-01@1 [--buscar DIR] [--si]   # borra versiones (id@n) del disco; avisa quién las usa
 ```
 

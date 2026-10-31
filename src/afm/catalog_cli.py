@@ -49,6 +49,22 @@ def add_parsers(sub) -> None:
     a.add_argument("stl")
     a.add_argument("--id", default=None)
     a.add_argument("--nueva-version", action="store_true", help="si el id ya existe, guardar la versión siguiente")
+    a = cs.add_parser("importar-arma", help="importar un STL cualquiera como arma de la línea: lo escala, le corta el mango por un plano y le pone la empuñadura dentada que encaja en la mano con agarre del catálogo")
+    root(a)
+    a.add_argument("stl", help="STL del arma, en cualquier orientación y unidad")
+    a.add_argument("--corte", metavar="X,Y,Z;X,Y,Z;X,Y,Z", required=True,
+                   help="3 puntos del plano de corte, en coordenadas del STL original (sin escalar), separados por «;» y con el signo igual "
+                        "(--corte=-3,0,1;...) para que un primer número negativo no se tome por opción; el lado hacia el que apunta la normal "
+                        "(1→2 × 1→3) se descarta: es el mango")
+    g = a.add_mutually_exclusive_group()
+    g.add_argument("--escala", type=float, help="factor sobre las unidades del STL")
+    g.add_argument("--largo", type=float, help="largo (mm) de la dimensión mayor del arma; por defecto 0,40 × la altura de la línea")
+    a.add_argument("--invertir", action="store_true", help="descartar el otro lado del plano")
+    a.add_argument("--giro", type=float, default=None, help="giro (°) sobre el eje de la empuñadura; por defecto el que deja el arma más baja")
+    a.add_argument("--mano", default=None, help="mano con agarre para la que se arma (por defecto, la más reciente con agarre)")
+    a.add_argument("--id", default=None)
+    a.add_argument("--descripcion", default="")
+    a.add_argument("--nueva-version", action="store_true")
     a = cs.add_parser("importar-accesorio", help="importar un accesorio (arma, herramienta…) con empuñadura dentada como pieza «accesorio»: STL en el marco del accesorio + los datos de su agarre")
     root(a)
     a.add_argument("stl", help="STL cerrado: eje de la empuñadura = +X, origen en la cara de la guarda que mira a la mano (ver props.py)")
@@ -191,6 +207,30 @@ def _run(args) -> int:
         for e in res.errors:
             print(f"ERROR: {e}", file=sys.stderr)
         return 0 if not res.errors else 2
+    if cmd == "importar-arma":
+        from . import weapon as WP
+        try:
+            pts = tuple(tuple(float(x) for x in q.split(",")) for q in args.corte.split(";"))
+            if len(pts) != 3 or any(len(q) != 3 for q in pts):
+                raise ValueError("el corte son tres puntos separados por «;», cada uno con tres números X,Y,Z")
+            raw = WP.load_weapon_mesh(args.stl)
+            if args.escala is not None:
+                scale = args.escala
+            else:
+                scale = WP.scale_for_length(raw, args.largo if args.largo else WP.suggest_length(cat.height_mm))
+            mesh = WP.load_weapon_mesh(args.stl, scale)
+            spec = WP.WeaponSpec(args.stl, scale, pts, flip=args.invertir, roll=args.giro)
+            meta, warns = WP.add_weapon_to_catalog(cat, mesh, spec, args.mano, args.id, args.nueva_version, args.descripcion)
+        except (WP.WeaponError, ValueError) as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
+        print(f"Arma guardada como {meta.ref} (×{scale:.4g}; {meta.volumen_mm3:.0f} mm³; para la mano {meta.mecanismo['arma']['mano']})")
+        print("  medidas:", meta.mecanismo["arma"]["medidas"]["dimensiones_mm"], "mm")
+        for w in warns:
+            print("AVISO:", w)
+        for other, c in cat.compatible_grips(meta.ref):
+            print(f"  se sujeta en {other.ref}: {c.nivel}")
+        return 0
     if cmd == "importar-accesorio":
         from .props import GripSpec, accessory_grip
         mesh = P.load_mesh(args.stl)
