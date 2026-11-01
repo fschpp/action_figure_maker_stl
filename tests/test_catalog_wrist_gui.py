@@ -50,9 +50,9 @@ def S_doll():
     return S.to_manifold(make_doll())
 
 
-def widget_xy(cutter, world, yaw_off=0.0, pitch_off=0.0):
+def widget_xy(cutter, world, yaw_off=0.0, pitch_off=0.0, zoom=1.0, pan=(0.0, 0.0)):
     """Dónde hay que hacer clic en el widget para tocar el punto `world` (inversa de lo que hace `pick_at`)."""
-    cam = CM.preview_camera(CM.view_bounds(cutter.mesh, cutter.meta), IMG[0] / IMG[1], yaw_off, pitch_off)
+    cam = CM.preview_camera(CM.view_bounds(cutter.mesh, cutter.meta), IMG[0] / IMG[1], yaw_off, pitch_off, zoom, pan)
     px, py, _ = cam.project(world, *IMG)[0]
     k = min(WIDGET[0] / IMG[0], WIDGET[1] / IMG[1])
     return (WIDGET[0] - IMG[0] * k) / 2 + px * k, (WIDGET[1] - IMG[1] * k) / 2 + py * k
@@ -225,3 +225,71 @@ def test_preview_renderer_draws_marks_and_the_cut(cutter):
         assert green.sum() > 50                                                     # la mano, en verde
     finally:
         pr.close()
+
+
+# ---- zoom de la vista previa
+def test_zoom_scales_the_visible_size_and_defaults_do_not_change_the_view(cutter):
+    b = CM.view_bounds(cutter.mesh, cutter.meta)
+    base = CM.preview_camera(b, 1.3)
+    assert CM.preview_camera(b, 1.3, 0, 0, 1.0, (0.0, 0.0)).distance == pytest.approx(base.distance)
+    assert CM.preview_camera(b, 1.3, zoom=2.0).distance == pytest.approx(base.distance / 2)
+    assert CM.preview_camera(b, 1.3, zoom=1e6).distance == pytest.approx(base.distance / CM.ZOOM_MAX)     # tope
+
+
+def test_zoom_about_keeps_the_point_under_the_cursor_fixed(cutter):
+    b = CM.view_bounds(cutter.mesh, cutter.meta)
+    aspect = IMG[0] / IMG[1]
+    u, v = 0.3, -0.2                                              # cursor, en alturas de imagen desde el centro
+    z, pan = 1.5, (0.1, -0.05)
+
+    def world_under(zoom, pn):
+        cam = CM.preview_camera(b, aspect, zoom=zoom, pan=pn)
+        o, d = cam.ray(IMG[0] / 2 + u * IMG[1], IMG[1] / 2 - v * IMG[1], *IMG)
+        return o + d * np.dot(np.asarray(cam.target) - o, d)       # ortográfica: el rayo es paralelo al eje, vale cualquier plano
+
+    z2, pan2 = CM.zoom_about(z, pan, 1.25, u, v)
+    assert z2 == pytest.approx(1.875)
+    p1, p2 = world_under(z, pan), world_under(z2, pan2)
+    cam = CM.preview_camera(b, aspect)
+    right, up = cam.view()[0, :3], cam.view()[1, :3]
+    assert np.dot(p1 - p2, right) == pytest.approx(0.0, abs=1e-6) and np.dot(p1 - p2, up) == pytest.approx(0.0, abs=1e-6)
+
+
+def test_zoom_limits():
+    z, _ = CM.zoom_about(1.0, (0, 0), 1e9)
+    assert z == CM.ZOOM_MAX
+    z, _ = CM.zoom_about(1.0, (0, 0), 1e-9)
+    assert z == CM.ZOOM_MIN
+
+
+def test_clicks_follow_the_zoomed_and_panned_view(cutter):
+    """Con zoom y movimiento la cámara cambia: el clic tiene que usar la misma que el dibujo."""
+    view = {"zoom": 4.0, "pan": (0.05, -0.1)}
+    pts = ring_points(cutter)
+    # centrar la vista en la muñeca para que los puntos queden dentro de la imagen
+    b = CM.view_bounds(cutter.mesh, cutter.meta)
+    cam0 = CM.preview_camera(b, IMG[0] / IMG[1])
+    c = np.mean(pts, axis=0) - np.asarray(cam0.target)
+    right, up = cam0.view()[0, :3], cam0.view()[1, :3]
+    h = 2 * cam0.distance * np.tan(np.radians(cam0.fov) / 2)
+    view["pan"] = (float(np.dot(c, right) / h), float(np.dot(c, up) / h))
+    for i, t in enumerate(pts):
+        x, y = widget_xy(cutter, t, **view)
+        assert 0 <= x <= WIDGET[0] and 0 <= y <= WIDGET[1]
+        cutter.pick_at(x, y, WIDGET, IMG, **view)
+        assert np.allclose(cutter.points[-1], t, atol=1e-3)
+    assert cutter.complete
+
+
+def test_render_with_zoom_shows_a_bigger_piece(cutter):
+    pytest.importorskip("moderngl")
+    r = CM.PreviewRenderer()
+    if r._ensure() is None:
+        pytest.skip("sin EGL")
+    try:
+        a = r.render(cutter.mesh, cutter.meta)
+        z = r.render(cutter.mesh, cutter.meta, zoom=2.0)
+    finally:
+        r.close()
+    bg = a[0, 0]
+    assert (np.any(a != bg, axis=2)).sum() < (np.any(z != bg, axis=2)).sum()

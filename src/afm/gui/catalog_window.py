@@ -15,6 +15,7 @@ from gi.repository import Gdk, GLib, Gtk, Pango  # noqa: E402
 
 from .catalog_manager import (ALL_TYPES, CatalogManager, PreviewRenderer, WristCutter, can_cut_wrist, detail_text,  # noqa: E402
                               matches, row_text)
+from .catalog_manager import ZOOM_STEP, zoom_about  # noqa: E402
 from .catalog_manager import view_bounds as CM_view_bounds  # noqa: E402
 
 CLICK_MAX_PX = 4.0          # un arrastre más corto que esto es un clic (marca un punto); más largo gira la vista
@@ -33,6 +34,10 @@ class CatalogManagerWindow(Gtk.Window):
         self._dyaw = 0.0
         self._dpitch = 0.0
         self._drag0 = (0.0, 0.0)
+        self._zoom = 1.0
+        self._cursor = (0.0, 0.0)
+        self._pan = (0.0, 0.0)
+        self._pan0 = (0.0, 0.0)
         self._press = (0.0, 0.0)              # dónde empezó el último arrastre (widget): si fue un clic, ahí se marca un punto
         self._img_size = (self.preview.width, self.preview.height)
         self._cutter: WristCutter | None = None      # modo «Cortar la mano…» (None = no está activo)
@@ -100,17 +105,32 @@ class CatalogManagerWindow(Gtk.Window):
         drag.connect("drag-update", self._on_drag)
         drag.connect("drag-end", self._on_drag_end)
         self.picture.add_controller(drag)
+        pan = Gtk.GestureDrag(button=0)                       # botón derecho o central: mover la vista
+        pan.connect("drag-begin", self._on_pan_begin)
+        pan.connect("drag-update", self._on_pan)
+        self.picture.add_controller(pan)
+        wheel = Gtk.EventControllerScroll(flags=Gtk.EventControllerScrollFlags.VERTICAL)
+        wheel.connect("scroll", self._on_scroll)
+        self.picture.add_controller(wheel)
+        motion = Gtk.EventControllerMotion()
+        motion.connect("motion", lambda _c, x, y: setattr(self, "_cursor", (x, y)))
+        self.picture.add_controller(motion)
         frame = Gtk.Frame()
         frame.set_child(self.picture)
         box.append(frame)
 
         bar = Gtk.Box(spacing=6)
         reset = Gtk.Button(label="Vista 3/4")
-        reset.set_tooltip_text("Vuelve a la vista 3/4. Arrastrar con el ratón gira la pieza; los puntos naranjas son los puertos. "
+        reset.set_tooltip_text("Vuelve a la vista 3/4 y sin zoom. Arrastrar con el ratón gira la pieza, la rueda acerca o aleja y el botón derecho la mueve; los puntos naranjas son los puertos. "
                                "Con «Cortar la mano…» activo, un clic marca un punto de la muñeca.")
         reset.connect("clicked", self._on_reset_view)
         bar.append(reset)
-        bar.append(Gtk.Label(label="Arrastrá para girar · naranja = puertos de unión", xalign=0, hexpand=True))
+        for txt, tip, fac in (("−", "Alejar (también la rueda del ratón)", 1 / ZOOM_STEP), ("+", "Acercar (también la rueda del ratón)", ZOOM_STEP)):
+            b = Gtk.Button(label=txt)
+            b.set_tooltip_text(tip)
+            b.connect("clicked", lambda _b, f=fac: self._zoom_by(f))
+            bar.append(b)
+        bar.append(Gtk.Label(label="Arrastrá para girar · rueda = zoom · botón derecho = mover · naranja = puertos", xalign=0, hexpand=True))
         self.btn_wrist = Gtk.Button(label="Cortar la mano…")
         self.btn_wrist.set_sensitive(False)
         self.btn_wrist.connect("clicked", self._on_wrist_start)
@@ -190,6 +210,7 @@ class CatalogManagerWindow(Gtk.Window):
             return
         self._cutter = WristCutter(self.ctrl, meta, mesh)
         self._dyaw = self._dpitch = 0.0
+        self._zoom, self._pan = 1.0, (0.0, 0.0)
         self.ent_hand_id.set_text("")
         self.ent_hand_id.set_placeholder_text(self._cutter.default_hand_id())
         self.chk_hand_new.set_active(False)
@@ -373,6 +394,7 @@ class CatalogManagerWindow(Gtk.Window):
     def _show(self, meta) -> None:
         """Pone `meta` (o nada) en la vista previa, en vista 3/4."""
         self._dyaw = self._dpitch = 0.0
+        self._zoom, self._pan = 1.0, (0.0, 0.0)
         self._shown = None
         if meta is None:
             self.preview.clear()
@@ -395,9 +417,11 @@ class CatalogManagerWindow(Gtk.Window):
         try:
             if c is not None and c.preview_parts() is not None:          # corte calculado: brazo sin mano en gris y la mano en verde
                 img = self.preview.render_parts(c.preview_parts(), self._dyaw, self._dpitch, c.marks(),
+                                                zoom=self._zoom, pan=self._pan,
                                                 bounds=CM_view_bounds(mesh, meta))      # mismo encuadre que antes del corte: la vista no salta
             else:
-                img = self.preview.render(mesh, meta, self._dyaw, self._dpitch, c.marks() if c is not None else None)
+                img = self.preview.render(mesh, meta, self._dyaw, self._dpitch, c.marks() if c is not None else None,
+                                          zoom=self._zoom, pan=self._pan)
         except Exception as exc:                               # noqa: BLE001  (sin EGL: el resto de la ventana sigue andando)
             self.picture.set_paintable(None)
             self.lbl_status.set_text(f"La vista previa 3D no está disponible: {exc}")
@@ -418,7 +442,8 @@ class CatalogManagerWindow(Gtk.Window):
         if c is None or (dx * dx + dy * dy) ** 0.5 > CLICK_MAX_PX or self._shown is None:
             return
         x, y = self._press[0] + dx, self._press[1] + dy
-        c.pick_at(x, y, (float(self.picture.get_width()), float(self.picture.get_height())), self._img_size, self._dyaw, self._dpitch)
+        c.pick_at(x, y, (float(self.picture.get_width()), float(self.picture.get_height())), self._img_size, self._dyaw, self._dpitch,
+                    self._zoom, self._pan)
         self._wrist_refresh()
 
     def _on_drag(self, _g, dx: float, dy: float) -> None:
@@ -427,8 +452,42 @@ class CatalogManagerWindow(Gtk.Window):
         self._dpitch = p0 + dy * 0.4
         self._redraw()
 
+    def _on_pan_begin(self, _g, _x: float, _y: float) -> None:
+        self._pan0 = self._pan
+
+    def _on_pan(self, g, dx: float, dy: float) -> None:
+        if g.get_current_button() == 1:                        # el izquierdo ya gira
+            return
+        h = self._image_height_px()
+        if h:
+            z = self._zoom
+            self._pan = (self._pan0[0] - dx / h / z, self._pan0[1] + dy / h / z)
+            self._redraw()
+
+    def _image_height_px(self) -> float:
+        """Alto (en píxeles del widget) con que se ve la imagen (CONTAIN)."""
+        ww, wh = float(self.picture.get_width()), float(self.picture.get_height())
+        iw, ih = self._img_size
+        return ih * min(ww / iw, wh / ih) if iw and ih and ww and wh else 0.0
+
+    def _on_scroll(self, _c, _dx: float, dy: float) -> bool:
+        self._zoom_by(ZOOM_STEP ** (-1 if dy > 0 else 1), at_cursor=True)
+        return True
+
+    def _zoom_by(self, factor: float, at_cursor: bool = False) -> None:
+        """Acerca / aleja; con la rueda, el punto bajo el cursor se queda donde está."""
+        u = v = 0.0
+        h = self._image_height_px()
+        if at_cursor and h:
+            x, y = self._cursor
+            u = (x - self.picture.get_width() / 2) / h
+            v = (self.picture.get_height() / 2 - y) / h
+        self._zoom, self._pan = zoom_about(self._zoom, self._pan, factor, u, v)
+        self._redraw()
+
     def _on_reset_view(self, *_) -> None:
         self._dyaw = self._dpitch = 0.0
+        self._zoom, self._pan = 1.0, (0.0, 0.0)
         self._redraw()
 
     def _on_key(self, _ctl, keyval, _code, _state) -> bool:

@@ -26,12 +26,35 @@ def three_quarter_camera(bounds, aspect: float = 1.0) -> OrbitCamera:
     return cam
 
 
-def preview_camera(bounds, aspect: float = 1.0, yaw_off: float = 0.0, pitch_off: float = 0.0) -> OrbitCamera:
-    """La cámara 3/4 de la vista previa con la vista girada `yaw_off` / `pitch_off` (°). La usan el dibujo Y los clics: si
-    no fueran la misma cámara, el punto elegido no caería donde se hizo clic."""
+ZOOM_MIN, ZOOM_MAX = 0.5, 30.0
+ZOOM_STEP = 1.25
+
+
+def clamp_zoom(zoom: float) -> float:
+    return float(np.clip(zoom, ZOOM_MIN, ZOOM_MAX))
+
+
+def zoom_about(zoom: float, pan, factor: float, u: float = 0.0, v: float = 0.0) -> tuple[float, tuple[float, float]]:
+    """Nuevo (zoom, pan) tras multiplicar el zoom por `factor` dejando quieto el punto bajo el cursor.
+
+    `pan` = desplazamiento del centro (derecha, arriba) en alturas de la vista sin zoom; `u`, `v` = posición del cursor respecto
+    del centro de la imagen (derecha, arriba) en alturas de imagen (0, 0 = el centro). Con (0, 0) se acerca al centro."""
+    z2 = clamp_zoom(zoom * factor)
+    k = 1.0 / zoom - 1.0 / z2
+    return z2, (pan[0] + u * k, pan[1] + v * k)
+
+
+def preview_camera(bounds, aspect: float = 1.0, yaw_off: float = 0.0, pitch_off: float = 0.0,
+                   zoom: float = 1.0, pan=(0.0, 0.0)) -> OrbitCamera:
+    """La cámara 3/4 de la vista previa con la vista girada `yaw_off` / `pitch_off` (°), con `zoom` (1 = encuadre entero) y
+    `pan` (ver `zoom_about`). La usan el dibujo Y los clics: si no fueran la misma cámara, el punto elegido no caería donde
+    se hizo clic."""
     cam = three_quarter_camera(bounds, aspect)
     cam.yaw = (PREVIEW_YAW + yaw_off) % 360.0
     cam.pitch = float(np.clip(PREVIEW_PITCH + pitch_off, -89.0, 89.0))
+    if pan[0] or pan[1]:
+        cam.pan(-pan[0], pan[1], 1.0)                    # con el alto en 1, `pan` está en alturas de la vista sin zoom
+    cam.distance /= clamp_zoom(zoom)
     return cam
 
 
@@ -170,7 +193,8 @@ class PreviewRenderer:
         else:
             off.scene.remove("marcas")
 
-    def render(self, mesh, meta: PieceMeta | None = None, yaw_off: float = 0.0, pitch_off: float = 0.0, marks=None) -> np.ndarray:
+    def render(self, mesh, meta: PieceMeta | None = None, yaw_off: float = 0.0, pitch_off: float = 0.0, marks=None,
+               zoom: float = 1.0, pan=(0.0, 0.0)) -> np.ndarray:
         """Imagen RGBA (alto × ancho × 4, uint8) de `mesh` en vista 3/4; `yaw_off` / `pitch_off` giran la vista (°).
         `marks`: puntos (Nx3) a marcar encima, p. ej. los de la muñeca."""
         off = self._ensure()
@@ -186,9 +210,10 @@ class PreviewRenderer:
                     off.scene.set_lines("ejes", segs, self.PORT_COLOR, on_top=True)
                 self._mesh = mesh
             self._marks(off, marks)
-            return off.render(preview_camera(view_bounds(mesh, meta), off.width / off.height, yaw_off, pitch_off))
+            return off.render(preview_camera(view_bounds(mesh, meta), off.width / off.height, yaw_off, pitch_off, zoom, pan))
 
-    def render_parts(self, parts, yaw_off: float = 0.0, pitch_off: float = 0.0, marks=None, bounds=None) -> np.ndarray:
+    def render_parts(self, parts, yaw_off: float = 0.0, pitch_off: float = 0.0, marks=None, bounds=None,
+                     zoom: float = 1.0, pan=(0.0, 0.0)) -> np.ndarray:
         """Imagen RGBA de varias piezas juntas, cada una con su color: `parts` = [(nombre, malla, color RGBA)]. `bounds` (2x3) fija el
         encuadre (por defecto, el de las piezas juntas). Si `parts` es el
         mismo objeto de la llamada anterior no se vuelve a subir a la GPU (arrastrar para girar solo mueve la cámara)."""
@@ -208,7 +233,7 @@ class PreviewRenderer:
                 hi = np.max([np.asarray(m.bounds, float)[1] for _n, m, _c in parts], axis=0)
                 bounds = np.array([lo, hi])
             self._marks(off, marks)
-            return off.render(preview_camera(bounds, off.width / off.height, yaw_off, pitch_off))
+            return off.render(preview_camera(bounds, off.width / off.height, yaw_off, pitch_off, zoom, pan))
 
     def clear(self) -> None:
         """Suelta la malla de la GPU (cuando ya no hay nada elegido)."""
@@ -330,7 +355,8 @@ class WristCutter:
         return txt + ("  Avisos: " + "; ".join(p.warnings) if p.warnings else "")
 
     # ---- clics
-    def pick_at(self, x: float, y: float, widget_size, image_size, yaw_off: float = 0.0, pitch_off: float = 0.0) -> str:
+    def pick_at(self, x: float, y: float, widget_size, image_size, yaw_off: float = 0.0, pitch_off: float = 0.0,
+                zoom: float = 1.0, pan=(0.0, 0.0)) -> str:
         """Clic en (x, y) del widget; `widget_size` e `image_size` = (ancho, alto). Devuelve el mensaje para mostrar."""
         if self.complete:
             return "Ya están los 3 puntos: «Deshacer el último punto» para cambiar uno."
@@ -338,7 +364,7 @@ class WristCutter:
         hit = widget_to_image(x, y, widget_size[0], widget_size[1], img_w, img_h)
         if hit is None:
             return "Ese clic cayó fuera de la imagen. " + self.message()
-        cam = preview_camera(view_bounds(self.mesh, self.meta), img_w / img_h, yaw_off, pitch_off)
+        cam = preview_camera(view_bounds(self.mesh, self.meta), img_w / img_h, yaw_off, pitch_off, zoom, pan)
         origin, direction = cam.ray(hit[0], hit[1], img_w, img_h)
         if self._picker is None:
             self._picker = Picker(self.mesh)

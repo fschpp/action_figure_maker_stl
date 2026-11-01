@@ -85,6 +85,7 @@ afm catalogo agregar-stl RUTA pierna.stl --tipo pierna --puerto cadera x1 y1 z1 
 # brazo del catálogo con la mano pegada → versión nueva sin mano (puerto «muneca») + pieza «mano» aparte (el original no se toca):
 afm catalogo cortar-muneca RUTA brazo-guemes-01 --muneca x1 y1 z1 x2 y2 z2 x3 y3 z3   # punto 1 = lado del pulgar
 # en la GUI: «Administrar catálogo» → elegí el brazo → «Cortar la mano…» → 3 clics en la muñeca sobre la vista previa (el 1.º del lado del pulgar);
+# en la vista previa: arrastrar gira, la rueda (o − / +) acerca y aleja, el botón derecho mueve, «Vista 3/4» restablece.
 # se ve la mano en verde («Invertir lado» si es al revés), se elige el id de la mano y «Guardar». El brazo original no se toca.
 afm catalogo listar RUTA [--tipo mano] [--compatible-con brazo-01]
 afm catalogo verificar RUTA
