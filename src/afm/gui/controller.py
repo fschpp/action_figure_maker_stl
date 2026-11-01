@@ -2811,6 +2811,23 @@ class Controller:
         self._changed(msg, scene=bool(res["quitadas"]))
         return not res["errores"]
 
+    def catalog_cut_wrist(self, ref: str, points, invert: bool = False, hand_id: str | None = None, new_hand_version: bool = False):
+        """«Cortar la mano…» del gestor del catálogo: guarda el brazo `ref` sin mano (versión nueva) y la mano como pieza aparte.
+        Devuelve el `WristCut` o None si no se pudo (el motivo queda en el mensaje). No toca la figura abierta."""
+        if self.busy:
+            self._changed("Esperá a que termine la tarea en curso para cortar la mano.", scene=False)
+            return None
+        try:
+            res = self.session.catalog_wrist_cut(ref, points, invert, hand_id, new_hand_version)
+        except ValueError as e:
+            self._changed(f"No se cortó la mano: {e}", scene=False)
+            return None
+        msg = f"Brazo sin mano: {res.arm.ref}; mano: {res.hand.ref} (muñeca Ø{2 * res.wrist_radius_mm:.1f} mm). {res.from_ref} no se tocó."
+        if res.warnings:
+            msg += " Avisos: " + "; ".join(res.warnings)
+        self._changed(msg, scene=False)
+        return res
+
     def clear_hand(self) -> None:
         self._changed("Se vuelve a usar la mano original del modelo." if self.session.clear_hand()
                       else "No había mano de reemplazo.")

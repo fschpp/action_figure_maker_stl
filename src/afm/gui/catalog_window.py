@@ -13,7 +13,11 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gdk, GLib, Gtk, Pango  # noqa: E402
 
-from .catalog_manager import ALL_TYPES, CatalogManager, PreviewRenderer, detail_text, matches, row_text  # noqa: E402
+from .catalog_manager import (ALL_TYPES, CatalogManager, PreviewRenderer, WristCutter, can_cut_wrist, detail_text,  # noqa: E402
+                              matches, row_text)
+from .catalog_manager import view_bounds as CM_view_bounds  # noqa: E402
+
+CLICK_MAX_PX = 4.0          # un arrastre más corto que esto es un clic (marca un punto); más largo gira la vista
 
 
 class CatalogManagerWindow(Gtk.Window):
@@ -29,6 +33,9 @@ class CatalogManagerWindow(Gtk.Window):
         self._dyaw = 0.0
         self._dpitch = 0.0
         self._drag0 = (0.0, 0.0)
+        self._press = (0.0, 0.0)              # dónde empezó el último arrastre (widget): si fue un clic, ahí se marca un punto
+        self._img_size = (self.preview.width, self.preview.height)
+        self._cutter: WristCutter | None = None      # modo «Cortar la mano…» (None = no está activo)
 
         paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL, wide_handle=True)
         paned.set_start_child(self._build_list())
@@ -39,6 +46,9 @@ class CatalogManagerWindow(Gtk.Window):
         paned.set_shrink_end_child(False)
         self.set_child(paned)
         self.connect("destroy", lambda *_: self.preview.close())
+        win_keys = Gtk.EventControllerKey()
+        win_keys.connect("key-pressed", self._on_window_key)
+        self.add_controller(win_keys)
         self._reload()
 
     # ------------------------------------------------------------ construcción
@@ -86,8 +96,9 @@ class CatalogManagerWindow(Gtk.Window):
         self.picture = Gtk.Picture(content_fit=Gtk.ContentFit.CONTAIN, can_shrink=True, hexpand=True, vexpand=True)
         self.picture.set_size_request(360, 300)
         drag = Gtk.GestureDrag()
-        drag.connect("drag-begin", lambda *_: setattr(self, "_drag0", (self._dyaw, self._dpitch)))
+        drag.connect("drag-begin", self._on_drag_begin)
         drag.connect("drag-update", self._on_drag)
+        drag.connect("drag-end", self._on_drag_end)
         self.picture.add_controller(drag)
         frame = Gtk.Frame()
         frame.set_child(self.picture)
@@ -95,15 +106,21 @@ class CatalogManagerWindow(Gtk.Window):
 
         bar = Gtk.Box(spacing=6)
         reset = Gtk.Button(label="Vista 3/4")
-        reset.set_tooltip_text("Vuelve a la vista 3/4. Arrastrar con el ratón gira la pieza; los puntos naranjas son los puertos.")
+        reset.set_tooltip_text("Vuelve a la vista 3/4. Arrastrar con el ratón gira la pieza; los puntos naranjas son los puertos. "
+                               "Con «Cortar la mano…» activo, un clic marca un punto de la muñeca.")
         reset.connect("clicked", self._on_reset_view)
         bar.append(reset)
         bar.append(Gtk.Label(label="Arrastrá para girar · naranja = puertos de unión", xalign=0, hexpand=True))
+        self.btn_wrist = Gtk.Button(label="Cortar la mano…")
+        self.btn_wrist.set_sensitive(False)
+        self.btn_wrist.connect("clicked", self._on_wrist_start)
+        bar.append(self.btn_wrist)
         self.btn_delete = Gtk.Button(label="Eliminar…")
         self.btn_delete.add_css_class("destructive-action")
         self.btn_delete.connect("clicked", self._on_delete)
         bar.append(self.btn_delete)
         box.append(bar)
+        box.append(self._build_wrist_panel())
 
         self.lbl_detail = Gtk.Label(xalign=0, yalign=0, wrap=True, selectable=True)
         self.lbl_detail.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
@@ -114,6 +131,132 @@ class CatalogManagerWindow(Gtk.Window):
         self.lbl_status.add_css_class("dim-label")
         box.append(self.lbl_status)
         return box
+
+    # ------------------------------------------------------------ cortar la mano de un brazo
+    def _build_wrist_panel(self) -> Gtk.Widget:
+        """Panel del modo «Cortar la mano…» (oculto hasta que se activa)."""
+        self.wrist_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, visible=False)
+        self.lbl_wrist = Gtk.Label(xalign=0, wrap=True)
+        self.lbl_wrist.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        self.wrist_panel.append(self.lbl_wrist)
+        row = Gtk.Box(spacing=6)
+        self.btn_wrist_undo = Gtk.Button(label="Deshacer el último punto")
+        self.btn_wrist_undo.connect("clicked", self._on_wrist_undo)
+        self.btn_wrist_invert = Gtk.Button(label="Invertir lado")
+        self.btn_wrist_invert.set_tooltip_text("Si lo verde no es la mano sino el resto del brazo, toma el otro lado del plano como mano.")
+        self.btn_wrist_invert.connect("clicked", self._on_wrist_invert)
+        self.btn_wrist_cancel = Gtk.Button(label="Cancelar (Esc)")
+        self.btn_wrist_cancel.connect("clicked", lambda *_: self._wrist_cancel())
+        for b in (self.btn_wrist_undo, self.btn_wrist_invert, self.btn_wrist_cancel):
+            row.append(b)
+        self.wrist_panel.append(row)
+        row2 = Gtk.Box(spacing=6)
+        row2.append(Gtk.Label(label="Id de la mano:"))
+        self.ent_hand_id = Gtk.Entry(hexpand=True)
+        self.ent_hand_id.set_tooltip_text("Pieza «mano» que se guarda aparte. Si ya existe, tildá «versión nueva» o elegí otro id.")
+        row2.append(self.ent_hand_id)
+        self.chk_hand_new = Gtk.CheckButton(label="versión nueva si ya existe")
+        row2.append(self.chk_hand_new)
+        self.btn_wrist_save = Gtk.Button(label="Guardar")
+        self.btn_wrist_save.add_css_class("suggested-action")
+        self.btn_wrist_save.connect("clicked", self._on_wrist_save)
+        row2.append(self.btn_wrist_save)
+        self.wrist_panel.append(row2)
+        return self.wrist_panel
+
+    def _sync_wrist_button(self, refs: list[str]) -> None:
+        """«Cortar la mano…» se puede usar con UN brazo elegido que todavía tiene la mano pegada."""
+        ok, why = False, "Elegí un brazo de la lista."
+        if len(refs) == 1:
+            meta = next((m for _row, m in self._rows if m.ref == refs[0]), None)
+            ok, why = can_cut_wrist(meta)
+        elif len(refs) > 1:
+            why = "Elegí un solo brazo."
+        if ok and self.ctrl.busy:
+            ok, why = False, "Esperá a que termine la tarea en curso."
+        if ok and self._shown is None:
+            ok, why = False, "No hay vista previa de la pieza para marcar la muñeca."
+        self.btn_wrist.set_sensitive(ok and self._cutter is None)
+        self.btn_wrist.set_tooltip_text("Le corta la mano al brazo: tocás 3 puntos de la muñeca sobre la vista previa y se guarda una versión "
+                                        "nueva del brazo sin mano más la mano como pieza aparte (el brazo original no se toca)." if ok else why)
+
+    def _on_wrist_start(self, *_) -> None:
+        if self._shown is None or self._cutter is not None:
+            return
+        meta, mesh = self._shown
+        ok, why = can_cut_wrist(meta)
+        if not ok:
+            self.lbl_status.set_text(why)
+            return
+        self._cutter = WristCutter(self.ctrl, meta, mesh)
+        self._dyaw = self._dpitch = 0.0
+        self.ent_hand_id.set_text("")
+        self.ent_hand_id.set_placeholder_text(self._cutter.default_hand_id())
+        self.chk_hand_new.set_active(False)
+        self.wrist_panel.set_visible(True)
+        self.btn_wrist.set_sensitive(False)
+        self.btn_delete.set_sensitive(False)
+        self._wrist_refresh()
+
+    def _wrist_cancel(self, redraw: bool = True) -> None:
+        if self._cutter is None:
+            return
+        self._cutter = None
+        self.wrist_panel.set_visible(False)
+        self._sync_wrist_button(self._selected_refs())
+        self.btn_delete.set_sensitive(bool(self._selected_refs()) and not self.ctrl.busy)
+        if redraw:
+            self._redraw()
+
+    def _wrist_refresh(self) -> None:
+        """Texto, botones y dibujo según cuántos puntos hay y si el corte salió."""
+        c = self._cutter
+        if c is None:
+            return
+        self.lbl_wrist.set_text(c.message())
+        self.btn_wrist_undo.set_sensitive(bool(c.points))
+        self.btn_wrist_invert.set_sensitive(c.complete)
+        self.btn_wrist_save.set_sensitive(c.plan is not None)
+        self.ent_hand_id.set_sensitive(c.complete)
+        self.chk_hand_new.set_sensitive(c.complete)
+        self._redraw()
+
+    def _on_wrist_undo(self, *_) -> None:
+        if self._cutter is not None:
+            self._cutter.undo()
+            self._wrist_refresh()
+
+    def _on_wrist_invert(self, *_) -> None:
+        if self._cutter is not None:
+            self._cutter.toggle_invert()
+            self._wrist_refresh()
+
+    def _on_wrist_save(self, *_) -> None:
+        c = self._cutter
+        if c is None or self.ctrl.busy:
+            return
+        c.set_hand_id_and_recompute(self.ent_hand_id.get_text())         # el id puede haber cambiado desde que se vio el corte
+        if c.plan is None:
+            self._wrist_refresh()
+            return
+        res = c.save(self.chk_hand_new.get_active())
+        if res is None:                                                  # p. ej. el id de la mano ya existe: el motivo está en el mensaje
+            self.lbl_wrist.set_text(self.ctrl.message or "No se pudo guardar.")
+            return
+        self._wrist_cancel(redraw=False)
+        self._reload()
+        for row, m in self._rows:                                        # deja elegido SOLO el brazo nuevo para verlo
+            if m.ref == res.arm.ref:
+                self.listbox.unselect_all()
+                self.listbox.select_row(row)
+                break
+        self.lbl_status.set_text(self.ctrl.message or "")                # después: elegir otra pieza limpia el texto de estado
+
+    def _on_window_key(self, _ctl, keyval, _code, _state) -> bool:
+        if keyval == Gdk.KEY_Escape and self._cutter is not None:
+            self._wrist_cancel()
+            return True
+        return False
 
     # ------------------------------------------------------------ lista
     def _type_filter(self) -> str | None:
@@ -209,11 +352,14 @@ class CatalogManagerWindow(Gtk.Window):
             return
         refs = self._selected_refs()
         n = len(refs)
+        if self._cutter is not None and refs != [self._cutter.meta.ref]:        # eligió otra pieza: se sale del modo sin guardar nada
+            self._wrist_cancel(redraw=False)
         self.btn_delete.set_label("Eliminar…" if n == 0 else f"Eliminar {n} pieza(s)…")
-        self.btn_delete.set_sensitive(bool(n) and not self.ctrl.busy)
+        self.btn_delete.set_sensitive(bool(n) and not self.ctrl.busy and self._cutter is None)
         if n == 0:
             self.lbl_detail.set_text("Elegí una pieza de la lista para verla." if self._rows else "El catálogo no tiene piezas (todavía).")
             self._show(None)
+            self._sync_wrist_button(refs)
             return
         meta = next(m for _row, m in self._rows if m.ref == refs[0])
         text = detail_text(meta, self.mgr.uses(meta.ref))
@@ -222,6 +368,7 @@ class CatalogManagerWindow(Gtk.Window):
         self.lbl_detail.set_text(text)
         if self._shown is None or self._shown[0].ref != meta.ref:      # agregar una a la selección no redibuja la misma
             self._show(meta)
+        self._sync_wrist_button(refs)
 
     def _show(self, meta) -> None:
         """Pone `meta` (o nada) en la vista previa, en vista 3/4."""
@@ -244,16 +391,35 @@ class CatalogManagerWindow(Gtk.Window):
         if self._shown is None:
             return
         meta, mesh = self._shown
+        c = self._cutter
         try:
-            img = self.preview.render(mesh, meta, self._dyaw, self._dpitch)
+            if c is not None and c.preview_parts() is not None:          # corte calculado: brazo sin mano en gris y la mano en verde
+                img = self.preview.render_parts(c.preview_parts(), self._dyaw, self._dpitch, c.marks(),
+                                                bounds=CM_view_bounds(mesh, meta))      # mismo encuadre que antes del corte: la vista no salta
+            else:
+                img = self.preview.render(mesh, meta, self._dyaw, self._dpitch, c.marks() if c is not None else None)
         except Exception as exc:                               # noqa: BLE001  (sin EGL: el resto de la ventana sigue andando)
             self.picture.set_paintable(None)
             self.lbl_status.set_text(f"La vista previa 3D no está disponible: {exc}")
             return
         self.lbl_status.set_text("")
         h, w = img.shape[:2]
+        self._img_size = (w, h)
         data = GLib.Bytes.new(img.tobytes())
         self.picture.set_paintable(Gdk.MemoryTexture.new(w, h, Gdk.MemoryFormat.R8G8B8A8, data, w * 4))
+
+    def _on_drag_begin(self, _g, x: float, y: float) -> None:
+        self._drag0 = (self._dyaw, self._dpitch)
+        self._press = (x, y)
+
+    def _on_drag_end(self, _g, dx: float, dy: float) -> None:
+        """Un arrastre casi sin movimiento es un clic: con el modo «Cortar la mano…» activo, marca un punto de la muñeca."""
+        c = self._cutter
+        if c is None or (dx * dx + dy * dy) ** 0.5 > CLICK_MAX_PX or self._shown is None:
+            return
+        x, y = self._press[0] + dx, self._press[1] + dy
+        c.pick_at(x, y, (float(self.picture.get_width()), float(self.picture.get_height())), self._img_size, self._dyaw, self._dpitch)
+        self._wrist_refresh()
 
     def _on_drag(self, _g, dx: float, dy: float) -> None:
         y0, p0 = self._drag0
@@ -274,7 +440,7 @@ class CatalogManagerWindow(Gtk.Window):
     # ------------------------------------------------------------ eliminar
     def _on_delete(self, *_) -> None:
         refs = self._selected_refs()
-        if not refs or self.ctrl.busy:
+        if not refs or self.ctrl.busy or self._cutter is not None:
             return
         msg, detail = self.mgr.confirm_for(refs)
         dlg = Gtk.AlertDialog(message=msg, detail=detail, buttons=["Cancelar", "Eliminar"], cancel_button=0, default_button=0)

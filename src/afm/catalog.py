@@ -90,6 +90,21 @@ class WristCut:
     wrist_radius_mm: float
 
 
+@dataclass
+class WristPlan:
+    """Corte de muñeca calculado y todavía sin guardar (`Catalog.plan_wrist_cut`): para mirarlo antes de escribir."""
+
+    from_ref: str                  # brazo del que sale
+    arm_meta: P.PieceMeta          # brazo nuevo (sin mano, con puerto `muneca`); la versión la fija `add_piece`
+    hand_meta: P.PieceMeta
+    arm_mesh: object               # trimesh, marco de la pieza
+    hand_mesh: object              # trimesh, marco de la mano estándar (origen en la muñeca)
+    hand_world: object             # trimesh de la mano donde estaba en el brazo (para dibujar el corte)
+    warnings: list
+    hand_volume_mm3: float
+    wrist_radius_mm: float
+
+
 class Catalog:
     def __init__(self, root: str, line: dict):
         self.root = os.path.abspath(root)
@@ -200,18 +215,19 @@ class Catalog:
         meta, mesh = P.piece_from_standard_hand(stl_path, piece_id)
         return self.add_piece(mesh, meta, new_version)
 
-    def cut_wrist(self, ref: str, points, invert: bool = False, hand_id: str | None = None,
-                  new_hand_version: bool = False) -> "WristCut":
-        """Le corta la mano a un brazo que ya está en el catálogo (no se vuelve a necesitar la figura ni su `.proyecto`).
+    @staticmethod
+    def default_hand_id(arm_id: str) -> str:
+        """Id de la mano que sale de cortar un brazo: `brazo-guemes-01` → `mano-guemes-01` (como en `agregar`)."""
+        return f"mano-{re.sub(r'^brazo-', '', arm_id)}"
+
+    def plan_wrist_cut(self, ref: str, points, invert: bool = False, hand_id: str | None = None) -> "WristPlan":
+        """Calcula el corte de muñeca de un brazo del catálogo SIN escribir nada (la ventana lo muestra antes de guardar).
 
         `ref`: `id` o `id@n` de una pieza `brazo` sin puerto `muneca` (la mano pegada). `points`: 3 puntos de la muñeca en el
         marco de la pieza (el de la figura de origen: el mismo de `afm catalogo agregar --muneca`); si caen en el lado −X se
         espejan a +X. El punto 1 es la referencia de giro (siempre en el mismo lugar anatómico, p. ej. el lado del pulgar).
-
-        Las piezas son inmutables: el brazo original queda como está (las recetas que lo fijan por `id@n` siguen armando igual)
-        y se guarda una versión nueva SIN mano, con el puerto `muneca` (toma), más una pieza `mano` aparte (enchufe) en el
-        marco estándar. `hand_id`: id de la mano (por defecto `mano-<resto del id del brazo>`, como en `agregar`); si ya
-        existe hace falta `new_hand_version=True`. No se escribe nada hasta que el corte, las mallas y los puertos son válidos."""
+        `hand_id`: id de la mano (por defecto `mano-<resto del id del brazo>`, como en `agregar`). Que ese id ya exista no
+        se mira acá sino al guardar (`save_wrist_plan`): se puede mirar el corte y después elegir otro id."""
         import copy
 
         import numpy as np
@@ -227,11 +243,9 @@ class Catalog:
         if "muneca" in arm_meta.puertos:
             raise CatalogError(f"«{arm_meta.ref}» ya tiene el puerto «muneca» (ya está sin mano); elegí la versión con la mano pegada")
         later = [v for v in self.versions(arm_meta.id) if v > arm_meta.version]
-        pid = hand_id or f"mano-{re.sub(r'^brazo-', '', arm_meta.id)}"
+        pid = hand_id or self.default_hand_id(arm_meta.id)
         if not P.ID_RE.match(pid):
             raise CatalogError(f"id de mano inválido «{pid}»: minúsculas, números y guiones (p. ej. mano-guemes-01)")
-        if self.versions(pid) and not new_hand_version:
-            raise CatalogError(f"la mano «{pid}» ya existe (versiones {self.versions(pid)}): pasá otro id o pedí una versión nueva")
         if self.versions(pid) and self.meta(pid).tipo != "mano":
             raise CatalogError(f"«{pid}» es una pieza «{self.meta(pid).tipo}», no una mano")
 
@@ -278,10 +292,32 @@ class Catalog:
         for label, tm in (("brazo", rest), ("mano", hand_local)):
             if not tm.is_watertight:
                 raise CatalogError(f"el corte dejó la malla del {label} sin cerrar: no se guarda (probá otros 3 puntos de muñeca)")
-        hand_saved, w1 = self.add_piece(hand_local, hand_meta, new_version=bool(self.versions(pid)))
-        arm_saved, w2 = self.add_piece(rest, arm_new, new_version=True)
-        return WristCut(arm=arm_saved, hand=hand_saved, from_ref=arm_meta.ref, warnings=warnings + [w for w in dict.fromkeys(w1 + w2)],
-                        hand_volume_mm3=float(ws.hand_volume), wrist_radius_mm=float(ws.face_radius))
+        return WristPlan(from_ref=arm_meta.ref, arm_meta=arm_new, hand_meta=hand_meta, arm_mesh=rest, hand_mesh=hand_local,
+                         hand_world=S.to_trimesh(ws.hand), warnings=warnings, hand_volume_mm3=float(ws.hand_volume),
+                         wrist_radius_mm=float(ws.face_radius))
+
+    def save_wrist_plan(self, plan: "WristPlan", new_hand_version: bool = False) -> "WristCut":
+        """Guarda el resultado de `plan_wrist_cut`: la mano primero y el brazo nuevo después (versión siguiente del id). Si el id
+        de la mano ya existe hace falta `new_hand_version=True`; sin eso no se escribe nada."""
+        pid = plan.hand_meta.id
+        have = self.versions(pid)
+        if have and not new_hand_version:
+            raise CatalogError(f"la mano «{pid}» ya existe (versiones {have}): pasá otro id o pedí una versión nueva")
+        hand_saved, w1 = self.add_piece(plan.hand_mesh, plan.hand_meta, new_version=bool(have))
+        arm_saved, w2 = self.add_piece(plan.arm_mesh, plan.arm_meta, new_version=True)
+        return WristCut(arm=arm_saved, hand=hand_saved, from_ref=plan.from_ref,
+                        warnings=list(plan.warnings) + [w for w in dict.fromkeys(w1 + w2)],
+                        hand_volume_mm3=plan.hand_volume_mm3, wrist_radius_mm=plan.wrist_radius_mm)
+
+    def cut_wrist(self, ref: str, points, invert: bool = False, hand_id: str | None = None,
+                  new_hand_version: bool = False) -> "WristCut":
+        """Le corta la mano a un brazo que ya está en el catálogo (no se vuelve a necesitar la figura ni su `.proyecto`).
+
+        Las piezas son inmutables: el brazo original queda como está (las recetas que lo fijan por `id@n` siguen armando igual)
+        y se guarda una versión nueva SIN mano, con el puerto `muneca` (toma), más una pieza `mano` aparte (enchufe) en el
+        marco estándar. Ver `plan_wrist_cut` para los argumentos. Si el id de la mano ya existe hace falta `new_hand_version=True`.
+        No se escribe nada hasta que el corte, las mallas y los puertos son válidos."""
+        return self.save_wrist_plan(self.plan_wrist_cut(ref, points, invert, hand_id), new_hand_version)
 
     def add_accessory(self, mesh, piece_id: str, agarre: dict, new_version: bool = False, descripcion: str = "", figura: str = "",
                       extra: dict | None = None):

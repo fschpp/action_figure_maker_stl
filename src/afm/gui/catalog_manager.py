@@ -9,6 +9,7 @@ import numpy as np
 
 from ..parts import PieceMeta
 from .camera import OrbitCamera
+from .picking import Picker
 
 PREVIEW_YAW = 55.0          # 3/4: desde el frente (+Y) corrido hacia la derecha de la figura (+X), mirando un poco desde arriba
 PREVIEW_PITCH = 22.0
@@ -23,6 +24,28 @@ def three_quarter_camera(bounds, aspect: float = 1.0) -> OrbitCamera:
     cam.frame(bounds)
     cam.distance /= min(max(aspect, 0.2), 1.0)
     return cam
+
+
+def preview_camera(bounds, aspect: float = 1.0, yaw_off: float = 0.0, pitch_off: float = 0.0) -> OrbitCamera:
+    """La cámara 3/4 de la vista previa con la vista girada `yaw_off` / `pitch_off` (°). La usan el dibujo Y los clics: si
+    no fueran la misma cámara, el punto elegido no caería donde se hizo clic."""
+    cam = three_quarter_camera(bounds, aspect)
+    cam.yaw = (PREVIEW_YAW + yaw_off) % 360.0
+    cam.pitch = float(np.clip(PREVIEW_PITCH + pitch_off, -89.0, 89.0))
+    return cam
+
+
+def widget_to_image(x: float, y: float, widget_w: float, widget_h: float, img_w: int, img_h: int):
+    """Clic en el widget (`Gtk.Picture` con `ContentFit.CONTAIN`: la imagen se escala para entrar entera y queda centrada) →
+    píxel (px, py) de la imagen, o None si cayó en el margen de afuera."""
+    if min(widget_w, widget_h, img_w, img_h) <= 0:
+        return None
+    k = min(widget_w / img_w, widget_h / img_h)
+    ox, oy = (widget_w - img_w * k) / 2.0, (widget_h - img_h * k) / 2.0
+    px, py = (x - ox) / k, (y - oy) / k
+    if not (0.0 <= px <= img_w and 0.0 <= py <= img_h):
+        return None
+    return px, py
 
 
 def piece_origin(meta: PieceMeta) -> str:
@@ -118,6 +141,7 @@ class PreviewRenderer:
 
     PIECE_COLOR = (0.80, 0.82, 0.86, 1.0)
     PORT_COLOR = (1.0, 0.62, 0.15, 1.0)
+    MARK_COLOR = (1.0, 0.2, 0.2, 1.0)
 
     def __init__(self, width: int = 840, height: int = 630):
         self.width, self.height = width, height
@@ -139,8 +163,16 @@ class PreviewRenderer:
     def available(self) -> bool:
         return self._ensure() is not None
 
-    def render(self, mesh, meta: PieceMeta | None = None, yaw_off: float = 0.0, pitch_off: float = 0.0) -> np.ndarray:
-        """Imagen RGBA (alto × ancho × 4, uint8) de `mesh` en vista 3/4; `yaw_off` / `pitch_off` giran la vista (°)."""
+    def _marks(self, off, marks) -> None:
+        """Puntos elegidos con clic (rojos, siempre visibles); sin puntos, se quitan."""
+        if marks is not None and len(marks):
+            off.scene.set_points("marcas", np.asarray(marks, float), self.MARK_COLOR, size=14.0, on_top=True)
+        else:
+            off.scene.remove("marcas")
+
+    def render(self, mesh, meta: PieceMeta | None = None, yaw_off: float = 0.0, pitch_off: float = 0.0, marks=None) -> np.ndarray:
+        """Imagen RGBA (alto × ancho × 4, uint8) de `mesh` en vista 3/4; `yaw_off` / `pitch_off` giran la vista (°).
+        `marks`: puntos (Nx3) a marcar encima, p. ej. los de la muñeca."""
         off = self._ensure()
         if off is None:
             raise RuntimeError(self.error or "sin vista previa")
@@ -153,13 +185,12 @@ class PreviewRenderer:
                     off.scene.set_points("puertos", pts, self.PORT_COLOR, size=11.0, on_top=True)
                     off.scene.set_lines("ejes", segs, self.PORT_COLOR, on_top=True)
                 self._mesh = mesh
-            cam = three_quarter_camera(view_bounds(mesh, meta), off.width / off.height)
-            cam.yaw = (PREVIEW_YAW + yaw_off) % 360.0
-            cam.pitch = float(np.clip(PREVIEW_PITCH + pitch_off, -89.0, 89.0))
-            return off.render(cam)
+            self._marks(off, marks)
+            return off.render(preview_camera(view_bounds(mesh, meta), off.width / off.height, yaw_off, pitch_off))
 
-    def render_parts(self, parts, yaw_off: float = 0.0, pitch_off: float = 0.0) -> np.ndarray:
-        """Imagen RGBA de varias piezas juntas, cada una con su color: `parts` = [(nombre, malla, color RGBA)]. Si `parts` es el
+    def render_parts(self, parts, yaw_off: float = 0.0, pitch_off: float = 0.0, marks=None, bounds=None) -> np.ndarray:
+        """Imagen RGBA de varias piezas juntas, cada una con su color: `parts` = [(nombre, malla, color RGBA)]. `bounds` (2x3) fija el
+        encuadre (por defecto, el de las piezas juntas). Si `parts` es el
         mismo objeto de la llamada anterior no se vuelve a subir a la GPU (arrastrar para girar solo mueve la cámara)."""
         off = self._ensure()
         if off is None:
@@ -172,12 +203,12 @@ class PreviewRenderer:
                 for name, mesh, color in parts:
                     off.scene.set_mesh(name, mesh, color)
                 self._mesh = parts
-            lo = np.min([np.asarray(m.bounds, float)[0] for _n, m, _c in parts], axis=0)
-            hi = np.max([np.asarray(m.bounds, float)[1] for _n, m, _c in parts], axis=0)
-            cam = three_quarter_camera(np.array([lo, hi]), off.width / off.height)
-            cam.yaw = (PREVIEW_YAW + yaw_off) % 360.0
-            cam.pitch = float(np.clip(PREVIEW_PITCH + pitch_off, -89.0, 89.0))
-            return off.render(cam)
+            if bounds is None:
+                lo = np.min([np.asarray(m.bounds, float)[0] for _n, m, _c in parts], axis=0)
+                hi = np.max([np.asarray(m.bounds, float)[1] for _n, m, _c in parts], axis=0)
+                bounds = np.array([lo, hi])
+            self._marks(off, marks)
+            return off.render(preview_camera(bounds, off.width / off.height, yaw_off, pitch_off))
 
     def clear(self) -> None:
         """Suelta la malla de la GPU (cuando ya no hay nada elegido)."""
@@ -243,3 +274,132 @@ class CatalogManager:
         for r in refs:
             self._mesh_cache.pop(r, None)
         return ok
+
+
+# ------------------------------------------------------------------ cortar la mano de un brazo del catálogo
+HAND_COLOR = (0.30, 0.78, 0.40, 1.0)          # la mano cortada, en verde (como en «Extraer mano estándar»)
+ARM_COLOR = PreviewRenderer.PIECE_COLOR
+WRIST_POINTS = 3
+WRIST_HINTS = ("Punto 1 de 3: tocá el lado del PULGAR de la muñeca (siempre en el mismo lugar: fija cómo queda girada la mano).",
+               "Punto 2 de 3: tocá un lado de la muñeca, del otro costado del brazo.",
+               "Punto 3 de 3: tocá el tercer punto de la muñeca (los 3 tienen que formar un triángulo, no una línea).")
+
+
+def can_cut_wrist(meta: PieceMeta | None) -> tuple[bool, str]:
+    """¿Se le puede cortar la mano a esta pieza? (sí/no, motivo cuando no)."""
+    if meta is None:
+        return False, "Elegí un brazo de la lista."
+    if meta.tipo != "brazo":
+        return False, f"«{meta.ref}» es una pieza «{meta.tipo}»: solo se le corta la mano a un brazo."
+    if "muneca" in meta.puertos:
+        return False, f"«{meta.ref}» ya está sin mano (tiene el puerto «muneca»): elegí la versión con la mano pegada."
+    return True, ""
+
+
+class WristCutter:
+    """Modo «cortar la mano» del gestor: 3 clics sobre la vista previa del brazo → corte calculado (sin guardar) → guardar.
+
+    Sin GTK: la ventana solo le pasa los clics (en píxeles del widget) y dibuja lo que pide `marks()` / `preview_parts()`."""
+
+    def __init__(self, ctrl, meta: PieceMeta, mesh):
+        self.ctrl, self.meta, self.mesh = ctrl, meta, mesh
+        self.points: list[np.ndarray] = []
+        self.invert = False
+        self.plan = None
+        self.error = ""
+        self.hand_id = ""                      # vacío = el de siempre (mano-<resto del id del brazo>)
+        self._picker: Picker | None = None
+        self._parts = None                     # lo que devuelve `preview_parts` (el mismo objeto mientras el corte no cambie)
+
+    # ---- estado
+    @property
+    def complete(self) -> bool:
+        return len(self.points) >= WRIST_POINTS
+
+    def marks(self) -> np.ndarray:
+        return np.array(self.points) if self.points else np.zeros((0, 3))
+
+    def message(self) -> str:
+        if not self.complete:
+            return WRIST_HINTS[len(self.points)]
+        if self.plan is None:
+            return f"No sirve: {self.error}. Usá «Deshacer el último punto» y probá de nuevo."
+        p = self.plan
+        txt = (f"Mano cortada (verde): muñeca Ø{2 * p.wrist_radius_mm:.1f} mm, {p.hand_volume_mm3:.0f} mm³. Si lo verde no es la mano, "
+               "«Invertir lado»; si está bien, revisá el id de la mano y «Guardar».")
+        return txt + ("  Avisos: " + "; ".join(p.warnings) if p.warnings else "")
+
+    # ---- clics
+    def pick_at(self, x: float, y: float, widget_size, image_size, yaw_off: float = 0.0, pitch_off: float = 0.0) -> str:
+        """Clic en (x, y) del widget; `widget_size` e `image_size` = (ancho, alto). Devuelve el mensaje para mostrar."""
+        if self.complete:
+            return "Ya están los 3 puntos: «Deshacer el último punto» para cambiar uno."
+        img_w, img_h = image_size
+        hit = widget_to_image(x, y, widget_size[0], widget_size[1], img_w, img_h)
+        if hit is None:
+            return "Ese clic cayó fuera de la imagen. " + self.message()
+        cam = preview_camera(view_bounds(self.mesh, self.meta), img_w / img_h, yaw_off, pitch_off)
+        origin, direction = cam.ray(hit[0], hit[1], img_w, img_h)
+        if self._picker is None:
+            self._picker = Picker(self.mesh)
+        res = self._picker.pick(origin, direction)
+        if res is None:
+            return "Ahí no hay pieza: hacé clic sobre el brazo. " + self.message()
+        self.points.append(np.asarray(res.point, float))
+        if self.complete:
+            self._recompute()
+        return self.message()
+
+    def undo(self) -> str:
+        if self.points:
+            self.points.pop()
+        self.plan, self.error, self._parts = None, "", None
+        return self.message()
+
+    def reset(self) -> str:
+        self.points.clear()
+        self.plan, self.error, self.invert, self._parts = None, "", False, None
+        return self.message()
+
+    def toggle_invert(self) -> str:
+        self.invert = not self.invert
+        if self.complete:
+            self._recompute()
+        return self.message()
+
+    def set_hand_id(self, text: str) -> None:
+        self.hand_id = (text or "").strip()
+
+    # ---- corte
+    def _recompute(self) -> None:
+        self._parts = None
+        try:
+            self.plan = self.ctrl.session.catalog_wrist_plan(self.meta.ref, self.points, self.invert, self.hand_id or None)
+            self.error = ""
+        except ValueError as exc:
+            self.plan, self.error = None, str(exc)
+
+    def set_hand_id_and_recompute(self, text: str) -> None:
+        self.set_hand_id(text)
+        if self.complete:
+            self._recompute()
+
+    def preview_parts(self):
+        """[(nombre, malla, color)] para `PreviewRenderer.render_parts`: el brazo sin mano en gris y la mano donde estaba, en verde."""
+        if self.plan is None:
+            return None
+        if self._parts is None:               # el mismo objeto en cada dibujo: `PreviewRenderer.render_parts` no resube la malla al girar
+            self._parts = [("brazo", self.plan.arm_mesh, ARM_COLOR), ("mano", self.plan.hand_world, HAND_COLOR)]
+        return self._parts
+
+    def default_hand_id(self) -> str:
+        from ..catalog import Catalog
+
+        return Catalog.default_hand_id(self.meta.id)
+
+    def save(self, new_hand_version: bool = False):
+        """Guarda el corte. Devuelve el `WristCut` o None (el motivo queda en `ctrl.message`)."""
+        if not self.complete or self.plan is None:
+            self.ctrl._changed("Primero elegí los 3 puntos de la muñeca y revisá el corte.", scene=False)
+            return None
+        return self.ctrl.catalog_cut_wrist(self.meta.ref, self.points, self.invert, self.hand_id or None, new_hand_version)

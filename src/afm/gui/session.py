@@ -1442,6 +1442,25 @@ class Session:
         except CatalogError as exc:
             raise ValueError(str(exc)) from exc
 
+    def catalog_wrist_plan(self, ref: str, points, invert: bool = False, hand_id: str | None = None):
+        """Corte de muñeca de un brazo del catálogo abierto, calculado y SIN guardar (`Catalog.plan_wrist_cut`)."""
+        from ..catalog import CatalogError
+
+        try:
+            return self._catalog().plan_wrist_cut(ref, points, invert, hand_id)
+        except CatalogError as exc:
+            raise ValueError(str(exc)) from exc
+
+    def catalog_wrist_cut(self, ref: str, points, invert: bool = False, hand_id: str | None = None,
+                          new_hand_version: bool = False):
+        """Corta y guarda (`Catalog.cut_wrist`): versión nueva del brazo sin mano + pieza `mano`. Devuelve el `WristCut`."""
+        from ..catalog import CatalogError
+
+        try:
+            return self._catalog().cut_wrist(ref, points, invert, hand_id, new_hand_version)
+        except CatalogError as exc:
+            raise ValueError(str(exc)) from exc
+
     def _parts_using(self, cat, ref: str) -> list[str]:
         """Lugares de ESTA figura que tienen elegida la pieza `ref` (una `PartRef` sin versión = la última del id)."""
         from ..catalog import parse_ref
