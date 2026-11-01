@@ -572,9 +572,13 @@ En naranja se ve el contorno del pasador (vástago y cabeza); en verde, la posic
         self.btn_cat_open = self._button("Abrir catálogo de la línea (carpeta)…", self._on_catalog_open)
         self.lbl_catalog = Gtk.Label(label="Sin catálogo abierto", xalign=0, wrap=True)
         self.btn_cat_add = self._button("Catalogar esta figura…", self._on_catalog_add)
+        self.btn_cat_guide = self._button("Guía de cortes (cuánto del catálogo los acepta)…", self._on_cut_guide)
+        self.btn_cat_guide.set_tooltip_text("Mide la cara de cada corte (hombro, cadera, cuello) sin generar nada y cuenta cuántas piezas "
+                                            "del catálogo abierto la aceptan, como pieza de esta figura y como torso que recibe piezas de otras.")
         self.btn_cat_manage = self._button("Administrar catálogo (ver y eliminar piezas)…", self._on_catalog_manage)
         self.btn_cat_build = self._button("Armar figura desde catálogo (sin STL)…", self._on_catalog_build)
-        for w in (self.btn_cat_new, self.btn_cat_open, self.lbl_catalog, self.btn_cat_add, self.btn_cat_manage, self.btn_cat_build):
+        for w in (self.btn_cat_new, self.btn_cat_open, self.lbl_catalog, self.btn_cat_add, self.btn_cat_guide, self.btn_cat_manage,
+                  self.btn_cat_build):
             sec.append(w)
         self.btn_cat_forget = self._button("Olvidar el catálogo recordado", lambda *_: self.ctrl.forget_catalog())
         self.btn_cat_forget.set_tooltip_text("Cierra el catálogo y borra lo recordado: la próxima vez hay que abrirlo a mano. "
@@ -1304,6 +1308,7 @@ exportar; tarda un poco más.")
         self.btn_cat_new.set_sensitive(not ctrl.busy)
         self.btn_cat_open.set_sensitive(not ctrl.busy)
         self.btn_cat_add.set_sensitive(bool(loaded and root and not ctrl.busy))
+        self.btn_cat_guide.set_sensitive(bool(loaded and not ctrl.busy))
         self.btn_cat_manage.set_sensitive(bool(root and not ctrl.busy))
         self.btn_cat_build.set_sensitive(not ctrl.busy)
         self.btn_build_cat.set_sensitive(not ctrl.busy)
@@ -1506,6 +1511,38 @@ exportar; tarda un poco más.")
         self.ctrl._changed("Dividiendo la figura en piezas crudas…", scene=False)
         self._run_task("Dividiendo la figura…", lambda progress: self.ctrl.session.divide_model(),
                        lambda res, err: self.ctrl.finish_preview_parts(res, err), "Figura dividida")
+
+    def _on_cut_guide(self, *_):
+        """«Guía de cortes»: ventana (no modal) con la medición de cada corte y su cobertura del catálogo."""
+        lines = self.ctrl.cut_guide_lines()
+        if lines is None:
+            return
+        win = Gtk.Window(title="Guía de cortes", transient_for=self, modal=False, default_width=760, default_height=520)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_top=12, margin_bottom=12, margin_start=12, margin_end=12)
+        label = Gtk.Label(label="\n".join(lines), xalign=0, yalign=0, selectable=True, wrap=False)
+        label.add_css_class("monospace")
+        scroller = Gtk.ScrolledWindow(vexpand=True, hexpand=True)
+        scroller.set_child(label)
+        box.append(Gtk.Label(label="Cada corte se mide sobre la figura abierta (sin generar). «Como enchufe» es la pieza que saldría de esta "
+                                   "figura puesta en otros torsos del catálogo; «como toma», el torso de esta figura con piezas de otras.",
+                             xalign=0, wrap=True, max_width_chars=90))
+        box.append(scroller)
+        bar = Gtk.Box(spacing=6, halign=Gtk.Align.END)
+        again = Gtk.Button(label="Volver a medir")
+        close = Gtk.Button(label="Cerrar")
+
+        def refresh(*_):
+            new = self.ctrl.cut_guide_lines()
+            if new is not None:
+                label.set_text("\n".join(new))
+
+        again.connect("clicked", refresh)
+        close.connect("clicked", lambda *_: win.close())
+        bar.append(again)
+        bar.append(close)
+        box.append(bar)
+        win.set_child(box)
+        win.present()
 
     def _on_catalog_review(self, *_):
         job = self.ctrl.begin_preview_parts()

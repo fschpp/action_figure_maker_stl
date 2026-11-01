@@ -224,13 +224,17 @@ def main(argv=None) -> int:
     ag.add_argument("--id-mano", default=None)
     ag.add_argument("--id-accesorio", default=None)
     ag.add_argument("--nueva-version", action="store_true", help="con --catalogo: si el id ya existe, guardar la versión siguiente")
-    from .catalog_cli import add_parsers
+    from .catalog_cli import add_guia_parser, add_parsers
     add_parsers(sub)
+    add_guia_parser(sub)
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO)
     if args.cmd == "catalogo":
         from .catalog_cli import run_catalogo
         return run_catalogo(args)
+    if args.cmd == "guia":
+        from .catalog_cli import run_guia
+        return run_guia(args)
     os.makedirs(args.out, exist_ok=True)
     if args.cmd == "armar":
         from .recipe import RecipeError

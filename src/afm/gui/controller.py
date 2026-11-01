@@ -2774,6 +2774,31 @@ class Controller:
             return False
         return self.catalog_add_done(res, None)
 
+    def cut_guide(self) -> list | None:
+        """«Guía de cortes»: `[CutMeasure]` de la figura abierta (ver `Session.cut_guide`) o None si no se pudo medir."""
+        if not self._need_loaded():
+            return None
+        try:
+            return self.session.cut_guide()
+        except ValueError as e:
+            self._changed(f"No se pudo medir los cortes: {e}", scene=False)
+            return None
+
+    def cut_guide_lines(self, all_fits: bool = False) -> list | None:
+        """El texto de la guía (el mismo de `afm guia`), línea por línea; None si no se pudo medir."""
+        from ..guide import format_measure
+
+        cuts = self.cut_guide()
+        if cuts is None:
+            return None
+        if not cuts:
+            return ["El proyecto no define miembros ni cuello: no hay cortes que medir."]
+        lines = [] if self.session.catalog_root else ["Sin catálogo abierto: solo se miden los cortes. Abrí el catálogo de la línea "
+                                                       "para ver cuánto de él los acepta."]
+        for m in cuts:
+            lines += format_measure(m, all_fits) + [""]
+        return lines[:-1]
+
     # ---- gestor del catálogo: ver y eliminar piezas
     def catalog_pieces(self) -> list:
         """Todas las versiones de las piezas del catálogo abierto (vacío si no hay catálogo o no se pudo leer)."""

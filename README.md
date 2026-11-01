@@ -98,7 +98,18 @@ afm catalogo verificar RUTA
 # cama, mm reales), los suma a <figura>_lista_de_piezas.{json,md} y al informe con su compatibilidad con la mano de la figura; NO van en el
 # ensamblado ni en el puño. Un accesorio que «no se sujeta» en esa mano (sin taladro, o Ø distinto) igual la acompaña, con aviso.
 afm catalogo eliminar RUTA pierna-belgrano-01@1 brazo-belgrano-01@1 [--buscar DIR] [--si]   # borra versiones (id@n) del disco; avisa quién las usa
+
+# Guía de cortes (plan `docs/PLAN_compatibilidad_cortes_catalogo.md`, fases 0 y 2): cuánto del catálogo acepta cada corte, sin generar nada.
+afm catalogo cobertura RUTA pierna-guemes-01 [--todas]       # cada puerto de la pieza contra el resto del catálogo (mismo criterio que --compatible-con)
+afm guia figura.stl figura.proyecto --catalogo RUTA          # mide la cara de cada corte (hombro, cadera, cuello): radio equivalente e inscrito,
+                                                             # posición lateral, margen del pasador, y su cobertura como enchufe y como toma
+python tools/calibrar_compat.py RUTA --escribir --out docs/CALIBRACION_compat.md   # contrasta la barata con build + validate (minutos por combinación)
 ```
+
+«Catalogar» (`afm catalogo agregar`) imprime la cobertura de cada pieza recién guardada. La cobertura es **barata** (solo metadatos) y cuenta, entre las
+piezas de OTRAS figuras con el puerto opuesto, cuántas dan ok / aviso / no. Con `<catálogo>/calibracion.json` (lo escribe `tools/calibrar_compat.py --escribir`)
+suma la probabilidad *esperada* de que la compatibilidad completa también pase (límite inferior de Wilson al 95 %, con su *n*). En la GUI,
+«Guía de cortes…» (pestaña Catálogo) muestra lo mismo para la figura abierta.
 
 ## Convenciones
 

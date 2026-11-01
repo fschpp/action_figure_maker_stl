@@ -1025,6 +1025,18 @@ class Session:
     def catalog_name(self) -> str:
         return self._catalog().name
 
+    def cut_guide(self) -> list:
+        """«Guía de cortes»: mide la cara de cada corte de la figura abierta (hombro, cadera, cuello) sin generar nada y, si hay
+        catálogo abierto, cuánto de él acepta cada corte (`guide.measure_cuts`). Devuelve `[CutMeasure]`; un corte que todavía
+        no se puede medir (falta la silueta, el plano…) trae su `error` en vez de interrumpir a los demás."""
+        from ..guide import measure_cuts
+
+        if self.work is None:
+            raise ValueError("Primero abrí una figura.")
+        cat = self._catalog() if self.catalog_root else None
+        name = os.path.basename(self.stl_path or "") or None
+        return measure_cuts(self.project, S.to_manifold(self.work), cat, exclude_figure=name)
+
     def create_catalog(self, root: str, name: str | None = None, height_mm: float | None = None):
         """Equivalente de `afm catalogo crear RUTA --linea NOMBRE --altura MM`: crea el catálogo de una línea en la carpeta
         `root` (nueva o vacía) y lo deja abierto. Sin `name` usa el de la carpeta; sin `height_mm` la altura de la figura

@@ -12,7 +12,7 @@ from .recipe import RecipeError
 
 
 def add_parsers(sub) -> None:
-    c = sub.add_parser("catalogo", help="catálogo de piezas de una línea (crear, listar, verificar, importar-mano, agregar, agregar-stl, cortar-muneca, usos, eliminar, estado, compat, matriz)")
+    c = sub.add_parser("catalogo", help="catálogo de piezas de una línea (crear, listar, verificar, importar-mano, agregar, agregar-stl, cortar-muneca, usos, eliminar, estado, compat, matriz, cobertura)")
     cs = c.add_subparsers(dest="catcmd", required=True)
 
     def root(p):
@@ -121,6 +121,10 @@ def add_parsers(sub) -> None:
     root(a)
     a.add_argument("--out", default=None, metavar="ARCHIVO", help="dónde escribirlo (por defecto <catálogo>/COMPATIBILIDAD.md)")
     a.add_argument("--completa", action="store_true", help="antes de escribirlo, validar (con caché) todas las recetas del catálogo")
+    a = cs.add_parser("cobertura", help="cuántas piezas del catálogo aceptan cada puerto de una pieza (compatibilidad barata, por metadatos)")
+    root(a)
+    a.add_argument("ref", metavar="ID")
+    a.add_argument("--todas", action="store_true", help="listar también las piezas con resultado ok")
     a = cs.add_parser("estado", help="cambiar el estado de una pieza (borrador, validada, impresa)")
     root(a)
     a.add_argument("ref", metavar="ID")
@@ -134,6 +138,17 @@ def _open(args) -> Catalog:
     if not env:
         raise CatalogError("falta la ruta del catálogo (o definí AFM_CATALOGO)")
     return Catalog.open(env)
+
+
+def _print_coverage(cat: Catalog, ref: str, all_fits: bool = False) -> None:
+    """Cobertura de cada puerto de `ref` contra el resto del catálogo (plan de compatibilidad, N0)."""
+    from .guide import format_coverage, piece_coverage
+
+    for name, cov in piece_coverage(cat, ref).items():
+        print(f"  {name} ({cov.rol}): {cov.summary()}")
+        if cov.universo:
+            for line in format_coverage(cov, "    ", all_fits)[1:]:
+                print(line)
 
 
 def _slug(text: str) -> str:
@@ -309,6 +324,7 @@ def _run(args) -> int:
             print(f"{meta.ref:<28} {meta.tipo:<10} {meta.volumen_mm3:>9.0f} mm³  puertos: {', '.join(meta.puertos)}")
             for w in warns:
                 print("AVISO:", w)
+            _print_coverage(cat, meta.ref)
         return 0
     if cmd == "cortar-muneca":
         res = cat.cut_wrist(args.ref, args.muneca, args.muneca_invertir, args.mano_id, args.mano_nueva_version)
@@ -348,8 +364,50 @@ def _run(args) -> int:
         results = compat.check_all(cat, False, print) if args.completa else None
         print(f"Escrito {compat.write_matrix(cat, args.out, results)}")
         return 0
+    if cmd == "cobertura":
+        _print_coverage(cat, args.ref, args.todas)
+        return 0
     if cmd == "estado":
         m = cat.set_state(args.ref, args.nuevo)
         print(f"{m.ref}: {m.estado}")
         return 0
     return 2
+
+
+# ------------------------------------------------------------------ afm guia
+def add_guia_parser(sub) -> None:
+    g = sub.add_parser("guia", help="medir los cortes de una figura (hombro, cadera, cuello) y cuánto del catálogo los acepta, sin generar nada")
+    g.add_argument("stl")
+    g.add_argument("proyecto")
+    g.add_argument("--catalogo", default=None, metavar="RUTA",
+                   help="catálogo de la línea (por defecto $AFM_CATALOGO; sin catálogo solo se miden los cortes)")
+    g.add_argument("--excluir-figura", default=None, metavar="NOMBRE",
+                   help="ignorar las piezas del catálogo que vienen de esta figura (por defecto el nombre del STL: una figura siempre encaja con sus piezas)")
+    g.add_argument("--todas", action="store_true", help="listar también las piezas con resultado ok")
+
+
+def run_guia(args) -> int:
+    """`afm guia STL PROYECTO [--catalogo RUTA]`: mide cada corte de la figura y su cobertura del catálogo."""
+    from .extract import load_body
+    from .guide import format_measure, measure_cuts
+    from .project import Project
+
+    try:
+        root = args.catalogo or os.environ.get("AFM_CATALOGO")
+        cat = Catalog.open(root) if root else None
+        project = Project.load(args.proyecto)
+        body, _rep = load_body(args.stl, project, progress=print)
+        fig = args.excluir_figura if args.excluir_figura is not None else os.path.basename(args.stl)
+        cuts = measure_cuts(project, body, cat, exclude_figure=fig)
+    except (CatalogError, P.PieceError, PortError, RecipeError, OSError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    if cat is None:
+        print("(sin catálogo: solo se miden los cortes; pasá --catalogo RUTA o definí AFM_CATALOGO para ver la cobertura)")
+    if not cuts:
+        print("El proyecto no define miembros ni cuello: no hay cortes que medir.")
+        return 0
+    for m in cuts:
+        for line in format_measure(m, args.todas):
+            print(line)
+    return 0
