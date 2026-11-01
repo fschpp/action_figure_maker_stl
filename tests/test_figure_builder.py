@@ -104,7 +104,7 @@ def test_hand_adjustments_go_to_the_recipe(root):
     with pytest.raises(ValueError, match="unión"):
         b.set_hand(union="pegamento")
     with pytest.raises(ValueError, match="giro de la mano"):
-        b.set_hand(yaw=900)
+        b.set_hand(yaw=-900)
     with pytest.raises(ValueError, match="solape"):
         b.set_hand(solape=-1)
     assert b.hand["yaw"] == 35.0 and b.recipe().problems() == []

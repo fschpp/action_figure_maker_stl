@@ -140,8 +140,8 @@ class FigureBuilder:
         """Giro extra de la mano (°) alrededor de la muñeca, tipo de unión («solape»: mano soldada al brazo; «giro»: mano
         aparte con pasador, gira libre) y cuánto se hunde la base de la mano en el brazo (mm, solo con «solape»)."""
         if yaw is not None:
-            if not -360.0 <= float(yaw) <= 360.0:
-                raise ValueError("el giro de la mano va de −360° a 360°")
+            if float(yaw) < -360.0:
+                raise ValueError("el giro de la mano no puede ser menor que −360° (hacia arriba no hay tope)")
             self.hand["yaw"] = float(yaw)
         if union is not None:
             if union not in HAND_JOINS:

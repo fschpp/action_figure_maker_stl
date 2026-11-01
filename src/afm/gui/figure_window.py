@@ -18,6 +18,8 @@ from ..recipe import SCALE_PLACES  # noqa: E402
 from .progress_panel import ProgressPanel  # noqa: E402
 from .figure_builder import NONE_LABEL, PLACE_LABELS, PLACE_ORDER, FigureBuilder, summary  # noqa: E402
 
+YAW_MAX = 1.0e6      # GTK pide un tope numérico: este es técnico, el giro no tiene límite superior en la práctica
+
 
 class FigureBuilderWindow(Gtk.Window):
     def __init__(self, parent: Gtk.Window, catalog_root: str, remember_dir: str | None = None):
@@ -126,7 +128,7 @@ class FigureBuilderWindow(Gtk.Window):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, margin_top=6)
         row = Gtk.Box(spacing=6)
         row.append(Gtk.Label(label="Giro de la mano (°)", xalign=0, hexpand=True))
-        self.sp_yaw = Gtk.SpinButton.new_with_range(-180.0, 180.0, 1.0)
+        self.sp_yaw = Gtk.SpinButton.new_with_range(-180.0, YAW_MAX, 1.0)      # sin tope superior (solo el mínimo de −180°)
         self.sp_yaw.set_digits(0)
         self.sp_yaw.set_tooltip_text("Gira la mano alrededor de la muñeca. 0 = como la guarda el catálogo.")
         self.sp_yaw.connect("value-changed", self._on_hand)
@@ -324,7 +326,7 @@ class FigureBuilderWindow(Gtk.Window):
         b = self.builder
         self._updating = True
         try:
-            yaw = (b.hand["yaw"] + 180.0) % 360.0 - 180.0 if abs(b.hand["yaw"]) > 180.0 else b.hand["yaw"]   # el cuadro va de −180° a 180°
+            yaw = (b.hand["yaw"] + 180.0) % 360.0 - 180.0 if b.hand["yaw"] < -180.0 else b.hand["yaw"]       # el mínimo del cuadro es −180°
             self.sp_yaw.set_value(yaw)
             self.chk_swivel.set_active(b.hand["union"] == "giro")
             self.sp_overlap.set_value(b.hand["solape"])
