@@ -35,6 +35,7 @@ class CatalogManagerWindow(Gtk.Window):
         self._dpitch = 0.0
         self._drag0 = (0.0, 0.0)
         self._zoom = 1.0
+        self._zoom0 = 1.0
         self._cursor = (0.0, 0.0)
         self._pan = (0.0, 0.0)
         self._pan0 = (0.0, 0.0)
@@ -112,6 +113,10 @@ class CatalogManagerWindow(Gtk.Window):
         wheel = Gtk.EventControllerScroll(flags=Gtk.EventControllerScrollFlags.VERTICAL)
         wheel.connect("scroll", self._on_scroll)
         self.picture.add_controller(wheel)
+        pinch = Gtk.GestureZoom()                             # pellizco con dos dedos en el touchpad o la pantalla táctil
+        pinch.connect("begin", lambda *_: setattr(self, "_zoom0", self._zoom))
+        pinch.connect("scale-changed", self._on_pinch)
+        self.picture.add_controller(pinch)
         motion = Gtk.EventControllerMotion()
         motion.connect("motion", lambda _c, x, y: setattr(self, "_cursor", (x, y)))
         self.picture.add_controller(motion)
@@ -130,7 +135,7 @@ class CatalogManagerWindow(Gtk.Window):
             b.set_tooltip_text(tip)
             b.connect("clicked", lambda _b, f=fac: self._zoom_by(f))
             bar.append(b)
-        bar.append(Gtk.Label(label="Arrastrá para girar · rueda = zoom · botón derecho = mover · naranja = puertos", xalign=0, hexpand=True))
+        bar.append(Gtk.Label(label="Arrastrá para girar · rueda o pellizco = zoom · botón derecho = mover · naranja = puertos", xalign=0, hexpand=True))
         self.btn_wrist = Gtk.Button(label="Cortar la mano…")
         self.btn_wrist.set_sensitive(False)
         self.btn_wrist.connect("clicked", self._on_wrist_start)
@@ -470,7 +475,15 @@ class CatalogManagerWindow(Gtk.Window):
         iw, ih = self._img_size
         return ih * min(ww / iw, wh / ih) if iw and ih and ww and wh else 0.0
 
+    def _on_pinch(self, g, scale: float) -> None:
+        ok, x, y = g.get_bounding_box_center()
+        if ok:
+            self._cursor = (x, y)
+        self._zoom_by(self._zoom0 * scale / self._zoom, at_cursor=True)
+
     def _on_scroll(self, _c, _dx: float, dy: float) -> bool:
+        if dy == 0:
+            return False
         self._zoom_by(ZOOM_STEP ** (-1 if dy > 0 else 1), at_cursor=True)
         return True
 
