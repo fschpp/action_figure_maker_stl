@@ -16,7 +16,7 @@ from gi.repository import Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 from .catalog_manager import PreviewRenderer, view_bounds  # noqa: E402,F401  (view_bounds: el encuadre lo hace PreviewRenderer)
 from ..recipe import SCALE_PLACES  # noqa: E402
 from .progress_panel import ProgressPanel  # noqa: E402
-from .figure_builder import HAND_JOINS, NONE_LABEL, PLACE_LABELS, PLACE_ORDER, FigureBuilder, summary  # noqa: E402
+from .figure_builder import NONE_LABEL, PLACE_LABELS, PLACE_ORDER, FigureBuilder, summary  # noqa: E402
 
 
 class FigureBuilderWindow(Gtk.Window):
@@ -120,28 +120,33 @@ class FigureBuilderWindow(Gtk.Window):
         return box
 
     def _build_hand_section(self) -> Gtk.Widget:
-        exp = Gtk.Expander(label="Mano: giro y unión")
+        """Mismos controles de mano que la ventana principal: giro (−180°…180°, de a 1°) y «Mano articulada»."""
+        exp = Gtk.Expander(label="Mano: giro y articulación")
         self.exp_hand = exp
-        grid = Gtk.Grid(row_spacing=6, column_spacing=8, margin_top=6)
-        grid.attach(Gtk.Label(label="Giro extra (°)", xalign=0), 0, 0, 1, 1)
-        self.sp_yaw = Gtk.SpinButton.new_with_range(-360.0, 360.0, 5.0)
-        self.sp_yaw.set_digits(1)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, margin_top=6)
+        row = Gtk.Box(spacing=6)
+        row.append(Gtk.Label(label="Giro de la mano (°)", xalign=0, hexpand=True))
+        self.sp_yaw = Gtk.SpinButton.new_with_range(-180.0, 180.0, 1.0)
+        self.sp_yaw.set_digits(0)
         self.sp_yaw.set_tooltip_text("Gira la mano alrededor de la muñeca. 0 = como la guarda el catálogo.")
         self.sp_yaw.connect("value-changed", self._on_hand)
-        grid.attach(self.sp_yaw, 1, 0, 1, 1)
-        grid.attach(Gtk.Label(label="Unión", xalign=0), 0, 1, 1, 1)
-        self.dd_join = Gtk.DropDown.new_from_strings(["solape (mano soldada al brazo)", "giro (mano aparte, gira libre)"])
-        self.dd_join.set_tooltip_text("«solape»: la base de la mano se hunde en el brazo y queda soldada. «giro»: la mano es otra "
-                                      "pieza con pasador y gira sobre la muñeca.")
-        self.dd_join.connect("notify::selected", self._on_hand)
-        grid.attach(self.dd_join, 1, 1, 1, 1)
-        grid.attach(Gtk.Label(label="Solape (mm)", xalign=0), 0, 2, 1, 1)
+        row.append(self.sp_yaw)
+        box.append(row)
+        self.chk_swivel = Gtk.CheckButton(label="Mano articulada (pieza aparte, gira libre dentro del brazo)")
+        self.chk_swivel.set_tooltip_text("Sin marcar, la base de la mano se hunde en el brazo y queda soldada (solape). Marcada, la mano "
+                                         "sale como otra pieza con un pasador que entra en el brazo y gira libre.")
+        self.chk_swivel.connect("toggled", self._on_hand)
+        box.append(self.chk_swivel)
+        row = Gtk.Box(spacing=6)
+        row.append(Gtk.Label(label="Solape (mm)", xalign=0, hexpand=True))
         self.sp_overlap = Gtk.SpinButton.new_with_range(0.0, 5.0, 0.1)
         self.sp_overlap.set_digits(1)
-        self.sp_overlap.set_tooltip_text("Cuánto se hunde la base de la mano en el brazo (solo con unión «solape»).")
+        self.sp_overlap.set_tooltip_text("Cuánto se hunde la base de la mano en el brazo (solo con la mano soldada, sin «Mano articulada»).")
         self.sp_overlap.connect("value-changed", self._on_hand)
-        grid.attach(self.sp_overlap, 1, 2, 1, 1)
-        exp.set_child(grid)
+        row.append(self.sp_overlap)
+        self.row_overlap = row
+        box.append(row)
+        exp.set_child(box)
         return exp
 
     def _build_accessory_section(self) -> Gtk.Widget:
@@ -319,8 +324,9 @@ class FigureBuilderWindow(Gtk.Window):
         b = self.builder
         self._updating = True
         try:
-            self.sp_yaw.set_value(b.hand["yaw"])
-            self.dd_join.set_selected(HAND_JOINS.index(b.hand["union"]))
+            yaw = (b.hand["yaw"] + 180.0) % 360.0 - 180.0 if abs(b.hand["yaw"]) > 180.0 else b.hand["yaw"]   # el cuadro va de −180° a 180°
+            self.sp_yaw.set_value(yaw)
+            self.chk_swivel.set_active(b.hand["union"] == "giro")
             self.sp_overlap.set_value(b.hand["solape"])
             for place in SCALE_PLACES:
                 k = b.scale_of(place)
@@ -331,7 +337,7 @@ class FigureBuilderWindow(Gtk.Window):
             self._updating = False
         has_hand = bool(b.choices.get("mano")) and not self._busy
         self.exp_hand.set_sensitive(has_hand)
-        self.sp_overlap.set_sensitive(b.hand["union"] == "solape")
+        self.row_overlap.set_sensitive(b.hand["union"] == "solape")
         for place in SCALE_PLACES:
             self._scale_row[place].set_sensitive(bool(b.choices.get(place)) and not self._busy)
 
@@ -339,11 +345,11 @@ class FigureBuilderWindow(Gtk.Window):
         if self._updating:
             return
         try:
-            self.builder.set_hand(yaw=self.sp_yaw.get_value(), union=HAND_JOINS[self.dd_join.get_selected()],
+            self.builder.set_hand(yaw=self.sp_yaw.get_value(), union="giro" if self.chk_swivel.get_active() else "solape",
                                   solape=self.sp_overlap.get_value())
         except ValueError as exc:
             self.lbl_result.set_text(str(exc))
-        self.sp_overlap.set_sensitive(self.builder.hand["union"] == "solape")
+        self.row_overlap.set_sensitive(self.builder.hand["union"] == "solape")
         self._refresh_group()
 
     def _on_scale(self, sp: Gtk.SpinButton, place: str, axis: str) -> None:
