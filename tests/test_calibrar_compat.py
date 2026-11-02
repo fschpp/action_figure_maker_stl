@@ -17,7 +17,7 @@ EJEMPLO = os.path.join(os.path.dirname(__file__), "..", "catalogo", "ejemplo")
 
 def row(h, d, place, nivel, ok, **kw):
     return {"anfitrion": h, "donante": d, "lugar": place, "clase": C.CLASS_OF_PLACE[place], "pieza": f"{place}-{d}-01@1",
-            "nivel": nivel, "iou": kw.get("iou", 0.7), "escalon_mm": 0.5, "armado": True, "pasa": ok,
+            "nivel": nivel, "nivel_cara": nivel, "choque_mm3": kw.get("choque"), "iou": kw.get("iou", 0.7), "escalon_mm": 0.5, "armado": True, "pasa": ok,
             "problemas_nuevos": [] if ok else ["pared de 0.8 mm tras la cabeza del pasador"], "avisos": [], "segundos": 1.0, "cache": False}
 
 
@@ -54,4 +54,13 @@ def test_report_markdown_reads_the_confusion():
     assert "| hombro | ok | 1 | 2 |" in md and "| cadera | no | 1 | 1 |" in md
     assert "De 2 combinaciones «ok» por la barata, 1 fallaron" in md and "De 1 combinaciones «no», 1 pasaron" in md
     assert "pared de N mm tras la cabeza del pasador" in md                            # los números se reemplazan para agrupar
-    assert "| a | brazo | c | ok | 0,70 | 0,50 | **falla** |" in md
+    assert "| a | brazo | c | ok | 0,70 | 0,50 | — | **falla** |" in md
+
+
+def test_report_scores_the_clash_predictor():
+    cat = Catalog.open(EJEMPLO)
+    rows = [row("a", "b", "pierna", "no", False, choque=4.0), row("a", "c", "pierna", "aviso", True, choque=0.0),
+            row("b", "a", "pierna", "no", True, choque=2.0), row("b", "c", "brazo", "aviso", False, choque=0.0)]
+    md = C.report_markdown({"filas": rows, "base": {}, "figuras": ["a", "b", "c"]}, cat)
+    assert "anticipó 2 de 4 resultados de la completa (1 falsas alarmas, 1 fallas que no vio)" in md
+    assert "| a | pierna | b | no | 0,70 | 0,50 | 4,0 | **falla** |" in md

@@ -10,6 +10,10 @@ Dos cosas, las dos sin construir la figura entera (`build`) y sin GTK:
   cara contra el catálogo, tanto como enchufe (la pieza que saldría de esta figura) como toma (el torso de esta figura
   recibiendo piezas de otras).
 
+Además de la cara, la cobertura anticipa **el choque brazo–pierna en la pose sentada** (`SeatedClash`): lo que `validate`
+reporta como «brazo_izq y pierna_izq se interpenetran» y la comparación de caras no ve. Se calcula con las mallas del
+catálogo y las tomas del torso, sin armar la figura: acertó las 24 combinaciones de `docs/CALIBRACION_compat.md`.
+
 La cobertura es un nivel N0 del plan (informado, no garantizado). Con una calibración (`calibracion.json`, que escribirá
 `tools/calibrar_compat.py`, Fase 0) suma la probabilidad *esperada* de que la compatibilidad completa (`build` +
 `validate`) también pase: límite inferior de Wilson al 95 % de lo observado por clase y nivel.
@@ -26,12 +30,98 @@ import numpy as np
 
 from . import solids as S
 from .catalog import Catalog
-from .ports import COMPLEMENT, PIN_OF_CLASS, Compat, Port, PortFace, PortFrame, pin_diagnosis, port_compat
+from .ports import COMPLEMENT, PIN_OF_CLASS, Compat, Port, PortFace, PortFrame, coupling_transform, pin_diagnosis, port_compat
 from .params import Params
 
 CALIB_FORMAT = "afm-calibracion-1"
 CALIB_FILE = "calibracion.json"
 LEVEL_RANK = {"ok": 0, "aviso": 1, "no": 2}
+
+
+# ---------------------------------------------------------------------------------------------------- choque en pose sentada
+SIT_CLASH_TOL = 1e-6        # mm³: el mismo umbral con que `validate` dice «se interpenetran»
+
+
+@dataclass
+class Limb:
+    """Un miembro (brazo o pierna) con su malla en el marco de su figura y su puerto de enchufe."""
+
+    mesh: S.Manifold
+    port: Port
+    kind: str                   # «arm» | «leg»
+    figura: str = ""
+
+
+class SeatedClash:
+    """Choque entre el brazo y la pierna de una figura armada en la pose sentada, sin armarla.
+
+    `validate` compara las piezas ya exportadas (la pierna girada `sit_angle` grados alrededor de su pasador) y marca los
+    pares que se tocan. Acá se hace lo mismo con las piezas crudas del catálogo: el brazo y la pierna se acoplan a las tomas
+    `hombro_izq` y `cadera_izq` del torso anfitrión (`coupling_transform`), la pierna se gira y se mide el volumen común. Lo
+    que choca es un miembro prestado contra el OTRO miembro de la figura del torso (el que el torso trae de fábrica)."""
+
+    def __init__(self, cat: Catalog, params: Params | None = None):
+        self.cat = cat
+        self.p = params or cat.params
+        self._limbs: dict = {}
+
+    def limb_of(self, meta) -> Limb | None:
+        spec = {"brazo": ("arm", "hombro"), "pierna": ("leg", "cadera")}.get(meta.tipo)
+        if spec is None or spec[1] not in meta.puertos:
+            return None
+        if meta.ref not in self._limbs:
+            _meta, mesh = self.cat.load(meta.ref)
+            self._limbs[meta.ref] = Limb(S.to_manifold(mesh), meta.puertos[spec[1]], spec[0], meta.origen.get("figura") or "")
+        return self._limbs[meta.ref]
+
+    def partner(self, figura: str, kind: str) -> Limb | None:
+        """El miembro de la figura `figura` que acompaña a un `kind` (la pierna de un brazo y al revés), o None."""
+        if not figura:
+            return None
+        tipo = "pierna" if kind == "arm" else "brazo"
+        cands = [m for m in self.cat.list(tipo=tipo) if (m.origen.get("figura") or "") == figura]
+        return self.limb_of(cands[-1]) if cands else None
+
+    def volume(self, arm: Limb, leg: Limb, shoulder: Port, hip: Port) -> float:
+        ta = coupling_transform(arm.port.frame, shoulder.frame)
+        tl = coupling_transform(leg.port.frame, hip.frame)
+        a = arm.mesh.transform(ta[:3, :])
+        l = leg.mesh.transform(tl[:3, :])
+        axis = -np.asarray(hip.frame.axis, float)
+        axis = axis if axis[0] >= 0 else -axis                      # como `pipeline._rotation_axis`: + = hacia adelante
+        l = S.rotate_about_axis(l, hip.frame.center, axis, self.p.sit_angle)
+        return float(S.intersection(a, l).volume())
+
+    def limb_on_torso(self, limb: Limb, torso, partner: Limb | None = None) -> float | None:
+        """`limb` puesto en el torso de catálogo `torso`, contra el otro miembro de la figura de ese torso (`partner`, si no
+        se da, el del catálogo). None si el torso no trae las dos tomas en una sola pieza o no hay otro miembro."""
+        sh, hip = torso.puertos.get("hombro_izq"), torso.puertos.get("cadera_izq")
+        mate = partner or self.partner(torso.origen.get("figura") or "", limb.kind)
+        if sh is None or hip is None or mate is None or mate.kind == limb.kind:
+            return None
+        arm, leg = (limb, mate) if limb.kind == "arm" else (mate, limb)
+        return self.volume(arm, leg, sh, hip)
+
+    def torso_with_limb(self, shoulder: Port, hip: Port, figura: str, other, own: dict | None = None) -> float | None:
+        """El torso (tomas `shoulder`/`hip`) de la figura `figura` con su otro miembro, recibiendo el miembro de catálogo
+        `other`. `own`: `{kind: Limb}` de esa figura cuando todavía no está en el catálogo (una figura recién cortada)."""
+        cand = self.limb_of(other)
+        if cand is None:
+            return None
+        mate = (own or {}).get("leg" if cand.kind == "arm" else "arm") or self.partner(figura, cand.kind)
+        if mate is None:
+            return None
+        arm, leg = (cand, mate) if cand.kind == "arm" else (mate, cand)
+        return self.volume(arm, leg, shoulder, hip)
+
+
+def _clash_fit(fit: PieceFit, volume: float | None, sit_angle: float) -> PieceFit:
+    """Anota el choque en la pieza y, si hay, la vuelve «no» (con el motivo primero)."""
+    fit.choque_mm3 = volume
+    if volume is not None and volume > SIT_CLASH_TOL:
+        why = f"en la pose sentada ({sit_angle:g}°) choca con el otro miembro de la figura anfitriona ({volume:.1f} mm³)"
+        fit.compat = dataclasses.replace(fit.compat, nivel="no", motivos=[why] + list(fit.compat.motivos))
+    return fit
 
 
 # ---------------------------------------------------------------------------------------------------- cobertura
@@ -43,6 +133,7 @@ class PieceFit:
     tipo: str
     puerto: str                 # nombre del puerto de esa pieza que dio el peor resultado
     compat: Compat
+    choque_mm3: float | None = None   # volumen que choca con el otro miembro en la pose sentada (None: no se pudo medir)
 
     @property
     def nivel(self) -> str:
@@ -147,7 +238,7 @@ def expected_coverage(fits: list, clase: str, calib: dict | None) -> tuple[float
 
 def coverage_of_port(port: Port, height_mm: float | None, cat: Catalog, params: Params | None = None,
                      exclude_ids=(), exclude_figure: str | None = None, mirrorable: bool = True,
-                     calib: dict | None = None, port_name: str = "") -> Coverage:
+                     calib: dict | None = None, port_name: str = "", clash=None) -> Coverage:
     """Cobertura de `port` (de una pieza o de un corte) contra las piezas del catálogo con el puerto opuesto.
 
     El universo son las últimas versiones de cada id, sin `exclude_ids` ni las piezas cuya figura de origen es
@@ -155,6 +246,9 @@ def coverage_of_port(port: Port, height_mm: float | None, cat: Catalog, params: 
     de la misma clase y rol complementario. Mismo criterio de espejo que `Catalog.compatible_with` (así los números
     coinciden en todas partes): si el puerto medido es de una pieza espejable (`mirrorable`) se saltean los `_der` de las
     otras piezas, y si `port_name` es un `_der` se saltean las otras piezas espejables (ya se miden por el lado izquierdo).
+
+    `clash`: función `pieza del catálogo -> mm³ | None` con el choque en la pose sentada (ver `SeatedClash`); si da volumen,
+    la pieza pasa a «no». Es de un miembro con un torso (o al revés), así que lo arma quien llama.
     """
     params = params or cat.params
     want = COMPLEMENT[port.rol]
@@ -173,6 +267,8 @@ def coverage_of_port(port: Port, height_mm: float | None, cat: Catalog, params: 
             if worst is None or (LEVEL_RANK[c.nivel], -(c.iou or 0.0)) > (LEVEL_RANK[worst.nivel], -(worst.compat.iou or 0.0)):
                 worst = cand
         if worst is not None:
+            if clash is not None:
+                worst = _clash_fit(worst, clash(other), params.sit_angle)
             fits.append(worst)
     fits.sort(key=lambda f: (LEVEL_RANK[f.nivel], -(f.compat.iou or 0.0), f.ref))
     esperada, n = expected_coverage(fits, port.clase, calib)
@@ -189,12 +285,21 @@ def piece_coverage(cat: Catalog, ref: str, calib: dict | None = None) -> dict:
     fig = me.origen.get("figura") or None
     if calib is None:
         calib = load_calibration(cat.root)
+    sc = SeatedClash(cat)
+    mine = sc.limb_of(me)
     out = {}
     for name, port in me.puertos.items():
         if name.endswith("_der") and me.espejable:
             continue
+        if mine is not None and port.clase in ("hombro", "cadera"):           # un miembro contra los torsos de otras figuras
+            clash = lambda other, mine=mine: sc.limb_on_torso(mine, other) if other.tipo == "torso" else None   # noqa: E731
+        elif me.tipo == "torso" and name in ("hombro_izq", "cadera_izq"):     # un torso contra los miembros de otras figuras
+            sh, hip = me.puertos.get("hombro_izq"), me.puertos.get("cadera_izq")
+            clash = (lambda other, sh=sh, hip=hip: sc.torso_with_limb(sh, hip, fig or "", other)) if sh and hip else None  # noqa: E731
+        else:
+            clash = None
         cov = coverage_of_port(port, me.altura_figura_mm, cat, cat.params, exclude_ids=(me.id,), exclude_figure=fig,
-                               mirrorable=me.espejable, calib=calib, port_name=name)
+                               mirrorable=me.espejable, calib=calib, port_name=name, clash=clash)
         if name.endswith("_der") and not cov.universo and name[:-4] + "_izq" in me.puertos:
             continue
         out[name] = cov
@@ -217,6 +322,7 @@ class CutMeasure:
     cara_chica: tuple | None = None     # (Ø del mayor círculo, Ø necesario con pared): el pasador no entra en ninguna posición
     avisos: list = field(default_factory=list)
     error: str | None = None
+    limb: object = field(default=None, repr=False)   # el miembro cortado (Manifold en el marco de la figura), para el choque sentado
     as_plug: Coverage | None = None     # la pieza de esta figura contra las tomas del catálogo
     as_socket: Coverage | None = None   # el torso de esta figura contra los enchufes del catálogo
 
@@ -244,22 +350,16 @@ def _face_port(face, clase: str, center, ref_prefer) -> Port:
     return Port(clase, "enchufe", frame, PortFace.from_shape(unary_union(polys)))
 
 
-def _measure(lugar: str, clase: str, face, center, ref_prefer, params: Params) -> CutMeasure:
-    m = CutMeasure(lugar, clase)
-    try:
-        if face.triangles is None or len(face.triangles) == 0:
-            raise ValueError("la cara de corte no trae sus triángulos")
-        m.port = _face_port(face, clase, center, ref_prefer)
-    except ValueError as exc:
-        m.error = str(exc)
-        return m
-    pf = m.port.face
-    m.r_eq, m.area_mm2, m.x_mm = pf.radius_eq, pf.area, abs(float(m.port.frame.center[0]))
+def _measure_port(lugar: str, clase: str, port: Port, params: Params) -> CutMeasure:
+    """Métricas de la cara de un puerto ya armado: radios, posición lateral, margen del pasador."""
+    m = CutMeasure(lugar, clase, port=port)
+    pf = port.face
+    m.r_eq, m.area_mm2, m.x_mm = pf.radius_eq, pf.area, abs(float(port.frame.center[0]))
     attr = PIN_OF_CLASS.get(clase)
     pin = getattr(params, attr) if attr else None
+    g = pin_diagnosis(pf, pin.shaft_d if pin is not None else 0.0)
+    m.r_inscrito = g["circulo_d"] / 2
     if pin is not None:
-        g = pin_diagnosis(pf, pin.shaft_d)
-        m.r_inscrito = g["circulo_d"] / 2
         m.margen_pasador = g["margen"]
         if g["margen"] < 0:
             m.avisos.append(f"el vástago de Ø{pin.shaft_d:g} mm sobresale {-g['margen']:.2f} mm de la cara")
@@ -267,10 +367,20 @@ def _measure(lugar: str, clase: str, face, center, ref_prefer, params: Params) -
                 m.cara_chica = (g["circulo_d"], pin.shaft_d + 2 * params.min_wall)
         elif g["margen"] < params.min_wall:
             m.avisos.append(f"pared de {g['margen']:.2f} mm alrededor del vástago (mínimo {params.min_wall:g} mm)")
-    else:
-        g = pin_diagnosis(pf, 0.0)
-        m.r_inscrito = g["circulo_d"] / 2
     return m
+
+
+def _measure(lugar: str, clase: str, face, center, ref_prefer, params: Params) -> CutMeasure:
+    """Como `_measure_port`, a partir de la cara de contacto (triángulos) y el centro del puerto."""
+    try:
+        if face.triangles is None or len(face.triangles) == 0:
+            raise ValueError("la cara de corte no trae sus triángulos")
+        port = _face_port(face, clase, center, ref_prefer)
+    except ValueError as exc:
+        m = CutMeasure(lugar, clase)
+        m.error = str(exc)
+        return m
+    return _measure_port(lugar, clase, port, params)
 
 
 def measure_cuts(project, body: S.Manifold, cat: Catalog | None = None, params: Params | None = None,
@@ -280,10 +390,11 @@ def measure_cuts(project, body: S.Manifold, cat: Catalog | None = None, params: 
     `body`: el cuerpo normalizado (`extract.load_body`). Con `cat`, cada corte lleva además su cobertura contra el catálogo
     como enchufe (`as_plug`) y como toma (`as_socket`). Hace lo mismo que `extract.extract_all` hasta la cara de cada corte:
     mismo recorte de la mitad de trabajo, misma rebaba, mismo centro del pasador."""
-    from .extract import _pick_limbs
+    from .extract import _clean, _pick_limbs, _port_face, reference_for
     from .head import neck_plane, split_head
-    from .limbs import contact_preview
+    from .limbs import separate_limb
     from .planes import Plane
+    from .trims import apply_trims
 
     p = params or project.params
     if calib is None and cat is not None:
@@ -309,24 +420,49 @@ def measure_cuts(project, body: S.Manifold, cat: Catalog | None = None, params: 
     for kind, spec in limbs.items():
         place = "brazo" if kind == "arm" else "pierna"
         clase = "hombro" if kind == "arm" else "cadera"
-        try:
-            prev = contact_preview(half, spec, p.burr)
+        try:               # los mismos pasos que `extract.extract_all`: corte, recortes, limpieza y cara real del puerto
+            limb, face = separate_limb(half, spec, p.burr)
+            limb = apply_trims(limb, project.trims, spec.name)
+            frame = PortFrame(face.center.copy(), face.outward / np.linalg.norm(face.outward), reference_for(face.outward))
+            frame, pface = _port_face(_clean(limb, place, warnings), frame, spec.name, warnings)
         except ValueError as exc:
             m = CutMeasure(place, clase)
             m.error = str(exc)
             out.append(m)
             continue
-        center = np.asarray(spec.pin_center, float) if spec.pin_center is not None else np.asarray(prev.default_center, float)
-        center = center - ((center - prev.face.center) @ prev.face.outward) * prev.face.outward   # sobre el plano de la cara
-        out.append(_measure(place, clase, prev.face, center, (0.0, 0.0, 1.0), p))
+        m = _measure_port(place, clase, Port(clase, "enchufe", frame, pface), p)
+        m.limb = limb
+        out.append(m)
 
     if cat is not None:
+        sc = SeatedClash(cat, cat.params)
+        own = {"arm": None, "leg": None}                       # los miembros de ESTA figura, para el choque con los de catálogo
+        by_kind = {"brazo": "arm", "pierna": "leg"}
+        for m in out:
+            if m.port is not None and m.limb is not None and m.lugar in by_kind:
+                own[by_kind[m.lugar]] = Limb(m.limb, m.port, by_kind[m.lugar], exclude_figure or "")
+        sh = hip = None
+        for m in out:
+            if m.port is None:
+                continue
+            socket = m.socket_port()
+            if m.lugar == "brazo":
+                sh = socket
+            elif m.lugar == "pierna":
+                hip = socket
         for m in out:
             if m.port is None:
                 continue
             kw = dict(cat=cat, params=cat.params, exclude_figure=exclude_figure, calib=calib)
-            m.as_plug = coverage_of_port(m.port, p.ref_height, **kw)
-            m.as_socket = coverage_of_port(m.socket_port(), p.ref_height, **kw)
+            plug_clash = socket_clash = None
+            if m.limb is not None:                              # el miembro de esta figura en torsos de catálogo
+                mine = own[by_kind[m.lugar]]
+                plug_clash = lambda other, mine=mine: (sc.limb_on_torso(mine, other)         # noqa: E731
+                                                       if other.tipo == "torso" else None)
+                if sh is not None and hip is not None:          # el torso de esta figura con miembros de catálogo
+                    socket_clash = lambda other: sc.torso_with_limb(sh, hip, "", other, own)   # noqa: E731
+            m.as_plug = coverage_of_port(m.port, p.ref_height, clash=plug_clash, **kw)
+            m.as_socket = coverage_of_port(m.socket_port(), p.ref_height, clash=socket_clash, **kw)
     return out
 
 

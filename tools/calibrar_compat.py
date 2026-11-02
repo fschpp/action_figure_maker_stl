@@ -3,7 +3,8 @@
 La barata (`ports.port_compat`) sale de los metadatos de las piezas; la completa (`compat.check`) arma la figura y corre
 `validate`. Esta herramienta las contrasta: toma las figuras que ya están en un catálogo y arma recetas de «una pieza
 cambiada» (el brazo o la pierna de otra figura puesto en el torso de la figura anfitriona), y para cada una anota el nivel
-barato (ok / aviso / no, con su IoU y escalón) y si la completa encontró problemas NUEVOS respecto de la receta propia del
+barato (ok / aviso / no, con su IoU y escalón de las caras), el choque brazo–pierna en la pose sentada que anticipa
+`guide.SeatedClash` (si choca, el nivel pasa a «no») y si la completa encontró problemas NUEVOS respecto de la receta propia del
 anfitrión (la línea base: lo que ya falla sin cambiar nada no se le achaca a la pieza cambiada).
 
 Con eso arma la matriz de confusión por clase (nivel barato × la completa pasó o no) y los límites de Wilson que usa
@@ -33,7 +34,7 @@ sys.path.insert(0, os.path.join(ROOT, "src"))
 
 from afm import __version__, compat  # noqa: E402
 from afm.catalog import Catalog, CatalogError  # noqa: E402
-from afm.guide import CALIB_FILE, CALIB_FORMAT, wilson_lower  # noqa: E402
+from afm.guide import CALIB_FILE, CALIB_FORMAT, SIT_CLASH_TOL, SeatedClash, wilson_lower  # noqa: E402
 from afm.recipe import Recipe, RecipeError  # noqa: E402
 
 CLASS_OF_PLACE = {"brazo": "hombro", "pierna": "cadera", "cabeza": "cuello"}     # clase del puerto que cambia al cambiar la pieza
@@ -117,6 +118,7 @@ def calibrate(cat: Catalog, hosts=None, donors=None, places=("brazo", "pierna"),
         jobs = jobs[:limit]
     base: dict[str, dict] = {}
     rows = []
+    sc = SeatedClash(cat)
     for i, (h, d, pl) in enumerate(jobs, 1):
         if h not in base:
             log(f"línea base de {h} …")
@@ -124,16 +126,31 @@ def calibrate(cat: Catalog, hosts=None, donors=None, places=("brazo", "pierna"),
         res = run_check(swap_recipe(cat, h, figs[h], d, figs[d], pl), cat, force)
         new = [p for p in res.get("problemas", []) if p not in base[h].get("problemas", [])]
         cheap = (res.get("compat_piezas") or {}).get(pl) or {}
+        choque = predicted_clash(sc, figs[h], figs[d], pl)
+        nivel = "no" if (choque or 0.0) > SIT_CLASH_TOL else cheap.get("nivel")
         row = {"anfitrion": h, "donante": d, "lugar": pl, "clase": CLASS_OF_PLACE[pl], "pieza": figs[d][pl].ref,
-               "nivel": cheap.get("nivel"), "iou": cheap.get("iou"), "escalon_mm": cheap.get("escalon_mm"),
+               "nivel": nivel, "nivel_cara": cheap.get("nivel"), "choque_mm3": choque,
+               "iou": cheap.get("iou"), "escalon_mm": cheap.get("escalon_mm"),
                "armado": res.get("armado", True), "pasa": bool(res.get("armado", True)) and not new, "problemas_nuevos": new,
                "avisos": [a for a in res.get("avisos", []) if a.startswith(pl)], "segundos": res.get("segundos"),
                "cache": bool(res.get("cache"))}
         rows.append(row)
-        log(f"[{i}/{len(jobs)}] {h} ← {d} ({pl}): barata {row['nivel']} (IoU {_c(row['iou'])}) → "
+        log(f"[{i}/{len(jobs)}] {h} ← {d} ({pl}): barata {row['nivel']} (IoU {_c(row['iou'])}, choque {_c(choque, 1)} mm³) → "
             f"{'pasa' if row['pasa'] else 'FALLA'}{'' if row['pasa'] else ': ' + '; '.join(new)[:120]} "
             f"[{'caché' if row['cache'] else str(row['segundos']) + ' s'}]")
     return {"filas": rows, "base": base, "figuras": sorted(figs)}
+
+
+def predicted_clash(sc: SeatedClash, host: dict, donor: dict, place: str):
+    """Choque en la pose sentada (mm³) del miembro del donante en el torso del anfitrión, contra el otro miembro del
+    anfitrión; None si no aplica (la cabeza) o falta algo."""
+    if place not in ("brazo", "pierna"):
+        return None
+    limb = sc.limb_of(donor[place])
+    mate = sc.limb_of(host["pierna" if place == "brazo" else "brazo"])
+    if limb is None or mate is None:
+        return None
+    return sc.limb_on_torso(limb, host["torso"], mate)
 
 
 def confusion(rows: list) -> dict:
@@ -152,7 +169,8 @@ def calibration_json(result: dict, cat: Catalog) -> dict:
     return {"formato": CALIB_FORMAT, "linea": cat.name, "motor": __version__,
             "fecha": datetime.date.today().isoformat(), "figuras": result["figuras"],
             "n_combinaciones": len(result["filas"]), "clases": confusion(result["filas"]),
-            "detalle": [{k: r[k] for k in ("anfitrion", "donante", "lugar", "clase", "nivel", "iou", "escalon_mm", "pasa")}
+            "detalle": [{k: r[k] for k in ("anfitrion", "donante", "lugar", "clase", "nivel", "nivel_cara", "choque_mm3", "iou",
+                                           "escalon_mm", "pasa")}
                         for r in result["filas"]]}
 
 
@@ -173,10 +191,11 @@ def report_markdown(result: dict, cat: Catalog) -> str:
     for h, b in sorted(base.items()):
         L.append(f"| {h} | {'sí' if b.get('armado', True) else 'no'} | {len(b.get('problemas', []))} | {len(b.get('avisos', []))} |")
     L += ["", "## Combinaciones", "",
-          "| Anfitrión | Lugar | Donante | Barata | IoU | Escalón (mm) | Completa | Problemas nuevos |", "|---|---|---|---|---|---|---|---|"]
+          "| Anfitrión | Lugar | Donante | Barata | IoU | Escalón (mm) | Choque sentada (mm³) | Completa | Problemas nuevos |",
+          "|---|---|---|---|---|---|---|---|---|"]
     for r in rows:
         L.append(f"| {r['anfitrion']} | {r['lugar']} | {r['donante']} | {r['nivel'] or '—'} | {_c(r['iou'])} | {_c(r['escalon_mm'])} | "
-                 f"{'pasa' if r['pasa'] else '**falla**'} | {'; '.join(r['problemas_nuevos'])[:90] or '—'} |")
+                 f"{_c(r.get('choque_mm3'), 1)} | {'pasa' if r['pasa'] else '**falla**'} | {'; '.join(r['problemas_nuevos'])[:90] or '—'} |")
     conf = confusion(rows)
     L += ["", "## Matriz de confusión por clase", "",
           "Pasaron / total de las combinaciones con ese nivel barato, y el límite inferior de Wilson al 95 % (lo que usa la guía).", "",
@@ -205,6 +224,13 @@ def report_markdown(result: dict, cat: Catalog) -> str:
     if av:
         good = sum(1 for r in av if r["pasa"])
         L.append(f"- De {len(av)} combinaciones «aviso», {good} pasaron la completa ({100 * good / len(av):.0f} %).")
+    judged = [r for r in rows if r.get("choque_mm3") is not None]
+    if judged:
+        hit = sum(1 for r in judged if (r["choque_mm3"] > SIT_CLASH_TOL) == (not r["pasa"]))
+        fp = sum(1 for r in judged if r["choque_mm3"] > SIT_CLASH_TOL and r["pasa"])
+        fn = sum(1 for r in judged if r["choque_mm3"] <= SIT_CLASH_TOL and not r["pasa"])
+        L.append(f"- El choque brazo–pierna en la pose sentada (`guide.SeatedClash`, sin armar la figura) anticipó {hit} de {len(judged)} "
+                 f"resultados de la completa ({fp} falsas alarmas, {fn} fallas que no vio).")
     L += ["- La monotonía en la capacidad del anfitrión (§3 del plan) se verifica cuando haya medición de capacidad (Fase 3).", ""]
     return "\n".join(L)
 

@@ -239,3 +239,56 @@ def test_controller_cut_guide(tmp_path, cat):
     text = "\n".join(c.cut_guide_lines())
     assert not text.startswith("Sin catálogo") and "pierna (cadera):" in text
     assert "como enchufe (la pieza de esta figura en otras):" in text and "compatible con 2 de 4 piezas (50 %)" in text
+
+
+# ------------------------------------------------------------------------------------------------ choque en la pose sentada
+def lowered_torso(cat, new_id="torso-bajo", dx=-8.0, dz=-10.0, figura="otra.stl"):
+    """Torso de «otra figura» con la toma del hombro corrida hacia adentro y abajo: el brazo cuelga dentro del muslo sentado."""
+    import numpy as np
+    from afm.ports import PortFrame
+    meta, mesh = cat.load("torso-muneco-01")
+    sh = meta.puertos["hombro_izq"]
+    frame = PortFrame(np.asarray(sh.frame.center, float) + np.array([dx, 0.0, dz]), sh.frame.axis, sh.frame.ref)
+    ports = {**meta.puertos, "hombro_izq": Port(sh.clase, sh.rol, frame, sh.face, sh.sweep_deg)}
+    new = dataclasses.replace(meta, id=new_id, version=1, puertos=ports, origen={"figura": figura}, stl="", sha256="")
+    cat.add_piece(mesh, new)
+    return new
+
+
+def test_seated_clash_volume(cat):
+    sc = G.SeatedClash(cat)
+    arm = sc.limb_of(cat.meta("brazo-muneco-01"))
+    assert arm.kind == "arm" and sc.limb_of(cat.meta("torso-muneco-01")) is None          # solo brazos y piernas son miembros
+    assert sc.limb_on_torso(arm, cat.meta("torso-muneco-01")) == pytest.approx(0.0)         # la figura propia no choca consigo
+    low = lowered_torso(cat)
+    assert sc.limb_on_torso(arm, low) is None                                               # «otra.stl» no tiene pierna: no se mide
+    clone(cat, "pierna-muneco-01", "pierna-otra", 1.0)
+    sc = G.SeatedClash(cat)
+    assert sc.limb_on_torso(arm, low) > 100.0                                               # ahora sí: el brazo choca con el muslo
+    assert sc.limb_on_torso(arm, cat.meta("torso-otra-a")) == pytest.approx(0.0)           # el mismo torso sin correr la toma, no
+
+
+def test_coverage_turns_a_clash_into_no(cat):
+    clone(cat, "pierna-muneco-01", "pierna-otra", 1.0)
+    lowered_torso(cat)
+    arm = G.piece_coverage(cat, "brazo-muneco-01")["hombro"]
+    by = {f.ref: f for f in arm.fits}
+    assert by["torso-bajo@1"].nivel == "no" and by["torso-bajo@1"].choque_mm3 > 100.0
+    assert "choca con el otro miembro" in by["torso-bajo@1"].motivo() and "(90°)" in by["torso-bajo@1"].motivo()
+    assert by["torso-otra-a@1"].choque_mm3 == pytest.approx(0.0) and by["torso-otra-a@1"].nivel != "no"
+    # el mismo choque visto desde el torso: sus tomas contra los brazos de otras figuras
+    torso = G.piece_coverage(cat, "torso-bajo")["hombro_izq"]
+    assert [f.nivel for f in torso.fits if f.ref == "brazo-muneco-01@1"] == ["no"]
+    assert "pose sentada" in G.format_fit(next(f for f in torso.fits if f.ref == "brazo-muneco-01@1"))
+
+
+def test_measure_cuts_sees_the_clash(doll, cat):
+    _stl, _pp, proj, body = doll
+    clone(cat, "pierna-muneco-01", "pierna-otra", 1.0)
+    lowered_torso(cat)
+    cuts = {m.lugar: m for m in G.measure_cuts(proj, body, cat, exclude_figure="muneco.stl")}
+    plug = {f.ref: f for f in cuts["brazo"].as_plug.fits}
+    assert plug["torso-bajo@1"].nivel == "no" and plug["torso-bajo@1"].choque_mm3 > 100.0       # el brazo recién cortado contra ese torso
+    assert plug["torso-otra-a@1"].choque_mm3 == pytest.approx(0.0)
+    # y el torso de la figura medida (su pierna recién cortada) con brazos de catálogo: el del muñeco propio se excluyó
+    assert cuts["brazo"].as_socket.universo == 0 and cuts["pierna"].limb is not None
