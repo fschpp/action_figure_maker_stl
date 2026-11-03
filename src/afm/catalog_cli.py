@@ -7,12 +7,13 @@ import sys
 
 from . import parts as P
 from .catalog import Catalog, CatalogError, default_root
+from .interface import ContractError
 from .ports import PortError, port_class, port_from_points
 from .recipe import RecipeError
 
 
 def add_parsers(sub) -> None:
-    c = sub.add_parser("catalogo", help="catálogo de piezas de una línea (crear, listar, verificar, importar-mano, agregar, agregar-stl, cortar-muneca, usos, eliminar, estado, compat, matriz, cobertura)")
+    c = sub.add_parser("catalogo", help="catálogo de piezas de una línea (crear, listar, verificar, importar-mano, agregar, agregar-stl, cortar-muneca, usos, eliminar, estado, compat, matriz, cobertura, contrato)")
     cs = c.add_subparsers(dest="catcmd", required=True)
 
     def root(p):
@@ -125,6 +126,15 @@ def add_parsers(sub) -> None:
     root(a)
     a.add_argument("ref", metavar="ID")
     a.add_argument("--todas", action="store_true", help="listar también las piezas con resultado ok")
+    a = cs.add_parser("contrato", help="contrato de interfaz de la línea (talles de cara y posición por clase de puerto): ver, calibrar desde el catálogo o validar")
+    root(a)
+    g = a.add_mutually_exclusive_group()
+    g.add_argument("--ver", action="store_true", help="mostrar el contrato guardado y el talle de cada pieza (por defecto)")
+    g.add_argument("--calibrar", action="store_true", help="proponer el contrato agrupando los radios de los enchufes del catálogo")
+    g.add_argument("--validar", action="store_true", help="comprobar la coherencia del contrato y etiquetar todas las piezas")
+    g.add_argument("--quitar", action="store_true", help="borrar el contrato de linea.json")
+    a.add_argument("--guardar", action="store_true", help="con --calibrar: escribir la propuesta en linea.json (sin esto solo se muestra)")
+    a.add_argument("--tolerancia", type=float, default=None, metavar="MM", help="con --calibrar: tolerancia del radio de un talle (por defecto 0,4 mm)")
     a = cs.add_parser("estado", help="cambiar el estado de una pieza (borrador, validada, impresa)")
     root(a)
     a.add_argument("ref", metavar="ID")
@@ -155,10 +165,72 @@ def _slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-") or "pieza"
 
 
+def _label_lines(cat, contract) -> list[str]:
+    """Una línea por pieza y puerto de clase dura: el talle que le toca (o «fuera de contrato»)."""
+    from .interface import label_piece
+
+    out = []
+    for m in cat.list():
+        for name, lab in label_piece(contract, m).items():
+            out.append(f"  {m.ref:<28} {name:<12} {m.puertos[name].rol:<8} {lab.resumen()}")
+            out += [f"      aviso: {x}" for x in lab.avisos if "no cae en ningún talle" not in x]
+    return out
+
+
+def _run_contract(cat, args) -> int:
+    from .interface import ContractError, format_contract, propose
+
+    if args.calibrar:
+        tol = args.tolerancia if args.tolerancia is not None else 0.4
+        prop = propose(cat, tol)
+        print("Propuesta (a confirmar):")
+        for line in format_contract(prop.contract):
+            print(line)
+        for clase, rows in sorted(prop.muestras.items()):
+            print(f"  muestras de {clase}: " + ", ".join(f"{ref}:{name} r {r:.2f} x {x:.2f}" for ref, name, r, x in rows))
+        for n in prop.notas:
+            print("AVISO:", n)
+        probs = prop.contract.problems(cat.params)
+        for p in probs:
+            print("PROBLEMA:", p)
+        if not args.guardar:
+            print("(no se guardó nada; repetir con --guardar para escribirla en linea.json)")
+            return 1 if probs else 0
+        if probs:
+            print("No se guarda: la propuesta tiene problemas.", file=sys.stderr)
+            return 1
+        cat.set_contract(prop.contract)
+        print(f"Contrato guardado en {cat.root}/linea.json (huella {prop.contract.hash()})")
+        return 0
+    if args.quitar:
+        print("Contrato borrado de linea.json" if cat.clear_contract() else "La línea no tenía contrato")
+        return 0
+    try:
+        contract = cat.contract()
+    except (ContractError, KeyError, ValueError, TypeError) as exc:
+        print(f"ERROR: contrato ilegible: {exc}", file=sys.stderr)
+        return 2
+    if contract is None:
+        print("La línea no tiene contrato de interfaz (usar `afm catalogo contrato --calibrar --guardar`)")
+        return 1 if args.validar else 0
+    for line in format_contract(contract):
+        print(line)
+    probs = contract.problems(cat.params)
+    for p in probs:
+        print("PROBLEMA:", p)
+    lines = _label_lines(cat, contract)
+    if lines:
+        print("Piezas:")
+        print("\n".join(lines))
+    if args.validar:
+        print("Contrato " + ("coherente" if not probs else f"con {len(probs)} problema(s)"))
+    return 1 if probs else 0
+
+
 def run_catalogo(args) -> int:
     try:
         return _run(args)
-    except (CatalogError, P.PieceError, PortError, RecipeError) as exc:
+    except (CatalogError, P.PieceError, PortError, RecipeError, ContractError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
 
@@ -202,6 +274,8 @@ def _run(args) -> int:
         print(f"Catálogo «{cat.name}»: {len(cat.list(all_versions=True))} pieza(s); "
               + ("limpio" if rep.ok else f"{len(rep.problems)} problema(s)"))
         return 0 if rep.ok else 1
+    if cmd == "contrato":
+        return _run_contract(cat, args)
     if cmd == "usos":
         uses = cat.usages(args.ref, args.buscar)
         if not uses:

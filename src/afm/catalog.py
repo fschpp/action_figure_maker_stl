@@ -161,6 +161,31 @@ class Catalog:
         """Perfil de la línea (parámetros comunes a todas las figuras)."""
         return Params.from_dict(self.line["params"])
 
+    # ------------------------------------------------------------------ contrato de interfaz (plan de compatibilidad, Fase 1)
+    def contract(self):
+        """Contrato de interfaz de la línea (`interface.Contract`), o None si `linea.json` no trae la clave `interfaz`."""
+        from .interface import Contract
+
+        raw = self.line.get("interfaz")
+        return Contract.from_dict(raw) if raw else None
+
+    def set_contract(self, contract) -> None:
+        """Guarda el contrato en `linea.json` (clave `interfaz`). Falla antes de escribir si es incoherente."""
+        from .interface import ContractError
+
+        probs = contract.problems(self.params)
+        if probs:
+            raise ContractError("; ".join(probs))
+        self.line["interfaz"] = contract.to_dict()
+        self._write_line()
+
+    def clear_contract(self) -> bool:
+        if "interfaz" not in self.line:
+            return False
+        del self.line["interfaz"]
+        self._write_line()
+        return True
+
     # ------------------------------------------------------------------ piezas
     def _dir(self, tipo: str) -> str:
         return os.path.join(self.root, "piezas", tipo)
@@ -486,6 +511,9 @@ class Catalog:
                     problems.append(f"{tag}: puerto «{name}»: cara ilegible: {exc}")
             if m.altura_figura_mm is not None and abs(m.altura_figura_mm - self.height_mm) > LINE_HEIGHT_TOL_MM:
                 warnings.append(f"{tag}: altura de origen {m.altura_figura_mm:g} mm, la línea usa {self.height_mm:g} mm")
+        problems_c, warnings_c = self._verify_contract()
+        problems += problems_c
+        warnings += warnings_c
         for pid, vs in by_id.items():
             if len(set(vs)) != len(vs):
                 problems.append(f"{pid}: versiones repetidas {sorted(vs)}")
@@ -493,6 +521,27 @@ class Catalog:
                 # eliminar una versión (`delete_pieces`) deja un hueco a propósito: las recetas fijan `id@versión`
                 warnings.append(f"{pid}: versiones no consecutivas {sorted(vs)} (¿se eliminó alguna?)")
         return Report(problems, warnings)
+
+    def _verify_contract(self) -> tuple[list, list]:
+        """Con contrato: lo valida y avisa de los enchufes de clase dura que quedan fuera de contrato (no es un problema:
+        una pieza «fuera de contrato» es válida, solo no entra en un talle)."""
+        from .interface import ContractError, HARD_CLASSES, label_piece
+
+        try:
+            contract = self.contract()
+        except (ContractError, KeyError, ValueError, TypeError) as exc:
+            return [f"linea.json: contrato de interfaz ilegible: {exc}"], []
+        if contract is None:
+            return [], []
+        problems = [f"contrato de interfaz: {x}" for x in contract.problems(self.params)]
+        if abs(contract.altura_mm - self.height_mm) > LINE_HEIGHT_TOL_MM:
+            problems.append(f"contrato de interfaz: altura {contract.altura_mm:g} mm y la línea usa {self.height_mm:g} mm")
+        warnings = []
+        for m in self.list():
+            for name, lab in label_piece(contract, m, only_plugs=True).items():
+                if lab.clase in HARD_CLASSES and not lab.en_contrato:
+                    warnings.append(f"{m.ref}: puerto «{name}» fuera de contrato: {lab.resumen()}")
+        return problems, warnings
 
     # ------------------------------------------------------------------ usos
     def usages(self, ref: str, search: list[str] | None = None, recursive: bool = True) -> list[dict]:
