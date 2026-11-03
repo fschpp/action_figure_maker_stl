@@ -42,6 +42,9 @@ def recipe_key(recipe: Recipe, cat: Catalog) -> tuple[str, dict]:
         piezas[lugar] = {"ref": m.ref, "sha256": m.sha256}
     payload = {"piezas": piezas, "params": recipe_params(recipe, cat).to_dict(), "opciones": recipe.options(),
                "ajustes": recipe.ajustes, "motor": __version__}
+    contract = cat.contract()
+    if contract is not None:        # sin contrato la clave es la de siempre: no se invalidan los resultados guardados
+        payload["contrato"] = contract.hash()
     blob = json.dumps(payload, sort_keys=True, default=float, separators=(",", ":")).encode()
     return hashlib.sha256(blob).hexdigest(), piezas
 

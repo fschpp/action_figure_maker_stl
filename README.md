@@ -104,12 +104,23 @@ afm catalogo cobertura RUTA pierna-guemes-01 [--todas]       # cada puerto de la
 afm guia figura.stl figura.proyecto --catalogo RUTA          # mide la cara de cada corte (hombro, cadera, cuello): radio equivalente e inscrito,
                                                              # posición lateral, margen del pasador, y su cobertura como enchufe y como toma
 python tools/calibrar_compat.py RUTA --escribir --out docs/CALIBRACION_compat.md   # contrasta la barata con build + validate (minutos por combinación)
+
+# Contrato de interfaz de la línea (fase 1 del mismo plan): talles de cara y posición lateral por clase de puerto, en la clave `interfaz` de linea.json.
+afm catalogo contrato RUTA --calibrar [--tolerancia 0.4]     # propone talles agrupando los radios de los enchufes del catálogo (no escribe nada)
+afm catalogo contrato RUTA --calibrar --guardar              # …y la guarda en linea.json (se niega si la propuesta tiene problemas)
+afm catalogo contrato RUTA [--ver | --validar | --quitar]    # ver el contrato y el talle de cada pieza / comprobar coherencia / borrarlo
 ```
 
 «Catalogar» (`afm catalogo agregar`) imprime la cobertura de cada pieza recién guardada. La cobertura es **barata** (solo metadatos) y cuenta, entre las
 piezas de OTRAS figuras con el puerto opuesto, cuántas dan ok / aviso / no. Con `<catálogo>/calibracion.json` (lo escribe `tools/calibrar_compat.py --escribir`)
 suma la probabilidad *esperada* de que la compatibilidad completa también pase (límite inferior de Wilson al 95 %, con su *n*). En la GUI,
 «Guía de cortes…» (pestaña Catálogo) muestra lo mismo para la figura abierta.
+
+El **contrato** (`src/afm/interface.py`) fija, por clase, los talles (radio equivalente de la cara ± tolerancia), la posición lateral x del
+hombro y la cadera y el eje; cuello y cintura llevan un contrato blando (escala ≤ ±10 %). Las medidas se llevan a la altura del contrato
+(los pasadores no escalan) y un talle no puede bajar del piso físico (Ø vástago / 2 + pared mínima). Las piezas son inmutables: su talle se
+deriva al vuelo, no se guarda en ellas. `afm catalogo verificar` avisa de los enchufes «fuera de contrato» (no es un problema) y la huella
+del contrato entra en la clave de `compat.json`; sin contrato todo funciona como antes.
 
 ## Convenciones
 
