@@ -28,14 +28,21 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from . import interface as I
 from . import solids as S
 from .catalog import Catalog
+from .hand import STEP_WARN_MM
+from .head import MIN_BASE_IOU
 from .ports import COMPLEMENT, PIN_OF_CLASS, Compat, Port, PortFace, PortFrame, coupling_transform, pin_diagnosis, port_compat
 from .params import Params
 
 CALIB_FORMAT = "afm-calibracion-1"
 CALIB_FILE = "calibracion.json"
 LEVEL_RANK = {"ok": 0, "aviso": 1, "no": 2}
+# Avisos de `port_compat` que son solo de aspecto (las caras no coinciden: se ve una costura). La calibración (`docs/CALIBRACION_compat.md`)
+# mostró que ni el IoU ni el escalón predicen una falla de `validate`: 17 combinaciones con IoU 0,25–0,89 pasaron. El resto de los avisos
+# (pared del pasador, alturas…) tocan la función. Si cambian esos textos en `ports.py`, `tests/test_guide.py` lo avisa.
+COSMETIC_PREFIXES = ("las caras coinciden solo", "escalón de")
 
 
 # ---------------------------------------------------------------------------------------------------- choque en pose sentada
@@ -143,6 +150,18 @@ class PieceFit:
         c = self.compat
         return (c.motivos or c.avisos or [""])[0]
 
+    @property
+    def estetico(self) -> bool:
+        """«aviso» solo por el aspecto de la unión (IoU de las caras, escalón): funcionalmente no hay reparos medidos."""
+        c = self.compat
+        return c.nivel == "aviso" and bool(c.avisos) and all(a.startswith(COSMETIC_PREFIXES) for a in c.avisos)
+
+    @property
+    def caras_parecidas(self) -> bool | None:
+        """Las caras coinciden (IoU ≥ `MIN_BASE_IOU`, escalón ≤ `STEP_WARN_MM`). None si no se compararon caras."""
+        c = self.compat
+        return None if c.iou is None else (c.iou >= MIN_BASE_IOU and (c.escalon_mm or 0.0) <= STEP_WARN_MM)
+
 
 @dataclass
 class Coverage:
@@ -174,6 +193,14 @@ class Coverage:
         return self.count("no")
 
     @property
+    def aviso_estetico(self) -> int:
+        return sum(1 for f in self.fits if f.estetico)
+
+    @property
+    def aviso_funcional(self) -> int:
+        return self.aviso - self.aviso_estetico
+
+    @property
     def cobertura(self) -> float:
         """Fracción de piezas que no dan «no» (ok o aviso). 0 si no hay piezas con el puerto opuesto."""
         return (self.ok + self.aviso) / self.universo if self.universo else 0.0
@@ -189,6 +216,9 @@ class Coverage:
         n_ok = self.ok + self.aviso
         txt = (f"compatible con {n_ok} de {self.universo} pieza{'s' if self.universo != 1 else ''} "
                f"({100 * self.cobertura:.0f} %) · ok pleno {self.ok}")
+        if self.aviso:
+            txt += (f" · avisos: {self.aviso_estetico} solo de aspecto" if not self.aviso_funcional else
+                    f" · avisos: {self.aviso_estetico} solo de aspecto, {self.aviso_funcional} que tocan la función")
         if self.esperada is not None:
             txt += f" · esperada ≈ {100 * self.esperada:.0f} % (n = {self.n_calibracion})"
         return txt
@@ -203,6 +233,15 @@ def wilson_lower(k: int, n: int, z: float = 1.96) -> float:
     centre = p + z2 / (2 * n)
     margin = z * math.sqrt(p * (1 - p) / n + z2 / (4 * n * n))
     return max(0.0, (centre - margin) / (1 + z2 / n))
+
+
+def contract_of(cat: Catalog):
+    """El contrato de la línea, o None si no hay o `linea.json` trae uno ilegible (la guía sigue sin él; `afm catalogo verificar`
+    es quien avisa del contrato roto)."""
+    try:
+        return cat.contract()
+    except (I.ContractError, KeyError, ValueError, TypeError):
+        return None
 
 
 def load_calibration(root: str) -> dict | None:
@@ -322,6 +361,7 @@ class CutMeasure:
     cara_chica: tuple | None = None     # (Ø del mayor círculo, Ø necesario con pared): el pasador no entra en ninguna posición
     avisos: list = field(default_factory=list)
     error: str | None = None
+    etiqueta: object = field(default=None, repr=False)   # `interface.PortLabel`: dónde cae frente al contrato de la línea (None sin contrato)
     limb: object = field(default=None, repr=False)   # el miembro cortado (Manifold en el marco de la figura), para el choque sentado
     as_plug: Coverage | None = None     # la pieza de esta figura contra las tomas del catálogo
     as_socket: Coverage | None = None   # el torso de esta figura contra los enchufes del catálogo
@@ -435,6 +475,10 @@ def measure_cuts(project, body: S.Manifold, cat: Catalog | None = None, params: 
         out.append(m)
 
     if cat is not None:
+        contract = contract_of(cat)
+        for m in out:                                           # talle y posición frente al contrato de la línea, si lo hay
+            if contract is not None and m.port is not None:
+                m.etiqueta = I.label_port(contract, m.port, p.ref_height)
         sc = SeatedClash(cat, cat.params)
         own = {"arm": None, "leg": None}                       # los miembros de ESTA figura, para el choque con los de catálogo
         by_kind = {"brazo": "arm", "pierna": "leg"}
@@ -473,9 +517,9 @@ def _c(x: float, nd: int = 2) -> str:
 
 def format_fit(f: PieceFit) -> str:
     c = f.compat
-    det = ""
+    det = " (solo aspecto)" if f.estetico else ""
     if c.iou is not None:
-        det = f" (IoU {_c(c.iou)}, escalón {_c(c.escalon_mm)} mm)"
+        det += f" (IoU {_c(c.iou)}, escalón {_c(c.escalon_mm)} mm)"
     why = f.motivo()
     return f"{f.ref:<28} {f.puerto:<12} {f.nivel}{det}" + (f" — {why}" if f.nivel != "ok" and why else "")
 
@@ -501,6 +545,10 @@ def format_measure(m: CutMeasure, all_fits: bool = False) -> list:
     if m.margen_pasador is not None:
         parts.append(f"margen del pasador {_c(m.margen_pasador)} mm")
     lines = [f"{head}: " + " · ".join(parts)]
+    if m.etiqueta is not None:
+        lab = m.etiqueta
+        lines.append(f"  contrato de la línea: {lab.resumen()}" + ("" if lab.en_contrato else "  ← AJUSTAR el corte"))
+        lines += [f"    {a}" for a in lab.avisos]
     for a in m.avisos:
         lines.append(f"  AVISO: {a}")
     if m.cara_chica:

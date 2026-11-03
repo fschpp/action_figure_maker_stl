@@ -78,7 +78,7 @@ def test_coverage_counts_levels_and_order(cat):
     assert cov.cobertura == 0.5 and cov.cobertura_plena == 0.25
     assert [f.ref for f in cov.fits] == ["torso-otra-a@1", "torso-otra-b@1", "torso-otra-c@1", "torso-otra-d@1"]
     assert [f.nivel for f in cov.fits] == ["ok", "aviso", "no", "no"]          # ok, aviso, no
-    assert cov.summary() == "compatible con 2 de 4 piezas (50 %) · ok pleno 1"
+    assert cov.summary() == "compatible con 2 de 4 piezas (50 %) · ok pleno 1 · avisos: 0 solo de aspecto, 1 que tocan la función"   # pared 1,10 mm < 1,2
     assert "no entra en ninguna posición" in cov.fits[3].motivo()
     assert all(f.puerto == "cadera_izq" for f in cov.fits)                     # pieza espejable: solo el lado izquierdo
 
@@ -292,3 +292,47 @@ def test_measure_cuts_sees_the_clash(doll, cat):
     assert plug["torso-otra-a@1"].choque_mm3 == pytest.approx(0.0)
     # y el torso de la figura medida (su pierna recién cortada) con brazos de catálogo: el del muñeco propio se excluyó
     assert cuts["brazo"].as_socket.universo == 0 and cuts["pierna"].limb is not None
+
+
+# ------------------------------------------------------------------------------------------------ aspecto vs función, contrato
+def test_cosmetic_warnings_are_recognized(cat):
+    """Un aviso solo de aspecto (las caras no coinciden) no es lo mismo que uno de función (pared del pasador)."""
+    clone(cat, "torso-muneco-01", "torso-otra-e", 1.3)                                   # cara más grande: no coincide, pero el pasador entra con pared
+    port, h = leg_port(cat)
+    cov = G.coverage_of_port(port, h, cat, exclude_figure="muneco.stl")
+    by = {f.ref: f for f in cov.fits}
+    e, b = by["torso-otra-e@1"], by["torso-otra-b@1"]
+    assert e.nivel == "aviso" and e.estetico and e.caras_parecidas is False
+    assert all(a.startswith(G.COSMETIC_PREFIXES) for a in e.compat.avisos) and len(e.compat.avisos) == 2     # IoU y escalón
+    assert b.nivel == "aviso" and not b.estetico                                         # la pared 1,10 mm toca la función
+    assert by["torso-otra-a@1"].estetico is False and by["torso-otra-a@1"].caras_parecidas is True
+    assert cov.aviso_estetico == 1 and cov.aviso_funcional == 1
+    assert "avisos: 1 solo de aspecto, 1 que tocan la función" in cov.summary()
+    assert "(solo aspecto)" in G.format_fit(e) and "(solo aspecto)" not in G.format_fit(b)
+    # sin avisos funcionales el resumen lo dice más corto
+    only = G.coverage_of_port(port, h, cat, exclude_ids=("torso-otra-b", "torso-otra-c", "torso-otra-d"), exclude_figure="muneco.stl")
+    assert only.summary().endswith("· ok pleno 1 · avisos: 1 solo de aspecto")
+
+
+def test_contract_label_in_guide_and_cli(doll, cat, capsys):
+    from afm import interface as I
+
+    _stl, _pp, proj, body = doll
+    assert all(m.etiqueta is None for m in G.measure_cuts(proj, body, cat, exclude_figure="muneco.stl"))      # sin contrato
+    cat.set_contract(I.propose(cat).contract)
+    cuts = {m.lugar: m for m in G.measure_cuts(proj, body, cat, exclude_figure="muneco.stl")}
+    assert cuts["brazo"].etiqueta.talle and cuts["brazo"].etiqueta.en_contrato                          # el muñeco es la muestra: entra
+    text = "\n".join(G.format_measure(cuts["brazo"]))
+    assert "contrato de la línea: talle" in text and "AJUSTAR" not in text
+    assert cuts["cabeza"].etiqueta is None                                                              # cuello: contrato blando, sin talle
+    assert main(["catalogo", "cobertura", cat.root, "pierna-muneco-01"]) == 0
+    assert "contrato: talle" in capsys.readouterr().out
+
+
+def test_unreadable_contract_does_not_break_the_guide(doll, cat, capsys):
+    cat.line["interfaz"] = {"formato": "afm-interfaz-1", "altura_mm": 100.0, "hombro": {"talles": [{"id": "S"}]}}     # le falta el radio
+    cat._write_line()
+    assert G.contract_of(Catalog.open(cat.root)) is None
+    _stl, _pp, proj, body = doll
+    assert all(m.etiqueta is None for m in G.measure_cuts(proj, body, Catalog.open(cat.root), exclude_figure="muneco.stl"))
+    assert main(["catalogo", "cobertura", cat.root, "pierna-muneco-01"]) == 0 and "contrato:" not in capsys.readouterr().out

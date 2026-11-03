@@ -1,6 +1,6 @@
 # Plan: guía de cortes y garantía de compatibilidad con el catálogo
 
-_2026-10-31. Solo plan: no se implementó código. Base: `main` (ed3c1ff) de `fschpp/action_figure_maker_stl`. Continúa `PLAN_piezas_intercambiables_catalogo.md` (cierra su decisión D3, «cortes estándar de la línea») y se apoya en lo que ya existe: `ports.py` (`port_compat`, `diagnose_plane`, `snap_frame_to_face`), `preflight.py`, `compat.py`, `extract.py`, `limbs.contact_preview`, `autosil.py`, `customize.fit_scale`, `tools/medir_interfaces.py` y `docs/MEDIDAS_interfaces.md`._
+_2026-10-31 (actualizado 2026-11-01 con lo que mostró la implementación: ver «Estado de la implementación» y §1.3). Base: `main` (fb5e825) de `fschpp/action_figure_maker_stl`. Continúa `PLAN_piezas_intercambiables_catalogo.md` (cierra su decisión D3, «cortes estándar de la línea») y se apoya en lo que ya existe: `ports.py` (`port_compat`, `diagnose_plane`, `snap_frame_to_face`), `preflight.py`, `compat.py`, `extract.py`, `limbs.contact_preview`, `autosil.py`, `customize.fit_scale`, `tools/medir_interfaces.py` y `docs/MEDIDAS_interfaces.md`._
 
 ## 0. Resumen
 
@@ -15,6 +15,26 @@ _2026-10-31. Solo plan: no se implementó código. Base: `main` (ed3c1ff) de `fs
 **Qué se promete** (§3): N0 informado (barato, instantáneo) · N1 por construcción (cumple el contrato, porcentaje esperado calibrado) · N2 certificado (probado con el motor). Solo N2 es una garantía firme; N1 es una probabilidad con datos detrás.
 
 Las fases (§5) no tocan el motor hasta la 4; la 0 y la 2 ya dan valor solas (calibración y «cobertura» al catalogar).
+
+## Estado de la implementación (2026-11-01)
+
+| Fase | Estado | Qué hay |
+|---|---|---|
+| **0. Calibración y línea base** | **Hecha** (24 combinaciones, `docs/CALIBRACION_compat.md`) | `tools/calibrar_compat.py`: arma recetas de una pieza cambiada, las valida con el motor y compara con la compatibilidad barata; escribe `<catálogo>/calibracion.json` y un informe (`docs/CALIBRACION_compat.md`) |
+| **1. Contrato y talles** | **Hecha** (PR #61, por radio equivalente) | `interface.py`, `afm catalogo contrato`; el talle se muestra en `afm guia` y `afm catalogo cobertura`. Falta decidir G2/G3 y el radio inscrito (ver abajo) |
+| **2. Medir y cobertura** | **Hecha** | `src/afm/guide.py` (`coverage_of_port`, `piece_coverage`, `measure_cuts`, Wilson); `afm catalogo cobertura`; `afm guia STL PROYECTO`; `afm catalogo agregar` imprime la cobertura de lo que guarda |
+| **3. Capacidad del anfitrión** | **Parcial** | Hecho el **choque brazo–pierna en la pose sentada** (`guide.SeatedClash`), que era lo que fallaba de verdad; pendientes la profundidad y la pared detrás del pasador |
+| **4. Auto-ajuste** | Pendiente | |
+| **5. GUI** | Parcial (solo lectura) | Botón «Guía de cortes…» (pestaña Catálogo): ventana con la medición de cada corte y su cobertura |
+| **6–8** | Pendientes | |
+
+**Resultado de la calibración (24 combinaciones de una pieza cambiada entre Güemes, Belgrano, Azurduy y Mickey):** todas dan «aviso» en la barata; 17 pasan `validate` (71 %) y 7 fallan, todas por interpenetración brazo/pierna. Las fallas dependen del anfitrión (Azurduy con piernas ajenas 3 de 3, Mickey con brazos ajenos 3 de 3, Belgrano con la pierna de Mickey; Güemes acepta las 6) y el IoU no las separa (una cara con IoU 0,89 falla y otra con 0,89 pasa). Conclusión: la cara sola no predice. Lo que falla es el **choque del brazo con la pierna sentada**, y se anticipa sin armar la figura: `guide.SeatedClash` coloca el brazo y la pierna en las tomas del torso anfitrión, gira la pierna `sit_angle` grados y mide el volumen común. Acierta las 24 combinaciones (0 falsas alarmas, 0 fallas sin ver) en 0,4 s, contra unos 12 minutos de armados, y da 0 para cada figura con sus propias piezas. Con el choque como nivel «no», quedan aviso 17/17 que pasan y no 0/7 (límite de Wilson 68–70 % por el n chico). Falta una muestra con «ok» para calibrar ese nivel y más figuras para saber si el choque basta o aparecen fallas de profundidad y pared
+
+**Contrato calibrado con las 4 figuras reales (2026-11-03).** Por radio equivalente (como quedó la Fase 1) el hombro da **4 talles de una sola figura cada uno** (T1 3,41 Mickey · T2 4,89 Azurduy · T3 5,77 Belgrano · T4 6,83 Güemes) y T1 queda bajo el piso físico de 3,25 mm; la cadera da 2 (S 5,77 · L 7,22). Por radio inscrito el hombro da 3 (S 3,28 con Azurduy y Mickey · M 4,11 · L 4,98) y la cadera 2 (S 5,16 con tres figuras · L 6,90 Mickey). Ninguno de los dos agrupa de verdad las figuras actuales: el contrato sirve para las figuras **nuevas** (cortarlas al talle), no para ordenar las que ya están. Además dos piezas del mismo talle por inscrito (Azurduy y Mickey, hombro) tienen IoU 0,48: el talle no iguala la forma de la cara (riesgo R10, G10).
+
+**Aspecto vs. función (G1, hecho en la cobertura).** La calibración mostró que el IoU y el escalón no predicen ninguna falla de `validate` (17 combinaciones con IoU 0,25–0,89 pasan). La cobertura ahora separa los avisos «solo de aspecto» (las caras no coinciden) de los que tocan la función (pared del pasador): `afm catalogo cobertura` dice, por ejemplo, «avisos: 2 solo de aspecto» y marca cada pieza «aviso (solo aspecto)». El nivel «ok» sigue exigiendo cara parecida; no se cambió `port_compat`.
+
+Diferencias con lo escrito arriba: el comando es `afm guia STL PROYECTO` (hace falta el STL para medir la cara real), y la cobertura **excluye las piezas de la propia figura** y usa el mismo criterio de espejo que `Catalog.compatible_with` (los números coinciden en todas partes).
 
 ## 1. Diagnóstico: de qué depende que un corte encaje
 
@@ -51,12 +71,27 @@ Todo se mide **después** del corte y ninguna medición está contrastada con la
 | Azurduy | 4,89 | 6,17 | 1,35 / 2,47 | 9,66 / 7,66 |
 | Mickey | 3,41 | 9,42 | 0,80 / 4,09 | 9,08 / 8,99 |
 
-Pares entre las 4 figuras reales (6 pares): **hombro 0 ok / 6 aviso** (IoU 0,25–0,72); **cadera 3 ok / 3 aviso** (IoU 0,81–0,86 entre Güemes, Belgrano y Azurduy; 0,43–0,52 con Mickey).
+**Corrección (2026-11-01).** La tabla de arriba se midió con el centroide de la cara como centro del puerto. El motor usa el centro del
+pasador (`pin_center`, propuesto con `auto`), y con ese centro los resultados cambian. Catalogando las 4 figuras reales con `afm catalogo agregar`
+y midiendo con `afm catalogo cobertura` / `afm guia` (a 100 mm):
+
+| Figura | Hombro: r eq / r inscrito / x / margen del pasador (mm) | Cadera: r eq / r inscrito / x / margen (mm) |
+|---|---|---|
+| Güemes | 6,83 / 4,98 / 12,66 / 2,85 | 6,82 / 5,50 / 7,66 / 2,98 |
+| Belgrano | 5,77 / 4,11 / 11,66 / 2,06 | 6,71 / 5,00 / 7,66 / **0,83** |
+| Azurduy | 4,89 / 3,48 / 9,66 / 1,43 | 6,17 / 5,00 / 7,66 / **0,83** |
+| Mickey | 3,41 / **3,08** / 9,08 / **0,80** | 9,42 / 7,40 / 8,99 / 2,42 |
+| muñeco | 7,07 / **2,62** / 15,66 / **0,57** | 6,96 / 4,00 / 13,34 / 1,50 |
+
+Entre figuras distintas hay 24 pares enchufe × toma (brazo → torso 12, pierna → torso 12): **0 «ok», 24 «aviso», 0 «no»**. IoU del hombro: Güemes–Belgrano
+0,71, Güemes–Azurduy 0,51, Güemes–Mickey 0,25, Belgrano–Azurduy 0,71, Belgrano–Mickey 0,35, Azurduy–Mickey 0,48. IoU de la cadera: Güemes–Belgrano 0,54,
+Güemes–Azurduy 0,53, Güemes–Mickey 0,50, Belgrano–Azurduy 0,89 (pero con pared de 0,83 mm alrededor del pasador: aviso), Belgrano–Mickey 0,61,
+Azurduy–Mickey 0,54. O sea: **la cadera tampoco es compatible hoy** (la «3 de 6» de arriba era un artefacto del centroide), aunque x y el radio sí coinciden.
 
 Lo que enseñan:
 
-1. **La cadera ya demuestra que estandarizar funciona.** Las tres figuras de la línea coinciden en x = 7,66 mm (= `DEFAULT_LEG_CUT_X` + rebaba 0,66) y en radio 6,2–6,8 mm; el hombro, que se eligió a mano, no.
-2. **Hay un piso físico.** Para que el vástago entre con pared, la cara necesita radio ≥ Ø vástago/2 + `min_wall`: 3,25 mm en el hombro (4,1/2 + 1,2) y 3,70 mm en la cadera (5,0/2 + 1,2). Mickey (3,41 mm) ya está al límite: define el talle más chico posible.
+1. **La cadera ya demuestra que estandarizar una variable funciona, pero no alcanza.** Güemes, Belgrano y Azurduy coinciden en x = 7,66 mm (= `DEFAULT_LEG_CUT_X` + rebaba 0,66) y en radio equivalente 6,2–6,8 mm; sin embargo la forma de la cara y el centro del pasador (`auto` lo sube dentro de la cara) hacen que el IoU baje a 0,50–0,54 y, en Belgrano y Azurduy, que la pared del pasador quede en 0,83 mm (< 1,2). El hombro, que se eligió a mano, varía todo.
+2. **Hay un piso físico, y lo que cuenta es el radio inscrito, no el equivalente.** Para que el vástago entre con pared, el mayor círculo que entra en la cara necesita radio ≥ Ø vástago/2 + `min_wall`: 3,25 mm en el hombro (4,1/2 + 1,2) y 3,70 mm en la cadera (5,0/2 + 1,2). Las caras son alargadas: el radio inscrito es 25–35 % menor que el equivalente (Güemes: 4,98 contra 6,83; el muñeco: 2,62 contra 7,07). Con el piso de 3,25 mm, el hombro de Mickey (inscrito 3,08) ya no admite el pasador estándar con pared y el de Azurduy (3,48) apenas. **Los talles tienen que definirse por el radio inscrito** (el disco que sí entra), no por el equivalente: §4.1 y G2 se leen así.
 3. **IoU 0,80 es estricto para discos.** Dos discos concéntricos tienen IoU = (r menor / r mayor)²: pedir 0,80 exige relación de radios ≥ 0,89 (≈ ±0,7 mm a r = 6,8; ±0,5 mm a r = 4,9). Si la calibración (§4.6) dice que el IoU es estético y no funcional, alcanzan pocos talles; si es funcional, hacen falta más.
 4. **Las mediciones del plano anterior usan centroides.** Con el centro del pasador (como hace `extract`) el IoU entre figuras baja a ≈ 0,5–0,7 (nota (d) de la Fase 3 del plan anterior). La guía debe medir como mide `extract`, no como `medir_interfaces`.
 5. **Altura.** Esos números están a 100 mm; la figura de referencia del cliente es de 129 mm (`REFERENCE_FIGURE_HEIGHT`) y los pasadores son mm absolutos (no escalan). Hay que **volver a medir a la altura de la línea** antes de fijar cifras.
@@ -101,7 +136,7 @@ Definiciones:
 
 ### 4.1 Contrato de interfaz (`afm-interfaz-1`)
 
-Clave opcional `interfaz` en `linea.json`, por clase de puerto. **Los valores son ilustrativos**: radios y x salen de `MEDIDAS_interfaces.md` (a 100 mm; a otra altura se reescalan las caras, no los pasadores); capacidad y muñeca son marcadores de posición. Los definitivos salen de la calibración (Fase 0) y de `afm catalogo contrato --calibrar`.
+Clave opcional `interfaz` en `linea.json`, por clase de puerto. **Los valores son ilustrativos**: los radios inscritos y la x salen de las mediciones reales de §1.3 (a 100 mm; a otra altura se reescalan las caras, no los pasadores); capacidad y muñeca son marcadores de posición. Los definitivos salen de la calibración (Fase 0) y de `afm catalogo contrato --calibrar`.
 
 ```json
 "interfaz": {
@@ -110,9 +145,9 @@ Clave opcional `interfaz` en `linea.json`, por clase de puerto. **Los valores so
     "eje": [1, 0, 0], "ref": [0, 0, 1], "tol_eje_deg": 1.0,
     "x_cara_mm": {"valor": 11.7, "tol": 1.0},
     "forma": "disco",
-    "talles": [{"id": "S", "radio_mm": 4.9, "tol_mm": 0.4},
-               {"id": "M", "radio_mm": 5.8, "tol_mm": 0.4},
-               {"id": "L", "radio_mm": 6.8, "tol_mm": 0.4}],
+    "talles": [{"id": "S", "radio_inscrito_mm": 3.3, "tol_mm": 0.35},
+               {"id": "M", "radio_inscrito_mm": 4.1, "tol_mm": 0.35},
+               {"id": "L", "radio_inscrito_mm": 5.0, "tol_mm": 0.35}],
     "pasador": "shoulder_pin", "pared_min_mm": 1.2,
     "capacidad_min": {"profundidad_mm": 9.0, "pared_posterior_mm": 1.2}
   },
@@ -123,7 +158,7 @@ Clave opcional `interfaz` en `linea.json`, por clase de puerto. **Los valores so
 }
 ```
 
-- **Talle** = radio del disco al que se recorta la cara (el `cap_radius`). Cada puerto de pieza lleva `talle` (el más cercano dentro de la tolerancia) o «fuera de contrato».
+- **Talle** = radio del disco al que se recorta la cara (el `cap_radius`); se mide por el radio **inscrito** (el disco tiene que entrar en la cara), así que una figura solo puede usar un talle si el radio inscrito de su cara es ≥ el del talle. Cada puerto de pieza lleva `talle` (el más cercano dentro de la tolerancia) o «fuera de contrato».
 - **Atención: la cara de talle exacta necesita una opción nueva.** Hoy `cap_radius` solo redondea la parte del extremo del lado del torso (la mitad de la cara hacia el torso); la parte del lado de la punta queda como estaba. Dos piezas del mismo `cap_radius` no tienen entonces la misma cara. Por eso `forma: "disco"` pide un modo nuevo en `LimbSpec` (`cap_mode: "completo"`, un tapón cilíndrico que recorta toda la cara al disco en los primeros *d* mm y deja que el miembro se ensanche después). Se mide primero con el `cap_radius` actual (G10).
 - **Mismo talle ⇒ cara compatible por construcción** (IoU ≈ 1, escalón ≤ tolerancia), siempre que la cara se recorte al disco completo (`cap_mode`); con el `cap_radius` actual solo coincide la parte redondeada. Talle distinto ⇒ solo aviso, con la sugerencia de escala que ya calcula `preflight`.
 - **Contrato duro** (hombro, cadera, muñeca): talles y posición. **Contrato blando** (cuello, cintura): sin talles; la cabeza se escala por área de base y el torso o la pelvis por `fit_xyz` (ya existen), con tope de ±10 % que la guía avisa.
@@ -195,7 +230,7 @@ Las fallas de `validate` que dependen del anfitrión: pared tras la cabeza del p
 
 ```
 Guía de corte — línea «proceres»                       [Ajustar todo al estándar]
- Hombro  ● verde     talle M (r 5,8 mm; contrato 5,8 ± 0,4)   x 11,8 mm ✔   eje 0,4° ✔
+ Hombro  ● verde     talle M (r inscrito 4,1 mm; contrato 4,1 ± 0,35)   x 11,8 mm ✔
          pared del pasador 2,3 mm ✔   profundidad del torso 9,6 mm ✔
          Compatible con 11 de 12 piezas (92 %) · ok pleno 9 · esperada ≈ 88 % (n = 31)
          [Ajustar]  [Ver compatibles]  [Detalle]
@@ -274,7 +309,7 @@ Orden recomendado: **0 → 1 → 2 → 3 → 5 (solo lectura: semáforo) → 4 �
 | # | Decisión | Recomendación |
 |---|---|---|
 | G1 | ¿Qué cuenta como «compatible»? | Separar **funcional** (bloquea: el pasador no entra, pared, capacidad, interferencia en el giro) de **estético** (informa: IoU, escalón de la cara). La calibración decide en qué lado cae cada cosa |
-| G2 | Cantidad y valores de los talles | Salen de los datos (agrupar radios); esperable 3 de hombro y 2–3 de cadera; el más chico no baja de 3,25 mm (hombro) / 3,70 mm (cadera) |
+| G2 | Cantidad y valores de los talles | Salen de los datos, por radio inscrito (hoy brazos 3,1–5,0 mm y piernas 5,0–7,4 mm); esperable 3 de hombro y 2 de cadera; el más chico no baja de 3,25 mm (hombro) / 3,70 mm (cadera): Mickey queda fuera o pide pasador menor (G3) |
 | G3 | ¿Pasador por talle? | No: un solo perfil (`Params`), salvo que el talle S no cierre |
 | G4 | ¿Bloquear al catalogar? | Avisar y pedir confirmación; bloquear solo un «no» funcional, con salida a «pieza propia» |
 | G5 | Cuello y cintura | Contrato blando: escala con tope ±10 %, sin talles |
@@ -288,9 +323,9 @@ Orden recomendado: **0 → 1 → 2 → 3 → 5 (solo lectura: semáforo) → 4 �
 
 ```
 Figura: nueva.proyecto · línea proceres · catálogo con 12 piezas de brazo, 14 de torso
-hombro  talle M  r_eq 5,78 mm  r_inscrito 5,91 mm  x 11,8 mm  eje 0,4°   pared pasador 2,3 mm  profundidad 9,6 mm
+hombro  talle M  r_eq 5,78 mm  r_inscrito 4,12 mm  x 11,8 mm   pared pasador 2,3 mm  profundidad 9,6 mm
         cobertura 11/12 (92 %) · ok pleno 9 · esperada 88 % (n = 31)
-        no: brazo-mickey-01@1 (la cara de la pieza es demasiado chica: r 3,4 mm frente al talle M, 5,8 mm)
+        no: brazo-mickey-01@1 (la cara de la pieza es demasiado chica: r inscrito 3,1 mm frente al talle M, 4,1 mm)
 cadera  talle L  r_eq 6,92 mm  x 8,4 mm (✘ contrato 7,7 ± 0,5)
         acción: mover el corte 0,7 mm hacia adentro → cobertura 8/12 → 12/12
 muneca  radio 3,6 mm (mano estándar 3,9 ± 0,5) ✔   plano sugerido a 2,1 mm de la muñeca actual

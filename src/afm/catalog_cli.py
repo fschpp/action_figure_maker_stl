@@ -154,8 +154,16 @@ def _print_coverage(cat: Catalog, ref: str, all_fits: bool = False) -> None:
     """Cobertura de cada puerto de `ref` contra el resto del catálogo (plan de compatibilidad, N0)."""
     from .guide import format_coverage, piece_coverage
 
+    from .interface import label_piece
+
+    from .guide import contract_of
+
+    contract = contract_of(cat)
+    labels = {} if contract is None else label_piece(contract, cat.meta(ref))
     for name, cov in piece_coverage(cat, ref).items():
         print(f"  {name} ({cov.rol}): {cov.summary()}")
+        if name in labels:
+            print(f"    contrato: {labels[name].resumen()}")
         if cov.universo:
             for line in format_coverage(cov, "    ", all_fits)[1:]:
                 print(line)
