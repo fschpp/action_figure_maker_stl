@@ -236,3 +236,87 @@ def test_cli_calibrar_refuses_to_save_a_problematic_proposal(cat, capsys):
     clone(cat, "brazo-muneco-01", "brazo-fino", k=2.0 / 7.07, dx=-3.0)
     assert main(["catalogo", "contrato", cat.root, "--calibrar", "--guardar"]) == 1
     assert Catalog.open(cat.root).contract() is None
+
+
+# ---------------------------------------------------------------------------------------------------- métrica: equivalente / inscrito
+def elongated_arm(cat, new_id, long_r=7.0, half_h=2.6):
+    """Brazo cuya cara de hombro es una tira (como la del muñeco: radio equivalente grande, inscrito chico)."""
+    from shapely.geometry import box
+
+    meta, mesh = cat.load("brazo-muneco-01")
+    ports = dict(meta.puertos)
+    p = ports["hombro"]
+    ports["hombro"] = Port(p.clase, p.rol, p.frame, PortFace.from_shape(box(-long_r * 2, -half_h, long_r * 2, half_h)), p.sweep_deg)
+    new = dataclasses.replace(meta, id=new_id, version=1, puertos=ports, origen={"figura": "otra.stl"}, stl="", sha256="")
+    cat.add_piece(mesh, new)
+    return new
+
+
+def test_inscribed_radius_and_face_radius(cat):
+    from shapely.geometry import Point, box
+
+    assert I.inscribed_radius(PortFace.from_shape(Point(0, 0).buffer(5.0, 128))) == pytest.approx(5.0, abs=0.02)
+    strip = PortFace.from_shape(box(-15, -2.6, 15, 2.6))
+    assert I.inscribed_radius(strip) == pytest.approx(2.6, abs=0.02)
+    assert I.face_radius(strip) == pytest.approx(strip.radius_eq) and I.face_radius(strip, "inscrito") == pytest.approx(2.6, abs=0.02)
+    assert I.face_radius(strip) > 2 * I.face_radius(strip, "inscrito")
+
+
+def test_default_metric_keeps_the_dict_and_hash_of_existing_contracts():
+    c = simple_contract()
+    assert "metrica" not in c.to_dict()["hombro"]
+    h = c.hash()
+    c.clases["hombro"].metrica = "inscrito"
+    assert c.to_dict()["hombro"]["metrica"] == "inscrito" and c.hash() != h
+    back = I.Contract.from_dict(json.loads(json.dumps(c.to_dict())))
+    assert back.clases["hombro"].metrica == "inscrito" and back.hash() == c.hash()
+    assert I.Contract.from_dict(simple_contract().to_dict()).clases["hombro"].metrica == "equivalente"      # sin clave = la de siempre
+    c.clases["hombro"].metrica = "otra"
+    assert any("métrica" in p for p in c.problems())
+
+
+def test_label_uses_the_contracts_metric(cat):
+    arm = elongated_arm(cat, "brazo-tira")                  # r equivalente ≈ 7,2 mm, inscrito 2,6 mm
+    eq = simple_contract()
+    ins = simple_contract()
+    ins.clases["hombro"].metrica = "inscrito"
+    ins.clases["hombro"].talles = [I.Talle("S", 2.6, 0.4), I.Talle("M", 4.1, 0.35)]
+    port = arm.puertos["hombro"]
+    le, li = I.label_port(eq, port, 100.0), I.label_port(ins, port, 100.0)
+    assert le.metrica == "equivalente" and le.r == pytest.approx(le.r_eq) and le.talle == "L"
+    assert li.metrica == "inscrito" and li.r == pytest.approx(li.r_ins, abs=1e-9) and li.talle == "S"
+    assert li.r_eq == pytest.approx(le.r_eq) and li.r_ins == pytest.approx(2.6, abs=0.02)      # los dos radios van siempre en la etiqueta
+    assert "r inscrito 2.60 mm" in li.resumen() and "inscrito" not in le.resumen()
+    between = elongated_arm(cat, "brazo-entre", half_h=3.4)                  # inscrito 3,4: entre S (2,2–3,0) y M (3,75–4,45)
+    lab = I.label_port(ins, between.puertos["hombro"], 100.0)
+    assert lab.talle is None and lab.mas_cercano in ("S", "M") and any("r inscrito" in a for a in lab.avisos)
+
+
+def test_propose_with_the_inscribed_metric(cat):
+    elongated_arm(cat, "brazo-tira")
+    eq = I.propose(cat)
+    ins = I.propose(cat, metrica="inscrito")
+    assert eq.contract.clases["hombro"].metrica == "equivalente" and ins.contract.clases["hombro"].metrica == "inscrito"
+    assert max(t.radio_mm for t in ins.contract.clases["hombro"].talles) < 6.0 < max(t.radio_mm for t in eq.contract.clases["hombro"].talles)
+    ref, name, r, x, r_eq, r_ins = next(m for m in ins.muestras["hombro"] if m[0].startswith("brazo-tira"))
+    assert r == pytest.approx(r_ins) and r_eq > 2 * r_ins and x > 0
+    with pytest.raises(I.ContractError):
+        I.propose(cat, metrica="otra")
+    assert any("piso físico" in n for n in ins.notas)        # 2,6 mm < 3,25: el pasador no entra con pared en esa cara
+
+
+def test_cli_calibrar_with_metric_and_label_round_trip(cat, capsys):
+    elongated_arm(cat, "brazo-tira")
+    assert main(["catalogo", "contrato", cat.root, "--calibrar", "--metrica", "inscrito"]) in (0, 1)
+    out = capsys.readouterr().out
+    assert "radio inscrito" in out and "r eq" in out and "/ inscrito" in out
+    assert Catalog.open(cat.root).contract() is None          # sin --guardar no se escribe
+    c = I.propose(cat, metrica="inscrito").contract
+    c.clases["hombro"].talles = [I.Talle("S", 3.8, 0.3), I.Talle("L", 6.0, 0.4)]      # fijados a mano: sin piso violado (3,25 mm)
+    c.clases["cadera"].talles = [I.Talle("M", 4.0, 0.2)]                              # piso de la cadera: 3,70 mm
+    with pytest.raises(I.ContractError, match="piso físico"):                         # tal como salió de la propuesta, se niega
+        cat.set_contract(I.propose(cat, metrica="inscrito").contract)
+    cat.set_contract(c)
+    assert Catalog.open(cat.root).contract().clases["hombro"].metrica == "inscrito"
+    assert main(["catalogo", "contrato", cat.root, "--ver"]) in (0, 1)
+    assert "r inscrito" in capsys.readouterr().out

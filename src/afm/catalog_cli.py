@@ -135,6 +135,8 @@ def add_parsers(sub) -> None:
     g.add_argument("--quitar", action="store_true", help="borrar el contrato de linea.json")
     a.add_argument("--guardar", action="store_true", help="con --calibrar: escribir la propuesta en linea.json (sin esto solo se muestra)")
     a.add_argument("--tolerancia", type=float, default=None, metavar="MM", help="con --calibrar: tolerancia del radio de un talle (por defecto 0,4 mm)")
+    a.add_argument("--metrica", choices=("equivalente", "inscrito"), default="equivalente",
+                   help="con --calibrar: con qué radio de la cara se agrupan los talles (equivalente = el de la misma área, por defecto; inscrito = el mayor círculo que entra)")
     a = cs.add_parser("capacidad", help="capacidad del anfitrión (profundidad detrás de la cara y cabezas enfrentadas) de las tomas con pasador: medirla sobre el STL de piezas ya catalogadas")
     root(a)
     a.add_argument("refs", nargs="*", metavar="ID", help="piezas (id o id@n); por defecto las tomas de todo el catálogo")
@@ -227,12 +229,13 @@ def _run_contract(cat, args) -> int:
 
     if args.calibrar:
         tol = args.tolerancia if args.tolerancia is not None else 0.4
-        prop = propose(cat, tol)
+        prop = propose(cat, tol, args.metrica)
         print("Propuesta (a confirmar):")
         for line in format_contract(prop.contract):
             print(line)
         for clase, rows in sorted(prop.muestras.items()):
-            print(f"  muestras de {clase}: " + ", ".join(f"{ref}:{name} r {r:.2f} x {x:.2f}" for ref, name, r, x in rows))
+            print(f"  muestras de {clase}: " + ", ".join(f"{ref}:{name} r eq {req:.2f} / inscrito {rins:.2f} x {x:.2f}"
+                                                         for ref, name, r, x, req, rins in rows))
         for n in prop.notas:
             print("AVISO:", n)
         probs = prop.contract.problems(cat.params)
