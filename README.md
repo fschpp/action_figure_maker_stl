@@ -106,7 +106,7 @@ afm guia figura.stl figura.proyecto --catalogo RUTA          # mide la cara de c
 python tools/calibrar_compat.py RUTA --escribir --out docs/CALIBRACION_compat.md   # contrasta la barata con build + validate (minutos por combinación)
 
 # Contrato de interfaz de la línea (fase 1 del mismo plan): talles de cara y posición lateral por clase de puerto, en la clave `interfaz` de linea.json.
-afm catalogo contrato RUTA --calibrar [--tolerancia 0.4]     # propone talles agrupando los radios de los enchufes del catálogo (no escribe nada)
+afm catalogo contrato RUTA --calibrar [--tolerancia 0.4] [--metrica equivalente|inscrito]   # propone talles agrupando los radios de los enchufes del catálogo (no escribe nada)
 afm catalogo contrato RUTA --calibrar --guardar              # …y la guarda en linea.json (se niega si la propuesta tiene problemas)
 afm catalogo contrato RUTA [--ver | --validar | --quitar]    # ver el contrato y el talle de cada pieza / comprobar coherencia / borrarlo
 
@@ -121,7 +121,9 @@ suma la probabilidad *esperada* de que la compatibilidad completa también pase 
 «Guía de cortes…» (pestaña Catálogo) muestra lo mismo para la figura abierta.
 
 El **contrato** (`src/afm/interface.py`) fija, por clase, los talles (radio equivalente de la cara ± tolerancia), la posición lateral x del
-hombro y la cadera y el eje; cuello y cintura llevan un contrato blando (escala ≤ ±10 %). Las medidas se llevan a la altura del contrato
+hombro y la cadera y el eje; cuello y cintura llevan un contrato blando (escala ≤ ±10 %). La métrica del radio es del contrato (`metrica` por clase): «equivalente» (el del círculo de la misma área, por defecto) o «inscrito» (el mayor círculo que
+entra en la cara, que es el que decide si el pasador entra con pared; en caras alargadas es 25–35 % menor). Un contrato sin `metrica` es el de siempre y su huella no cambia.
+Las medidas se llevan a la altura del contrato
 (los pasadores no escalan) y un talle no puede bajar del piso físico (Ø vástago / 2 + pared mínima). Las piezas son inmutables: su talle se
 deriva al vuelo, no se guarda en ellas. `afm catalogo verificar` avisa de los enchufes «fuera de contrato» (no es un problema) y la huella
 del contrato entra en la clave de `compat.json`; sin contrato todo funciona como antes.

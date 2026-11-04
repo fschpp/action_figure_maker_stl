@@ -4,8 +4,10 @@ Plan `docs/PLAN_compatibilidad_cortes_catalogo.md`, Fase 1 (§4.1). El contrato 
 `linea.json`. Sin esa clave todo funciona como antes. Las piezas del catálogo son inmutables (G9): su talle NO se guarda
 en ellas, se deriva al vuelo comparando la cara de cada puerto con el contrato.
 
-Qué mide un talle: el radio del círculo de la misma área que la cara (`PortFace.radius_eq`), como en
-`docs/MEDIDAS_interfaces.md`. Las caras están a la altura de la figura de origen; el contrato lleva su `altura_mm` y las
+Qué mide un talle (`metrica` de cada clase): por defecto el radio del círculo de la misma área que la cara
+(`PortFace.radius_eq`, «equivalente», como en `docs/MEDIDAS_interfaces.md`); con `metrica: "inscrito"`, el radio del mayor
+círculo que entra en la cara, que es el que decide si el pasador entra con pared (plan §1.3, punto 2). Qué métrica usar es una
+decisión abierta del plan (G2): el contrato soporta las dos y un contrato sin `metrica` sigue siendo el de siempre. Las caras están a la altura de la figura de origen; el contrato lleva su `altura_mm` y las
 medidas de una pieza se reescalan a esa altura (los pasadores son mm absolutos y no escalan).
 """
 from __future__ import annotations
@@ -28,6 +30,8 @@ LATERAL_CLASSES = ("hombro", "cadera")              # clases cuya cara tiene una
 SOFT_CLASSES = ("cuello", "cintura")                # contrato blando: escala con tope, sin talles
 SOFT_SCALE_MAX = 0.10                               # ±10 % de escala (plan G5)
 
+METRICS = ("equivalente", "inscrito")
+DEFAULT_METRIC = "equivalente"
 DEFAULT_RADIUS_TOL_MM = 0.4                         # tolerancia del radio de un talle (plan §4.1)
 DEFAULT_X_TOL_MM = {"hombro": 1.0, "cadera": 0.5, "muneca": 1.0}
 DEFAULT_AXIS_TOL_DEG = 1.0
@@ -71,6 +75,7 @@ class ClassContract:
     tol_eje_deg: float = DEFAULT_AXIS_TOL_DEG
     pared_min_mm: float | None = None                 # pared mínima alrededor del vástago (por defecto la de la línea)
     escala_max: float | None = None                   # solo contrato blando
+    metrica: str = DEFAULT_METRIC                     # qué radio de la cara compara con los talles: «equivalente» o «inscrito»
 
     @property
     def soft(self) -> bool:
@@ -85,6 +90,8 @@ class ClassContract:
         if self.x_mm is not None:
             d["x_cara_mm"] = {"valor": _r(self.x_mm), "tol": _r(self.x_tol_mm)}
         d["forma"] = "disco"
+        if self.metrica != DEFAULT_METRIC:      # solo si no es la de siempre: la huella de los contratos ya guardados no cambia
+            d["metrica"] = self.metrica
         d["tol_eje_deg"] = _r(self.tol_eje_deg)
         d["talles"] = [t.to_dict() for t in sorted(self.talles, key=lambda t: t.radio_mm)]
         if self.pared_min_mm is not None:
@@ -104,7 +111,8 @@ class ClassContract:
                    x_mm=float(x["valor"]) if "valor" in x else None,
                    x_tol_mm=float(x.get("tol", DEFAULT_X_TOL_MM.get(clase, 1.0))),
                    tol_eje_deg=float(d.get("tol_eje_deg", DEFAULT_AXIS_TOL_DEG)),
-                   pared_min_mm=float(d["pared_min_mm"]) if "pared_min_mm" in d else None)
+                   pared_min_mm=float(d["pared_min_mm"]) if "pared_min_mm" in d else None,
+                   metrica=str(d.get("metrica", DEFAULT_METRIC)))
 
     def problems(self, params: Params | None = None) -> list[str]:
         """Incoherencias del contrato (no mira ninguna pieza)."""
@@ -113,6 +121,8 @@ class ClassContract:
             if self.escala_max is not None and not (0 < self.escala_max <= 0.5):
                 out.append(f"{self.clase}: escala_max {self.escala_max:g} fuera de (0, 0.5]")
             return out
+        if self.metrica not in METRICS:
+            out.append(f"{self.clase}: métrica «{self.metrica}» desconocida (hay {', '.join(METRICS)})")
         ids = [t.id for t in self.talles]
         if len(set(ids)) != len(ids):
             out.append(f"{self.clase}: talles con id repetido {ids}")
@@ -186,6 +196,25 @@ def floor_radius(clase: str, params: Params | None, pared_min: float | None = No
     return float(pin.shaft_d) / 2 + float(wall)
 
 
+# ---------------------------------------------------------------------------------------------------- radios de una cara
+def inscribed_radius(face) -> float:
+    """Radio del mayor círculo que entra en la cara (mm): el que cuenta para que el pasador entre con pared."""
+    from shapely.ops import polylabel
+
+    shape = face.shape()
+    geoms = list(shape.geoms) if hasattr(shape, "geoms") else [shape]
+    big = max(geoms, key=lambda g: g.area)
+    pole = polylabel(big, tolerance=0.01)
+    return float(big.boundary.distance(pole))
+
+
+def face_radius(face, metrica: str = DEFAULT_METRIC) -> float:
+    """Radio de la cara según la métrica del contrato («equivalente» = el de la misma área; «inscrito»)."""
+    if metrica == "inscrito":
+        return inscribed_radius(face)
+    return float(face.radius_eq)
+
+
 # ---------------------------------------------------------------------------------------------------- etiquetar un puerto
 @dataclass
 class PortLabel:
@@ -201,6 +230,9 @@ class PortLabel:
     mas_cercano: str | None = None      # talle más cercano cuando está fuera de contrato
     delta_mm: float | None = None       # distancia (mm) al talle más cercano (con signo: cara − talle)
     avisos: list = field(default_factory=list)
+    r_ins: float | None = None          # radio inscrito, a la altura del contrato (mm)
+    metrica: str = DEFAULT_METRIC       # con cuál de los dos radios se eligió el talle
+    r: float | None = None              # el radio comparado con los talles (según `metrica`)
 
     @property
     def en_contrato(self) -> bool:
@@ -212,7 +244,8 @@ class PortLabel:
         base = f"talle {self.talle}" if self.talle else "fuera de contrato"
         if not self.talle and self.mas_cercano:
             base += f" (más cercano {self.mas_cercano}, {self.delta_mm:+.2f} mm)"
-        txt = f"{base}, r {self.r_eq:.2f} mm"
+        r = self.r if self.r is not None else self.r_eq
+        txt = f"{base}, r {'inscrito ' if self.metrica == 'inscrito' else ''}{r:.2f} mm"
         if self.x_ok is not None and self.x_mm is not None:
             txt += f", x {self.x_mm:.2f} mm" + ("" if self.x_ok else " ✘")
         if self.eje_ok is False:
@@ -236,9 +269,11 @@ def label_port(contract: Contract, port: Port, height_mm: float | None = None) -
     if port.face is None:
         return PortLabel(port.clase, None, None, None, None, None, avisos=["el puerto no tiene cara de unión"])
     k = (contract.altura_mm / height_mm) if height_mm and height_mm > 0 else 1.0
-    r = float(port.face.radius_eq) * k
+    r_eq = float(port.face.radius_eq) * k
+    r_ins = inscribed_radius(port.face) * k
+    r = r_ins if cc.metrica == "inscrito" else r_eq
     x = abs(float(port.frame.center[0])) * k
-    lab = PortLabel(port.clase, None, r, x, None, None)
+    lab = PortLabel(port.clase, None, r_eq, x, None, None, r_ins=r_ins, metrica=cc.metrica, r=r)
     best = None
     for t in cc.talles:
         d = r - t.radio_mm
@@ -259,7 +294,7 @@ def label_port(contract: Contract, port: Port, height_mm: float | None = None) -
         if not lab.eje_ok:
             lab.avisos.append(f"el eje está a {lab.eje_deg:.1f}° de ±X (tolerancia {cc.tol_eje_deg:.1f}°)")
     if lab.talle is None and cc.talles:
-        lab.avisos.append(f"r = {r:.2f} mm no cae en ningún talle (el más cercano, {lab.mas_cercano}, a {lab.delta_mm:+.2f} mm)")
+        lab.avisos.append(f"r {'inscrito ' if cc.metrica == 'inscrito' else ''}= {r:.2f} mm no cae en ningún talle (el más cercano, {lab.mas_cercano}, a {lab.delta_mm:+.2f} mm)")
     return lab
 
 
@@ -308,10 +343,14 @@ class Proposal:
     muestras: dict = field(default_factory=dict)      # clase -> [(pieza, puerto, r, x)]
 
 
-def propose(cat, radius_tol_mm: float = DEFAULT_RADIUS_TOL_MM) -> Proposal:
+def propose(cat, radius_tol_mm: float = DEFAULT_RADIUS_TOL_MM, metrica: str = DEFAULT_METRIC) -> Proposal:
     """Propone el contrato a partir de los enchufes del catálogo (última versión de cada id, lado izquierdo): agrupa los
     radios en talles (grupos a menos de 2 × tolerancia entre vecinos) y toma la mediana de x. Las medidas se llevan a la
-    altura de la línea. No decide nada: el resultado hay que confirmarlo (`afm catalogo contrato --calibrar --guardar`)."""
+    altura de la línea. `metrica`: con qué radio de la cara se agrupa («equivalente» o «inscrito»). No decide nada: el
+    resultado hay que confirmarlo (`afm catalogo contrato --calibrar --guardar`). Cada muestra es
+    `(pieza, puerto, radio según la métrica, x, radio equivalente, radio inscrito)`."""
+    if metrica not in METRICS:
+        raise ContractError(f"métrica «{metrica}» desconocida (hay {', '.join(METRICS)})")
     params = cat.params
     h_line = cat.height_mm
     samples: dict[str, list] = {}
@@ -322,7 +361,9 @@ def propose(cat, radius_tol_mm: float = DEFAULT_RADIUS_TOL_MM) -> Proposal:
             if name.endswith("_der") and m.espejable:
                 continue
             k = (h_line / m.altura_figura_mm) if m.altura_figura_mm else 1.0
-            samples.setdefault(p.clase, []).append((m.ref, name, float(p.face.radius_eq) * k, abs(float(p.frame.center[0])) * k))
+            r_eq, r_ins = float(p.face.radius_eq) * k, inscribed_radius(p.face) * k
+            samples.setdefault(p.clase, []).append((m.ref, name, r_ins if metrica == "inscrito" else r_eq,
+                                                    abs(float(p.frame.center[0])) * k, r_eq, r_ins))
     classes = {}
     notas = []
     for clase in HARD_CLASSES:
@@ -347,7 +388,7 @@ def propose(cat, radius_tol_mm: float = DEFAULT_RADIUS_TOL_MM) -> Proposal:
             room = (b.radio_mm - a.radio_mm) / 2 - 1e-3
             a.tol_mm = min(a.tol_mm, room)
             b.tol_mm = min(b.tol_mm, room)
-        cc = ClassContract(clase, talles=talles, x_mm=x_med, x_tol_mm=x_tol if x_tol is not None else 1.0, pared_min_mm=params.min_wall if PIN_OF_CLASS.get(clase) else None)
+        cc = ClassContract(clase, talles=talles, metrica=metrica, x_mm=x_med, x_tol_mm=x_tol if x_tol is not None else 1.0, pared_min_mm=params.min_wall if PIN_OF_CLASS.get(clase) else None)
         classes[clase] = cc
         fl = floor_radius(clase, params, cc.pared_min_mm)
         for t in talles:
@@ -373,5 +414,6 @@ def format_contract(contract: Contract) -> list[str]:
             continue
         ts = ", ".join(f"{t.id} r {t.radio_mm:.2f} ± {t.tol_mm:.2f}" for t in sorted(cc.talles, key=lambda t: t.radio_mm)) or "sin talles"
         x = f" · x {cc.x_mm:.2f} ± {cc.x_tol_mm:.2f} mm" if cc.x_mm is not None else ""
-        lines.append(f"  {clase:<8} {ts}{x}")
+        m = f" · radio {cc.metrica}" if cc.metrica != DEFAULT_METRIC else ""
+        lines.append(f"  {clase:<8} {ts}{x}{m}")
     return lines
