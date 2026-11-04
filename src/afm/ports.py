@@ -171,6 +171,7 @@ class Port:
     frame: PortFrame
     face: PortFace | None = None
     sweep_deg: tuple | None = None     # (mín, máx) de giro libre que el miembro declara (cadera: 0…sit_angle + hip_margin)
+    capacity: dict | None = None       # solo en tomas (torso, pelvis): lo que el cuerpo deja detrás de la cara (`capacity.measure`)
 
     def __post_init__(self):
         if self.clase not in PORT_CLASSES:
@@ -179,7 +180,7 @@ class Port:
             raise PortError(f"rol de puerto desconocido: {self.rol!r} (hay {', '.join(ROLES)})")
 
     def transformed(self, T: np.ndarray) -> "Port":
-        return Port(self.clase, self.rol, self.frame.transformed(T), self.face, self.sweep_deg)
+        return Port(self.clase, self.rol, self.frame.transformed(T), self.face, self.sweep_deg, self.capacity)
 
     def to_dict(self) -> dict:
         d = {"clase": self.clase, "rol": self.rol, **self.frame.to_dict()}
@@ -187,13 +188,16 @@ class Port:
             d["cara"] = self.face.to_dict()
         if self.sweep_deg is not None:
             d["barrido_deg"] = [float(x) for x in self.sweep_deg]
+        if self.capacity is not None:
+            d["capacidad"] = dict(self.capacity)
         return d
 
     @classmethod
     def from_dict(cls, d: dict) -> "Port":
         return cls(d["clase"], d["rol"], PortFrame.from_dict(d),
                    PortFace.from_dict(d["cara"]) if d.get("cara") else None,
-                   tuple(d["barrido_deg"]) if d.get("barrido_deg") is not None else None)
+                   tuple(d["barrido_deg"]) if d.get("barrido_deg") is not None else None,
+                   dict(d["capacidad"]) if d.get("capacidad") else None)
 
 
 NEAR_FACE_MM = 3.0              # mm: cara «cercana» al plano del puerto (para decir cuánto está corrida o girada)
@@ -347,12 +351,15 @@ class Compat:
     # lado -> (Ø del mayor círculo que entra en la cara, Ø que hace falta con pared): caras donde el pasador no entra en
     # NINGUNA posición, o sea que ni cambiar de pieza ni escalar lo arreglan: hay que agrandar esa cara.
     cara_chica: dict = field(default_factory=dict)
+    sin_capacidad: bool = False        # la toma no trae su capacidad medida (pieza vieja): la capacidad no se juzgó
 
     def to_dict(self) -> dict:
         d = {"nivel": self.nivel, "iou": None if self.iou is None else round(self.iou, 4),
              "escalon_mm": None if self.escalon_mm is None else round(self.escalon_mm, 4),
              "margenes_mm": {k: round(v, 3) for k, v in self.margenes_mm.items()},
              "motivos": list(self.motivos), "avisos": list(self.avisos)}
+        if self.sin_capacidad:
+            d["sin_capacidad"] = True
         if self.cara_chica:
             d["cara_chica_mm"] = {k: [round(a, 2), round(b, 2)] for k, (a, b) in self.cara_chica.items()}
         return d
@@ -418,7 +425,8 @@ def port_compat(a: Port, b: Port, height_a: float | None = None, height_b: float
     `no` si la clase no coincide, los roles no son complementarios o el pasador no entra en la cara; `aviso` si el IoU baja
     de `MIN_BASE_IOU`, el escalón supera `STEP_WARN_MM`, la pared que queda es menor que `min_wall`, el vástago es más
     fino que `min_pin_d` o las alturas difieren más de `HEIGHT_TOL_MM`. El pasador de la muñeca no se mide acá (se achica
-    solo hasta que entra, `hand.fit_hand_pin`). Con el pasador centrado en el centroide de la cara."""
+    solo hasta que entra, `hand.fit_hand_pin`). Con el pasador centrado en el centroide de la cara. Suma la capacidad del anfitrión
+    (`capacity.check`: profundidad detrás de la cara y cabezas enfrentadas); una toma sin ese dato no se juzga y queda marcada (`sin_capacidad`)."""
     params = params or Params()
     c = Compat("ok")
     if a.clase != b.clase:
@@ -450,6 +458,12 @@ def port_compat(a: Port, b: Port, height_a: float | None = None, height_b: float
                 c.avisos.append(f"vástago de {pin.shaft_d:g} mm, menos que el mínimo {params.min_pin_d:g} mm")
     else:
         c.avisos.append("falta la cara de unión de algún puerto: no se pudo medir el ajuste")
+    from .capacity import check as capacity_check, missing    # import local: capacity importa este módulo
+    c_motivos, c_avisos, c_margenes = capacity_check(a, b, params)
+    c.sin_capacidad = missing(a, b, params)
+    c.motivos += c_motivos
+    c.avisos += c_avisos
+    c.margenes_mm.update(c_margenes)
     if height_a is not None and height_b is not None and abs(height_a - height_b) > HEIGHT_TOL_MM:
         c.avisos.append(f"alturas de figura distintas: {height_a:g} y {height_b:g} mm")
     c.nivel = "no" if c.motivos else ("aviso" if c.avisos else "ok")

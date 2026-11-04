@@ -109,6 +109,10 @@ python tools/calibrar_compat.py RUTA --escribir --out docs/CALIBRACION_compat.md
 afm catalogo contrato RUTA --calibrar [--tolerancia 0.4]     # propone talles agrupando los radios de los enchufes del catálogo (no escribe nada)
 afm catalogo contrato RUTA --calibrar --guardar              # …y la guarda en linea.json (se niega si la propuesta tiene problemas)
 afm catalogo contrato RUTA [--ver | --validar | --quitar]    # ver el contrato y el talle de cada pieza / comprobar coherencia / borrarlo
+
+# Capacidad del anfitrión (fase 3): cuánto cuerpo deja el torso o la pelvis detrás de cada toma con pasador.
+afm catalogo capacidad RUTA [ID …]                           # mide sobre el STL de piezas ya catalogadas y dice si el pasador de la línea cabe
+afm catalogo capacidad RUTA [ID …] --escribir                # …y lo guarda en el .pieza.json (no toca el STL, el hash ni la versión)
 ```
 
 «Catalogar» (`afm catalogo agregar`) imprime la cobertura de cada pieza recién guardada. La cobertura es **barata** (solo metadatos) y cuenta, entre las
@@ -121,6 +125,12 @@ hombro y la cadera y el eje; cuello y cintura llevan un contrato blando (escala 
 (los pasadores no escalan) y un talle no puede bajar del piso físico (Ø vástago / 2 + pared mínima). Las piezas son inmutables: su talle se
 deriva al vuelo, no se guarda en ellas. `afm catalogo verificar` avisa de los enchufes «fuera de contrato» (no es un problema) y la huella
 del contrato entra en la clave de `compat.json`; sin contrato todo funciona como antes.
+
+La **capacidad** (`src/afm/capacity.py`) se mide al catalogar (`extract_all`) y queda en el puerto de cada toma con pasador (`capacidad`,
+clave opcional de `afm-pieza-1`): la profundidad hasta la piel opuesta bajo la huella de la cabeza (rayos sin los puntos a menos de
+`min_wall` del borde de la cara, donde la piel se curva) y, en la cadera, dónde queda la cabeza respecto del plano de simetría (misma cuenta que
+`pipeline.hip_pin_walls`). `port_compat` la compara con lo que pide el pasador de la línea (`shaft_len + head_h + holgura + min_wall`) y da «no» si no
+alcanza, aviso si sobran menos de 0,5 mm. Una toma sin el dato (pieza vieja) no se juzga: queda marcada `sin_capacidad` y no baja de nivel.
 
 ## Convenciones
 
