@@ -375,6 +375,30 @@ class Catalog:
         self.write_index()
         return m
 
+    def measure_capacity(self, ref: str, write: bool = False) -> dict:
+        """Capacidad del anfitrión de cada toma con pasador de `ref` (plan de compatibilidad, Fase 3): `{puerto: dict | None}`,
+        medida sobre el STL de la pieza (con la comprobación del hash). Con `write=True` la deja en el `.pieza.json`
+        (`capacidad` del puerto). Es un dato derivado de la malla y de los `Params` de la línea: no toca el STL, el hash, el
+        id ni la versión, y el resto de los metadatos queda igual (como `set_state`, no crea una versión nueva)."""
+        from .capacity import measure, pin_of
+
+        m, mesh = self.load(ref)
+        params = self.params
+        out: dict = {}
+        for name, port in m.puertos.items():
+            if port.rol != "toma" or pin_of(port.clase, params) is None:
+                continue
+            out[name] = measure(mesh, port, params)
+        if write and out:
+            for name, cap in out.items():
+                m.puertos[name].capacity = cap
+            path = os.path.join(self._dir(m.tipo), P.meta_name(m.id, m.version))
+            tmp = path + ".tmp"
+            with open(tmp, "w") as f:
+                json.dump(m.to_dict(), f, indent=2, ensure_ascii=False)
+            os.replace(tmp, path)
+        return out
+
     def _piece_files(self, meta: P.PieceMeta) -> list[str]:
         """Archivos de una pieza (`.pieza.json` primero, después el STL), buscados en `piezas/*/` aunque estén en otra carpeta."""
         meta_file = P.meta_name(meta.id, meta.version)

@@ -113,14 +113,15 @@ def complement(port: Port, clase: str | None = None) -> Port:
 
     fr = port.frame
     return Port(clase or port.clase, COMPLEMENT[port.rol], PortFrame(fr.center.copy(), -fr.axis, fr.ref.copy()),
-                _flip_v(port.face), port.sweep_deg)
+                _flip_v(port.face), port.sweep_deg)         # la capacidad no viaja: se mide sobre el cuerpo que recibe
 
 
 def mirror_port(port: Port) -> Port:
     """Puerto del lado −X (pieza espejada con `mirror_x`): se refleja el marco y la cara cambia de signo en v."""
     fr = port.frame
     m = np.array([-1.0, 1.0, 1.0])
-    return Port(port.clase, port.rol, PortFrame(fr.center * m, fr.axis * m, fr.ref * m), _flip_v(port.face), port.sweep_deg)
+    return Port(port.clase, port.rol, PortFrame(fr.center * m, fr.axis * m, fr.ref * m), _flip_v(port.face), port.sweep_deg,
+                port.capacity)
 
 
 HEAL_VOLUME_TOL = 5e-4          # fracción: lo que puede cambiar el volumen al curar una arista no-variedad
@@ -371,6 +372,23 @@ def _whole_torso(body: S.Manifold, half: S.Manifold, neck, limbs: dict, cut_limb
     return last
 
 
+def _with_capacity(ports: dict, mesh, p: Params, warnings: list) -> dict:
+    """Mide la capacidad de cada toma de `ports` sobre `mesh` (la malla que las recibe) y la deja en el puerto."""
+    from .capacity import measure
+
+    for name, port in ports.items():
+        if port.rol != "toma":
+            continue
+        try:
+            port.capacity = measure(mesh, port, p)
+        except Exception as exc:        # una malla rara no debe impedir catalogar: la pieza queda sin dato de capacidad
+            warnings.append(f"puerto «{name}»: no se pudo medir la capacidad del anfitrión: {exc}")
+            continue
+        if port.capacity is None and port.clase in ("cuello", "hombro", "cadera", "cintura"):
+            warnings.append(f"puerto «{name}»: ningún rayo atraviesa el cuerpo desde la cara: sin dato de capacidad")
+    return ports
+
+
 def _torso_pieces(res: ExtractResult, torso: S.Manifold, project: Project, prefix: str, origin: dict, limb_ports: dict,
                   head_port: Port | None) -> None:
     p = project.params
@@ -392,7 +410,7 @@ def _torso_pieces(res: ExtractResult, torso: S.Manifold, project: Project, prefi
 
     sides = {**limb_pair("hombro"), **limb_pair("cadera")}
     if project.waist is None:
-        ports = {**common, **sides}
+        ports = _with_capacity({**common, **sides}, tm, p, res.warnings)
         res.pieces.append(Extracted(_meta("torso", prefix, ports, p, origin, "centro", False,
                                           descripcion=f"Torso de {prefix} (entero, sin miembros ni cabeza)"), tm))
         return
@@ -411,10 +429,11 @@ def _torso_pieces(res: ExtractResult, torso: S.Manifold, project: Project, prefi
     c[0] = 0.0
     up_frame = pre.with_center(c)
     lo_frame = PortFrame(c.copy(), n.copy(), up_frame.ref.copy())
-    up_ports = {**common, **{k: v for k, v in sides.items() if k.startswith("hombro")},
-                "cintura": Port("cintura", "toma", up_frame, face_from_mesh(upper_tm, up_frame, place="cintura"))}
-    lo_ports = {"cintura": Port("cintura", "enchufe", lo_frame, face_from_mesh(lower_tm, lo_frame, place="cintura")),
-                **{k: v for k, v in sides.items() if k.startswith("cadera")}}
+    up_ports = _with_capacity({**common, **{k: v for k, v in sides.items() if k.startswith("hombro")},
+                               "cintura": Port("cintura", "toma", up_frame, face_from_mesh(upper_tm, up_frame, place="cintura"))},
+                              upper_tm, p, res.warnings)
+    lo_ports = _with_capacity({"cintura": Port("cintura", "enchufe", lo_frame, face_from_mesh(lower_tm, lo_frame, place="cintura")),
+                               **{k: v for k, v in sides.items() if k.startswith("cadera")}}, lower_tm, p, res.warnings)
     res.pieces.append(Extracted(_meta("torso_sup", prefix, up_ports, p, origin, "centro", False,
                                       descripcion=f"Torso superior de {prefix} (cortado por la cintura)"), upper_tm))
     res.pieces.append(Extracted(_meta("pelvis", prefix, lo_ports, p, origin, "centro", False,

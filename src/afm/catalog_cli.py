@@ -13,7 +13,7 @@ from .recipe import RecipeError
 
 
 def add_parsers(sub) -> None:
-    c = sub.add_parser("catalogo", help="catálogo de piezas de una línea (crear, listar, verificar, importar-mano, agregar, agregar-stl, cortar-muneca, usos, eliminar, estado, compat, matriz, cobertura, contrato)")
+    c = sub.add_parser("catalogo", help="catálogo de piezas de una línea (crear, listar, verificar, importar-mano, agregar, agregar-stl, cortar-muneca, usos, eliminar, estado, compat, matriz, cobertura, contrato, capacidad)")
     cs = c.add_subparsers(dest="catcmd", required=True)
 
     def root(p):
@@ -135,6 +135,10 @@ def add_parsers(sub) -> None:
     g.add_argument("--quitar", action="store_true", help="borrar el contrato de linea.json")
     a.add_argument("--guardar", action="store_true", help="con --calibrar: escribir la propuesta en linea.json (sin esto solo se muestra)")
     a.add_argument("--tolerancia", type=float, default=None, metavar="MM", help="con --calibrar: tolerancia del radio de un talle (por defecto 0,4 mm)")
+    a = cs.add_parser("capacidad", help="capacidad del anfitrión (profundidad detrás de la cara y cabezas enfrentadas) de las tomas con pasador: medirla sobre el STL de piezas ya catalogadas")
+    root(a)
+    a.add_argument("refs", nargs="*", metavar="ID", help="piezas (id o id@n); por defecto las tomas de todo el catálogo")
+    a.add_argument("--escribir", action="store_true", help="guardar lo medido en el .pieza.json (no toca el STL, el hash ni la versión); sin esto solo se muestra")
     a = cs.add_parser("estado", help="cambiar el estado de una pieza (borrador, validada, impresa)")
     root(a)
     a.add_argument("ref", metavar="ID")
@@ -183,6 +187,39 @@ def _label_lines(cat, contract) -> list[str]:
             out.append(f"  {m.ref:<28} {name:<12} {m.puertos[name].rol:<8} {lab.resumen()}")
             out += [f"      aviso: {x}" for x in lab.avisos if "no cae en ningún talle" not in x]
     return out
+
+
+def _run_capacity(cat, args) -> int:
+    """`afm catalogo capacidad RUTA [ID …] [--escribir]`: mide (y opcionalmente guarda) la capacidad de las tomas con pasador."""
+    from .capacity import check, demand, head_gap, pin_of
+
+    params = cat.params
+    metas = [cat.meta(r) for r in args.refs] if args.refs else cat.list()
+    done = skipped = 0
+    for m in metas:
+        sockets = [n for n, p in m.puertos.items() if p.rol == "toma" and pin_of(p.clase, params) is not None]
+        if not sockets:
+            continue
+        caps = cat.measure_capacity(m.ref, write=args.escribir)
+        for name in sockets:
+            cap, port = caps.get(name), m.puertos[name]
+            dem = demand(port.clase, params)
+            if cap is None:
+                print(f"  {m.ref:<28} {name:<12} sin medida (ningún rayo atraviesa el cuerpo desde la cara)")
+                skipped += 1
+                continue
+            need = dem["profundidad_mm"] + dem["pared_min_mm"]
+            line = f"  {m.ref:<28} {name:<12} profundidad {cap['profundidad_mm']:.2f} mm (pide {need:.2f}, margen {cap['profundidad_mm'] - need:+.2f})"
+            if cap.get("x_mm") is not None:
+                gap = head_gap(pin_of(port.clase, params), cap["x_mm"], cap["dir_x"])
+                line += f" · cabezas a {gap:.2f} mm (mínimo {dem['separacion_min_mm']:.2f})"
+            if cap["profundidad_mm"] < need or (cap.get("x_mm") is not None and gap < dem["separacion_min_mm"]):
+                line += "  ← el pasador de la línea no cabe"
+            print(line)
+            done += 1
+    print(f"{done} toma(s) medida(s)" + (f", {skipped} sin medida" if skipped else "")
+          + (" · guardado en los .pieza.json" if args.escribir and done else " · no se guardó nada (usar --escribir)" if done else ""))
+    return 0
 
 
 def _run_contract(cat, args) -> int:
@@ -284,6 +321,8 @@ def _run(args) -> int:
         return 0 if rep.ok else 1
     if cmd == "contrato":
         return _run_contract(cat, args)
+    if cmd == "capacidad":
+        return _run_capacity(cat, args)
     if cmd == "usos":
         uses = cat.usages(args.ref, args.buscar)
         if not uses:
