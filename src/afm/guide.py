@@ -648,6 +648,193 @@ def format_scan(scan: FitScan) -> list:
     return lines
 
 
+# ---------------------------------------------------------------------------------------------------- ajustar al estándar
+FIT_CAP_SPAN_MM = 2.0          # barrido del radio del recorte alrededor del talle (mm, en la altura del contrato)
+FIT_CAP_STEP_MM = 0.25
+FIT_REFINE_STEP_MM = 0.05      # segunda pasada, alrededor del mejor radio de la primera
+FIT_OFFSET_SPAN_MM = 2.0       # barrido del desplazamiento del corte (solo con extrusión «outward»)
+FIT_OFFSET_STEP_MM = 0.5
+
+
+@dataclass
+class FitResult:
+    """Qué cambiar en un corte para que su cara caiga en un talle del contrato («Ajustar al estándar»)."""
+
+    lugar: str
+    clase: str
+    talle: str | None = None                 # talle objetivo
+    changes: dict = field(default_factory=dict)   # campos de `LimbSpec` a cambiar (`cap_radius`, `cap_center`, `cut_offset`)
+    antes: object = field(default=None, repr=False)     # `interface.PortLabel` antes y después
+    despues: object = field(default=None, repr=False)
+    volumen_quitado_mm3: float = 0.0         # volumen del miembro que se pierde respecto del corte actual
+    desviacion_mm: float = 0.0               # |radio − talle| tras el ajuste, en la altura del contrato
+    ok: bool = False                         # la cara quedó en contrato
+    residuo: list = field(default_factory=list)   # lo que no se pudo arreglar, en palabras
+    error: str | None = None
+
+    @property
+    def cambio(self) -> bool:
+        return bool(self.changes)
+
+
+def _arange(span: float, step: float) -> list:
+    n = int(round(span / step))
+    return [round(i * step, 4) for i in range(-n, n + 1)]
+
+
+def _eval_cut(half, spec, project, p: Params, place: str, clase: str, contract, warnings: list):
+    """Corta el miembro con `spec` por el mismo camino que `measure_cuts` y devuelve (miembro, puerto, etiqueta)."""
+    from .extract import _clean, _port_face, reference_for
+    from .limbs import separate_limb
+    from .trims import apply_trims
+
+    limb, face = separate_limb(half, spec, p.burr)
+    limb = apply_trims(limb, project.trims, spec.name)
+    frame = PortFrame(face.center.copy(), face.outward / np.linalg.norm(face.outward), reference_for(face.outward))
+    frame, pface = _port_face(_clean(limb, place, warnings), frame, spec.name, warnings)
+    port = Port(clase, "enchufe", frame, pface)
+    return limb, port, I.label_port(contract, port, p.ref_height)
+
+
+def fit_cut(project, body: S.Manifold, contract, params: Params | None = None, kinds=("arm", "leg"),
+            talle: dict | None = None) -> list:
+    """Busca, para cada miembro, el menor cambio del corte que deje su cara en un talle del contrato: `[FitResult]`.
+
+    Palancas: el radio del recorte cilíndrico (`cap_radius`, en el eje del miembro; es lo que fija el talle) y, con
+    extrusión «outward», el desplazamiento del corte (`cut_offset`, que mueve la x de la cara). Se mide con la métrica del
+    contrato. Prefiere (1) quedar en contrato, (2) quitar el menor volumen, (3) mover menos el corte.
+    `talle`: {clase: id} para forzar el talle objetivo (por defecto, el más cercano a la cara actual). No cambia el proyecto:
+    el llamador aplica `changes` con `dataclasses.replace`."""
+    from .extract import _pick_limbs
+    from .head import neck_plane
+    from .planes import Plane
+
+    p = params or project.params
+    warnings: list = []
+    limbs = _pick_limbs(project, warnings)
+    half = body.trim_by_plane((1.0, 0.0, 0.0), 0.0)
+    if project.head is not None:
+        neck = neck_plane(project.head)
+        half = S.intersection(half, S.halfspace(Plane.from_normal(neck.origin, -neck.normal)))
+    out: list[FitResult] = []
+    scale = (p.ref_height / contract.altura_mm) if p.ref_height else 1.0       # mm del contrato -> mm de esta figura
+    for kind in kinds:
+        spec = limbs.get(kind)
+        if spec is None:
+            continue
+        place, clase = ("brazo", "hombro") if kind == "arm" else ("pierna", "cadera")
+        cc = contract.clases.get(clase)
+        fr = FitResult(place, clase)
+        out.append(fr)
+        if cc is None or cc.soft or not cc.talles:
+            fr.error = "el contrato no fija talles para esta clase"
+            continue
+        try:
+            limb0, port0, lab0 = _eval_cut(half, spec, project, p, place, clase, contract, warnings)
+        except ValueError as exc:
+            fr.error = str(exc)
+            continue
+        fr.antes = fr.despues = lab0
+        tid = (talle or {}).get(clase) or lab0.mas_cercano
+        tgt = next((t for t in cc.talles if t.id == tid), None)
+        if tgt is None:
+            fr.error = f"el talle {tid!r} no está en el contrato"
+            continue
+        fr.talle = tgt.id
+        vol0 = limb0.volume()
+        offsets = [None]
+        if spec.extrude == "outward":
+            base = S_effective_offset(spec)
+            offsets = [round(base + d, 4) for d in _arange(FIT_OFFSET_SPAN_MM, FIT_OFFSET_STEP_MM)]
+        best = None
+        for off in offsets:
+            for d in _arange(FIT_CAP_SPAN_MM, FIT_CAP_STEP_MM):
+                radius = (tgt.radio_mm + d) / scale
+                if radius <= 0.5:
+                    continue
+                cand = dataclasses.replace(spec, cap_radius=radius,
+                                           cap_center=spec.cap_center if spec.cap_center is not None else tuple(float(x) for x in port0.frame.center),
+                                           cut_offset=spec.cut_offset if off is None else off)
+                try:
+                    limb, port, lab = _eval_cut(half, cand, project, p, place, clase, contract, warnings)
+                except ValueError:
+                    continue
+                if lab is None or lab.r is None:
+                    continue
+                key = (0 if (lab.en_contrato and lab.talle == tgt.id) else 1,
+                       abs(lab.r - tgt.radio_mm) if not lab.en_contrato else 0.0,
+                       round(max(0.0, vol0 - limb.volume()), 1),
+                       abs((off or 0.0) - (spec.cut_offset or 0.0)))
+                if best is None or key < best[0]:
+                    best = (key, cand, lab, limb)
+        if best is not None:                                # afinar el radio alrededor del mejor, con el mismo desplazamiento
+            base = best[1]
+            for d in _arange(FIT_CAP_STEP_MM, FIT_REFINE_STEP_MM):
+                cand = dataclasses.replace(base, cap_radius=base.cap_radius + d / scale)
+                try:
+                    limb, port, lab = _eval_cut(half, cand, project, p, place, clase, contract, warnings)
+                except ValueError:
+                    continue
+                if lab is None or lab.r is None:
+                    continue
+                key = (0 if (lab.en_contrato and lab.talle == tgt.id) else 1,
+                       abs(lab.r - tgt.radio_mm) if not lab.en_contrato else 0.0,
+                       round(max(0.0, vol0 - limb.volume()), 1), best[0][3])
+                if key < best[0]:
+                    best = (key, cand, lab, limb)
+        if best is None:
+            fr.error = "ningún candidato produjo una cara válida"
+            continue
+        _k, cand, lab, limb = best
+        fr.despues = lab
+        fr.ok = lab.en_contrato and lab.talle == tgt.id
+        fr.volumen_quitado_mm3 = max(0.0, vol0 - limb.volume())
+        fr.desviacion_mm = abs((lab.r or 0.0) - tgt.radio_mm)
+        for f in ("cap_radius", "cap_center", "cut_offset"):
+            v = getattr(cand, f)
+            if v != getattr(spec, f):
+                fr.changes[f] = tuple(round(float(x), 3) for x in v) if isinstance(v, tuple) else round(float(v), 3)
+        if not fr.ok:
+            fr.residuo.extend(lab.avisos or [f"r = {lab.r:.2f} mm, talle {tgt.id} a {fr.desviacion_mm:.2f} mm"])
+    return out
+
+
+def S_effective_offset(spec) -> float:
+    from .limbs import effective_cut_offset
+    try:
+        return effective_cut_offset(spec)
+    except ValueError:
+        return 0.0
+
+
+def apply_fit(project, results: list) -> int:
+    """Aplica al proyecto los `changes` de cada `FitResult` que quedó en contrato (modifica `project.limbs`). Devuelve cuántos."""
+    n = 0
+    for r in results:
+        if not (r.ok and r.changes):
+            continue
+        kind = "arm" if r.lugar == "brazo" else "leg"
+        project.limbs = [dataclasses.replace(l, **r.changes) if l.kind == kind else l for l in project.limbs]
+        n += 1
+    return n
+
+
+def format_fit_cut(r: FitResult) -> list:
+    """Líneas de texto de un `FitResult`."""
+    head = f"{r.lugar} ({r.clase})"
+    if r.error:
+        return [f"{head}: no se pudo ajustar: {r.error}"]
+    out = [f"{head}: antes {r.antes.resumen() if r.antes else '—'}"]
+    if not r.changes:
+        out.append("  → sin cambios" + ("" if r.ok else f" (no llega al talle {r.talle})"))
+    else:
+        ch = ", ".join(f"{k} = {v}" for k, v in r.changes.items())
+        out.append(f"  → {ch}; después {r.despues.resumen()}; quita {r.volumen_quitado_mm3:.0f} mm³")
+    if not r.ok:
+        out.extend(f"  residuo: {x}" for x in r.residuo)
+    return out
+
+
 # ---------------------------------------------------------------------------------------------------- texto
 def _c(x: float, nd: int = 2) -> str:
     return f"{x:.{nd}f}".replace(".", ",")
