@@ -103,6 +103,8 @@ afm catalogo eliminar RUTA pierna-belgrano-01@1 brazo-belgrano-01@1 [--buscar DI
 afm catalogo cobertura RUTA pierna-guemes-01 [--todas]       # cada puerto de la pieza contra el resto del catálogo (mismo criterio que --compatible-con)
 afm guia figura.stl figura.proyecto --catalogo RUTA          # mide la cara de cada corte (hombro, cadera, cuello): radio equivalente e inscrito,
                                                              # posición lateral, margen del pasador, y su cobertura como enchufe y como toma
+afm guia figura.stl figura.proyecto --catalogo RUTA --ajustar [--rango 2 --paso 0.25] [--guardar salida.proyecto]   # prueba desplazar el plano de corte de cada
+                                                             # miembro «outward» y dice cuál da más cobertura (en miembros «symmetric» no aplica: la cara sale del STL)
 python tools/calibrar_compat.py RUTA --escribir --out docs/CALIBRACION_compat.md   # contrasta la barata con build + validate (minutos por combinación)
 
 # Contrato de interfaz de la línea (fase 1 del mismo plan): talles de cara y posición lateral por clase de puerto, en la clave `interfaz` de linea.json.

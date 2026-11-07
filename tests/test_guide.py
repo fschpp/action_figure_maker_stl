@@ -336,3 +336,82 @@ def test_unreadable_contract_does_not_break_the_guide(doll, cat, capsys):
     _stl, _pp, proj, body = doll
     assert all(m.etiqueta is None for m in G.measure_cuts(proj, body, Catalog.open(cat.root), exclude_figure="muneco.stl"))
     assert main(["catalogo", "cobertura", cat.root, "pierna-muneco-01"]) == 0 and "contrato:" not in capsys.readouterr().out
+
+
+# ------------------------------------------------------------------------------------------------ ajuste del desplazamiento del corte
+@pytest.fixture()
+def doll_outward(doll, tmp_path):
+    """El muñeco con el brazo cortado desde un plano lateral en el hombro, extrusión «outward» (el caso donde `cut_offset` cuenta)."""
+    import numpy as np
+    from afm import autosil
+    from afm import solids as S
+    from afm.gui.session import ARM_SLAB_MM
+    from afm.limbs import LimbSpec
+    from afm.planes import Plane
+
+    stl, _pp, proj, body = doll
+    arm0 = next(l for l in proj.limbs if l.kind == "arm")
+    lat = Plane.from_points(np.array([15.0, 0, 60.0]), np.array([15.0, 10, 60.0]), np.array([15.0, 0, 75.0]), "hombro")
+    poly = autosil.outline_on_plane(S.to_trimesh(body), np.asarray(arm0.polygon, float)[:, [0, 2]], lat)
+    arm = LimbSpec("brazo", "arm", lat, poly, ARM_SLAB_MM, extrude="outward", auto=True)
+    proj2 = dataclasses.replace(proj, limbs=[arm if l.kind == "arm" else l for l in proj.limbs])
+    path = str(tmp_path / "outward.proyecto")
+    proj2.save(path)
+    return stl, path, proj2, body
+
+
+def test_scan_is_not_applicable_with_symmetric_extrusion(doll, cat):
+    _stl, _pp, proj, body = doll
+    for lugar in ("brazo", "pierna"):
+        scan = G.scan_cut_offset(proj, body, cat, lugar)
+        assert not scan.aplicable and "outward" in scan.motivo and scan.steps == []
+        assert G.format_scan(scan)[1].startswith("  no aplica:")
+        assert G.apply_cut_offset(proj, scan) is False
+    assert not G.scan_cut_offset(dataclasses.replace(proj, limbs=[]), body, cat, "brazo").aplicable
+
+
+def test_scan_moves_the_face_with_the_offset(doll_outward, cat):
+    _stl, _pp, proj, body = doll_outward
+    scan = G.scan_cut_offset(proj, body, cat, "brazo", rango=1.0, paso=0.5)
+    assert scan.aplicable and [st.delta_mm for st in scan.steps] == [-1.0, -0.5, 0.0, 0.5, 1.0]
+    assert scan.actual is not None and scan.actual.delta_mm == 0.0
+    for st in scan.steps:                                     # la cara se corre exactamente lo que se corre el plano
+        assert st.error is None and st.x_mm == pytest.approx(15.66 + st.delta_mm, abs=0.02)
+    assert scan.mejor.score() >= scan.actual.score() and scan.actual.universo == 6        # 5 torsos (enchufe) + el brazo de catálogo (toma)
+    assert scan.steps[0].margen_pasador < 0 and scan.steps[0].compat < scan.actual.compat   # a −1 mm el vástago sobresale: encaja con menos
+    text = "\n".join(G.format_scan(scan))
+    assert "← actual" in text and ("el corte actual ya es el mejor" in text or "conviene desplazar" in text)
+
+
+def test_apply_cut_offset_only_when_it_improves(doll_outward):
+    _stl, _pp, proj, _body = doll_outward
+    a, b = G.FitStep(0.0, 0.0, compat=3, parecidas=0), G.FitStep(-0.5, -0.5, compat=3, parecidas=2)
+    better = G.FitScan("brazo", True, base_offset=0.0, steps=[a, b])
+    assert better.mejora and better.mejor is b
+    assert G.apply_cut_offset(proj, better) is True and next(l for l in proj.limbs if l.kind == "arm").cut_offset == -0.5
+    same = G.FitScan("brazo", True, steps=[G.FitStep(0.0, 0.0, compat=3), G.FitStep(0.5, 0.5, compat=3)])
+    assert not same.mejora and same.mejor.delta_mm == 0.0                                   # empate: gana el que menos se mueve
+    assert G.apply_cut_offset(proj, same) is False
+    err = G.FitScan("brazo", True, steps=[G.FitStep(0.0, 0.0, compat=3), G.FitStep(0.5, 0.5, compat=9, error="sin cara")])
+    assert not err.mejora                                                                   # un paso con error nunca gana
+
+
+def test_cli_ajustar(doll, doll_outward, cat, tmp_path, capsys, monkeypatch):
+    stl, proj, _p, _b = doll
+    assert main(["guia", stl, proj, "--catalogo", cat.root, "--ajustar"]) == 0
+    out = capsys.readouterr().out
+    assert out.count("no aplica:") == 2 and "Ajuste del corte del brazo" in out and "Ajuste del corte de la pierna" in out
+    dst = str(tmp_path / "ajustado.proyecto")
+    assert main(["guia", stl, proj, "--catalogo", cat.root, "--ajustar", "--guardar", dst]) == 0
+    assert "Nada que guardar" in capsys.readouterr().out and not os.path.exists(dst)
+    assert main(["guia", stl, proj, "--catalogo", cat.root, "--guardar", dst]) == 2          # --guardar solo con --ajustar
+    assert main(["guia", stl, proj, "--ajustar"]) == 2                                      # sin catálogo no hay contra qué ajustar
+    capsys.readouterr()
+    # con una mejora (simulada: ya se probó que el barrido real ve el desplazamiento) el proyecto se guarda con el nuevo cut_offset
+    s2, p2, _pr, _bd = doll_outward
+    fake = G.FitScan("brazo", True, steps=[G.FitStep(0.0, 0.0, compat=1), G.FitStep(-0.25, -0.25, compat=2, parecidas=1)])
+    monkeypatch.setattr(G, "scan_cut_offset", lambda proj_, body_, cat_, lugar, *a, **k: fake if lugar == "brazo" else G.FitScan(lugar, False, "x"))
+    assert main(["guia", s2, p2, "--catalogo", cat.root, "--ajustar", "--guardar", dst]) == 0
+    assert "conviene desplazar -0.25 mm" in capsys.readouterr().out
+    from afm.project import Project
+    assert next(l for l in Project.load(dst).limbs if l.kind == "arm").cut_offset == pytest.approx(-0.25)

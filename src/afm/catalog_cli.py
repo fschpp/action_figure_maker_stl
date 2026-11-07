@@ -518,6 +518,12 @@ def add_guia_parser(sub) -> None:
     g.add_argument("--excluir-figura", default=None, metavar="NOMBRE",
                    help="ignorar las piezas del catálogo que vienen de esta figura (por defecto el nombre del STL: una figura siempre encaja con sus piezas)")
     g.add_argument("--todas", action="store_true", help="listar también las piezas con resultado ok")
+    g.add_argument("--ajustar", action="store_true",
+                   help="probar desplazar el plano de corte de cada miembro «outward» y decir cuál da más cobertura del catálogo (pide --catalogo)")
+    g.add_argument("--rango", type=float, default=2.0, metavar="MM", help="con --ajustar: hasta cuántos mm a cada lado (2)")
+    g.add_argument("--paso", type=float, default=0.25, metavar="MM", help="con --ajustar: de a cuántos mm (0,25)")
+    g.add_argument("--guardar", default=None, metavar="SALIDA.proyecto",
+                   help="con --ajustar: guardar el proyecto con los mejores desplazamientos (si alguno mejora)")
 
 
 def run_guia(args) -> int:
@@ -544,4 +550,32 @@ def run_guia(args) -> int:
     for m in cuts:
         for line in format_measure(m, args.todas):
             print(line)
+    if args.guardar and not args.ajustar:
+        print("ERROR: --guardar va con --ajustar", file=sys.stderr)
+        return 2
+    if args.ajustar:
+        return _run_ajuste(args, project, body, cat, fig)
+    return 0
+
+
+def _run_ajuste(args, project, body, cat, fig) -> int:
+    """`afm guia … --ajustar [--guardar SALIDA]`: barrido del desplazamiento del corte de cada miembro (plan de compatibilidad, Fase 4)."""
+    from .guide import apply_cut_offset, format_scan, scan_cut_offset
+
+    if cat is None:
+        print("ERROR: --ajustar necesita un catálogo (--catalogo RUTA o $AFM_CATALOGO)", file=sys.stderr)
+        return 2
+    changed = 0
+    for lugar in ("brazo", "pierna"):
+        scan = scan_cut_offset(project, body, cat, lugar, args.rango, args.paso, exclude_figure=fig)
+        print()
+        for line in format_scan(scan):
+            print(line)
+        changed += apply_cut_offset(project, scan) if args.guardar else 0
+    if args.guardar:
+        if changed:
+            project.save(args.guardar)
+            print(f"\nProyecto con el ajuste guardado en {args.guardar}")
+        else:
+            print("\nNada que guardar: ningún desplazamiento mejora el corte actual.")
     return 0

@@ -515,6 +515,139 @@ def measure_cuts(project, body: S.Manifold, cat: Catalog | None = None, params: 
     return out
 
 
+# ---------------------------------------------------------------------------------------------------- ajuste del corte (Fase 4)
+@dataclass
+class FitStep:
+    """Un desplazamiento probado del plano de corte de un miembro y lo que da contra el catálogo."""
+
+    delta_mm: float
+    offset_mm: float
+    x_mm: float | None = None
+    r_eq: float | None = None
+    r_inscrito: float | None = None
+    margen_pasador: float | None = None
+    compat: int = 0               # piezas del catálogo que no dan «no», sumando la pieza de esta figura (enchufe) y su torso (toma)
+    universo: int = 0
+    parecidas: int = 0            # de esas, las de caras parecidas (IoU y escalón)
+    aviso_funcional: int = 0
+    error: str | None = None
+
+    def score(self) -> tuple:
+        """Mayor es mejor: sin error, más piezas compatibles, más caras parecidas, menos avisos de función, menos desplazamiento."""
+        return (self.error is None, self.compat, self.parecidas, -self.aviso_funcional, -abs(self.delta_mm))
+
+    def quality(self) -> tuple:
+        return self.score()[:4]
+
+
+@dataclass
+class FitScan:
+    lugar: str                     # «brazo» | «pierna»
+    aplicable: bool
+    motivo: str = ""               # por qué no se puede ajustar, si no
+    base_offset: float = 0.0
+    steps: list = field(default_factory=list)
+
+    @property
+    def actual(self) -> FitStep | None:
+        return next((st for st in self.steps if abs(st.delta_mm) < 1e-9), None)
+
+    @property
+    def mejor(self) -> FitStep | None:
+        return max(self.steps, key=lambda st: st.score()) if self.steps else None
+
+    @property
+    def mejora(self) -> bool:
+        """El mejor desplazamiento da algo estrictamente mejor que el corte actual."""
+        a, b = self.actual, self.mejor
+        return bool(a and b and b.quality() > a.quality())
+
+
+def _limb_spec(project, lugar: str):
+    kind = {"brazo": "arm", "pierna": "leg"}[lugar]
+    return next((l for l in project.limbs if l.kind == kind), None)
+
+
+def scan_cut_offset(project, body: S.Manifold, cat: Catalog, lugar: str, rango: float = 2.0, paso: float = 0.25,
+                    exclude_figure: str | None = None, calib: dict | None = None) -> FitScan:
+    """Prueba desplazar el plano de corte del miembro `lugar` entre −`rango` y +`rango` mm y mide cada vez la cobertura contra el catálogo.
+
+    Solo cuenta con la extrusión «outward» (el plano de la silueta marca dónde se corta el miembro del torso): con «symmetric»
+    la cara de contacto sale del propio STL, ya segmentado, y mover el plano no la cambia (se midió en las 4 figuras reales).
+    Cada paso vuelve a medir el corte entero (`measure_cuts`, con choque en pose sentada) y suma el miembro de esta figura contra
+    los torsos del catálogo (enchufe) y su torso contra los miembros del catálogo (toma)."""
+    from .limbs import _leg_cross_spans_body, effective_cut_offset
+
+    spec = _limb_spec(project, lugar)
+    if spec is None:
+        return FitScan(lugar, False, f"el proyecto no define el miembro «{lugar}»")
+    if spec.extrude != "outward" or _leg_cross_spans_body(spec):
+        return FitScan(lugar, False, "el desplazamiento del corte solo cuenta con extrusión «outward»; este miembro usa «symmetric» "
+                                     "y su cara de contacto sale del propio STL, así que mover el plano no la cambia")
+    try:
+        base = effective_cut_offset(spec)
+    except ValueError as exc:
+        return FitScan(lugar, False, str(exc))
+    scan = FitScan(lugar, True, base_offset=base)
+    n = int(round(rango / paso))
+    for k in range(-n, n + 1):
+        delta = k * paso
+        trial = dataclasses.replace(project, limbs=[dataclasses.replace(l, cut_offset=base + delta) if l is spec else l
+                                                    for l in project.limbs])
+        step = FitStep(delta, base + delta)
+        try:
+            cuts = {m.lugar: m for m in measure_cuts(trial, body, cat, exclude_figure=exclude_figure, calib=calib)}
+        except ValueError as exc:
+            step.error = str(exc)
+            scan.steps.append(step)
+            continue
+        m = cuts.get(lugar)
+        if m is None or m.error or m.port is None:
+            step.error = (m.error if m else None) or "no se pudo medir"
+        else:
+            step.x_mm, step.r_eq, step.r_inscrito, step.margen_pasador = m.x_mm, m.r_eq, m.r_inscrito, m.margen_pasador
+            for cov in (m.as_plug, m.as_socket):
+                if cov is not None:
+                    step.compat += cov.ok + cov.aviso
+                    step.universo += cov.universo
+                    step.parecidas += sum(1 for f in cov.fits if f.nivel != "no" and f.caras_parecidas)
+                    step.aviso_funcional += cov.aviso_funcional
+        scan.steps.append(step)
+    return scan
+
+
+def apply_cut_offset(project, scan: FitScan) -> bool:
+    """Deja en el proyecto el mejor desplazamiento de `scan` (solo si mejora algo). True si cambió `cut_offset`."""
+    if not scan.aplicable or not scan.mejora:
+        return False
+    spec = _limb_spec(project, scan.lugar)
+    spec.cut_offset = float(scan.mejor.offset_mm)
+    return True
+
+
+def format_scan(scan: FitScan) -> list:
+    """Texto del barrido: una línea por desplazamiento, el actual y el mejor marcados, y la conclusión."""
+    head = f"Ajuste del corte {'del brazo' if scan.lugar == 'brazo' else 'de la pierna'} (desplazamiento del plano, hoy {_c(scan.base_offset)} mm):"
+    if not scan.aplicable:
+        return [head, f"  no aplica: {scan.motivo}"]
+    best, cur = scan.mejor, scan.actual
+    lines = [head, "  desplaz.   x      r eq   r insc  pared  compatibles  caras parecidas  avisos de función"]
+    for st in scan.steps:
+        tag = ("  ← actual" if st is cur else "") + ("  ★ mejor" if st is best and scan.mejora else "")
+        if st.error:
+            lines.append(f"  {st.delta_mm:+6.2f}   sin cara: {st.error[:70]}{tag}")
+            continue
+        n = lambda v: "—" if v is None else _c(v)      # noqa: E731
+        lines.append(f"  {st.delta_mm:+6.2f}  {n(st.x_mm):>6} {n(st.r_eq):>6} {n(st.r_inscrito):>6} {n(st.margen_pasador):>6}"
+                     f"  {st.compat:>3} de {st.universo:<3}  {st.parecidas:>9}  {st.aviso_funcional:>14}{tag}")
+    if scan.mejora:
+        lines.append(f"  → conviene desplazar {best.delta_mm:+.2f} mm (cut_offset {_c(best.offset_mm)}): compatibles {cur.compat} → {best.compat}, "
+                     f"caras parecidas {cur.parecidas} → {best.parecidas}")
+    else:
+        lines.append("  → el corte actual ya es el mejor dentro del rango probado")
+    return lines
+
+
 # ---------------------------------------------------------------------------------------------------- texto
 def _c(x: float, nd: int = 2) -> str:
     return f"{x:.{nd}f}".replace(".", ",")
