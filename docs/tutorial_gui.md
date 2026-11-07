@@ -507,6 +507,31 @@ Después de **Generar**, la casilla **Ver la figura generada en la pose de cader
 * El Estado avisa cuando el ángulo pasa del **límite de cadera** tallado en el torso (ángulo de la pose sentada + margen): más allá de ahí es normal que la pierna choque; si choca *antes* de ese límite, hay un problema de silueta o de pasador.
 * Cualquier edición invalida la figura generada y la vista previa se cierra; generá de nuevo para volver a verla.
 
+### 7.6 Piezas de catálogo (varias figuras con las mismas piezas)
+
+Una **línea** de figuras comparte un catálogo: una carpeta con las piezas ya cortadas (cabeza, torso, brazo, pierna, mano, accesorios) para combinarlas entre figuras. Todo se hace en la pestaña **Catálogo**, sección «Piezas de catálogo».
+
+1. **Crear o abrir el catálogo.** «Crear catálogo de la línea (carpeta nueva)…» pide el nombre y la **altura de figura** de la línea (de los pies a la coronilla) y deja la carpeta abierta; si ya existe, «Abrir catálogo de la línea (carpeta)…». Se reabre solo al cargar una figura que lo usó; «Olvidar el catálogo recordado» lo cierra sin tocar nada.
+2. **Catalogar esta figura…** guarda las piezas crudas de la figura abierta, con los planos y siluetas que ya definiste. Elegís qué lugares subir y si van como **versión nueva** (las figuras que ya usaban la anterior siguen con ella: una pieza catalogada no se modifica). Escalá antes la figura a la altura de la línea con «Escalar la figura a la altura de la línea».
+3. **Guía de cortes…** mide la cara de cada corte (hombro, cadera, cuello) **sin generar nada** y cuenta cuántas piezas del catálogo la aceptan. Para cada corte muestra el radio equivalente y el inscrito, la posición lateral `x` y el margen del pasador. Después, dos coberturas: **como enchufe** (la pieza de esta figura puesta en los torsos de otras) y **como toma** (el torso de esta figura recibiendo piezas de otras). Cada una dice «compatible con N de M piezas», cuántas son ok pleno y cuántas avisos, y las que no son ok, con el motivo. Con `calibracion.json` en la carpeta agrega la probabilidad **esperada** de que la compatibilidad completa también pase. «Volver a medir» repite la medición.
+4. **Elegir las piezas.** En «Pieza de cada lugar» elegís «la del modelo» o una pieza del catálogo. «Generar figura» la pone en el puerto del modelo, sin escalarla, y la fila dice cómo acopla: **ok**, **aviso** o **no**, con el IoU y el escalón entre las caras. «Revisar las piezas elegidas» lo mide sin generar y las dibuja ya colocadas (verde = ok, ámbar = aviso, rojo = no); «Ver por qué» superpone las dos caras. «Armar figura desde catálogo (sin STL)…» arma una figura nueva solo con piezas del catálogo.
+5. **Administrar catálogo…** lista todas las versiones de pieza con vista previa y permite eliminar una o varias; los lugares que usaban una pieza borrada vuelven a la del modelo.
+
+**Qué significa cada resultado.** «No» = esa pieza no se acopla (la cara no alcanza para el pasador con pared, no hay cuerpo suficiente detrás de la toma, las cabezas de la cadera se cruzan, o en la pose sentada el brazo choca con la pierna). «Aviso» = acopla, pero con poco margen o con un escalón visible entre las caras; si el aviso es solo de aspecto, la guía lo marca «(solo aspecto)». Si la guía dice **«N piezas sin la capacidad del anfitrión medida»**, esas tomas se catalogaron antes de que se midiera cuánto cuerpo hay detrás de la cara y esa parte no se juzgó: se arregla con `afm catalogo capacidad RUTA --escribir`.
+
+**Contrato de la línea (talles).** Para que las piezas de distintas figuras sean intercambiables conviene que sus cortes caigan en pocos **talles** (radios de cara) y a la misma posición. Eso se define con la consola (la ventana lo muestra en la Guía, en la línea «contrato de la línea», y marca «← AJUSTAR el corte» si el corte queda fuera):
+
+```bash
+afm catalogo contrato RUTA --calibrar            # propone los talles agrupando los radios de las piezas del catálogo (no escribe nada)
+afm catalogo contrato RUTA --calibrar --guardar  # …y los guarda en linea.json
+afm catalogo contrato RUTA --ver                 # el contrato y el talle de cada pieza (también en «afm catalogo listar»)
+afm catalogo capacidad RUTA --escribir           # mide el cuerpo que hay detrás de cada toma, en las piezas ya catalogadas
+afm catalogo cobertura RUTA ID                   # lo mismo que la Guía, para una pieza ya catalogada
+afm catalogo verificar RUTA                      # coherencia del catálogo, del contrato y piezas «fuera de contrato»
+```
+
+Sin contrato todo funciona igual; el contrato solo agrega la etiqueta de talle y los avisos de «fuera de contrato». El detalle de cada comando está en el [`README.md`](../README.md) y el diseño en [`PLAN_compatibilidad_cortes_catalogo.md`](PLAN_compatibilidad_cortes_catalogo.md).
+
 ## 8. Lista de planos
 
 Debajo de los botones aparece la lista de planos creados: **Simetría**, uno por cada miembro, la **cabeza** (cuello), la **cintura** y las articulaciones.

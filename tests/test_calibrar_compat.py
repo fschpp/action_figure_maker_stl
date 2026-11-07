@@ -54,7 +54,7 @@ def test_report_markdown_reads_the_confusion():
     assert "| hombro | ok | 1 | 2 |" in md and "| cadera | no | 1 | 1 |" in md
     assert "De 2 combinaciones «ok» por la barata, 1 fallaron" in md and "De 1 combinaciones «no», 1 pasaron" in md
     assert "pared de N mm tras la cabeza del pasador" in md                            # los números se reemplazan para agrupar
-    assert "| a | brazo | c | ok | 0,70 | 0,50 | — | **falla** |" in md
+    assert "| a | brazo | c | ok | 0,70 | 0,50 | — | — | **falla** |" in md
 
 
 def test_report_scores_the_clash_predictor():
@@ -63,4 +63,17 @@ def test_report_scores_the_clash_predictor():
             row("b", "a", "pierna", "no", True, choque=2.0), row("b", "c", "brazo", "aviso", False, choque=0.0)]
     md = C.report_markdown({"filas": rows, "base": {}, "figuras": ["a", "b", "c"]}, cat)
     assert "anticipó 2 de 4 resultados de la completa (1 falsas alarmas, 1 fallas que no vio)" in md
-    assert "| a | pierna | b | no | 0,70 | 0,50 | 4,0 | **falla** |" in md
+    assert "| a | pierna | b | no | 0,70 | 0,50 | 4,0 | — | **falla** |" in md
+
+
+def test_capacity_margins_in_the_report_and_json():
+    base = {"anfitrion": "a", "donante": "b", "lugar": "brazo", "clase": "hombro", "nivel": "ok", "nivel_cara": "ok", "choque_mm3": 0.0,
+            "iou": 0.9, "escalon_mm": 0.1, "armado": True, "pasa": True, "problemas_nuevos": []}
+    rows = [dict(base, cap_profundidad_mm=3.25, cap_cabezas_mm=None),
+            dict(base, lugar="pierna", clase="cadera", nivel="no", pasa=False, cap_profundidad_mm=-1.2, cap_cabezas_mm=0.8),
+            dict(base, sin_capacidad=True), dict(base)]
+    assert [C._capacity_cell(r) for r in rows] == ["prof. +3.2", "prof. -1.2 · cabezas +0.8", "sin dato", "—"]
+    md = C.report_markdown({"filas": rows, "base": {}, "figuras": ["a", "b"]}, Catalog.open(EJEMPLO))
+    assert "| Capacidad (mm) |" in md and "prof. -1.2 · cabezas +0.8" in md and "sin dato" in md
+    js = C.calibration_json({"filas": rows, "base": {}, "figuras": ["a", "b"]}, Catalog.open(EJEMPLO))
+    assert js["detalle"][1]["cap_profundidad_mm"] == -1.2 and js["detalle"][3]["cap_profundidad_mm"] is None

@@ -131,6 +131,9 @@ def calibrate(cat: Catalog, hosts=None, donors=None, places=("brazo", "pierna"),
         row = {"anfitrion": h, "donante": d, "lugar": pl, "clase": CLASS_OF_PLACE[pl], "pieza": figs[d][pl].ref,
                "nivel": nivel, "nivel_cara": cheap.get("nivel"), "choque_mm3": choque,
                "iou": cheap.get("iou"), "escalon_mm": cheap.get("escalon_mm"),
+               "cap_profundidad_mm": (cheap.get("margenes_mm") or {}).get("capacidad_profundidad"),      # sobra (+) o falta (−)
+               "cap_cabezas_mm": (cheap.get("margenes_mm") or {}).get("capacidad_cabezas"),
+               "sin_capacidad": bool(cheap.get("sin_capacidad")),
                "armado": res.get("armado", True), "pasa": bool(res.get("armado", True)) and not new, "problemas_nuevos": new,
                "avisos": [a for a in res.get("avisos", []) if a.startswith(pl)], "segundos": res.get("segundos"),
                "cache": bool(res.get("cache"))}
@@ -169,9 +172,15 @@ def calibration_json(result: dict, cat: Catalog) -> dict:
     return {"formato": CALIB_FORMAT, "linea": cat.name, "motor": __version__,
             "fecha": datetime.date.today().isoformat(), "figuras": result["figuras"],
             "n_combinaciones": len(result["filas"]), "clases": confusion(result["filas"]),
-            "detalle": [{k: r[k] for k in ("anfitrion", "donante", "lugar", "clase", "nivel", "nivel_cara", "choque_mm3", "iou",
-                                           "escalon_mm", "pasa")}
+            "detalle": [{k: r.get(k) for k in ("anfitrion", "donante", "lugar", "clase", "nivel", "nivel_cara", "choque_mm3", "iou",
+                                               "escalon_mm", "cap_profundidad_mm", "cap_cabezas_mm", "sin_capacidad", "pasa")}
                         for r in result["filas"]]}
+
+
+def _capacity_cell(r: dict) -> str:
+    """Margen de la capacidad del anfitrión (+ sobra, − falta): profundidad y, en la cadera, cabezas. «sin dato» si la toma no la trae."""
+    parts = [f"{lab} {v:+.1f}" for lab, v in (("prof.", r.get("cap_profundidad_mm")), ("cabezas", r.get("cap_cabezas_mm"))) if v is not None]
+    return " · ".join(parts) or ("sin dato" if r.get("sin_capacidad") else "—")
 
 
 def _theme(msg: str) -> str:
@@ -191,11 +200,11 @@ def report_markdown(result: dict, cat: Catalog) -> str:
     for h, b in sorted(base.items()):
         L.append(f"| {h} | {'sí' if b.get('armado', True) else 'no'} | {len(b.get('problemas', []))} | {len(b.get('avisos', []))} |")
     L += ["", "## Combinaciones", "",
-          "| Anfitrión | Lugar | Donante | Barata | IoU | Escalón (mm) | Choque sentada (mm³) | Completa | Problemas nuevos |",
-          "|---|---|---|---|---|---|---|---|---|"]
+          "| Anfitrión | Lugar | Donante | Barata | IoU | Escalón (mm) | Choque sentada (mm³) | Capacidad (mm) | Completa | Problemas nuevos |",
+          "|---|---|---|---|---|---|---|---|---|---|"]
     for r in rows:
         L.append(f"| {r['anfitrion']} | {r['lugar']} | {r['donante']} | {r['nivel'] or '—'} | {_c(r['iou'])} | {_c(r['escalon_mm'])} | "
-                 f"{_c(r.get('choque_mm3'), 1)} | {'pasa' if r['pasa'] else '**falla**'} | {'; '.join(r['problemas_nuevos'])[:90] or '—'} |")
+                 f"{_c(r.get('choque_mm3'), 1)} | {_capacity_cell(r)} | {'pasa' if r['pasa'] else '**falla**'} | {'; '.join(r['problemas_nuevos'])[:90] or '—'} |")
     conf = confusion(rows)
     L += ["", "## Matriz de confusión por clase", "",
           "Pasaron / total de las combinaciones con ese nivel barato, y el límite inferior de Wilson al 95 % (lo que usa la guía).", "",
@@ -231,7 +240,7 @@ def report_markdown(result: dict, cat: Catalog) -> str:
         fn = sum(1 for r in judged if r["choque_mm3"] <= SIT_CLASH_TOL and not r["pasa"])
         L.append(f"- El choque brazo–pierna en la pose sentada (`guide.SeatedClash`, sin armar la figura) anticipó {hit} de {len(judged)} "
                  f"resultados de la completa ({fp} falsas alarmas, {fn} fallas que no vio).")
-    L += ["- La monotonía en la capacidad del anfitrión (§3 del plan) se verifica cuando haya medición de capacidad (Fase 3).", ""]
+    L += ["- La capacidad del anfitrión (§3 y §4.4 del plan) se mide desde la Fase 3: la columna «Capacidad» da el margen (+ sobra, − falta) y «sin dato» marca las tomas catalogadas antes (`afm catalogo capacidad --escribir`). Falta contrastarla con la completa sobre las figuras reales.", ""]
     return "\n".join(L)
 
 
