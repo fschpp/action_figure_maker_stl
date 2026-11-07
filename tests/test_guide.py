@@ -415,3 +415,38 @@ def test_cli_ajustar(doll, doll_outward, cat, tmp_path, capsys, monkeypatch):
     assert "conviene desplazar -0.25 mm" in capsys.readouterr().out
     from afm.project import Project
     assert next(l for l in Project.load(dst).limbs if l.kind == "arm").cut_offset == pytest.approx(-0.25)
+
+
+# ------------------------------------------------------------------------------------------------ ajustar al estándar (fit_cut)
+def _contract(proj, clase, radio, metrica="equivalente", tol=0.4):
+    from afm import interface as I
+    cc = I.ClassContract(clase, talles=[I.Talle("M", radio, tol)], metrica=metrica)
+    return I.Contract(version="afm-interfaz-1", altura_mm=proj.params.ref_height, clases={clase: cc})
+
+
+@pytest.mark.parametrize("kind,clase,radio", [("arm", "hombro", 6.0), ("arm", "hombro", 6.5), ("leg", "cadera", 6.5), ("leg", "cadera", 6.0)])
+def test_fit_cut_brings_perturbed_cut_into_contract(doll, kind, clase, radio):
+    _stl, _pp, proj, body = doll
+    con = _contract(proj, clase, radio)
+    (r,) = G.fit_cut(proj, body, con, kinds=(kind,))
+    assert r.error is None and r.ok and r.talle == "M" and "cap_radius" in r.changes
+    assert r.desviacion_mm <= 0.4 and r.volumen_quitado_mm3 > 0
+    p2 = dataclasses.replace(proj, limbs=list(proj.limbs))
+    assert G.apply_fit(p2, [r]) == 1
+    (r2,) = G.fit_cut(p2, body, con, kinds=(kind,))
+    assert r2.ok and r2.antes.talle == "M" and not r2.changes         # ya en contrato: no toca nada
+
+
+def test_fit_cut_reports_residue_when_the_lever_cannot_reach(doll):
+    _stl, _pp, proj, body = doll
+    (r,) = G.fit_cut(proj, body, _contract(proj, "hombro", 6.0, metrica="inscrito"), kinds=("arm",))
+    assert not r.ok and r.residuo and G.apply_fit(proj, [r]) == 0
+    assert any("residuo" in l for l in G.format_fit_cut(r))
+
+
+def test_fit_cut_without_talles_is_an_error(doll):
+    _stl, _pp, proj, body = doll
+    from afm import interface as I
+    con = I.Contract(version="afm-interfaz-1", altura_mm=proj.params.ref_height, clases={})
+    (r,) = G.fit_cut(proj, body, con, kinds=("arm",))
+    assert r.error and not r.ok

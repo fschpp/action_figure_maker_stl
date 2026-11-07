@@ -520,6 +520,8 @@ def add_guia_parser(sub) -> None:
     g.add_argument("--todas", action="store_true", help="listar también las piezas con resultado ok")
     g.add_argument("--ajustar", action="store_true",
                    help="probar desplazar el plano de corte de cada miembro «outward» y decir cuál da más cobertura del catálogo (pide --catalogo)")
+    g.add_argument("--estandar", action="store_true",
+                   help="ajustar el radio del recorte de cada miembro al talle más cercano del contrato de la línea (con --guardar, lo deja en el proyecto)")
     g.add_argument("--rango", type=float, default=2.0, metavar="MM", help="con --ajustar: hasta cuántos mm a cada lado (2)")
     g.add_argument("--paso", type=float, default=0.25, metavar="MM", help="con --ajustar: de a cuántos mm (0,25)")
     g.add_argument("--guardar", default=None, metavar="SALIDA.proyecto",
@@ -550,11 +552,35 @@ def run_guia(args) -> int:
     for m in cuts:
         for line in format_measure(m, args.todas):
             print(line)
-    if args.guardar and not args.ajustar:
-        print("ERROR: --guardar va con --ajustar", file=sys.stderr)
+    if args.guardar and not (args.ajustar or args.estandar):
+        print("ERROR: --guardar va con --ajustar o --estandar", file=sys.stderr)
         return 2
+    if args.estandar:
+        return _run_estandar(args, project, body, cat)
     if args.ajustar:
         return _run_ajuste(args, project, body, cat, fig)
+    return 0
+
+
+def _run_estandar(args, project, body, cat) -> int:
+    """`afm guia … --estandar [--guardar SALIDA]`: lleva la cara de cada miembro a un talle del contrato (`guide.fit_cut`)."""
+    from .guide import apply_fit, contract_of, fit_cut, format_fit_cut
+
+    contract = contract_of(cat) if cat is not None else None
+    if contract is None:
+        print("ERROR: --estandar necesita un catálogo con contrato de interfaz (`afm catalogo contrato … --calibrar --guardar`)", file=sys.stderr)
+        return 2
+    results = fit_cut(project, body, contract)
+    print()
+    for r in results:
+        for line in format_fit_cut(r):
+            print(line)
+    if args.guardar:
+        if apply_fit(project, results):
+            project.save(args.guardar)
+            print(f"\nProyecto ajustado guardado en {args.guardar}")
+        else:
+            print("\nNada que guardar: ningún corte cambió.")
     return 0
 
 

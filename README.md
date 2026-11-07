@@ -104,6 +104,7 @@ afm catalogo cobertura RUTA pierna-guemes-01 [--todas]       # cada puerto de la
 afm guia figura.stl figura.proyecto --catalogo RUTA          # mide la cara de cada corte (hombro, cadera, cuello): radio equivalente e inscrito,
                                                              # posición lateral, margen del pasador, y su cobertura como enchufe y como toma
 afm guia figura.stl figura.proyecto --catalogo RUTA --ajustar [--rango 2 --paso 0.25] [--guardar salida.proyecto]   # prueba desplazar el plano de corte de cada
+afm guia figura.stl figura.proyecto --catalogo RUTA --estandar [--guardar salida.proyecto]   # lleva la cara de cada miembro al talle más cercano del contrato (ajusta cap_radius; con extrusión «outward» también cut_offset) y dice qué no pudo arreglar
                                                              # miembro «outward» y dice cuál da más cobertura (en miembros «symmetric» no aplica: la cara sale del STL)
 python tools/calibrar_compat.py RUTA --escribir --out docs/CALIBRACION_compat.md   # contrasta la barata con build + validate (minutos por combinación)
 
