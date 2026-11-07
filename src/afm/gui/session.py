@@ -1535,6 +1535,9 @@ class Session:
             if self.outcome is None:
                 return None
             st = [PR.Stage("Aplanando la base", 4)] if flat else []
+            cap = p.export_max_tris
+            if cap and cap > 0 and any(m.num_tri() > cap for m in self.outcome.result.pieces.values()):
+                st.append(PR.Stage("Reduciendo triángulos de las piezas", 4))      # `pipeline.export` lo anuncia solo si alguna supera el tope
             st += [PR.Stage("Calculando la orientación de impresión", 5)] if orient else []
             st += [PR.Stage(f"Escribiendo «{n}»", 2) for n in self.outcome.result.pieces]
             return st + [PR.Stage("Escribiendo la figura ensamblada", 3), PR.Stage("Escribiendo la lista de piezas", 1),
