@@ -39,6 +39,7 @@ _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic
 - [ ] La cintura: la capacidad se mide (torso superior y pelvis) pero no está validada con una figura con cintura real.
 
 ## Latest Blockers/Discoveries
+- Regresión completa (2026-11-07, rama `fase6_certificacion`, con Fase 4 y 6): **935 pasan, 0 fallan**, 22 salteados, 1 deseleccionado (GTK), 26 min.
 - Regresión completa (2026-11-06, rama `mejoras_sin_decision`): **920 pasan, 0 fallan**, 22 salteados, 1 deseleccionado (`test_gui_catalog.py::test_cut_numbers_are_drawn_in_the_viewer`, sin GTK). Los 3 fallos que arrastraba main quedaron resueltos (progreso) o salteados limpiamente (rtree).
 - (histórico) Regresión completa (2026-11-03): 908 pasan, 3 fallan **también en main limpio** (comprobado con `git stash`): `test_medir_articulaciones.py::test_axial_rays_give_block_thickness` y `::test_tramos_two_segments` (falta `rtree` en el entorno) y `test_progress.py::test_export_and_preview_plans` (el motor anuncia «reduciendo triángulos…», fuera del plan de progreso); más el de siempre de `test_gui_catalog.py` (deseleccionado, sin GTK).
 - `trimesh` necesita `rtree`/`embree` para `mesh.ray` y no son dependencias del proyecto: se usa `pipeline._ray_hits`.
