@@ -69,9 +69,21 @@ class CompatCache:
     def get(self, key: str) -> dict | None:
         return self.load()["entradas"].get(key)
 
+    def get_cert(self, piece_id: str) -> dict | None:
+        """Certificación guardada de una pieza (plan de compatibilidad, Fase 6), o None."""
+        return (self.load().get("certificaciones") or {}).get(piece_id)
+
+    def put_cert(self, piece_id: str, entry: dict) -> None:
+        data = self.load()
+        data.setdefault("certificaciones", {})[piece_id] = entry
+        self._write(data)
+
     def put(self, key: str, entry: dict) -> None:
         data = self.load()
         data["entradas"][key] = entry
+        self._write(data)
+
+    def _write(self, data: dict) -> None:
         fd, tmp = tempfile.mkstemp(dir=os.path.dirname(self.path), suffix=".tmp")
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
