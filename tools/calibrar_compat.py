@@ -125,7 +125,7 @@ def calibrate(cat: Catalog, hosts=None, donors=None, places=("brazo", "pierna"),
             base[h] = run_check(base_recipe(cat, h, figs[h]), cat, force)
         res = run_check(swap_recipe(cat, h, figs[h], d, figs[d], pl), cat, force)
         new = [p for p in res.get("problemas", []) if p not in base[h].get("problemas", [])]
-        cheap = (res.get("compat_piezas") or {}).get(pl) or {}
+        cheap = fresh_cheap(cat, figs[h], figs[d], pl) or (res.get("compat_piezas") or {}).get(pl) or {}
         choque = predicted_clash(sc, figs[h], figs[d], pl)
         nivel = "no" if (choque or 0.0) > SIT_CLASH_TOL else cheap.get("nivel")
         row = {"anfitrion": h, "donante": d, "lugar": pl, "clase": CLASS_OF_PLACE[pl], "pieza": figs[d][pl].ref,
@@ -142,6 +142,25 @@ def calibrate(cat: Catalog, hosts=None, donors=None, places=("brazo", "pierna"),
             f"{'pasa' if row['pasa'] else 'FALLA'}{'' if row['pasa'] else ': ' + '; '.join(new)[:120]} "
             f"[{'caché' if row['cache'] else str(row['segundos']) + ' s'}]")
     return {"filas": rows, "base": base, "figuras": sorted(figs)}
+
+
+PORTS_OF_PLACE = {"brazo": ("hombro", "hombro_izq"), "pierna": ("cadera", "cadera_izq"), "cabeza": ("cuello", "cuello")}
+
+
+def fresh_cheap(cat: Catalog, host: dict, donor: dict, place: str) -> dict | None:
+    """La compatibilidad barata del miembro del donante con el torso del anfitrión, calculada AHORA con los metadatos del catálogo
+    (sin armar). `compat.json` guarda la que se calculó al armar: no tiene la capacidad del anfitrión si las piezas se midieron
+    después (`afm catalogo capacidad --escribir`), y así el informe la contrastaba con datos viejos."""
+    from afm.ports import port_compat
+
+    names = PORTS_OF_PLACE.get(place)
+    torso, piece = host.get("torso"), donor.get(place)
+    if names is None or torso is None or piece is None:
+        return None
+    a, b = piece.puertos.get(names[0]), torso.puertos.get(names[1])
+    if a is None or b is None:
+        return None
+    return port_compat(a, b, piece.altura_figura_mm, torso.altura_figura_mm, cat.params).to_dict()
 
 
 def predicted_clash(sc: SeatedClash, host: dict, donor: dict, place: str):
@@ -240,7 +259,19 @@ def report_markdown(result: dict, cat: Catalog) -> str:
         fn = sum(1 for r in judged if r["choque_mm3"] <= SIT_CLASH_TOL and not r["pasa"])
         L.append(f"- El choque brazo–pierna en la pose sentada (`guide.SeatedClash`, sin armar la figura) anticipó {hit} de {len(judged)} "
                  f"resultados de la completa ({fp} falsas alarmas, {fn} fallas que no vio).")
-    L += ["- La capacidad del anfitrión (§3 y §4.4 del plan) se mide desde la Fase 3: la columna «Capacidad» da el margen (+ sobra, − falta) y «sin dato» marca las tomas catalogadas antes (`afm catalogo capacidad --escribir`). Falta contrastarla con la completa sobre las figuras reales.", ""]
+    short = [r for r in rows if (r.get("cap_profundidad_mm") is not None and r["cap_profundidad_mm"] < 0)]
+    unmeasured = [r for r in rows if r.get("sin_capacidad")]
+    if short:
+        ok_short = sum(1 for r in short if r["pasa"])
+        L.append(f"- La capacidad del anfitrión (profundidad detrás de la cara, Fase 3) marcó que falta material en {len(short)} combinaciones y "
+                 f"{ok_short} pasaron la completa: `validate` solo mira la pared delante de la cabeza y que las cabezas de cadera no se toquen, "
+                 f"no que la cavidad atraviese la piel del torso. Con esos datos no se puede decir si la regla es demasiado estricta o si ve algo que `validate` no ve; hace falta mirar o imprimir esa zona.")
+    else:
+        L.append("- La capacidad del anfitrión (profundidad detrás de la cara, Fase 3) no marcó faltantes en esta muestra: todavía no se puede contrastar con la completa.")
+    if unmeasured:
+        L.append(f"- {len(unmeasured)} combinaciones no tienen capacidad medida en la toma (pieza catalogada antes de la Fase 3 o torso no estanco, donde los rayos no cruzan el cuerpo): "
+                 "`afm catalogo capacidad --escribir` la mide.")
+    L += [""]
     return "\n".join(L)
 
 

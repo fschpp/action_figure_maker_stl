@@ -77,3 +77,16 @@ def test_capacity_margins_in_the_report_and_json():
     assert "| Capacidad (mm) |" in md and "prof. -1.2 · cabezas +0.8" in md and "sin dato" in md
     js = C.calibration_json({"filas": rows, "base": {}, "figuras": ["a", "b"]}, Catalog.open(EJEMPLO))
     assert js["detalle"][1]["cap_profundidad_mm"] == -1.2 and js["detalle"][3]["cap_profundidad_mm"] is None
+
+
+def test_report_contrasts_capacity_with_the_full_check():
+    cat = Catalog.open(EJEMPLO)
+    rows = [dict(row("a", "b", "pierna", "no", True), cap_profundidad_mm=-1.6, cap_cabezas_mm=1.1),
+            dict(row("a", "c", "pierna", "no", False), cap_profundidad_mm=-0.5),
+            dict(row("b", "a", "pierna", "aviso", True), cap_profundidad_mm=7.0, sin_capacidad=False),
+            dict(row("b", "c", "brazo", "aviso", True), sin_capacidad=True)]
+    md = C.report_markdown({"filas": rows, "base": {}, "figuras": ["a", "b", "c"]}, cat)
+    assert "marcó que falta material en 2 combinaciones y 1 pasaron la completa" in md
+    assert "1 combinaciones no tienen capacidad medida" in md
+    none = C.report_markdown({"filas": [row("a", "b", "brazo", "aviso", True)], "base": {}, "figuras": ["a", "b"]}, cat)
+    assert "no marcó faltantes en esta muestra" in none
