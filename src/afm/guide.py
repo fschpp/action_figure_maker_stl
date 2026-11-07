@@ -193,6 +193,11 @@ class Coverage:
         return self.count("no")
 
     @property
+    def sin_capacidad(self) -> int:
+        """Piezas cuya toma no trae la capacidad del anfitrión medida (catalogadas antes de la Fase 3): esa parte no se juzgó."""
+        return sum(1 for f in self.fits if f.compat.sin_capacidad)
+
+    @property
     def aviso_estetico(self) -> int:
         return sum(1 for f in self.fits if f.estetico)
 
@@ -520,6 +525,9 @@ def format_fit(f: PieceFit) -> str:
     det = " (solo aspecto)" if f.estetico else ""
     if c.iou is not None:
         det += f" (IoU {_c(c.iou)}, escalón {_c(c.escalon_mm)} mm)"
+    m = c.margenes_mm.get("capacidad_profundidad")
+    if m is not None:
+        det += f" (profundidad detrás de la cara: {'sobran' if m >= 0 else 'faltan'} {_c(abs(m))} mm)"
     why = f.motivo()
     return f"{f.ref:<28} {f.puerto:<12} {f.nivel}{det}" + (f" — {why}" if f.nivel != "ok" and why else "")
 
@@ -530,6 +538,10 @@ def format_coverage(cov: Coverage, indent: str = "    ", all_fits: bool = False)
     for f in cov.fits:
         if all_fits or f.nivel != "ok":
             lines.append(f"{indent}  {format_fit(f)}")
+    if cov.sin_capacidad:
+        n = cov.sin_capacidad
+        lines.append(f"{indent}  {n} pieza{'s' if n != 1 else ''} sin la capacidad del anfitrión medida: esa parte no se juzgó "
+                     "(`afm catalogo capacidad --escribir`)")
     return lines
 
 

@@ -304,8 +304,18 @@ def _run(args) -> int:
             metas = [m for m in metas if m.id in keep]
         if not metas:
             print("(sin piezas)")
+        from .guide import contract_of
+        from .interface import label_piece
+
+        contract = contract_of(cat)
         for m in metas:
             print(f"{m.ref:<28} {m.tipo:<10} {m.estado:<9} {','.join(m.etiquetas) or '-':<8} puertos: {', '.join(m.puertos)}")
+            if contract is not None:                       # talle de cada puerto de clase dura (o «fuera» si no cae en ninguno)
+                labs = label_piece(contract, m)
+                if labs:
+                    print("    talle: " + ", ".join(f"{n} {lab.talle or 'fuera'}" + ("" if lab.x_ok is not False and lab.eje_ok is not False else "*")
+                                                  for n, lab in labs.items()) + ("   (* fuera de la posición o del eje del contrato)" if any(
+                                                      l.x_ok is False or l.eje_ok is False for l in labs.values()) else ""))
             if args.compatible_con:
                 for na, nb, c in keep[m.id]:
                     det = (f"IoU {c.iou:.2f}, escalón {c.escalon_mm:.2f} mm" if c.iou is not None else

@@ -29,6 +29,7 @@ def test_axis_tilt_and_diameter(pieza):
 
 
 def test_axial_rays_give_block_thickness(pieza):
+    pytest.importorskip("rtree", reason="tools/medir_articulaciones.py lanza rayos con trimesh, que necesita rtree (pip install -e .[dev])")
     e = medir.eje_inclinado(pieza, (-3.0, 30.0), 6.0)
     r = medir.rayos_axiales(pieza, e, rho=2.0)
     # a lo largo del eje inclinado el bloque (16 mm en X) mide 16/cos(12°) en la dirección del eje
@@ -37,6 +38,7 @@ def test_axial_rays_give_block_thickness(pieza):
 
 
 def test_tramos_two_segments():
+    pytest.importorskip("rtree", reason="tools/medir_articulaciones.py lanza rayos con trimesh, que necesita rtree (pip install -e .[dev])")
     a = S.Manifold.cube((2, 4, 4), center=True).translate((-3, 0, 0))
     b = S.Manifold.cube((2, 4, 4), center=True).translate((3, 0, 0))
     m = S.to_trimesh(S.union(a, b))

@@ -320,3 +320,31 @@ def test_cli_calibrar_with_metric_and_label_round_trip(cat, capsys):
     assert Catalog.open(cat.root).contract().clases["hombro"].metrica == "inscrito"
     assert main(["catalogo", "contrato", cat.root, "--ver"]) in (0, 1)
     assert "r inscrito" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------------------------------- informes: capacidad y talle
+def test_coverage_report_flags_missing_capacity_then_shows_the_margin(cat):
+    from afm import guide as G
+
+    clone(cat, "torso-muneco-01", "torso-otro")                                   # un torso de «otra figura»: la cobertura no cuenta el propio
+    cov = G.piece_coverage(cat, "brazo-muneco-01")["hombro"]
+    assert cov.universo == 1 and cov.sin_capacidad == 1                           # una pieza (el peor de sus puertos), sin dato
+    txt = "\n".join(G.format_coverage(cov, all_fits=True))
+    assert "sin la capacidad del anfitrión medida" in txt and "profundidad detrás de la cara" not in txt
+    cat.measure_capacity("torso-otro", write=True)
+    cov = G.piece_coverage(Catalog.open(cat.root), "brazo-muneco-01")["hombro"]
+    assert cov.sin_capacidad == 0
+    txt = "\n".join(G.format_coverage(cov, all_fits=True))
+    assert "sin la capacidad" not in txt and "profundidad detrás de la cara: sobran" in txt
+
+
+def test_listar_shows_the_talle_only_with_a_contract(cat, capsys):
+    assert main(["catalogo", "listar", cat.root]) == 0
+    assert "talle:" not in capsys.readouterr().out
+    cat.set_contract(I.propose(cat).contract)
+    assert main(["catalogo", "listar", cat.root]) == 0
+    out = capsys.readouterr().out
+    assert "talle: hombro M" in out and "talle: cadera M" in out and "talle: muneca M" in out and "fuera" not in out
+    clone(cat, "brazo-muneco-01", "brazo-raro", k=0.6)                           # r 4,2: fuera del único talle (7,07 ± 0,4)
+    assert main(["catalogo", "listar", cat.root]) == 0
+    assert "talle: hombro fuera" in capsys.readouterr().out

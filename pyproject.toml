@@ -24,8 +24,8 @@ dependencies = [
 
 [project.optional-dependencies]
 gui = ["PyGObject", "moderngl", "pycairo", "pillow"]
-dev = ["pytest"]
-all = ["PyGObject", "moderngl", "pycairo", "pillow", "pytest"]
+dev = ["pytest", "rtree"]     # rtree: solo para tools/medir_articulaciones.py y sus tests; el motor no lo usa
+all = ["PyGObject", "moderngl", "pycairo", "pillow", "pytest", "rtree"]
 
 [project.scripts]
 afm = "afm.cli:main"
