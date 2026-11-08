@@ -1,0 +1,71 @@
+"""GUI (sin GTK): «Ajustar cintura y muñeca al patrón» (Session / Controller)."""
+import os
+import shutil
+
+import numpy as np
+import pytest
+
+from afm import ajuste as A
+from afm.gui.controller import Controller
+from afm.hand import HandSpec
+from afm.planes import Plane
+from afm.project import demo_project
+from afm.testfigure import make_doll
+from afm.waist import WaistSpec, waist_plane
+
+EJEMPLO = os.path.join(os.path.dirname(__file__), "..", "catalogo", "ejemplo")
+
+
+@pytest.fixture()
+def ctrl(tmp_path):
+    stl = str(tmp_path / "muneco.stl")
+    make_doll().export(stl)
+    pr = demo_project()
+    pr.waist = WaistSpec(Plane.from_points((-10, -6, 48), (10, -6, 48), (0, 8, 48), "cintura"))
+    pr.hand = HandSpec(path="", points=((21.0, 3.0, 68.0), (18.0, -3.0, 68.0), (24.0, -3.0, 68.0)))
+    proj = tmp_path / "muneco.proyecto"
+    pr.save(str(proj))
+    c = Controller()
+    c.open_project(str(proj), stl)
+    assert c.loaded
+    return c
+
+
+@pytest.fixture()
+def cat_root(tmp_path):
+    root = str(tmp_path / "linea")
+    shutil.copytree(EJEMPLO, root)
+    return root
+
+
+def test_needs_an_open_catalog(ctrl):
+    assert ctrl.waist_wrist_options() == {"pelvis": [], "mano": []}
+    assert ctrl.waist_wrist_fit_lines() is None and "catálogo" in ctrl.message
+    assert ctrl.apply_waist_wrist_fit() is False
+
+
+def test_options_and_lines_with_catalog(ctrl, cat_root):
+    ctrl.session.open_catalog(cat_root)
+    opts = ctrl.waist_wrist_options()
+    assert opts["pelvis"] == [] and len(opts["mano"]) == 1
+    lines = ctrl.waist_wrist_fit_lines(None, opts["mano"][0])
+    text = "\n".join(lines)
+    assert "cintura: no se pudo ajustar" in text and "pelvis" in text            # el ejemplo no trae pelvis
+    assert "muñeca: radio" in text
+
+
+def test_apply_moves_the_planes_and_invalidates(ctrl, cat_root, monkeypatch):
+    ctrl.session.open_catalog(cat_root)
+    z0 = float(waist_plane(ctrl.session.project.waist).origin[2])
+    fake = [A.AjusteResult("cintura", r_ref_mm=9.0, r_antes_mm=12.0, r_despues_mm=9.0, desplazamiento_mm=-6.0, escala=1.0, ok=True)]
+    monkeypatch.setattr(A, "ajustar", lambda *a, **k: fake)
+    ctrl.session.outcome = object()
+    assert ctrl.apply_waist_wrist_fit() is True
+    assert float(waist_plane(ctrl.session.project.waist).origin[2]) == pytest.approx(z0 - 6.0, abs=1e-6)
+    assert ctrl.session.outcome is None and "Ajustado al patrón" in ctrl.message
+
+
+def test_apply_without_changes_says_so(ctrl, cat_root):
+    ctrl.session.open_catalog(cat_root)
+    assert ctrl.apply_waist_wrist_fit(None, None) is False
+    assert "necesitan moverse" in ctrl.message

@@ -1057,6 +1057,34 @@ class Session:
 
         return apply_fit(self.project, results)
 
+    def waist_wrist_options(self) -> dict:
+        """Piezas del catálogo abierto que pueden hacer de patrón para el ajuste de cintura y muñeca: {«pelvis»: [ref], «mano»: [ref]}."""
+        if not self.catalog_root:
+            return {"pelvis": [], "mano": []}
+        cat = self._catalog()
+        return {t: [m.ref for m in cat.list(t)] for t in ("pelvis", "mano")}
+
+    def waist_wrist_fit(self, pelvis: str | None = None, mano: str | None = None) -> list:
+        """«Ajustar cintura y muñeca al patrón»: cuánto mover el plano de la cintura y el de la muñeca para que sus caras tengan el
+        radio de la pelvis y de la mano del catálogo (`ajuste.ajustar`), sin tocar el proyecto. `[AjusteResult]`."""
+        from ..ajuste import ajustar
+
+        if self.work is None:
+            raise ValueError("Primero abrí una figura.")
+        if not self.catalog_root:
+            raise ValueError("Abrí el catálogo de la línea: la pelvis y la mano del patrón viven ahí.")
+        return ajustar(self.project, S.to_manifold(self.work), self._catalog(), pelvis, mano)
+
+    def apply_waist_wrist_fit(self, results) -> int:
+        """Mueve los planos de cintura y muñeca según `results` (`ajuste.aplicar`). Devuelve cuántos cambió."""
+        from ..ajuste import aplicar
+
+        n = aplicar(self.project, results)
+        if n:
+            self.outcome = None
+            self._part_preview = None
+        return n
+
     def create_catalog(self, root: str, name: str | None = None, height_mm: float | None = None):
         """Equivalente de `afm catalogo crear RUTA --linea NOMBRE --altura MM`: crea el catálogo de una línea en la carpeta
         `root` (nueva o vacía) y lo deja abierto. Sin `name` usa el de la carpeta; sin `height_mm` la altura de la figura

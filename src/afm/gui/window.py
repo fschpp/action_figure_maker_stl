@@ -575,10 +575,13 @@ En naranja se ve el contorno del pasador (vástago y cabeza); en verde, la posic
         self.btn_cat_guide = self._button("Guía de cortes (cuánto del catálogo los acepta)…", self._on_cut_guide)
         self.btn_cat_guide.set_tooltip_text("Mide la cara de cada corte (hombro, cadera, cuello) sin generar nada y cuenta cuántas piezas "
                                             "del catálogo abierto la aceptan, como pieza de esta figura y como torso que recibe piezas de otras.")
+        self.btn_cat_fitcm = self._button("Ajustar cintura y muñeca al patrón…", self._on_fit_waist_wrist)
+        self.btn_cat_fitcm.set_tooltip_text("Mueve el plano de la cintura y el de la muñeca de esta figura hasta que sus caras tengan el tamaño de la "
+                                            "pelvis y de la mano del patrón (p. ej. Güemes) del catálogo abierto. Muestra qué cambiaría antes de aplicarlo.")
         self.btn_cat_manage = self._button("Administrar catálogo (ver y eliminar piezas)…", self._on_catalog_manage)
         self.btn_cat_build = self._button("Armar figura desde catálogo (sin STL)…", self._on_catalog_build)
-        for w in (self.btn_cat_new, self.btn_cat_open, self.lbl_catalog, self.btn_cat_add, self.btn_cat_guide, self.btn_cat_manage,
-                  self.btn_cat_build):
+        for w in (self.btn_cat_new, self.btn_cat_open, self.lbl_catalog, self.btn_cat_add, self.btn_cat_guide, self.btn_cat_fitcm,
+                  self.btn_cat_manage, self.btn_cat_build):
             sec.append(w)
         self.btn_cat_forget = self._button("Olvidar el catálogo recordado", lambda *_: self.ctrl.forget_catalog())
         self.btn_cat_forget.set_tooltip_text("Cierra el catálogo y borra lo recordado: la próxima vez hay que abrirlo a mano. "
@@ -1309,6 +1312,7 @@ exportar; tarda un poco más.")
         self.btn_cat_open.set_sensitive(not ctrl.busy)
         self.btn_cat_add.set_sensitive(bool(loaded and root and not ctrl.busy))
         self.btn_cat_guide.set_sensitive(bool(loaded and not ctrl.busy))
+        self.btn_cat_fitcm.set_sensitive(bool(loaded and root and not ctrl.busy))
         self.btn_cat_manage.set_sensitive(bool(root and not ctrl.busy))
         self.btn_cat_build.set_sensitive(not ctrl.busy)
         self.btn_build_cat.set_sensitive(not ctrl.busy)
@@ -1543,6 +1547,58 @@ exportar; tarda un poco más.")
         box.append(bar)
         win.set_child(box)
         win.present()
+
+    def _on_fit_waist_wrist(self, *_):
+        """«Ajustar cintura y muñeca al patrón»: ventana con lo que se movería y botón para aplicarlo (con el catálogo abierto)."""
+        opts = self.ctrl.waist_wrist_options()
+        win = Gtk.Window(title="Ajustar cintura y muñeca al patrón", transient_for=self, modal=False, default_width=760, default_height=480)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_top=12, margin_bottom=12, margin_start=12, margin_end=12)
+        box.append(Gtk.Label(label="Compara el tamaño de la cara de la cintura y de la muñeca de esta figura con las de la pelvis y la mano "
+                                   "del patrón del catálogo y propone cuánto mover cada plano. «Aplicar» solo mueve los planos; si sobra "
+                                   "escala, el texto lo dice.", xalign=0, wrap=True, max_width_chars=90))
+        drops = {}
+        for key, title in (("pelvis", "Pelvis del patrón"), ("mano", "Mano del patrón")):
+            refs = opts.get(key) or []
+            row = Gtk.Box(spacing=6)
+            row.append(Gtk.Label(label=title + ":", xalign=0))
+            dd = Gtk.DropDown.new_from_strings(refs or ["(ninguna en el catálogo)"])
+            dd.set_sensitive(len(refs) > 1)
+            row.append(dd)
+            box.append(row)
+            drops[key] = (dd, refs)
+
+        def chosen(key):
+            dd, refs = drops[key]
+            return refs[dd.get_selected()] if refs else None
+
+        label = Gtk.Label(label="", xalign=0, yalign=0, selectable=True, wrap=False)
+        label.add_css_class("monospace")
+        scroller = Gtk.ScrolledWindow(vexpand=True, hexpand=True)
+        scroller.set_child(label)
+        box.append(scroller)
+        bar = Gtk.Box(spacing=6, halign=Gtk.Align.END)
+        measure = Gtk.Button(label="Medir")
+        apply_btn = Gtk.Button(label="Aplicar")
+        close = Gtk.Button(label="Cerrar")
+
+        def refresh(*_):
+            new = self.ctrl.waist_wrist_fit_lines(chosen("pelvis"), chosen("mano"))
+            if new is not None:
+                label.set_text("\n".join(new))
+
+        def apply(*_):
+            if self.ctrl.apply_waist_wrist_fit(chosen("pelvis"), chosen("mano")):
+                refresh()
+
+        measure.connect("clicked", refresh)
+        apply_btn.connect("clicked", apply)
+        close.connect("clicked", lambda *_: win.close())
+        for b in (measure, apply_btn, close):
+            bar.append(b)
+        box.append(bar)
+        win.set_child(box)
+        win.present()
+        refresh()
 
     def _on_catalog_review(self, *_):
         job = self.ctrl.begin_preview_parts()

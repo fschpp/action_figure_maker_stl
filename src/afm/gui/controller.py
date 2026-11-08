@@ -2836,6 +2836,49 @@ class Controller:
         self._changed(f"Ajustado al estándar: {n} corte(s). Revisá la guía y el pasador.")
         return True
 
+    def waist_wrist_options(self) -> dict:
+        """Pelvis y manos del catálogo abierto que sirven de patrón (`Session.waist_wrist_options`); vacío si no se pudo leer."""
+        try:
+            return self.session.waist_wrist_options()
+        except ValueError:
+            return {"pelvis": [], "mano": []}
+
+    def waist_wrist_fit_preview(self, pelvis: str | None = None, mano: str | None = None) -> list | None:
+        """«Ajustar cintura y muñeca al patrón» sin aplicar: `[AjusteResult]` o None si no se pudo."""
+        if not self._need_loaded():
+            return None
+        try:
+            return self.session.waist_wrist_fit(pelvis, mano)
+        except ValueError as e:
+            self._changed(f"No se pudo ajustar cintura y muñeca: {e}", scene=False)
+            return None
+
+    def waist_wrist_fit_lines(self, pelvis: str | None = None, mano: str | None = None) -> list | None:
+        """El texto del ajuste (el mismo de `afm ajustar-cintura-muneca`), línea por línea; None si no se pudo."""
+        from ..ajuste import format_ajuste
+
+        res = self.waist_wrist_fit_preview(pelvis, mano)
+        if res is None:
+            return None
+        return [l for r in res for l in format_ajuste(r)]
+
+    def apply_waist_wrist_fit(self, pelvis: str | None = None, mano: str | None = None) -> bool:
+        """Mueve el plano de la cintura y el de la muñeca al ajuste calculado. Devuelve True si cambió algo."""
+        res = self.waist_wrist_fit_preview(pelvis, mano)
+        if res is None:
+            return False
+        try:
+            n = self.session.apply_waist_wrist_fit(res)
+        except ValueError as e:
+            self._changed(f"No se aplicó el ajuste: {e}", scene=False)
+            return False
+        if not n:
+            self._changed("Ni la cintura ni la muñeca necesitan moverse.", scene=False)
+            return False
+        self.hand_extract = self._hand_mesh = None
+        self._changed(f"Ajustado al patrón: {n} plano(s) movido(s). Revisá la cintura y la muñeca en el visor.")
+        return True
+
     # ---- gestor del catálogo: ver y eliminar piezas
     def catalog_pieces(self) -> list:
         """Todas las versiones de las piezas del catálogo abierto (vacío si no hay catálogo o no se pudo leer)."""
