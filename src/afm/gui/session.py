@@ -1037,6 +1037,26 @@ class Session:
         name = os.path.basename(self.stl_path or "") or None
         return measure_cuts(self.project, S.to_manifold(self.work), cat, exclude_figure=name)
 
+    def cut_fit(self) -> list:
+        """«Ajustar al estándar»: qué cambiaría cada corte para caer en un talle del contrato de la línea (`guide.fit_cut`),
+        sin tocar el proyecto. `[FitResult]`."""
+        from ..guide import contract_of, fit_cut
+
+        if self.work is None:
+            raise ValueError("Primero abrí una figura.")
+        if not self.catalog_root:
+            raise ValueError("Abrí el catálogo de la línea: el contrato de interfaz vive ahí.")
+        contract = contract_of(self._catalog())
+        if contract is None:
+            raise ValueError("La línea no tiene contrato de interfaz (`afm catalogo contrato … --calibrar --guardar`).")
+        return fit_cut(self.project, S.to_manifold(self.work), contract)
+
+    def apply_cut_fit(self, results) -> int:
+        """Aplica al proyecto los ajustes que dejan el corte en contrato (`guide.apply_fit`). Devuelve cuántos cortes cambió."""
+        from ..guide import apply_fit
+
+        return apply_fit(self.project, results)
+
     def create_catalog(self, root: str, name: str | None = None, height_mm: float | None = None):
         """Equivalente de `afm catalogo crear RUTA --linea NOMBRE --altura MM`: crea el catálogo de una línea en la carpeta
         `root` (nueva o vacía) y lo deja abierto. Sin `name` usa el de la carpeta; sin `height_mm` la altura de la figura

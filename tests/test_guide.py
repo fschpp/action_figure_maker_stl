@@ -421,7 +421,7 @@ def test_cli_ajustar(doll, doll_outward, cat, tmp_path, capsys, monkeypatch):
 def _contract(proj, clase, radio, metrica="equivalente", tol=0.4):
     from afm import interface as I
     cc = I.ClassContract(clase, talles=[I.Talle("M", radio, tol)], metrica=metrica)
-    return I.Contract(version="afm-interfaz-1", altura_mm=proj.params.ref_height, clases={clase: cc})
+    return I.Contract(version=I.VERSION, altura_mm=proj.params.ref_height, clases={clase: cc})
 
 
 @pytest.mark.parametrize("kind,clase,radio", [("arm", "hombro", 6.0), ("arm", "hombro", 6.5), ("leg", "cadera", 6.5), ("leg", "cadera", 6.0)])
@@ -447,6 +447,33 @@ def test_fit_cut_reports_residue_when_the_lever_cannot_reach(doll):
 def test_fit_cut_without_talles_is_an_error(doll):
     _stl, _pp, proj, body = doll
     from afm import interface as I
-    con = I.Contract(version="afm-interfaz-1", altura_mm=proj.params.ref_height, clases={})
+    con = I.Contract(version=I.VERSION, altura_mm=proj.params.ref_height, clases={})
     (r,) = G.fit_cut(proj, body, con, kinds=("arm",))
     assert r.error and not r.ok
+
+
+def test_controller_cut_fit(tmp_path, cat):
+    from afm import interface as I
+    from afm.gui.controller import Controller
+    from test_gui_phases35 import fill_limbs, make_ctrl
+
+    empty = Controller()
+    assert empty.cut_fit_lines() is None and "abrí un STL" in empty.message
+    c = make_ctrl(tmp_path)
+    fill_limbs(c)
+    assert c.cut_fit_lines() is None and "Abrí el catálogo" in c.message
+    c.session.open_catalog(cat.root)
+    assert c.cut_fit_lines() is None and "contrato" in c.message                     # el catálogo no tiene contrato todavía
+    H = c.session.project.params.ref_height
+    cc = I.ClassContract("hombro", talles=[I.Talle("M", 6.0, 0.4)])
+    cat.set_contract(I.Contract(version=I.VERSION, altura_mm=cat.height_mm, clases={"hombro": cc}))
+    c.session.open_catalog(cat.root)
+    lines = c.cut_fit_lines()
+    assert lines is not None, c.message
+    assert any(x.startswith("brazo (hombro)") for x in lines)
+    caps = lambda: [(l.name, l.cap_radius, l.cut_offset) for l in c.session.project.limbs]
+    before = caps()
+    c.cut_fit_preview()
+    assert caps() == before                                         # previsualizar no cambia el proyecto
+    assert c.apply_cut_fit() and caps() != before and "Ajustado al estándar" in c.message
+    assert c.apply_cut_fit() is False and "Ningún corte" in c.message                # ya en contrato: nada que cambiar
