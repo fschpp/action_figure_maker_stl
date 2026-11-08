@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "action-figure-maker-stl"
-version = "0.2.0"
+version = "0.2.1"
 description = "Convierte un STL de una pieza en una figura articulable (print-in-place) estilo Kenner"
 readme = "README.md"
 requires-python = ">=3.10"

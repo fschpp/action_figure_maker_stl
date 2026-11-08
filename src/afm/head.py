@@ -175,7 +175,7 @@ def split_head(body: S.Manifold, spec: HeadSpec, p: Params, head_part=None) -> H
     placed = None
     if head_part is not None:
         from .assembly import place_part
-        placed = place_part(head_part, "head", face, p, p.ref_height)    # descarta la cabeza original
+        placed = place_part(head_part, "head", face, p, p.ref_height, host_mesh=body_half)    # descarta la cabeza original
         head = placed.mesh
         face = _face_from_head(head, plane)
     elif spec.replacement_path:

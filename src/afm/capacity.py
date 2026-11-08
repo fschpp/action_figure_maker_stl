@@ -98,13 +98,17 @@ def _depths(mesh, origins: np.ndarray, direction: np.ndarray) -> list[float]:
     return out
 
 
-def measure(mesh, port: Port, params: Params) -> dict | None:
+def measure(mesh, port: Port, params: Params, inset_mm: float = 0.0) -> dict | None:
     """Capacidad de una toma sobre la malla (trimesh) que la recibe, en el marco de la malla.
 
     `profundidad_mm`: el menor camino, a lo largo de −eje (hacia adentro del cuerpo), de la cara a la piel opuesta, sobre la
     huella de la cabeza del pasador (sin los puntos a menos de `min_wall` del borde de la cara). En la cadera, además, `x_mm`
     (|x| del centro) y `dir_x` (X de la dirección de entrada del pasador, + si se aleja del plano de simetría).
-    None si la clase no lleva pasador, no es una toma o ningún rayo atraviesa el cuerpo."""
+    None si la clase no lleva pasador, no es una toma o ningún rayo atraviesa el cuerpo.
+
+    `inset_mm`: la malla que recibe la pieza puede terminar un poco antes de la cara (la cabeza de catálogo se arma sobre un
+    cuerpo cortado `clearance` por debajo del plano del cuello): los rayos arrancan ese tanto hacia adentro y la
+    profundidad se cuenta desde la cara."""
     pin = pin_of(port.clase, params)
     if pin is None or port.rol != "toma":
         return None
@@ -112,9 +116,12 @@ def measure(mesh, port: Port, params: Params) -> dict | None:
     uv = _footprint(port.face, radius, float(params.min_wall))
     fr = port.frame
     origins = fr.center + np.outer(uv[:, 0], fr.ref) + np.outer(uv[:, 1], fr.y)
+    if inset_mm:
+        origins = origins - np.asarray(fr.axis, float) * float(inset_mm)
     depths = _depths(mesh, origins, -fr.axis)
     if not depths:
         return None
+    depths = [d + float(inset_mm) for d in depths]
     cap = {"profundidad_mm": round(min(depths), 3), "huella_radio_mm": round(radius, 3), "rayos": len(depths)}
     if port.clase in MIRROR_CLASSES and abs(float(fr.center[0])) > 1e-6:
         d = -np.asarray(fr.axis, float) / np.linalg.norm(fr.axis)

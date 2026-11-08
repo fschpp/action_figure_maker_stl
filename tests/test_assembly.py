@@ -416,3 +416,13 @@ def test_place_part_says_no_when_the_host_is_too_thin(doll, project, extracted):
     finally:
         pin.shaft_len = old
     assert pp.compat.nivel == "no" and any("detrás de la cara" in m for m in pp.compat.motivos)
+
+
+def test_pelvis_and_head_of_the_catalog_are_judged_by_the_host_capacity(doll, waist_doll):
+    """La pelvis (cintura) y la cabeza (cuello) de catálogo también miden cuánto cuerpo hay detrás de la cara para el pasador."""
+    pr, ex, _d = waist_doll
+    res = build(doll, pr.limbs, pr.params, head=pr.head, waist=pr.waist, parts=_choices(ex, "pelvis", "cabeza"))
+    for lugar in ("pelvis", "cabeza"):
+        compat = res.report["piezas"][lugar]["compat"]
+        assert not compat.get("sin_capacidad"), (lugar, compat)
+        assert compat["margenes_mm"]["capacidad_profundidad"] > 0, (lugar, compat)
