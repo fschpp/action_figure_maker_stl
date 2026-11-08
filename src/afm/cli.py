@@ -139,6 +139,31 @@ def _run_desde_patron(args) -> int:
     return 0
 
 
+def _run_ajustar_cm(args) -> int:
+    from . import ajuste as A
+    from .catalog import Catalog, CatalogError
+    from .extract import load_body
+    from .project import Project
+
+    try:
+        project = Project.load(args.proyecto)
+        cat = Catalog.open(args.catalogo)
+        body, _rep = load_body(args.stl, project, progress=print)
+        results = A.ajustar(project, body, cat, args.pelvis, args.mano)
+    except (ValueError, OSError, KeyError, CatalogError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    for r in results:
+        print("\n".join(A.format_ajuste(r)))
+    if args.guardar:
+        n = A.aplicar(project, results)
+        project.save(args.out or args.proyecto)
+        print(f"Se movieron {n} plano(s); proyecto guardado en {args.out or args.proyecto}")
+    elif any(r.cambio for r in results):
+        print("(no se guardó nada: agregá --guardar para aplicar los desplazamientos)")
+    return 0 if all(r.error is None for r in results) else 1
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="afm", description=__doc__)
     ap.add_argument("--version", action="version", version=f"afm {__version__}")
@@ -217,6 +242,14 @@ def main(argv=None) -> int:
     dp.add_argument("--corona", type=float, default=None, help="cota de la coronilla en unidades del STL (si tiene sombrero o plumas)")
     dp.add_argument("--entrepierna", type=float, default=None, help="altura (mm) de la entrepierna si la figura lleva abrigo o faldón largo")
     dp.add_argument("--frente", choices=["+Y", "-Y"], default=None, help="hacia dónde mira la figura en el STL (por defecto, como el patrón)")
+    ac = sub.add_parser("ajustar-cintura-muneca", help="mueve el plano de la cintura y el de la muñeca de un héroe hasta que calcen con la pelvis y la mano del patrón del catálogo")
+    ac.add_argument("proyecto", help="proyecto del héroe (p. ej. el que dejó desde-patron)")
+    ac.add_argument("stl", help="STL del héroe")
+    ac.add_argument("--catalogo", required=True, help="carpeta del catálogo con la pelvis y la mano del patrón")
+    ac.add_argument("--pelvis", default=None, help="pieza de pelvis del patrón (si hay más de una)")
+    ac.add_argument("--mano", default=None, help="pieza de mano del patrón (si hay más de una)")
+    ac.add_argument("--guardar", action="store_true", help="aplicar los desplazamientos al proyecto")
+    ac.add_argument("--out", default=None, help="otro archivo donde guardar (por defecto, el mismo proyecto)")
     e = sub.add_parser("extraer-mano", help="cortar la mano de una figura por un plano de muñeca de 3 puntos y guardarla como mano estándar")
     e.add_argument("stl")
     e.add_argument("proyecto", help="proyecto de la figura (altura, frente y simetría: los puntos se miden en ese marco)")
@@ -263,6 +296,8 @@ def main(argv=None) -> int:
         return run_guia(args)
     if args.cmd == "desde-patron":
         return _run_desde_patron(args)
+    if args.cmd == "ajustar-cintura-muneca":
+        return _run_ajustar_cm(args)
     os.makedirs(args.out, exist_ok=True)
     if args.cmd == "armar":
         from .recipe import RecipeError
