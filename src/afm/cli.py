@@ -121,6 +121,24 @@ def run_extract_hand(stl_path: str, project: Project, points, out_dir: str, name
     return meta
 
 
+def _run_desde_patron(args) -> int:
+    from .patron import desde_patron, review_image
+
+    out = args.out or os.path.splitext(args.stl)[0] + ".proyecto"
+    img = args.imagen or os.path.splitext(out)[0] + "_revision.png"
+    try:
+        sess, notes = desde_patron(args.patron, args.stl, args.corona, args.frente, args.entrepierna, progress=print)
+    except (ValueError, OSError, KeyError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    sess.save_project(out)
+    review_image(sess, img)
+    for n in notes:
+        print("AVISO:", n)
+    print(f"Proyecto guardado en {out}\nImagen de revisión: {img}")
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="afm", description=__doc__)
     ap.add_argument("--version", action="version", version=f"afm {__version__}")
@@ -191,6 +209,14 @@ def main(argv=None) -> int:
     a.add_argument("--orient", action="store_true", help="exportar apoyado en la cama en la pose de la vista previa")
     a.add_argument("--orient-auto", action="store_true", help="exportar en la orientación de menor voladizo")
     a.add_argument("--max-angle", type=float, default=45.0, help="ángulo de voladizo tolerado (grados desde la vertical)")
+    dp = sub.add_parser("desde-patron", help="proyecto de un héroe nuevo a partir de una figura patrón que ya funciona (copia sus planos y vuelve a dibujar las siluetas)")
+    dp.add_argument("patron", help="proyecto de la figura patrón (p. ej. Güemes)")
+    dp.add_argument("stl", help="STL del héroe nuevo")
+    dp.add_argument("--out", default=None, help="dónde guardar el proyecto (por defecto, junto al STL, con la extensión .proyecto)")
+    dp.add_argument("--imagen", default=None, help="PNG de revisión (por defecto, junto al proyecto)")
+    dp.add_argument("--corona", type=float, default=None, help="cota de la coronilla en unidades del STL (si tiene sombrero o plumas)")
+    dp.add_argument("--entrepierna", type=float, default=None, help="altura (mm) de la entrepierna si la figura lleva abrigo o faldón largo")
+    dp.add_argument("--frente", choices=["+Y", "-Y"], default=None, help="hacia dónde mira la figura en el STL (por defecto, como el patrón)")
     e = sub.add_parser("extraer-mano", help="cortar la mano de una figura por un plano de muñeca de 3 puntos y guardarla como mano estándar")
     e.add_argument("stl")
     e.add_argument("proyecto", help="proyecto de la figura (altura, frente y simetría: los puntos se miden en ese marco)")
@@ -235,6 +261,8 @@ def main(argv=None) -> int:
     if args.cmd == "guia":
         from .catalog_cli import run_guia
         return run_guia(args)
+    if args.cmd == "desde-patron":
+        return _run_desde_patron(args)
     os.makedirs(args.out, exist_ok=True)
     if args.cmd == "armar":
         from .recipe import RecipeError
