@@ -143,11 +143,11 @@ def place_part(choice: PartChoice, kind: str, host_face: ContactFace, params=Non
                        None if port.face is None else _face_triangles(port.face, f))
     compat = None
     host_port = Port(port.clase, "toma", target, face_of_triangles(host_face, target))
-    if host_mesh is not None and kind in ("arm", "leg") and params is not None:
+    if host_mesh is not None and kind in ("arm", "leg", "head") and params is not None:
         try:
             from .capacity import measure
             tm = S.to_trimesh(host_mesh) if isinstance(host_mesh, S.Manifold) else host_mesh
-            host_port.capacity = measure(tm, host_port, params)
+            host_port.capacity = measure(tm, host_port, params, inset_mm=HEAD_INSET_MM if kind == "head" else 0.0)
         except Exception:               # sin dato: queda `sin_capacidad`, no se baja el nivel
             host_port.capacity = None
     try:
@@ -157,6 +157,7 @@ def place_part(choice: PartChoice, kind: str, host_face: ContactFace, params=Non
     return PlacedPart(choice, kind, S.to_manifold(mesh), face, T, placed_port, compat)
 
 
+HEAD_INSET_MM = 1.5     # el cuerpo bajo el cuello termina `clearance` antes del plano: la capacidad se mide desde un poco adentro
 HIP_TOL_MM = 1.0        # distancia máxima entre la cadera de la pelvis de catálogo y la del miembro del modelo sin avisar
 
 
@@ -203,6 +204,12 @@ def swap_pelvis(body: S.Manifold, limbs: list, waist, choice: PartChoice, params
         raise AssemblyError("el modelo no tiene pelvis bajo el plano de la cintura (¿está por debajo de la figura?)")
     new_body = S.union(S.difference(body, old), placed_mf)
     host_port = Port("cintura", "toma", frame, face_of_triangles(face, frame))
+    if params is not None:                    # capacidad del pecho detrás de la cara para el pasador de la cintura
+        try:
+            from .capacity import measure
+            host_port.capacity = measure(S.to_trimesh(upper), host_port, params)
+        except Exception:
+            host_port.capacity = None
     try:
         compat = port_compat(port, host_port, choice.meta.altura_figura_mm, host_height, params)
     except Exception as exc:           # informativa: no debe impedir armar
