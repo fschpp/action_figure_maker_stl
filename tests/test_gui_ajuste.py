@@ -69,3 +69,12 @@ def test_apply_without_changes_says_so(ctrl, cat_root):
     ctrl.session.open_catalog(cat_root)
     assert ctrl.apply_waist_wrist_fit(None, None) is False
     assert "necesitan moverse" in ctrl.message
+
+
+def test_apply_can_scale_the_pelvis(ctrl, cat_root, monkeypatch):
+    ctrl.session.open_catalog(cat_root)
+    fake = [A.AjusteResult("cintura", r_ref_mm=9.0, r_antes_mm=9.9, r_despues_mm=9.9, escala=9.0 / 9.9, ok=True)]
+    monkeypatch.setattr(A, "ajustar", lambda *a, **k: fake)
+    assert ctrl.apply_waist_wrist_fit(None, None, escalar_pelvis=False) is False
+    assert ctrl.apply_waist_wrist_fit(None, None, escalar_pelvis=True) is True
+    assert ctrl.session.project.part_scales["pelvis"] == pytest.approx(9.9 / 9.0)

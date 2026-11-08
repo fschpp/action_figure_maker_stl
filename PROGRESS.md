@@ -3,6 +3,9 @@
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
 ## Current Focus
+**Escala de la pelvis en el ajuste (2026-11-08, rama `escala_pelvis_ajuste`, sobre main bffaf32):** `ajuste.pelvis_scale` / `aplicar(..., escalar_pelvis=True)`, `afm ajustar-cintura-muneca --guardar --escalar-pelvis` y casilla en la ventana: escriben `part_scales["pelvis"]` = 1 / escala del héroe (la escala que informa el ajuste es `r_patrón / r_héroe`, para el héroe; la pelvis del patrón necesita la inversa). Solo si entra en el tope de ±10 %, si hay plano de cintura y si la figura no sale entera de un torso de catálogo. Reemplaza la escala previa (se mide sobre la pelvis sin escalar). **La mano no se reescala** (decisión del pipeline, `HandSpec`), así que la muñeca solo mueve el plano. Convención a confirmar con el cliente: `part_scales` escala «la pieza que ocupa el lugar» (catálogo o modelo); `preflight.scale_hint_for` habla de escalar el MODELO (convención inversa).
+
+## Current Focus (anterior)
 **Ajuste de cintura y muñeca desde la ventana (2026-11-08, rama `gui_ajuste_cintura_muneca`, sobre main bdd8863):** botón «Ajustar cintura y muñeca al patrón…» en la pestaña Catálogo (activo con figura y catálogo abiertos): ventana con listas para elegir la pelvis y la mano del patrón (si hay varias), texto de lo que se movería («Medir») y «Aplicar», que mueve los planos y deja `outcome` sin generar. Lógica en `Session.waist_wrist_options/waist_wrist_fit/apply_waist_wrist_fit` y `Controller.waist_wrist_options/…_fit_preview/…_fit_lines/apply_waist_wrist_fit`; tests sin GTK en `tests/test_gui_ajuste.py` (4). **No probado en GTK** (no hay GTK en el entorno de desarrollo): la ventana `_on_fit_waist_wrist` está escrita siguiendo `_on_cut_guide`; falta que el cliente la abra. Tutorial 7.6 punto 3b.
 
 ## Current Focus (anterior)

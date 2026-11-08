@@ -156,9 +156,9 @@ def _run_ajustar_cm(args) -> int:
     for r in results:
         print("\n".join(A.format_ajuste(r)))
     if args.guardar:
-        n = A.aplicar(project, results)
+        n = A.aplicar(project, results, args.escalar_pelvis)
         project.save(args.out or args.proyecto)
-        print(f"Se movieron {n} plano(s); proyecto guardado en {args.out or args.proyecto}")
+        print(f"Se hicieron {n} cambio(s) (planos movidos / escala de la pelvis); proyecto guardado en {args.out or args.proyecto}")
     elif any(r.cambio for r in results):
         print("(no se guardó nada: agregá --guardar para aplicar los desplazamientos)")
     return 0 if all(r.error is None for r in results) else 1
@@ -249,6 +249,7 @@ def main(argv=None) -> int:
     ac.add_argument("--pelvis", default=None, help="pieza de pelvis del patrón (si hay más de una)")
     ac.add_argument("--mano", default=None, help="pieza de mano del patrón (si hay más de una)")
     ac.add_argument("--guardar", action="store_true", help="aplicar los desplazamientos al proyecto")
+    ac.add_argument("--escalar-pelvis", action="store_true", help="con --guardar, escribe también la escala que adapta la pelvis del patrón a la cintura del héroe (part_scales)")
     ac.add_argument("--out", default=None, help="otro archivo donde guardar (por defecto, el mismo proyecto)")
     e = sub.add_parser("extraer-mano", help="cortar la mano de una figura por un plano de muñeca de 3 puntos y guardarla como mano estándar")
     e.add_argument("stl")

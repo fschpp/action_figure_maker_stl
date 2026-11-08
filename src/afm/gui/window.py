@@ -1571,6 +1571,10 @@ exportar; tarda un poco más.")
             dd, refs = drops[key]
             return refs[dd.get_selected()] if refs else None
 
+        scale_chk = Gtk.CheckButton(label="Al aplicar, escalar también la pelvis del patrón con la escala que sobra")
+        scale_chk.set_tooltip_text("Escribe la escala de la pieza «pelvis» (la inversa de la escala restante del héroe) cuando entra en el tope de ±10 %. "
+                                   "La mano no se reescala.")
+        box.append(scale_chk)
         label = Gtk.Label(label="", xalign=0, yalign=0, selectable=True, wrap=False)
         label.add_css_class("monospace")
         scroller = Gtk.ScrolledWindow(vexpand=True, hexpand=True)
@@ -1587,7 +1591,7 @@ exportar; tarda un poco más.")
                 label.set_text("\n".join(new))
 
         def apply(*_):
-            if self.ctrl.apply_waist_wrist_fit(chosen("pelvis"), chosen("mano")):
+            if self.ctrl.apply_waist_wrist_fit(chosen("pelvis"), chosen("mano"), scale_chk.get_active()):
                 refresh()
 
         measure.connect("clicked", refresh)

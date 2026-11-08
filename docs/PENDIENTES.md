@@ -30,8 +30,9 @@ ventana del programa.
 - [x] **Ajustar cintura y muñeca contra el patrón** (2026-11-08, `src/afm/ajuste.py`, `afm ajustar-cintura-muneca`): mueve
       el plano de la cintura y el de la muñeca hasta igualar el radio de la pelvis y de la mano del patrón y dice la escala que
       sobra. **Falta probarlo con tus figuras reales** (ver sección 1).
-- [ ] **Escalar la pelvis y la mano** con la escala restante que informa `afm ajustar-cintura-muneca` (hoy solo se informa;
-      `--guardar` mueve los planos pero no escribe `part_scales`).
+- [x] **Escalar la pelvis** con la escala restante (2026-11-08): `afm ajustar-cintura-muneca --guardar --escalar-pelvis` o la
+      casilla de la ventana escriben `part_scales["pelvis"]` = inversa de la escala del héroe. **La mano no se reescala** en el
+      pipeline (`HandSpec`): si la muñeca no calza, solo se puede mover el plano o cambiar de mano.
 - [ ] **Conectar `desde-patron` a la ventana:** botón «Nuevo héroe desde el patrón…» que muestre la imagen de revisión.
 - [ ] **Capacidad en pelvis y cabeza:** hoy se juzga la profundidad para brazos y piernas al generar; falta `place_pelvis` y el
       cuello.

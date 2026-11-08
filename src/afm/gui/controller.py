@@ -2862,13 +2862,14 @@ class Controller:
             return None
         return [l for r in res for l in format_ajuste(r)]
 
-    def apply_waist_wrist_fit(self, pelvis: str | None = None, mano: str | None = None) -> bool:
-        """Mueve el plano de la cintura y el de la muñeca al ajuste calculado. Devuelve True si cambió algo."""
+    def apply_waist_wrist_fit(self, pelvis: str | None = None, mano: str | None = None, escalar_pelvis: bool = False) -> bool:
+        """Mueve el plano de la cintura y el de la muñeca al ajuste calculado y, con `escalar_pelvis`, escala la pelvis del patrón.
+        Devuelve True si cambió algo."""
         res = self.waist_wrist_fit_preview(pelvis, mano)
         if res is None:
             return False
         try:
-            n = self.session.apply_waist_wrist_fit(res)
+            n = self.session.apply_waist_wrist_fit(res, escalar_pelvis)
         except ValueError as e:
             self._changed(f"No se aplicó el ajuste: {e}", scene=False)
             return False
@@ -2876,7 +2877,7 @@ class Controller:
             self._changed("Ni la cintura ni la muñeca necesitan moverse.", scene=False)
             return False
         self.hand_extract = self._hand_mesh = None
-        self._changed(f"Ajustado al patrón: {n} plano(s) movido(s). Revisá la cintura y la muñeca en el visor.")
+        self._changed(f"Ajustado al patrón: {n} cambio(s) (planos movidos / escala de la pelvis). Revisá la cintura y la muñeca en el visor.")
         return True
 
     # ---- gestor del catálogo: ver y eliminar piezas

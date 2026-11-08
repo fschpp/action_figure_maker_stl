@@ -135,3 +135,24 @@ def test_reference_radius_needs_a_pelvis_in_the_catalog():
     res = A.ajustar(_project(), S.to_manifold(make_doll()), cat)
     assert res[0].lugar == "cintura" and res[0].error and "pelvis" in res[0].error     # el ejemplo no trae pelvis
     assert res[1].lugar == "muñeca" and res[1].error is None
+
+
+def test_aplicar_writes_the_inverse_pelvis_scale_only_when_asked():
+    pr = _project()
+    r = A.AjusteResult("cintura", r_ref_mm=9.0, r_antes_mm=9.9, r_despues_mm=9.9, escala=9.0 / 9.9, ok=True)   # héroe más ancho: la pelvis crece
+    assert A.pelvis_scale(r) == pytest.approx(9.9 / 9.0)
+    assert A.aplicar(pr, [r]) == 0 and "pelvis" not in pr.part_scales               # sin la opción no escribe nada
+    assert A.aplicar(pr, [r], escalar_pelvis=True) == 1
+    assert pr.part_scales["pelvis"] == pytest.approx(9.9 / 9.0)
+    assert A.aplicar(pr, [r], escalar_pelvis=True) == 0                              # idempotente
+
+
+def test_pelvis_scale_skips_what_does_not_apply():
+    ok = dict(r_ref_mm=9.0, r_despues_mm=9.0, ok=True)
+    assert A.pelvis_scale(A.AjusteResult("cintura", escala=1.002, **ok)) is None     # ya calza
+    assert A.pelvis_scale(A.AjusteResult("cintura", r_ref_mm=9.0, escala=1.5, ok=False)) is None   # fuera del tope
+    assert A.pelvis_scale(A.AjusteResult("muñeca", escala=1.05, **ok)) is None        # la mano no se reescala
+    assert A.pelvis_scale(A.AjusteResult("cintura", error="x")) is None
+    pr = _project()
+    pr.parts = {"torso": object()}                                                    # figura entera de catálogo: no hay pelvis del modelo
+    assert A.aplicar(pr, [A.AjusteResult("cintura", escala=0.95, **ok)], escalar_pelvis=True) == 0

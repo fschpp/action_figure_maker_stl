@@ -1075,11 +1075,12 @@ class Session:
             raise ValueError("Abrí el catálogo de la línea: la pelvis y la mano del patrón viven ahí.")
         return ajustar(self.project, S.to_manifold(self.work), self._catalog(), pelvis, mano)
 
-    def apply_waist_wrist_fit(self, results) -> int:
-        """Mueve los planos de cintura y muñeca según `results` (`ajuste.aplicar`). Devuelve cuántos cambió."""
+    def apply_waist_wrist_fit(self, results, escalar_pelvis: bool = False) -> int:
+        """Mueve los planos de cintura y muñeca según `results` y, con `escalar_pelvis`, escribe la escala de la pelvis del patrón
+        (`ajuste.aplicar`). Devuelve cuántos cambios hizo."""
         from ..ajuste import aplicar
 
-        n = aplicar(self.project, results)
+        n = aplicar(self.project, results, escalar_pelvis)
         if n:
             self.outcome = None
             self._part_preview = None

@@ -140,7 +140,8 @@ def fit_waist(project, body: S.Manifold, r_ref_mm: float, ref_height_mm: float |
         res.avisos.append(f"aun moviendo el plano falta una escala de ×{res.escala:.2f} (el tope es ±{max_scale * 100:.0f} %): "
                           "la cintura de este héroe es muy distinta de la del patrón; hace falta la pieza adaptadora")
     elif res.escala is not None and abs(res.escala - 1.0) > 0.005:
-        res.avisos.append(f"queda una escala de ×{res.escala:.3f} dentro del tope: se puede aplicar a la pelvis (`part_scales`)")
+        res.avisos.append(f"queda una escala de ×{res.escala:.3f} en el héroe: la pelvis del patrón se adapta con ×{1.0 / res.escala:.3f} "
+                          "(`--escalar-pelvis` o la casilla de la ventana; la mano no se reescala)")
     return res
 
 
@@ -207,10 +208,25 @@ def fit_wrist(project, body: S.Manifold, r_ref_mm: float, ref_height_mm: float |
     return res
 
 
-def aplicar(project, results: list) -> int:
-    """Escribe en el proyecto los desplazamientos de `results` (solo los `cambio`). Devuelve cuántos aplicó."""
+def pelvis_scale(r: AjusteResult) -> float | None:
+    """Escala de la pelvis del patrón que iguala su cara de cintura con la del héroe (la inversa de `r.escala`), o None si no
+    hace falta (ya calza, no se pudo ajustar o no entra en el tope de ±10 %)."""
+    if r.lugar != "cintura" or r.error or not r.ok or not r.escala or abs(r.escala - 1.0) <= 0.005:
+        return None
+    return float(1.0 / r.escala)
+
+
+def aplicar(project, results: list, escalar_pelvis: bool = False) -> int:
+    """Escribe en el proyecto los desplazamientos de `results` (solo los `cambio`). Con `escalar_pelvis` también deja en
+    `part_scales["pelvis"]` la escala de `pelvis_scale` (reemplaza la que hubiera: se mide sobre la pelvis sin escalar; no
+    si la figura sale entera de un torso de catálogo). Devuelve cuántos cambios hizo (planos movidos + escalas escritas)."""
     n = 0
     for r in results:
+        if escalar_pelvis and project.waist is not None and "torso" not in project.parts:
+            k = pelvis_scale(r)
+            if k is not None and project.part_scales.get("pelvis") != k:
+                project.part_scales["pelvis"] = k
+                n += 1
         if r.error or not r.cambio:
             continue
         if r.lugar == "cintura" and project.waist is not None:
