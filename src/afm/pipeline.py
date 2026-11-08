@@ -930,6 +930,13 @@ def _bbox_overlap(a: S.Manifold, b: S.Manifold, tol: float = 1e-6) -> bool:
     return all(ba[i] < bb[i + 3] + tol and bb[i] < ba[i + 3] + tol for i in range(3))
 
 
+def _limb_vs_limb(key: str) -> bool:
+    """«brazo_izq~pierna_der»: choque entre un miembro de arriba y uno de abajo. Depende de la pose (sentada para imprimir):
+    parada la figura y con los brazos separados no se tocan, así que no es un problema de la cintura sino un aviso."""
+    a, b = key.split("~", 1)
+    return a.endswith(("_izq", "_der")) and b.endswith(("_izq", "_der"))
+
+
 def _validate_waist(res: BuildResult, p: Params, out: dict, step: float = WAIST_STEP_DEG,
                     max_deg: float | None = None) -> dict:
     """Cintura: pasador (Ø mínimo, pared tras la cabeza, relación cabeza/vástago, que no sobresalga de la piel),
@@ -985,8 +992,8 @@ def _validate_waist(res: BuildResult, p: Params, out: dict, step: float = WAIST_
     fixed = {nm: res.pieces[nm] for nm in rep["abajo"] if nm in res.pieces}
     free = {}
     for sign, key in ((1.0, "+"), (-1.0, "-")):
-        ok_to = 0.0
-        hit = {}
+        ok_to, ok_core = 0.0, 0.0
+        hit, core_hit, core_done, any_done = {}, {}, False, False
         for ang in np.arange(step, limit + 1e-9, step):
             hit = {}
             for mn, mm in moving.items():
@@ -994,15 +1001,27 @@ def _validate_waist(res: BuildResult, p: Params, out: dict, step: float = WAIST_
                 for fn, fm in fixed.items():
                     if _bbox_overlap(rot, fm) and (rot ^ fm).volume() > JOINT_TOL_MM3:
                         hit[f"{mn}~{fn}"] = round(float((rot ^ fm).volume()), 5)
-            if hit:
+            core = {k: v for k, v in hit.items() if not _limb_vs_limb(k)}
+            if hit and not any_done:
+                any_done, first_hit = True, dict(hit)
+            if core:
+                core_hit = core
                 break
-            ok_to = float(ang)
-        free[key] = {"hasta_grados": ok_to, "choca": hit}
+            if not any_done:
+                ok_to = float(ang)
+            ok_core = float(ang)
+        free[key] = {"hasta_grados": ok_to, "choca": first_hit if any_done else {},
+                     "hasta_grados_sin_miembros": ok_core, "choca_sin_miembros": core_hit}
     info["giro_libre"] = free
     for key, side in (("+", "a un lado"), ("-", "al otro lado")):
-        if free[key]["hasta_grados"] < need - 1e-6 and free[key]["choca"]:
-            out["problems"].append(f"{WAIST_NAME}: al girar {side} choca a más de {free[key]['hasta_grados']:g}° "
-                                   f"({', '.join(free[key]['choca'])}); el giro pedido es {need:g}°")
+        g = free[key]
+        if g["hasta_grados_sin_miembros"] < need - 1e-6 and g["choca_sin_miembros"]:
+            out["problems"].append(f"{WAIST_NAME}: al girar {side} choca a más de {g['hasta_grados_sin_miembros']:g}° "
+                                   f"({', '.join(g['choca_sin_miembros'])}); el giro pedido es {need:g}°")
+        elif g["hasta_grados"] < need - 1e-6 and g["choca"]:
+            out["avisos"].append(f"{WAIST_NAME}: en la pose impresa, al girar {side} se tocan los miembros a más de "
+                                 f"{g['hasta_grados']:g}° ({', '.join(g['choca'])}): no es un problema de la figura, que se para "
+                                 f"y se separan los brazos antes de girar la cintura; el giro pedido es {need:g}°")
     return info
 
 

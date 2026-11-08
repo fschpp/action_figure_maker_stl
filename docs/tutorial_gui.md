@@ -368,8 +368,10 @@ sobre la pelvis; las piernas quedan con la pelvis. Código: `src/afm/waist.py`.
 * **Validación** (`validacion.cintura`): Ø de vástago ≥ `min_pin_d`, pared tras la cabeza ≥ `min_wall`, relación cabeza/vástago
   ≥ 1,6, pasador dentro de la piel, holgura pecho–pelvis, **pasador cautivo** (separar las mitades 1 mm choca con el labio) y
   **giro libre**: pecho, cabeza y brazos giran hasta `Cintura: giro libre a cada lado a validar` (45° por defecto, `waist_twist`;
-  `twist_deg` en el `.proyecto` por figura) sin chocar con la pelvis ni las piernas, cada 5°. Si choca antes se informa el
+  `twist_deg` en el `.proyecto` por figura) sin chocar con la pelvis ni las piernas, cada 5°. Si el pecho o la cabeza chocan antes se informa el
   ángulo máximo a cada lado y qué piezas se tocan: bajá el giro, o subí el plano para que los brazos no bajen de la cintura.
+  Si lo que se toca son **miembros contra miembros** (antebrazo contra muslo), solo es un **aviso**: la figura se imprime sentada, pero
+  se usa parada y con los brazos separados, y ahí no se tocan (`giro_libre.hasta_grados_sin_miembros` da el ángulo sin contar esos).
 * **Imprimir:** con «sin soportes» la cola de la pelvis es lo que se aplana (el corte plano usa la pieza más baja del torso).
   La vista de pose muestra pecho y pelvis.
 * **Límites:** un solo pasador central, así que es una articulación de giro (no de flexión); si imprimís en PLA y la zona del
