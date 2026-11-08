@@ -31,6 +31,7 @@ _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic
 - [ ] Capacidad en pelvis y cabeza; certificar torso, pelvis y mano; pieza adaptadora si el ajuste no alcanza.
 
 ## Latest Blockers/Discoveries
+- Regresión completa (2026-11-08, rama `cintura_giro_validacion`): 970 pasan, 22 salteados, 1 deseleccionado (GTK), 42 min; el único fallo (`test_piece_adjustments` brazo ×1,05 esperaba el problema «choca») se corrigió: ahora es un aviso «pose impresa» y el test lo verifica.
 - Con el muñeco el torso es un cilindro de sección constante, así que el barrido solo se prueba en el escalón torso→pelvis (z = 42) y con un brazo cónico en los tests.
 - `web_fetch` de GitHub muestra una versión vieja de la portada (README sin el estado actual); el estado real de main se ve clonando (main = fc17073, PR #70 de `desde-patron` mergeado).
 

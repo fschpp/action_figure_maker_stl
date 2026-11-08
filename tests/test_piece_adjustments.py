@@ -96,13 +96,17 @@ def test_moved_catalog_pelvis_uses_original_upper_and_limbs(body, project):
 
 
 @pytest.mark.parametrize("scales,problem", [({"torso": 1.05}, None), ({"pelvis": 1.05}, "componentes"),
-                                             ({"brazo": 1.05}, "choca"), ({"pierna": 1.05}, "interpenetran")])
+                                             ({"brazo": 1.05}, "aviso:pose impresa"), ({"pierna": 1.05}, "interpenetran")])
 def test_each_scaled_part_builds_and_reports_physical_fit(body, project, scales, problem):
     project.part_scales = scales
     res, limbs = build_model(body, project)
     val = P.validate(res, project.params, limbs, joints=res.joint_specs)
     if problem is None:
         assert val["ok"], val["problems"]
+    elif problem.startswith("aviso:"):
+        # Un brazo más grande roza el muslo al girar la cintura en la pose impresa: aviso, no problema (la figura se usa parada).
+        assert val["ok"], val["problems"]
+        assert any(problem[6:] in msg for msg in val["avisos"])
     else:
         # Escalar no garantiza compatibilidad: la validación conserva su capacidad de rechazar el resultado.
         assert not val["ok"] and any(problem in msg for msg in val["problems"])
