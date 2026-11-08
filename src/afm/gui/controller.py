@@ -2799,6 +2799,43 @@ class Controller:
             lines += format_measure(m, all_fits) + [""]
         return lines[:-1]
 
+    def cut_fit_preview(self) -> list | None:
+        """«Ajustar al estándar» sin aplicar: `[FitResult]` (ver `Session.cut_fit`) o None si no se pudo."""
+        if not self._need_loaded():
+            return None
+        try:
+            return self.session.cut_fit()
+        except ValueError as e:
+            self._changed(f"No se pudo ajustar al estándar: {e}", scene=False)
+            return None
+
+    def cut_fit_lines(self) -> list | None:
+        """El texto del ajuste (el mismo de `afm guia --estandar`), línea por línea; None si no se pudo."""
+        from ..guide import format_fit_cut
+
+        res = self.cut_fit_preview()
+        if res is None:
+            return None
+        if not res:
+            return ["El proyecto no define brazos ni piernas: no hay cortes que ajustar."]
+        return [l for r in res for l in format_fit_cut(r)]
+
+    def apply_cut_fit(self) -> bool:
+        """Aplica «Ajustar al estándar» a los cortes que quedan en contrato. Deja un punto de deshacer (`undo_snapshot` si existe)."""
+        res = self.cut_fit_preview()
+        if res is None:
+            return False
+        try:
+            n = self.session.apply_cut_fit(res)
+        except ValueError as e:
+            self._changed(f"No se aplicó el ajuste: {e}", scene=False)
+            return False
+        if not n:
+            self._changed("Ningún corte necesita cambios para entrar en el contrato.", scene=False)
+            return False
+        self._changed(f"Ajustado al estándar: {n} corte(s). Revisá la guía y el pasador.")
+        return True
+
     # ---- gestor del catálogo: ver y eliminar piezas
     def catalog_pieces(self) -> list:
         """Todas las versiones de las piezas del catálogo abierto (vacío si no hay catálogo o no se pudo leer)."""
