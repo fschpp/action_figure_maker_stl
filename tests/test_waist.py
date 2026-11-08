@@ -236,3 +236,23 @@ def test_scale_geometry_scales_the_waist_plane_but_not_the_pin():
     assert pr.waist.plane.origin[2] == pytest.approx(WAIST_Z * 1.29)
     assert pr.waist.pin_center[2] == pytest.approx(WAIST_Z * 1.29)
     assert pr.params.waist_pin == pin                       # medidas absolutas de impresión
+
+
+def test_twist_between_limbs_is_a_warning_not_a_problem(built, params):
+    """Antebrazo contra muslo en la pose impresa (sentada) depende de la pose: avisa, no falla (el usuario para la figura y
+    separa los brazos antes de girar la cintura). Un choque del pecho/cabeza o contra una pieza que no es un miembro sigue siendo problema."""
+    res, _ = built
+    arm = res.pieces["brazo_izq"]
+    wb = res.waist
+    x0, y0, z0, x1, y1, z1 = arm.bounding_box()
+    tip = S.intersection(arm, S.Manifold.cube((x1 - x0, y1 - y0, 6.0), center=False).translate((x0, y0, z0)))     # solo la punta del brazo
+    blocker = S.rotate_about_axis(tip, wb.face.center, wb.axis, 25.0)
+    for name, expect_problem in (("pierna_x_izq", False), ("bloqueo", True)):
+        pieces = dict(res.pieces, **{name: blocker})
+        report = dict(res.report, waist=dict(res.report["waist"], abajo=res.report["waist"]["abajo"] + [name]))
+        out = {"problems": [], "avisos": [], "avisos_pasador": []}
+        info = P._validate_waist(dataclasses.replace(res, pieces=pieces, report=report), params, out)
+        assert info["giro_libre"]["+"]["hasta_grados"] < 25.0                                 # el dato sigue ahí
+        assert any("choca" in pr for pr in out["problems"]) == expect_problem, (out, info["giro_libre"]["+"])
+        if not expect_problem:
+            assert any("pose impresa" in a for a in out["avisos"])
