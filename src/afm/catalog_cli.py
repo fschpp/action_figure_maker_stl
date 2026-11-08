@@ -13,7 +13,7 @@ from .recipe import RecipeError
 
 
 def add_parsers(sub) -> None:
-    c = sub.add_parser("catalogo", help="catálogo de piezas de una línea (crear, listar, verificar, importar-mano, agregar, agregar-stl, cortar-muneca, usos, eliminar, estado, compat, matriz, cobertura, contrato, capacidad)")
+    c = sub.add_parser("catalogo", help="catálogo de piezas de una línea (crear, listar, verificar, importar-mano, agregar, agregar-stl, cortar-muneca, usos, eliminar, estado, compat, certificar, matriz, cobertura, contrato, capacidad)")
     cs = c.add_subparsers(dest="catcmd", required=True)
 
     def root(p):
@@ -118,6 +118,11 @@ def add_parsers(sub) -> None:
     a.add_argument("--receta", action="append", default=[], metavar="ARCHIVO",
                    help="receta afm-receta-1 a validar (repetible); sin esta opción, las de <catálogo>/figuras y <catálogo>/recetas")
     a.add_argument("--forzar", action="store_true", help="volver a armar aunque compat.json ya tenga el resultado de esta combinación")
+    a = cs.add_parser("certificar", help="certifica piezas (brazo, pierna, cabeza): las arma de verdad en un panel de torsos del catálogo (propio + menor/mediana/mayor capacidad)")
+    root(a)
+    a.add_argument("refs", nargs="*", metavar="ID", help="piezas a certificar (por defecto, todas las certificables)")
+    a.add_argument("--estado", action="store_true", help="solo mostrar el estado de la certificación guardada, sin armar nada")
+    a.add_argument("--forzar", action="store_true", help="volver a armar aunque compat.json ya tenga el resultado")
     a = cs.add_parser("matriz", help="informe COMPATIBILIDAD.md: matriz barata del catálogo y resultados completos guardados")
     root(a)
     a.add_argument("--out", default=None, metavar="ARCHIVO", help="dónde escribirlo (por defecto <catálogo>/COMPATIBILIDAD.md)")
@@ -316,6 +321,9 @@ def _run(args) -> int:
                     print("    talle: " + ", ".join(f"{n} {lab.talle or 'fuera'}" + ("" if lab.x_ok is not False and lab.eje_ok is not False else "*")
                                                   for n, lab in labs.items()) + ("   (* fuera de la posición o del eje del contrato)" if any(
                                                       l.x_ok is False or l.eje_ok is False for l in labs.values()) else ""))
+            if m.tipo in ("brazo", "pierna", "cabeza"):
+                from .certify import status
+                print("    " + status(cat, m.ref)["texto"])
             if args.compatible_con:
                 for na, nb, c in keep[m.id]:
                     det = (f"IoU {c.iou:.2f}, escalón {c.escalon_mm:.2f} mm" if c.iou is not None else
@@ -492,6 +500,8 @@ def _run(args) -> int:
             for t in r.get("avisos", []):
                 print(f"  aviso: {t}")
         return 0 if all(r.get("ok") for r in results) else 1
+    if cmd == "certificar":
+        return _run_certify(args, cat)
     if cmd == "matriz":
         from . import compat
 
@@ -582,6 +592,33 @@ def _run_estandar(args, project, body, cat) -> int:
         else:
             print("\nNada que guardar: ningún corte cambió.")
     return 0
+
+
+def _run_certify(args, cat) -> int:
+    """`afm catalogo certificar RUTA [ID…] [--estado] [--forzar]`: certificación de piezas (plan de compatibilidad, Fase 6)."""
+    from .certify import PLACE_OF_TIPO, CertifyError, certify, status
+
+    refs = args.refs or [m.ref for m in cat.list() if m.tipo in PLACE_OF_TIPO]
+    if not refs:
+        print("(no hay piezas certificables: brazo, pierna o cabeza)")
+        return 0
+    bad = 0
+    for ref in refs:
+        try:
+            if not args.estado:
+                entry = certify(cat, ref, args.forzar, print)
+                for h in entry["anfitriones"]:
+                    print(f"  {h['torso']}: {'OK' if h['ok'] else 'CON PROBLEMAS'}")
+                    for t in h["problemas"]:
+                        print(f"    PROBLEMA: {t}")
+            st = status(cat, ref)
+        except (CertifyError, ValueError) as exc:
+            print(f"{ref}: {exc}")
+            bad += 1
+            continue
+        print(f"{ref}: {st['texto']}")
+        bad += st["estado"] != "certificada" and not args.estado
+    return 1 if bad else 0
 
 
 def _run_ajuste(args, project, body, cat, fig) -> int:

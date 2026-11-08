@@ -115,6 +115,7 @@ afm catalogo contrato RUTA [--ver | --validar | --quitar]    # ver el contrato y
 
 # Capacidad del anfitrión (fase 3): cuánto cuerpo deja el torso o la pelvis detrás de cada toma con pasador.
 afm catalogo capacidad RUTA [ID …]                           # mide sobre el STL de piezas ya catalogadas y dice si el pasador de la línea cabe
+afm catalogo certificar RUTA [ID…] [--estado] [--forzar]   # arma cada brazo/pierna/cabeza en un panel de torsos (el propio + menor/mediana/mayor capacidad) y guarda la certificación en compat.json; `listar` muestra «certificada k/n»; la clave incluye piezas, Params, contrato y motor: cualquier cambio la vence
 afm catalogo capacidad RUTA [ID …] --escribir                # …y lo guarda en el .pieza.json (no toca el STL, el hash ni la versión)
 ```
 
