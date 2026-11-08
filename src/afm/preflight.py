@@ -158,7 +158,7 @@ def preview_part(place: str, choice: PartChoice, project, body: S.Manifold, half
             if half is None:
                 half = body.trim_by_plane((1.0, 0.0, 0.0), 0.0)
             _own, host_face = separate_limb(half, spec, p.burr)
-            placed = place_part(choice, spec.kind, host_face, p, p.ref_height)
+            placed = place_part(choice, spec.kind, host_face, p, p.ref_height, host_mesh=half)
             pv.conflicts += joint_conflicts(choice, spec.kind, place, project.joints)
             host_port_face = face_of_triangles(host_face, host_frame(host_face))
     except (AssemblyError, PortError, ValueError) as exc:

@@ -387,3 +387,32 @@ def test_pelvis_preview_without_generating(doll, waist_doll):
     assert pv.error is None and pv.kind == "pelvis" and pv.mesh is not None
     assert pv.compat is not None and pv.compat.iou == pytest.approx(1.0, abs=0.02)
     assert pv.host_shape is not None and not pv.notes
+
+
+@pytest.mark.parametrize("name,kind", [("pierna", "leg"), ("brazo", "arm")])
+def test_place_part_judges_the_host_capacity_when_it_gets_the_body(doll, project, extracted, name, kind):
+    """Con `host_mesh` la compatibilidad lleva el margen de profundidad; sin él queda «sin capacidad» como antes."""
+    half = doll.trim_by_plane((1.0, 0.0, 0.0), 0.0)
+    spec = next(l for l in project.limbs if l.name == name)
+    _limb, face = separate_limb(half, spec, project.params.burr)
+    ch = PartChoice(extracted[name].meta, extracted[name].mesh)
+    plain = place_part(ch, kind, face, project.params, 100.0)
+    assert plain.compat.sin_capacidad and "capacidad_profundidad" not in plain.compat.margenes_mm
+    pp = place_part(ch, kind, face, project.params, 100.0, host_mesh=half)
+    assert not pp.compat.sin_capacidad and pp.compat.margenes_mm["capacidad_profundidad"] > 0
+    assert pp.compat.nivel in ("ok", "aviso")                                      # el muñeco recibe su propia pieza
+
+
+def test_place_part_says_no_when_the_host_is_too_thin(doll, project, extracted):
+    half = doll.trim_by_plane((1.0, 0.0, 0.0), 0.0)
+    spec = next(l for l in project.limbs if l.name == "brazo")
+    _limb, face = separate_limb(half, spec, project.params.burr)
+    ch = PartChoice(extracted["brazo"].meta, extracted["brazo"].mesh)
+    pin = project.params.shoulder_pin
+    old = pin.shaft_len
+    try:
+        pin.shaft_len = old + 40.0                                                  # un pasador que no cabe en el torso
+        pp = place_part(ch, "arm", face, project.params, 100.0, host_mesh=half)
+    finally:
+        pin.shaft_len = old
+    assert pp.compat.nivel == "no" and any("detrás de la cara" in m for m in pp.compat.motivos)

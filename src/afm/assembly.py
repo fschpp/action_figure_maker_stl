@@ -121,12 +121,17 @@ def _face_triangles(port_face: PortFace, frame: PortFrame) -> np.ndarray:
 NECK_REF_PREFER = (0.0, 1.0, 0.0)
 
 
-def place_part(choice: PartChoice, kind: str, host_face: ContactFace, params=None, host_height: float | None = None) -> PlacedPart:
+def place_part(choice: PartChoice, kind: str, host_face: ContactFace, params=None, host_height: float | None = None,
+               host_mesh=None) -> PlacedPart:
     """Lleva la pieza al lugar del miembro de tipo `kind` ("arm" | "leg") —o de la cabeza, `kind = "head"`— cuya cara de
     contacto en el huésped es `host_face` (para la cabeza, la cara del cuello; su `outward` mira hacia el cuerpo).
 
     Devuelve la malla colocada, la `ContactFace` equivalente (centro de pasador = centro del puerto) y la compatibilidad
-    barata entre el puerto de la pieza y la toma del huésped."""
+    barata entre el puerto de la pieza y la toma del huésped.
+
+    `host_mesh` (Manifold o trimesh del cuerpo que recibe la pieza): con él se mide la **capacidad** del huésped detrás de la
+    cara (`capacity.measure`) y `port_compat` juzga la profundidad que pide el pasador; sin él (o si no se puede medir) la
+    compatibilidad queda como antes, marcada `sin_capacidad`."""
     port = choice.port(kind)
     target = host_frame(host_face, NECK_REF_PREFER if kind == "head" else None)
     T = coupling_transform(port.frame, target)
@@ -138,6 +143,13 @@ def place_part(choice: PartChoice, kind: str, host_face: ContactFace, params=Non
                        None if port.face is None else _face_triangles(port.face, f))
     compat = None
     host_port = Port(port.clase, "toma", target, face_of_triangles(host_face, target))
+    if host_mesh is not None and kind in ("arm", "leg") and params is not None:
+        try:
+            from .capacity import measure
+            tm = S.to_trimesh(host_mesh) if isinstance(host_mesh, S.Manifold) else host_mesh
+            host_port.capacity = measure(tm, host_port, params)
+        except Exception:               # sin dato: queda `sin_capacidad`, no se baja el nivel
+            host_port.capacity = None
     try:
         compat = port_compat(port, host_port, choice.meta.altura_figura_mm, host_height, params)
     except Exception as exc:           # la compatibilidad es informativa: no debe impedir armar

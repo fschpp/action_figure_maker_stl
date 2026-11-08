@@ -176,7 +176,7 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
             else:
                 _own, host_face = separate_limb(half_nocav, spec, p.burr)
             try:
-                pp = place_part(parts[spec.name], spec.kind, host_face, p, p.ref_height)
+                pp = place_part(parts[spec.name], spec.kind, host_face, p, p.ref_height, host_mesh=half_nocav)
             except AssemblyError as exc:
                 raise ValueError(f"«{spec.name}»: {exc}") from exc
             placed[spec.name] = pp
