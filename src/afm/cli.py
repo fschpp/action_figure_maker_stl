@@ -122,17 +122,14 @@ def run_extract_hand(stl_path: str, project: Project, points, out_dir: str, name
 
 
 def _run_desde_patron(args) -> int:
-    from .patron import desde_patron, review_image
+    from .patron import crear_desde_patron
 
-    out = args.out or os.path.splitext(args.stl)[0] + ".proyecto"
-    img = args.imagen or os.path.splitext(out)[0] + "_revision.png"
     try:
-        sess, notes = desde_patron(args.patron, args.stl, args.corona, args.frente, args.entrepierna, progress=print)
+        out, img, notes = crear_desde_patron(args.patron, args.stl, args.out, args.corona, args.frente, args.entrepierna,
+                                             args.imagen, progress=print)
     except (ValueError, OSError, KeyError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
-    sess.save_project(out)
-    review_image(sess, img)
     for n in notes:
         print("AVISO:", n)
     print(f"Proyecto guardado en {out}\nImagen de revisión: {img}")

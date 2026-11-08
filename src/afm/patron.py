@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 
 import numpy as np
 
@@ -59,6 +60,19 @@ def desde_patron(ref_path: str, stl: str, crown_z: float | None = None, front: s
 
 
 # ---------------------------------------------------------------------------------------------------- imagen de revisión
+def crear_desde_patron(ref_path: str, stl: str, out: str | None = None, crown_z: float | None = None, front: str | None = None,
+                       crotch_z: float | None = None, image: str | None = None, progress=None):
+    """`desde_patron` + guardar el proyecto (`out`, por defecto junto al STL) + la imagen de revisión (`image`, por defecto
+    `<out>_revision.png`). No toca el estado de ninguna ventana: se puede correr en un hilo. Devuelve `(out, image, avisos)`.
+    Lo usan `afm desde-patron` y el botón «Nuevo héroe desde el patrón…» de la ventana."""
+    out = out or os.path.splitext(stl)[0] + ".proyecto"
+    image = image or os.path.splitext(out)[0] + "_revision.png"
+    sess, notes = desde_patron(ref_path, stl, crown_z, front, crotch_z, progress=progress)
+    sess.save_project(out)
+    review_image(sess, image)
+    return out, image, notes
+
+
 def _trace(ax, plane: Plane, view: str, lim, color: str, label: str | None = None, lw: float = 1.6) -> None:
     """Dibuja la traza del plano en la vista (`"front"` = x–z, `"side"` = y–z), o nada si el plano es paralelo a la vista."""
     i = 0 if view == "front" else 1

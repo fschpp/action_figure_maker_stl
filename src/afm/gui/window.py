@@ -570,6 +570,11 @@ En naranja se ve el contorno del pasador (vástago y cabeza); en verde, la posic
         sec = _collapsible(box, "Piezas de catálogo")
         self.btn_cat_new = self._button("Crear catálogo de la línea (carpeta nueva)…", self._on_catalog_new)
         self.btn_cat_open = self._button("Abrir catálogo de la línea (carpeta)…", self._on_catalog_open)
+        self.btn_cat_hero = self._button("Nuevo héroe desde el patrón (p. ej. Güemes)…", self._on_new_from_pattern)
+        self.btn_cat_hero.set_tooltip_text("Crea el proyecto de un héroe nuevo copiando los planos del proyecto de la figura patrón (cintura, cuello, "
+                                           "rodillas, codos, muñeca, pasadores y parámetros) y volviendo a dibujar las siluetas sobre la malla del "
+                                           "héroe. Lo abre y muestra una imagen para revisar que los planos caigan bien. No copia recortes, piezas "
+                                           "de catálogo ni escalas del patrón.")
         self.lbl_catalog = Gtk.Label(label="Sin catálogo abierto", xalign=0, wrap=True)
         self.btn_cat_add = self._button("Catalogar esta figura…", self._on_catalog_add)
         self.btn_cat_guide = self._button("Guía de cortes (cuánto del catálogo los acepta)…", self._on_cut_guide)
@@ -580,7 +585,7 @@ En naranja se ve el contorno del pasador (vástago y cabeza); en verde, la posic
                                             "pelvis y de la mano del patrón (p. ej. Güemes) del catálogo abierto. Muestra qué cambiaría antes de aplicarlo.")
         self.btn_cat_manage = self._button("Administrar catálogo (ver y eliminar piezas)…", self._on_catalog_manage)
         self.btn_cat_build = self._button("Armar figura desde catálogo (sin STL)…", self._on_catalog_build)
-        for w in (self.btn_cat_new, self.btn_cat_open, self.lbl_catalog, self.btn_cat_add, self.btn_cat_guide, self.btn_cat_fitcm,
+        for w in (self.btn_cat_new, self.btn_cat_open, self.btn_cat_hero, self.lbl_catalog, self.btn_cat_add, self.btn_cat_guide, self.btn_cat_fitcm,
                   self.btn_cat_manage, self.btn_cat_build):
             sec.append(w)
         self.btn_cat_forget = self._button("Olvidar el catálogo recordado", lambda *_: self.ctrl.forget_catalog())
@@ -1310,6 +1315,7 @@ exportar; tarda un poco más.")
         root = ctrl.session.catalog_root
         self.btn_cat_new.set_sensitive(not ctrl.busy)
         self.btn_cat_open.set_sensitive(not ctrl.busy)
+        self.btn_cat_hero.set_sensitive(not ctrl.busy)
         self.btn_cat_add.set_sensitive(bool(loaded and root and not ctrl.busy))
         self.btn_cat_guide.set_sensitive(bool(loaded and not ctrl.busy))
         self.btn_cat_fitcm.set_sensitive(bool(loaded and root and not ctrl.busy))
@@ -1545,6 +1551,114 @@ exportar; tarda un poco más.")
         bar.append(again)
         bar.append(close)
         box.append(bar)
+        win.set_child(box)
+        win.present()
+
+    def _on_new_from_pattern(self, *_):
+        """«Nuevo héroe desde el patrón»: pide el proyecto del patrón, el STL del héroe y dónde guardar; lo crea en segundo plano,
+        lo abre y muestra la imagen de revisión."""
+        if self.ctrl.busy:
+            return
+        win = Gtk.Window(title="Nuevo héroe desde el patrón", transient_for=self, modal=True, default_width=640)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_top=12, margin_bottom=12, margin_start=12, margin_end=12)
+        box.append(Gtk.Label(label="Copia los planos del proyecto del patrón y vuelve a dibujar las siluetas sobre la malla del héroe.",
+                             xalign=0, wrap=True, max_width_chars=80))
+        entries = {}
+
+        def file_row(key, title, placeholder, patterns, save=False):
+            row = Gtk.Box(spacing=6)
+            row.append(Gtk.Label(label=title, xalign=0, width_chars=22))
+            ent = Gtk.Entry(placeholder_text=placeholder, hexpand=True)
+            btn = Gtk.Button(label="Elegir…")
+
+            def pick(*_):
+                dlg = Gtk.FileDialog(title=title)
+                flt = Gtk.FileFilter()
+                flt.set_name(", ".join(patterns))
+                for pt in patterns:
+                    flt.add_pattern(pt)
+                filters = Gio.ListStore.new(Gtk.FileFilter)
+                filters.append(flt)
+                dlg.set_filters(filters)
+
+                def finished(d, res):
+                    try:
+                        f = (d.save_finish if save else d.open_finish)(res)
+                    except GLib.Error:
+                        return
+                    ent.set_text(f.get_path())
+                    if key == "stl" and not entries["out"].get_text():
+                        entries["out"].set_text(os.path.splitext(f.get_path())[0] + ".proyecto")
+
+                (dlg.save if save else dlg.open)(win, None, finished)
+
+            btn.connect("clicked", pick)
+            row.append(ent)
+            row.append(btn)
+            box.append(row)
+            entries[key] = ent
+
+        file_row("patron", "Proyecto del patrón:", "p. ej. guemes.proyecto", ["*.proyecto", "*.json"])
+        file_row("stl", "STL del héroe:", "p. ej. sanmartin.stl", ["*.stl", "*.STL"])
+        file_row("out", "Guardar proyecto como:", "por defecto, junto al STL", ["*.proyecto"], save=True)
+        opt = Gtk.Box(spacing=6)
+        opt.append(Gtk.Label(label="Coronilla (opcional):", xalign=0, width_chars=22))
+        ent_crown = Gtk.Entry(placeholder_text="altura en unidades del STL; si lleva sombrero o plumas", hexpand=True)
+        opt.append(ent_crown)
+        box.append(opt)
+        opt2 = Gtk.Box(spacing=6)
+        opt2.append(Gtk.Label(label="Entrepierna (opcional):", xalign=0, width_chars=22))
+        ent_crotch = Gtk.Entry(placeholder_text="altura en mm; si lleva abrigo largo", hexpand=True)
+        opt2.append(ent_crotch)
+        box.append(opt2)
+        status = Gtk.Label(label="", xalign=0, wrap=True, max_width_chars=80)
+        box.append(status)
+        bar = Gtk.Box(spacing=6, halign=Gtk.Align.END)
+        go = Gtk.Button(label="Crear y abrir")
+        cancel = Gtk.Button(label="Cancelar")
+        bar.append(go)
+        bar.append(cancel)
+        box.append(bar)
+
+        def number(ent, what):
+            txt = ent.get_text().strip().replace(",", ".")
+            if not txt:
+                return None
+            try:
+                return float(txt)
+            except ValueError:
+                raise ValueError(f"{what}: «{txt}» no es un número") from None
+
+        def run(*_):
+            try:
+                patron, stl = entries["patron"].get_text().strip(), entries["stl"].get_text().strip()
+                out = entries["out"].get_text().strip() or (os.path.splitext(stl)[0] + ".proyecto" if stl else "")
+                job = self.ctrl.new_from_pattern_job(patron, stl, out, number(ent_crown, "Coronilla"), number(ent_crotch, "Entrepierna"))
+            except ValueError as e:
+                status.set_text(str(e))
+                return
+            win.close()
+            self.ctrl.busy = True
+            self._run_task("Creando el héroe desde el patrón…", job, lambda res, err: self._new_from_pattern_done(res, err, stl),
+                           "Héroe creado")
+
+        go.connect("clicked", run)
+        cancel.connect("clicked", lambda *_: win.close())
+        win.set_child(box)
+        win.present()
+
+    def _new_from_pattern_done(self, res, err, stl: str) -> None:
+        image = self.ctrl.finish_new_from_pattern(res, err, stl)
+        if image is None or not os.path.isfile(image):
+            return
+        self._review_on_open()
+        win = Gtk.Window(title="Revisión de los planos (frente y costado)", transient_for=self, modal=False, default_width=900, default_height=640)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, margin_top=8, margin_bottom=8, margin_start=8, margin_end=8)
+        pic = Gtk.Picture.new_for_filename(image)
+        pic.set_can_shrink(True)
+        pic.set_vexpand(True)
+        box.append(pic)
+        box.append(Gtk.Label(label=f"{image}\nSi un plano no cae donde debe, corregilo en Planos o en el editor de siluetas.", xalign=0, wrap=True))
         win.set_child(box)
         win.present()
 

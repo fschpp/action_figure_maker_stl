@@ -33,7 +33,8 @@ ventana del programa.
 - [x] **Escalar la pelvis** con la escala restante (2026-11-08): `afm ajustar-cintura-muneca --guardar --escalar-pelvis` o la
       casilla de la ventana escriben `part_scales["pelvis"]` = inversa de la escala del héroe. **La mano no se reescala** en el
       pipeline (`HandSpec`): si la muñeca no calza, solo se puede mover el plano o cambiar de mano.
-- [ ] **Conectar `desde-patron` a la ventana:** botón «Nuevo héroe desde el patrón…» que muestre la imagen de revisión.
+- [x] **Conectar `desde-patron` a la ventana** (2026-11-08): botón «Nuevo héroe desde el patrón…» en la pestaña Catálogo; crea, abre y
+      muestra la imagen de revisión. Sin probar en GTK.
 - [ ] **Capacidad en pelvis y cabeza:** hoy se juzga la profundidad para brazos y piernas al generar; falta `place_pelvis` y el
       cuello.
 - [ ] **Certificar torso, pelvis y mano** (hoy solo brazo, pierna y cabeza).

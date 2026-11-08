@@ -3,6 +3,9 @@
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
 ## Current Focus
+**`desde-patron` en la ventana (2026-11-08, rama `gui_desde_patron`, sobre main b64964a):** botón «Nuevo héroe desde el patrón (p. ej. Güemes)…» en la pestaña Catálogo (siempre activo si no hay trabajo en curso): diálogo (proyecto del patrón, STL, guardar como, coronilla y entrepierna opcionales), trabajo en segundo plano (`Controller.new_from_pattern_job` → `patron.crear_desde_patron`, que ahora usa también la CLI), apertura del proyecto (`finish_new_from_pattern`) y ventana con la imagen `*_revision.png`. Tests sin GTK: `tests/test_gui_patron.py` (3). **No probado en GTK:** `_on_new_from_pattern` y `_new_from_pattern_done` están escritos a mano; el selector de archivos usa `Gtk.FileDialog` con filtros (`Gio.ListStore`).
+
+## Current Focus (anterior)
 **Escala de la pelvis en el ajuste (2026-11-08, rama `escala_pelvis_ajuste`, sobre main bffaf32):** `ajuste.pelvis_scale` / `aplicar(..., escalar_pelvis=True)`, `afm ajustar-cintura-muneca --guardar --escalar-pelvis` y casilla en la ventana: escriben `part_scales["pelvis"]` = 1 / escala del héroe (la escala que informa el ajuste es `r_patrón / r_héroe`, para el héroe; la pelvis del patrón necesita la inversa). Solo si entra en el tope de ±10 %, si hay plano de cintura y si la figura no sale entera de un torso de catálogo. Reemplaza la escala previa (se mide sobre la pelvis sin escalar). **La mano no se reescala** (decisión del pipeline, `HandSpec`), así que la muñeca solo mueve el plano. Convención a confirmar con el cliente: `part_scales` escala «la pieza que ocupa el lugar» (catálogo o modelo); `preflight.scale_hint_for` habla de escalar el MODELO (convención inversa).
 
 ## Current Focus (anterior)

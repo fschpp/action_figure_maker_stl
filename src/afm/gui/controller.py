@@ -9,6 +9,7 @@ simetría, ``work`` coincide con ``figure``.
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from enum import Enum
 
@@ -2835,6 +2836,34 @@ class Controller:
             return False
         self._changed(f"Ajustado al estándar: {n} corte(s). Revisá la guía y el pasador.")
         return True
+
+    def new_from_pattern_job(self, patron: str, stl: str, out: str, corona: float | None = None, entrepierna: float | None = None):
+        """Trabajo pesado de «Nuevo héroe desde el patrón» (para correr en un hilo, sin tocar el estado de la ventana):
+        `job(progress)` -> `(proyecto, imagen, avisos)`. Valida las rutas antes."""
+        from ..patron import crear_desde_patron
+
+        for label, path in (("el proyecto del patrón", patron), ("el STL del héroe", stl)):
+            if not path or not os.path.isfile(path):
+                raise ValueError(f"No existe {label}: «{path}»")
+        if not out:
+            raise ValueError("Elegí dónde guardar el proyecto del héroe.")
+        return lambda progress: crear_desde_patron(patron, stl, out, corona, None, entrepierna, None, progress=progress)
+
+    def finish_new_from_pattern(self, res, err, stl: str) -> str | None:
+        """Cierra «Nuevo héroe desde el patrón»: abre el proyecto creado (con su STL) y devuelve la imagen de revisión, o None si falló."""
+        self.busy = False
+        if err is not None or res is None:
+            self._changed(f"No se pudo crear el héroe desde el patrón: {err}", scene=False)
+            return None
+        out, image, notes = res
+        try:
+            self.open_project(out, stl)
+        except Exception as e:  # noqa: BLE001
+            self._changed(f"El proyecto se guardó en {out} pero no se pudo abrir: {e}", scene=False)
+            return image
+        extra = (" Avisos: " + "; ".join(notes)) if notes else ""
+        self._changed(f"Héroe creado desde el patrón: {os.path.basename(out)}. Revisá la imagen y los planos en el visor.{extra}", scene=False)
+        return image
 
     def waist_wrist_options(self) -> dict:
         """Pelvis y manos del catálogo abierto que sirven de patrón (`Session.waist_wrist_options`); vacío si no se pudo leer."""
