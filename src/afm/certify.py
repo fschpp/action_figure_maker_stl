@@ -1,6 +1,6 @@
 """Certificación de piezas (plan de compatibilidad, Fase 6, §4.5).
 
-Una pieza nueva (brazo, pierna o cabeza) se «certifica» armándola de verdad (`compat.check`: build + validate) sobre un
+Una pieza nueva (brazo, pierna, cabeza o pelvis) se «certifica» armándola de verdad (`compat.check`: build + validate) sobre un
 **panel de anfitriones**: el torso de su propia figura y los torsos de menor, mediana y mayor capacidad del catálogo
 (≤ `MAX_HOSTS` armados). El resultado se guarda en `compat.json` (clave `certificaciones`) con la **clave de certificación**:
 el hash de las claves de receta de todo el panel. Esa clave ya incluye cada pieza con su hash, los `Params`, las opciones, el
@@ -22,8 +22,9 @@ from .catalog import Catalog, CatalogError
 from .recipe import PLACES, Recipe, RecipeError
 
 MAX_HOSTS = 4
-PLACE_OF_TIPO = {"brazo": "brazo", "pierna": "pierna", "cabeza": "cabeza"}
-CLASS_OF_TIPO = {"brazo": "hombro", "pierna": "cadera", "cabeza": "cuello"}
+PLACE_OF_TIPO = {"brazo": "brazo", "pierna": "pierna", "cabeza": "cabeza", "pelvis": "pelvis"}
+CLASS_OF_TIPO = {"brazo": "hombro", "pierna": "cadera", "cabeza": "cuello", "pelvis": "cintura"}
+TORSO_TIPOS = ("torso", "torso_sup")           # con cintura el torso del catálogo es solo la parte de arriba
 CERT_KEY = "certificaciones"
 
 
@@ -46,8 +47,8 @@ def host_panel(cat: Catalog, ref: str) -> list:
     if me.tipo not in PLACE_OF_TIPO:
         raise CertifyError(f"no se certifican piezas de tipo «{me.tipo}» (hay {', '.join(PLACE_OF_TIPO)})")
     clase = CLASS_OF_TIPO[me.tipo]
-    ok_ids = {o.id for o, _na, _nb, _c in cat.compatible_with(ref) if o.tipo == "torso"}
-    hosts = sorted((h for h in cat.list("torso") if h.id in ok_ids), key=lambda h: h.id)
+    ok_ids = {o.id for o, _na, _nb, _c in cat.compatible_with(ref) if o.tipo in TORSO_TIPOS}
+    hosts = sorted((h for t in TORSO_TIPOS for h in cat.list(t) if h.id in ok_ids), key=lambda h: h.id)
     own = [h for h in hosts if (h.origen or {}).get("figura") and h.origen.get("figura") == (me.origen or {}).get("figura")]
     panel = own[:1]
     with_cap = sorted((h for h in hosts if host_depth(h, clase) is not None), key=lambda h: (host_depth(h, clase), h.id))
@@ -61,20 +62,27 @@ def host_panel(cat: Catalog, ref: str) -> list:
     return panel
 
 
+def has_waist(host) -> bool:
+    """El torso `host` se corta en la cintura (tiene una toma de cintura): la figura lleva pelvis."""
+    return any(p.clase == "cintura" and p.rol == "toma" for p in host.puertos.values())
+
+
 def recipe_for(cat: Catalog, ref: str, host) -> Recipe:
-    """Receta que arma la pieza `ref` sobre el torso `host`: los demás lugares de la figura del anfitrión."""
+    """Receta que arma la pieza `ref` sobre el torso `host`: los demás lugares de la figura del anfitrión. Sobre un torso con
+    cintura la receta lleva pelvis (la de `ref` si es una pelvis; si no, la de la figura del anfitrión o la primera del catálogo)."""
     me = cat.meta(ref)
     figura = (host.origen or {}).get("figura")
     lugares = {"torso": host.ref}
+    waist = has_waist(host)
     for lugar in PLACES:
-        if lugar in lugares or lugar == "pelvis":
+        if lugar in lugares or (lugar == "pelvis" and not waist):
             continue
         cands = cat.list(lugar)
         mine = [m for m in cands if figura and (m.origen or {}).get("figura") == figura]
         pick = (mine or cands or [None])[0]
         lugares[lugar] = pick.ref if pick is not None else None
     lugares[PLACE_OF_TIPO[me.tipo]] = me.ref
-    return Recipe(f"certificacion-{me.id}-{host.id}", cat.name, lugares=lugares)
+    return Recipe(f"certificacion-{me.id}-{host.id}", cat.name, lugares=lugares, opciones={"cintura": True} if waist else {})
 
 
 def panel_keys(cat: Catalog, ref: str) -> list[tuple]:

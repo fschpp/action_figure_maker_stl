@@ -3,6 +3,9 @@
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
 ## Current Focus
+**Certificación de la pelvis (2026-11-08, rama `certificar_pelvis`, sobre main 37343d1):** `certify.PLACE_OF_TIPO/CLASS_OF_TIPO` aceptan `pelvis` (clase `cintura`); `host_panel` busca torsos `torso` o `torso_sup` compatibles (con cintura el torso del catálogo es `torso_sup`); `recipe_for` agrega la pelvis y la opción `cintura` a cualquier receta sobre un torso con toma de cintura (la de la pieza si es una pelvis; si no, la de la figura del anfitrión o la primera del catálogo). Efecto lateral: las certificaciones de brazo/pierna/cabeza sobre torsos con cintura cambian de clave y quedan «vencidas» hasta volver a certificar. Tests: `tests/test_certify.py` (+3, catálogo de dos figuras con cintura); corridos también `test_compat`, `test_catalog`, `test_recipe`, `test_catalog_manager`: pasan. **Falta:** torso y mano (la mano se acopla a un brazo: necesita un panel de brazos).
+
+## Current Focus (anterior)
 **`desde-patron` en la ventana (2026-11-08, rama `gui_desde_patron`, sobre main b64964a):** botón «Nuevo héroe desde el patrón (p. ej. Güemes)…» en la pestaña Catálogo (siempre activo si no hay trabajo en curso): diálogo (proyecto del patrón, STL, guardar como, coronilla y entrepierna opcionales), trabajo en segundo plano (`Controller.new_from_pattern_job` → `patron.crear_desde_patron`, que ahora usa también la CLI), apertura del proyecto (`finish_new_from_pattern`) y ventana con la imagen `*_revision.png`. Tests sin GTK: `tests/test_gui_patron.py` (3). **No probado en GTK:** `_on_new_from_pattern` y `_new_from_pattern_done` están escritos a mano; el selector de archivos usa `Gtk.FileDialog` con filtros (`Gio.ListStore`).
 
 ## Current Focus (anterior)

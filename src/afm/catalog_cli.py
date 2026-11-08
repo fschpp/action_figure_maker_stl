@@ -118,7 +118,7 @@ def add_parsers(sub) -> None:
     a.add_argument("--receta", action="append", default=[], metavar="ARCHIVO",
                    help="receta afm-receta-1 a validar (repetible); sin esta opción, las de <catálogo>/figuras y <catálogo>/recetas")
     a.add_argument("--forzar", action="store_true", help="volver a armar aunque compat.json ya tenga el resultado de esta combinación")
-    a = cs.add_parser("certificar", help="certifica piezas (brazo, pierna, cabeza): las arma de verdad en un panel de torsos del catálogo (propio + menor/mediana/mayor capacidad)")
+    a = cs.add_parser("certificar", help="certifica piezas (brazo, pierna, cabeza, pelvis): las arma de verdad en un panel de torsos del catálogo (propio + menor/mediana/mayor capacidad)")
     root(a)
     a.add_argument("refs", nargs="*", metavar="ID", help="piezas a certificar (por defecto, todas las certificables)")
     a.add_argument("--estado", action="store_true", help="solo mostrar el estado de la certificación guardada, sin armar nada")
@@ -600,7 +600,7 @@ def _run_certify(args, cat) -> int:
 
     refs = args.refs or [m.ref for m in cat.list() if m.tipo in PLACE_OF_TIPO]
     if not refs:
-        print("(no hay piezas certificables: brazo, pierna o cabeza)")
+        print("(no hay piezas certificables: brazo, pierna, cabeza o pelvis)")
         return 0
     bad = 0
     for ref in refs:

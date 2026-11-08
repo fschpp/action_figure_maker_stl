@@ -72,3 +72,54 @@ def test_cli_certificar_and_listar_badge(cat_dir, capsys):
     assert "brazo-muneco-01" in out and ("certificada 1/1" in out) == (rc == 0)
     assert main(["catalogo", "listar", cat_dir]) == 0
     assert "certificada" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------- pelvis (torsos con cintura)
+@pytest.fixture(scope="module")
+def waist_cat(tmp_path_factory):
+    """Catálogo de dos figuras con cintura: el muñeco y el muñeco más ancho (otra `origen.figura`)."""
+    import copy
+    from afm import solids as S
+    from afm.extract import extract_all
+    from afm.planes import Plane
+    from afm.project import demo_project
+    from afm.testfigure import make_doll
+    from afm.waist import WaistSpec
+
+    root = str(tmp_path_factory.mktemp("cintura") / "linea")
+    cat = Catalog.create(root, "prueba", 100.0)
+    for tag, sx in (("muneco", 1.0), ("ancho", 1.12)):
+        doll = make_doll()
+        doll.apply_scale([sx, 1.0, 1.0])
+        pr = demo_project()
+        pr.waist = WaistSpec(Plane.from_points((-5, -5, 55), (5, -5, 55), (0, 5, 55), "cintura"))
+        for e in extract_all(S.to_manifold(doll), copy.deepcopy(pr), tag, figure=f"{tag}.stl", project_name=tag).pieces:
+            cat.add_piece(e.mesh, e.meta)
+    return Catalog.open(root)
+
+
+def test_pelvis_is_certifiable_and_its_panel_are_torsos_with_waist(waist_cat):
+    cat = waist_cat
+    pelvis = next(m for m in cat.list("pelvis") if m.id == "pelvis-muneco-01")
+    assert certify.CLASS_OF_TIPO["pelvis"] == "cintura"
+    panel = certify.host_panel(cat, pelvis.ref)
+    assert panel and panel[0].id == "torso-sup-muneco-01" and all(certify.has_waist(h) for h in panel)
+    assert len(panel) <= certify.MAX_HOSTS
+
+
+def test_recipe_on_a_waist_torso_carries_the_pelvis_and_the_waist_option(waist_cat):
+    cat = waist_cat
+    host = next(h for h in cat.list("torso_sup") if h.id == "torso-sup-muneco-01")
+    r = certify.recipe_for(cat, "pelvis-ancho-01", host)
+    assert r.lugares["pelvis"].startswith("pelvis-ancho-01") and r.options()["cintura"] is True and r.problems() == []
+    arm = certify.recipe_for(cat, "brazo-ancho-01", host)                  # un brazo sobre ese torso: la pelvis es la de su figura
+    assert arm.lugares["pelvis"].startswith("pelvis-muneco-01") and arm.options()["cintura"] is True
+    assert arm.problems() == []
+
+
+def test_certify_a_pelvis_arms_it_on_every_host(waist_cat):
+    cat = waist_cat
+    entry = certify.certify(cat, "pelvis-muneco-01")
+    assert entry["n"] == len(certify.host_panel(cat, "pelvis-muneco-01")) >= 1
+    assert entry["anfitriones"][0]["torso"].startswith("torso-sup-muneco-01") and entry["anfitriones"][0]["ok"]
+    assert certify.status(cat, "pelvis-muneco-01")["estado"] in ("certificada", "parcial")
