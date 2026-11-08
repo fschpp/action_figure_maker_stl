@@ -477,3 +477,12 @@ def test_controller_cut_fit(tmp_path, cat):
     assert caps() == before                                         # previsualizar no cambia el proyecto
     assert c.apply_cut_fit() and caps() != before and "Ajustado al estándar" in c.message
     assert c.apply_cut_fit() is False and "Ningún corte" in c.message                # ya en contrato: nada que cambiar
+
+
+def test_fit_cut_leaves_a_cut_already_in_contract_alone(doll):
+    from afm import interface as I
+    _stl, _pp, proj, body = doll
+    (m,) = [x for x in G.measure_cuts(proj, body) if x.lugar == "brazo"]
+    con = _contract(proj, "hombro", m.r_eq)
+    (r,) = G.fit_cut(proj, body, con, kinds=("arm",))
+    assert r.ok and not r.changes and r.volumen_quitado_mm3 == 0.0 and r.antes.talle == "M"

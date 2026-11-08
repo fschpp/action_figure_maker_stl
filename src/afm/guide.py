@@ -747,6 +747,9 @@ def fit_cut(project, body: S.Manifold, contract, params: Params | None = None, k
             base = S_effective_offset(spec)
             offsets = [round(base + d, 4) for d in _arange(FIT_OFFSET_SPAN_MM, FIT_OFFSET_STEP_MM)]
         best = None
+        if lab0 is not None and lab0.r is not None:           # el corte actual también es candidato: si ya está en el talle, no se toca
+            best = ((0 if (lab0.en_contrato and lab0.talle == tgt.id) else 1,
+                     abs(lab0.r - tgt.radio_mm) if not lab0.en_contrato else 0.0, 0.0, 0.0), spec, lab0, limb0)
         for off in offsets:
             for d in _arange(FIT_CAP_SPAN_MM, FIT_CAP_STEP_MM):
                 radius = (tgt.radio_mm + d) / scale
@@ -767,7 +770,7 @@ def fit_cut(project, body: S.Manifold, contract, params: Params | None = None, k
                        abs((off or 0.0) - (spec.cut_offset or 0.0)))
                 if best is None or key < best[0]:
                     best = (key, cand, lab, limb)
-        if best is not None:                                # afinar el radio alrededor del mejor, con el mismo desplazamiento
+        if best is not None and best[1].cap_radius is not None and not best[2].en_contrato:     # afinar el radio alrededor del mejor, con el mismo desplazamiento
             base = best[1]
             for d in _arange(FIT_CAP_STEP_MM, FIT_REFINE_STEP_MM):
                 cand = dataclasses.replace(base, cap_radius=base.cap_radius + d / scale)
