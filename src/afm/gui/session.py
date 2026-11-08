@@ -1430,8 +1430,17 @@ class Session:
                 raise ValueError("; ".join(probs))
         cat = self._catalog()
         name = os.path.basename(self.stl_path or "figura")
+        invert_wrist = False
+        hand = self.project.hand
+        if wrist_points is None and hand is not None and len(hand.points) == 3:
+            # la muñeca ya marcada en la figura (pestaña Mano) va con el brazo: sin ella la pieza «brazo» queda sin toma de muñeca
+            # y la mano de catálogo no se puede acoplar a ese brazo (pipeline: «necesita el plano de muñeca del modelo»)
+            wrist_points = np.asarray(hand.points, float)
+            if wrist_points[:, 0].mean() < 0:
+                wrist_points = wrist_points * np.array([-1.0, 1.0, 1.0])            # el brazo de trabajo es el +X
+            invert_wrist = bool(hand.invert)
         try:
-            res = extract_all(S.to_manifold(self.work), self.project, prefix, places, wrist_points, False, figure=name)
+            res = extract_all(S.to_manifold(self.work), self.project, prefix, places, wrist_points, invert_wrist, figure=name)
         except ExtractError as exc:
             raise ValueError(str(exc)) from exc
         if not res.pieces:

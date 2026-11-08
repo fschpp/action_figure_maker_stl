@@ -78,3 +78,23 @@ def test_apply_can_scale_the_pelvis(ctrl, cat_root, monkeypatch):
     assert ctrl.apply_waist_wrist_fit(None, None, escalar_pelvis=False) is False
     assert ctrl.apply_waist_wrist_fit(None, None, escalar_pelvis=True) is True
     assert ctrl.session.project.part_scales["pelvis"] == pytest.approx(9.9 / 9.0)
+
+
+def test_cataloging_the_arm_uses_the_wrist_marked_on_the_figure(ctrl, cat_root, tmp_path):
+    """Con los 3 puntos de la muñeca en el proyecto, el brazo catalogado lleva la toma `muneca` (y sin ellos, no)."""
+    from afm import hand as H, solids as S
+    from afm.catalog import Catalog
+    pts = ctrl.session.project.hand.points
+    hand_local, split = H.extract_standard_hand(S.to_manifold(make_doll()).trim_by_plane((1.0, 0.0, 0.0), 0.0), pts)
+    std = str(tmp_path / "mano_std.stl")
+    H.save_standard_hand(std, hand_local, H.hand_meta(split, 100.0, "test"))
+    ctrl.session.project.hand = H.HandSpec(path=std, points=pts)
+    ctrl.session.open_catalog(cat_root)
+    assert ctrl.catalog_add_current("conmuneca", places=["brazo"]), ctrl.message
+    cat = Catalog.open(cat_root)
+    arm = next(m for m in cat.list("brazo") if "conmuneca" in m.id)
+    assert "muneca" in arm.puertos and arm.puertos["muneca"].rol == "toma"
+    ctrl.session.project.hand = None
+    assert ctrl.catalog_add_current("sinmuneca", places=["brazo"]), ctrl.message
+    arm2 = next(m for m in Catalog.open(cat_root).list("brazo") if "sinmuneca" in m.id)
+    assert "muneca" not in arm2.puertos

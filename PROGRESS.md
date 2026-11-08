@@ -3,6 +3,9 @@
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
 ## Current Focus
+**Catalogar el brazo con la muñeca marcada (2026-11-08, rama `catalogar_usa_muneca`):** con Belgrano en el catálogo, `afm catalogo certificar` falló casi todo con «la mano de catálogo necesita el plano de muñeca del modelo (HandSpec.points) cuando el brazo no es de catálogo». Causa: `Session.catalog_add` no pasaba los 3 puntos de muñeca del proyecto a `extract_all`, así que el brazo catalogado salía sin toma `muneca` y el pipeline no podía acoplarle la mano de catálogo. Ahora, si el proyecto tiene `hand.points`, se usan (reflejados al lado +X si hace falta, con `hand.invert`). Hay que **volver a catalogar el brazo de Belgrano como versión nueva**. Test en `tests/test_gui_ajuste.py`. **Pendientes de diagnosticar con datos del catálogo real:** (a) `la cara del corte es demasiado chica para el pasador de la cintura: entra una cabeza de Ø1.4 mm … pide Ø10` al armar con el torso `torso-sup-belgrano`; (b) `cabeza-belgrano… no tiene ningún torso del catálogo con el que sea compatible`.
+
+## Current Focus (anterior)
 **Certificación de la mano (2026-11-08, rama `certificar_mano`, sobre main 8294231):** `certify` acepta `mano` (clase `muneca`); su panel son brazos con toma de muñeca (`host_tipos_of`) y `recipe_for` arma la mano sobre un brazo con el torso de la misma figura (`torso_sup` si hay cintura, con su pelvis). Ya se certifican pelvis, pierna (sobre pelvis) y mano; falta el torso como pieza. Tests: `tests/test_certify.py` (+1, 10 en total, pasan). Probado con el catálogo de ejemplo, no con tus figuras reales.
 
 ## Current Focus (anterior)
