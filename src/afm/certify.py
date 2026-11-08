@@ -40,6 +40,12 @@ def host_depth(host, clase: str) -> float | None:
     return min(vals) if vals else None
 
 
+def host_tipos_of(tipo: str) -> tuple:
+    """Tipos de pieza que reciben a `tipo`: los torsos, y para la pierna también la pelvis (con cintura la toma de cadera
+    está en la pelvis y no en el torso)."""
+    return TORSO_TIPOS + (("pelvis",) if tipo == "pierna" else ())
+
+
 def host_panel(cat: Catalog, ref: str) -> list:
     """Torsos del panel de `ref`: el de su figura y los de menor, mediana y mayor capacidad entre los que no dan «no» en la
     compatibilidad barata. Lista de `PieceMeta` (≤ MAX_HOSTS), el propio primero."""
@@ -47,8 +53,9 @@ def host_panel(cat: Catalog, ref: str) -> list:
     if me.tipo not in PLACE_OF_TIPO:
         raise CertifyError(f"no se certifican piezas de tipo «{me.tipo}» (hay {', '.join(PLACE_OF_TIPO)})")
     clase = CLASS_OF_TIPO[me.tipo]
-    ok_ids = {o.id for o, _na, _nb, _c in cat.compatible_with(ref) if o.tipo in TORSO_TIPOS}
-    hosts = sorted((h for t in TORSO_TIPOS for h in cat.list(t) if h.id in ok_ids), key=lambda h: h.id)
+    host_tipos = host_tipos_of(me.tipo)
+    ok_ids = {o.id for o, _na, _nb, _c in cat.compatible_with(ref) if o.tipo in host_tipos}
+    hosts = sorted((h for t in host_tipos for h in cat.list(t) if h.id in ok_ids), key=lambda h: h.id)
     own = [h for h in hosts if (h.origen or {}).get("figura") and h.origen.get("figura") == (me.origen or {}).get("figura")]
     panel = own[:1]
     with_cap = sorted((h for h in hosts if host_depth(h, clase) is not None), key=lambda h: (host_depth(h, clase), h.id))
@@ -72,8 +79,17 @@ def recipe_for(cat: Catalog, ref: str, host) -> Recipe:
     cintura la receta lleva pelvis (la de `ref` si es una pelvis; si no, la de la figura del anfitrión o la primera del catálogo)."""
     me = cat.meta(ref)
     figura = (host.origen or {}).get("figura")
-    lugares = {"torso": host.ref}
-    waist = has_waist(host)
+    if host.tipo == "pelvis":                          # la pierna se arma en una pelvis: su torso es el de la misma figura
+        tops = [t for k in TORSO_TIPOS for t in cat.list(k)]
+        top = next((t for t in sorted(tops, key=lambda t: t.id) if figura and (t.origen or {}).get("figura") == figura),
+                   next(iter(sorted(tops, key=lambda t: t.id)), None))
+        if top is None:
+            raise CertifyError(f"la pelvis «{host.ref}» no tiene ningún torso del catálogo con el que armarla")
+        lugares = {"torso": top.ref, "pelvis": host.ref}
+        waist = True
+    else:
+        lugares = {"torso": host.ref}
+        waist = has_waist(host)
     for lugar in PLACES:
         if lugar in lugares or (lugar == "pelvis" and not waist):
             continue

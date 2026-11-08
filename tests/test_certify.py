@@ -123,3 +123,18 @@ def test_certify_a_pelvis_arms_it_on_every_host(waist_cat):
     assert entry["n"] == len(certify.host_panel(cat, "pelvis-muneco-01")) >= 1
     assert entry["anfitriones"][0]["torso"].startswith("torso-sup-muneco-01") and entry["anfitriones"][0]["ok"]
     assert certify.status(cat, "pelvis-muneco-01")["estado"] in ("certificada", "parcial")
+
+
+def test_leg_panel_hosts_are_pelvises_when_the_catalog_has_a_waist(waist_cat):
+    cat = waist_cat
+    panel = certify.host_panel(cat, "pierna-muneco-01")
+    assert panel and panel[0].tipo == "pelvis" and panel[0].id == "pelvis-muneco-01"
+    r = certify.recipe_for(cat, "pierna-ancho-01", panel[0])
+    assert r.lugares["pelvis"] == panel[0].ref and r.lugares["pierna"].startswith("pierna-ancho-01")
+    assert r.lugares["torso"].startswith("torso-sup-muneco-01") and r.options()["cintura"] is True and r.problems() == []
+
+
+def test_certify_a_leg_arms_it_on_the_pelvis(waist_cat):
+    entry = certify.certify(waist_cat, "pierna-muneco-01")
+    assert entry["n"] >= 1 and entry["anfitriones"][0]["torso"].startswith("pelvis-muneco-01")
+    assert entry["anfitriones"][0]["ok"], entry["anfitriones"][0]["problemas"]
