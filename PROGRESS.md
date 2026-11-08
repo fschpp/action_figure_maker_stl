@@ -3,6 +3,9 @@
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
 ## Current Focus
+**Certificación de la mano (2026-11-08, rama `certificar_mano`, sobre main 8294231):** `certify` acepta `mano` (clase `muneca`); su panel son brazos con toma de muñeca (`host_tipos_of`) y `recipe_for` arma la mano sobre un brazo con el torso de la misma figura (`torso_sup` si hay cintura, con su pelvis). Ya se certifican pelvis, pierna (sobre pelvis) y mano; falta el torso como pieza. Tests: `tests/test_certify.py` (+1, 10 en total, pasan). Probado con el catálogo de ejemplo, no con tus figuras reales.
+
+## Current Focus (anterior)
 **Capacidad del anfitrión también en pelvis y cabeza; versión 0.2.1 (2026-11-08, rama `capacidad_pelvis_cabeza`, sobre main 7a82088):** `swap_pelvis` mide la capacidad del pecho detrás de la cara de la cintura (`capacity.measure` sobre el torso de arriba) y `place_part(kind="head")` la del cuello (sobre `body_half`; la malla termina `clearance` antes del plano del cuello, así que `capacity.measure(..., inset_mm=HEAD_INSET_MM)` arranca los rayos 1,5 mm adentro y cuenta la profundidad desde la cara). Pelvis y cabeza de catálogo ya salen con `margenes_mm.capacidad_profundidad` y sin `sin_capacidad`; el sentido es el mismo que en miembros: «no» si el pasador no cabe, aviso si sobran < 0,5 mm. **Versión del motor 0.2.0 → 0.2.1** (`afm/__init__.py`, `pyproject.toml`): la clave de `compat.json` incluye la versión, y sin subirla el catálogo del usuario seguía mostrando «CON PROBLEMAS» por el choque miembro–miembro de la cintura que ya es aviso (resultados viejos en caché; mientras tanto `afm catalogo certificar RUTA --forzar`). Tests: `test_assembly.py` (+1). Falta: volver a correr `afm catalogo certificar RUTA` con el catálogo real.
 
 ## Current Focus (anterior)

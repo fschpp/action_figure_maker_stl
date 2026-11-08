@@ -1,6 +1,6 @@
 """Certificación de piezas (plan de compatibilidad, Fase 6, §4.5).
 
-Una pieza nueva (brazo, pierna, cabeza o pelvis) se «certifica» armándola de verdad (`compat.check`: build + validate) sobre un
+Una pieza nueva (brazo, pierna, cabeza, pelvis o mano) se «certifica» armándola de verdad (`compat.check`: build + validate) sobre un
 **panel de anfitriones**: el torso de su propia figura y los torsos de menor, mediana y mayor capacidad del catálogo
 (≤ `MAX_HOSTS` armados). El resultado se guarda en `compat.json` (clave `certificaciones`) con la **clave de certificación**:
 el hash de las claves de receta de todo el panel. Esa clave ya incluye cada pieza con su hash, los `Params`, las opciones, el
@@ -22,8 +22,8 @@ from .catalog import Catalog, CatalogError
 from .recipe import PLACES, Recipe, RecipeError
 
 MAX_HOSTS = 4
-PLACE_OF_TIPO = {"brazo": "brazo", "pierna": "pierna", "cabeza": "cabeza", "pelvis": "pelvis"}
-CLASS_OF_TIPO = {"brazo": "hombro", "pierna": "cadera", "cabeza": "cuello", "pelvis": "cintura"}
+PLACE_OF_TIPO = {"brazo": "brazo", "pierna": "pierna", "cabeza": "cabeza", "pelvis": "pelvis", "mano": "mano"}
+CLASS_OF_TIPO = {"brazo": "hombro", "pierna": "cadera", "cabeza": "cuello", "pelvis": "cintura", "mano": "muneca"}
 TORSO_TIPOS = ("torso", "torso_sup")           # con cintura el torso del catálogo es solo la parte de arriba
 CERT_KEY = "certificaciones"
 
@@ -41,8 +41,10 @@ def host_depth(host, clase: str) -> float | None:
 
 
 def host_tipos_of(tipo: str) -> tuple:
-    """Tipos de pieza que reciben a `tipo`: los torsos, y para la pierna también la pelvis (con cintura la toma de cadera
-    está en la pelvis y no en el torso)."""
+    """Tipos de pieza que reciben a `tipo`: los torsos; para la pierna también la pelvis (con cintura la toma de cadera está en
+    la pelvis y no en el torso); la mano se acopla a un brazo, no a un torso."""
+    if tipo == "mano":
+        return ("brazo",)
     return TORSO_TIPOS + (("pelvis",) if tipo == "pierna" else ())
 
 
@@ -79,14 +81,14 @@ def recipe_for(cat: Catalog, ref: str, host) -> Recipe:
     cintura la receta lleva pelvis (la de `ref` si es una pelvis; si no, la de la figura del anfitrión o la primera del catálogo)."""
     me = cat.meta(ref)
     figura = (host.origen or {}).get("figura")
-    if host.tipo == "pelvis":                          # la pierna se arma en una pelvis: su torso es el de la misma figura
+    if host.tipo in ("pelvis", "brazo"):               # la pierna se arma en una pelvis y la mano en un brazo: el torso es el de la misma figura
         tops = [t for k in TORSO_TIPOS for t in cat.list(k)]
         top = next((t for t in sorted(tops, key=lambda t: t.id) if figura and (t.origen or {}).get("figura") == figura),
                    next(iter(sorted(tops, key=lambda t: t.id)), None))
         if top is None:
-            raise CertifyError(f"la pelvis «{host.ref}» no tiene ningún torso del catálogo con el que armarla")
-        lugares = {"torso": top.ref, "pelvis": host.ref}
-        waist = True
+            raise CertifyError(f"«{host.ref}» no tiene ningún torso del catálogo con el que armarla")
+        lugares = {"torso": top.ref, host.tipo: host.ref}
+        waist = True if host.tipo == "pelvis" else has_waist(top)
     else:
         lugares = {"torso": host.ref}
         waist = has_waist(host)

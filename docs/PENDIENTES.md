@@ -37,11 +37,11 @@ ventana del programa.
       muestra la imagen de revisión. Sin probar en GTK.
 - [ ] **Capacidad en pelvis y cabeza:** hoy se juzga la profundidad para brazos y piernas al generar; falta `place_pelvis` y el
       cuello.
-- [~] **Certificar torso, pelvis y mano:** la **pelvis** ya se certifica (2026-11-08, `certify.py`): panel de torsos con toma de
-      cintura (`torso` o `torso_sup`), receta con `cintura` y la pelvis a probar; `afm catalogo certificar RUTA ID` y el estado
-      en la lista. Un brazo/pierna/cabeza sobre un torso con cintura ahora también arma con su pelvis (cambia la clave: sus
-      certificaciones viejas sobre torsos con cintura quedan «vencidas»). **Faltan torso y mano**: la mano se acopla a un
-      brazo, no a un torso, así que necesita un panel de brazos distinto.
+- [~] **Certificar torso, pelvis y mano:** ya se certifican la **pelvis** (panel de torsos con toma de cintura; receta con `cintura`),
+      la **pierna** sobre la pelvis de su figura y la **mano** (2026-11-08, `certify.py`): la mano se acopla a un brazo, así que su panel
+      son brazos con toma de muñeca y la receta lleva el torso de la misma figura. `afm catalogo certificar RUTA ID` y el estado en la
+      lista. Un brazo/pierna/cabeza sobre un torso con cintura arma con su pelvis (la clave cambia: certificaciones viejas «vencidas»).
+      **Falta el torso** como pieza a certificar.
 - [ ] **Pared sobre la lengüeta del clic y raíz de la lengüeta** respecto del plano de simetría (§4.4 del plan).
 - [ ] **Pieza adaptadora** (si el ajuste automático no alcanza con héroes de proporciones muy distintas): un anillo con medidas
       fijas, iguales a las de Güemes, que se pega al torso del héroe.

@@ -138,3 +138,16 @@ def test_certify_a_leg_arms_it_on_the_pelvis(waist_cat):
     entry = certify.certify(waist_cat, "pierna-muneco-01")
     assert entry["n"] >= 1 and entry["anfitriones"][0]["torso"].startswith("pelvis-muneco-01")
     assert entry["anfitriones"][0]["ok"], entry["anfitriones"][0]["problemas"]
+
+
+def test_a_hand_is_certified_on_the_arms_of_the_catalog(cat_dir):
+    """La mano se acopla a un brazo (toma de muñeca), no a un torso: el panel son brazos y la receta lleva el torso de su figura."""
+    cat = Catalog.open(cat_dir)
+    panel = certify.host_panel(cat, "mano-muneco-01")
+    assert [h.id for h in panel] == ["brazo-muneco-01"]
+    r = certify.recipe_for(cat, "mano-muneco-01", panel[0])
+    assert r.lugares["mano"].startswith("mano-muneco-01@") and r.lugares["brazo"] == panel[0].ref
+    assert r.lugares["torso"].startswith("torso-muneco-01@") and r.problems() == []
+    entry = certify.certify(cat, "mano-muneco-01")
+    assert entry["n"] == 1 and entry["anfitriones"][0]["torso"] == panel[0].ref and entry["anfitriones"][0]["ok"], entry
+    assert certify.status(cat, "mano-muneco-01")["estado"] == "certificada"
