@@ -15,7 +15,10 @@ from afm.recipe import Recipe, assemble
 def main(archivo, catalogo, stl=None):
     if archivo.endswith(".proyecto"):
         from afm.gui.session import Session
-        res = Session.open_project(archivo, stl, catalogo).build(progress=print).result
+        sess = Session.open_project(archivo, stl, catalogo)
+        if not sess.catalog_root:
+            sess.open_catalog(catalogo)          # las piezas de catálogo del proyecto se resuelven en este catálogo
+        res = sess.build(progress=print).result
     else:
         res = assemble(Recipe.load(archivo), catalogo, progress=print).res
     torso = res.pieces["torso"]
