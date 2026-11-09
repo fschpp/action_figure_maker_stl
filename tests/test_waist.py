@@ -282,3 +282,12 @@ def test_close_seams_keeps_real_gaps_and_holes():
     sq = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)], [[(4, 4), (6, 4), (6, 6), (4, 6)]])      # agujero real de 2 × 2 mm
     assert len(close_seams(sq).interiors) == 1
     assert close_seams(Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])).area == pytest.approx(100.0, abs=1e-6)
+
+
+def test_loose_components_are_described_by_size_and_place():
+    from afm import pipeline as PL
+    big = S.Manifold.cube((10, 10, 10))
+    small = S.Manifold.cube((2, 2, 2)).translate((30, 0, 5))
+    txt = PL._components_detail(S.union(big, small))
+    assert "el mayor tiene 1000.0 mm³" in txt and "8.0 mm³ en (31.0, 1.0, 6.0)" in txt
+    assert PL._components_detail(big) == ""

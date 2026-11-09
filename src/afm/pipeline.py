@@ -543,6 +543,20 @@ def cap_export_triangles(pieces: dict, max_tris: int, tol: float = 0.02, max_vol
 
 
 # ------------------------------------------------------------------ validación
+def _components_detail(mf: S.Manifold) -> str:
+    """«: el mayor 4521 mm³; sueltos: 12 mm³ en (x, y, z) …» para ver QUÉ parte de la pieza quedó suelta (un sable, un faldón, una
+    borla que la malla trae como objeto aparte, o un trozo que el corte dejó flotando)."""
+    parts = sorted(mf.decompose(), key=lambda m: -m.volume())
+    if len(parts) < 2:
+        return ""
+    def where(m):
+        lo, hi = m.bounding_box()[:3], m.bounding_box()[3:]
+        c = [(a + b) / 2 for a, b in zip(lo, hi)]
+        return f"{m.volume():.1f} mm³ en ({c[0]:.1f}, {c[1]:.1f}, {c[2]:.1f})"
+    loose = "; ".join(where(m) for m in parts[1:4]) + (f"; y {len(parts) - 4} más" if len(parts) > 4 else "")
+    return f": el mayor tiene {parts[0].volume():.1f} mm³; sueltos: {loose}"
+
+
 def _nonmanifold_edges(mf: S.Manifold) -> int:
     """Aristas con != 2 caras tras soldar vértices coincidentes (lo que ve un slicer al leer el STL)."""
     tm = S.to_printable_trimesh(mf)      # la misma malla que se escribe en el STL
@@ -601,7 +615,7 @@ def validate(res: BuildResult, p: Params, limbs: list[LimbSpec], sit: bool = Tru
         if not wt:
             out["problems"].append(f"{name}: no es variedad estanca")
         if name in ("torso", PELVIS_NAME) and comps != 1:
-            out["problems"].append(f"{name}: {comps} componentes (debería ser 1, soldado)")
+            out["problems"].append(f"{name}: {comps} componentes (debería ser 1, soldado)" + _components_detail(mf))
     clearance_of = {}          # holgura mínima exigida por pieza: con clic, la punta deja `detent_gap` contra el disco
     for lname, dl in res.detent.items():
         for pn in _limb_piece_names(res, lname):
