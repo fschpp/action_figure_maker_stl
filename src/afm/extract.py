@@ -290,7 +290,7 @@ def _replacement_head(spec: HeadSpec, neck: Plane, model_face, prefix: str, orig
     Sale tal como la arma la GUI: orientada, con la base cortada y escalada (uniforme) para que su base iguale la del cuello
     del modelo, apoyada sobre el plano del cuello, sin pasador (eso se genera al armar). El puerto `cuello` sale de la base
     de ESTA cabeza; el torso sigue acoplándose al cuello del modelo, que la base igualada reproduce."""
-    from .head import MIN_BASE_IOU, _face_from_head, fit_replacement
+    from .head import MIN_BASE_IOU, _face_from_head, fit_replacement, pin_center_on
 
     path = spec.replacement_path
     if not os.path.isfile(path):
@@ -300,7 +300,7 @@ def _replacement_head(spec: HeadSpec, neck: Plane, model_face, prefix: str, orig
     except ValueError as exc:
         raise ExtractError(f"la cabeza de reemplazo «{os.path.basename(path)}»: {exc}") from exc
     face = _face_from_head(placed, neck)
-    fr = PortFrame(face.center.copy(), face.outward.copy(), reference_for(face.outward, (0.0, 1.0, 0.0)))
+    fr = PortFrame(pin_center_on(face, neck, spec), face.outward.copy(), reference_for(face.outward, (0.0, 1.0, 0.0)))   # donde va el pasador
     tm = _clean(placed, "cabeza", warnings)
     fr, pface = _port_face(tm, fr, "cuello", warnings)
     iou = info.get("coincidencia_base")

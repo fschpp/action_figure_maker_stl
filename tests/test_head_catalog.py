@@ -143,3 +143,15 @@ def test_head_only_needs_the_neck_plane_not_a_finished_figure(ctrl, head_stl):
     ctrl.session.project.head = None
     with pytest.raises(ValueError, match="plano del cuello"):
         ctrl.session.catalog_add("belgrano", places=["cabeza"])
+
+
+def test_replacement_head_port_sits_at_the_pin_not_at_the_base_centroid(doll, head_stl):
+    """En una cabeza de reemplazo el puerto `cuello` va donde `build_head` pone el pasador (círculo inscrito o `pin_center`),
+    no en el centroide de la base: si no, el pasador catalogado queda fuera de la cara."""
+    from afm.ports import pin_diagnosis
+    for kw in ({}, {"pin_center": (0.0, 1.0, 80.0)}):
+        port = head_of(extract_all(doll, with_replacement(head_stl, **kw), "m", ["cabeza"])).meta.puertos["cuello"]
+        if "pin_center" in kw:
+            assert np.allclose(port.frame.center[1:], (1.0, 80.0), atol=0.6), port.frame.center
+        else:
+            assert pin_diagnosis(port.face, 4.1)["desvio"] < 0.3
