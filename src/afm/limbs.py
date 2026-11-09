@@ -339,7 +339,19 @@ def _face_shape(face: ContactFace):
         pg = Polygon(plane.to_uv(t))
         if pg.area > 1e-12:
             polys.append(pg.buffer(0))
-    return plane, unary_union(polys)
+    return plane, close_seams(unary_union(polys))
+
+
+SEAM_MM = 0.02        # costuras más finas que esto entre triángulos / trozos de una cara se cierran
+
+
+def close_seams(shape, tol: float = SEAM_MM):
+    """Cierra las costuras (rendijas y agujeros de décimas de µm) que deja la unión de triángulos cuyos vértices no coinciden
+    exactamente (mallas importadas, cortes booleanos): sin esto el «borde» de la huella incluye esas costuras por dentro y la
+    distancia del centro al borde, el círculo inscrito y la diferencia entre caras salen casi 0 en una cara perfectamente sana."""
+    if shape.is_empty:
+        return shape
+    return shape.buffer(tol, join_style="mitre").buffer(-tol, join_style="mitre")
 
 
 def propose_geometry(face: ContactFace, spec: LimbSpec) -> LimbSpec:

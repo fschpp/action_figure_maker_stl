@@ -256,3 +256,29 @@ def test_twist_between_limbs_is_a_warning_not_a_problem(built, params):
         assert any("choca" in pr for pr in out["problems"]) == expect_problem, (out, info["giro_libre"]["+"])
         if not expect_problem:
             assert any("pose impresa" in a for a in out["avisos"])
+
+
+def _noisy_disc_face(radius=10.0, n=24, noise=2e-4, seed=1):
+    """Cara circular triangulada en abanico, con vértices que no coinciden exactamente entre triángulos (como una malla importada)."""
+    from afm.limbs import ContactFace
+    rng = np.random.default_rng(seed)
+    ang = np.linspace(0.0, 2 * np.pi, n, endpoint=False)
+    tri = np.array([np.array([[0, 0, 0], [0, radius * np.cos(ang[i]), radius * np.sin(ang[i])],
+                              [0, radius * np.cos(ang[(i + 1) % n]), radius * np.sin(ang[(i + 1) % n])]], float) + rng.normal(0, noise, (3, 3))
+                    for i in range(n)])
+    return ContactFace(center=np.zeros(3), outward=np.array([1.0, 0, 0]), area=float(np.pi * radius ** 2), triangles=tri)
+
+
+def test_inscribed_radius_ignores_hairline_seams_between_triangles():
+    """Una cara sana de r = 10 mm con vértices que difieren décimas de µm medía radio inscrito 0 (el borde incluía las costuras)
+    y el pasador de la cintura «no entraba» (Ø0,0 mm)."""
+    from afm.waist import _inscribed_radius
+    assert _inscribed_radius(_noisy_disc_face()) == pytest.approx(10.0 * np.cos(np.pi / 24), abs=0.05)
+
+
+def test_close_seams_keeps_real_gaps_and_holes():
+    from shapely.geometry import Polygon
+    from afm.limbs import close_seams
+    sq = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)], [[(4, 4), (6, 4), (6, 6), (4, 6)]])      # agujero real de 2 × 2 mm
+    assert len(close_seams(sq).interiors) == 1
+    assert close_seams(Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])).area == pytest.approx(100.0, abs=1e-6)

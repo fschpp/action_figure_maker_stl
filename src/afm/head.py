@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from . import solids as S
-from .limbs import ContactFace, _face_shape, pin_fit
+from .limbs import ContactFace, _face_shape, close_seams, pin_fit
 from .params import Params, PinSpec
 from .pins import mushroom_pin
 from .planes import Plane
@@ -482,7 +482,7 @@ def _face_shape_in(plane: Plane, face: ContactFace):
     from shapely.ops import unary_union
 
     polys = [Polygon(plane.to_uv(t)).buffer(0) for t in face.triangles]
-    return unary_union([q for q in polys if q.area > 1e-12])
+    return close_seams(unary_union([q for q in polys if q.area > 1e-12]))
 
 
 def propose_pin_center(face: ContactFace) -> np.ndarray:
