@@ -46,13 +46,19 @@ def demand(clase: str, params: Params) -> dict | None:
     return d
 
 
-def head_gap(pin, x: float, dir_x: float) -> float:
+def pin_shift(clase: str, params: Params) -> float:
+    """Cuánto queda más adentro el hongo del pasador por el clic: `detent.disc_h` (el disco va delante). Solo la cadera, que es
+    la que valida las cabezas enfrentadas; igual que `pipeline` (`pin_shift_mm`)."""
+    return float(params.detent.disc_h) if clase in MIRROR_CLASSES and params.hip_detent else 0.0
+
+
+def head_gap(pin, x: float, dir_x: float, shift: float = 0.0) -> float:
     """Separación entre la cabeza de este lado y su espejo (mm; negativa si se cruzan): 2 · borde interno de la cabeza.
     Misma cuenta que `pipeline.hip_pin_walls` con `dir_x` = componente en X de la dirección en que entra el pasador (+ si se
-    aleja del plano de simetría) y `x` = |x| del centro del puerto."""
+    aleja del plano de simetría), `x` = |x| del centro del puerto y `shift` = lo que el clic corre el hongo (`pin_shift`)."""
     half_x = float(pin.head_d) / 2 * float(np.sqrt(max(0.0, 1.0 - dir_x ** 2)))
-    base = x + dir_x * float(pin.shaft_len) - half_x
-    tip = x + dir_x * (float(pin.shaft_len) + float(pin.head_h)) - half_x
+    base = x + dir_x * (float(shift) + float(pin.shaft_len)) - half_x
+    tip = x + dir_x * (float(shift) + float(pin.shaft_len) + float(pin.head_h)) - half_x
     return 2.0 * min(base, tip)
 
 
@@ -153,7 +159,7 @@ def check(a: Port, b: Port, params: Params) -> tuple[list, list, dict]:
     elif m < CAP_WARN_MM:
         avisos.append(f"poca profundidad detrás de la cara: sobran {m:.2f} mm (aviso por debajo de {CAP_WARN_MM:g} mm)")
     if "separacion_min_mm" in dem and cap.get("x_mm") is not None:
-        gap = head_gap(pin_of(sock.clase, params), float(cap["x_mm"]), float(cap.get("dir_x", 0.0)))
+        gap = head_gap(pin_of(sock.clase, params), float(cap["x_mm"]), float(cap.get("dir_x", 0.0)), pin_shift(sock.clase, params))
         ms = gap - dem["separacion_min_mm"]
         marg["capacidad_cabezas"] = ms
         if ms < 0:
