@@ -151,3 +151,13 @@ def test_a_hand_is_certified_on_the_arms_of_the_catalog(cat_dir):
     entry = certify.certify(cat, "mano-muneco-01")
     assert entry["n"] == 1 and entry["anfitriones"][0]["torso"] == panel[0].ref and entry["anfitriones"][0]["ok"], entry
     assert certify.status(cat, "mano-muneco-01")["estado"] == "certificada"
+
+
+def test_catalogo_explicar_shows_ports_and_every_pair_with_its_reasons(cat_dir, capsys):
+    assert main(["catalogo", "explicar", cat_dir, "cabeza-muneco-01@1"]) == 0
+    out = capsys.readouterr().out
+    assert "cuello [cuello/enchufe]" in out and "torso-muneco-01@1 (torso" in out and "OK" in out and "IoU" in out
+    assert main(["catalogo", "explicar", cat_dir, "brazo-muneco-01@1", "--con", "mano"]) == 0
+    out = capsys.readouterr().out
+    assert "mano-muneco-01@1" in out and "torso-muneco-01@1" not in out
+    assert main(["catalogo", "explicar", cat_dir, "no-existe@9"]) == 2

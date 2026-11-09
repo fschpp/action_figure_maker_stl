@@ -4,6 +4,8 @@ Estado: el plan de compatibilidad (`PLAN_compatibilidad_cortes_catalogo.md`) tie
 lógica de la interfaz. Lo que sigue son pruebas con figuras reales, decisiones tuyas y cosas que solo se pueden probar en la
 ventana del programa.
 
+- [x] **`afm catalogo explicar RUTA REF [--con TIPO]`** (2026-11-08): muestra los puertos de una pieza y, contra cada otra, nivel, IoU, escalón y motivos (también los «no» que `listar --compatible-con` esconde).
+
 ## 1. Lo que depende de vos
 
 - [ ] **Probar `afm ajustar-cintura-muneca` con San Martín** después de `desde-patron`:

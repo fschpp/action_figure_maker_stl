@@ -3,6 +3,9 @@
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
 ## Current Focus
+**`afm catalogo explicar` (2026-11-08, rama `catalogo_explicar`):** `listar --compatible-con` esconde los pares «no», así que «la cabeza de Belgrano no tiene ningún torso compatible» no se podía diagnosticar. `afm catalogo explicar RUTA REF [--con TIPO]` imprime los puertos de la pieza (clase, rol, radio) y, contra cada otra pieza con puerto de la misma clase, nivel, IoU, escalón, capacidad y motivos. Test en `tests/test_certify.py`. Pendiente con datos reales: por qué `cabeza-belgrano` no se acopla a ningún torso y por qué la cara de cintura de `torso-sup-belgrano` da «Ø1,4 mm».
+
+## Current Focus (anterior)
 **Catalogar el brazo con la muñeca marcada (2026-11-08, rama `catalogar_usa_muneca`):** con Belgrano en el catálogo, `afm catalogo certificar` falló casi todo con «la mano de catálogo necesita el plano de muñeca del modelo (HandSpec.points) cuando el brazo no es de catálogo». Causa: `Session.catalog_add` no pasaba los 3 puntos de muñeca del proyecto a `extract_all`, así que el brazo catalogado salía sin toma `muneca` y el pipeline no podía acoplarle la mano de catálogo. Ahora, si el proyecto tiene `hand.points`, se usan (reflejados al lado +X si hace falta, con `hand.invert`). Hay que **volver a catalogar el brazo de Belgrano como versión nueva**. Test en `tests/test_gui_ajuste.py`. **Pendientes de diagnosticar con datos del catálogo real:** (a) `la cara del corte es demasiado chica para el pasador de la cintura: entra una cabeza de Ø1.4 mm … pide Ø10` al armar con el torso `torso-sup-belgrano`; (b) `cabeza-belgrano… no tiene ningún torso del catálogo con el que sea compatible`.
 
 ## Current Focus (anterior)

@@ -33,6 +33,10 @@ def add_parsers(sub) -> None:
     a.add_argument("--estado", default=None, choices=P.STATES)
     a.add_argument("--todas-las-versiones", action="store_true")
     a.add_argument("--compatible-con", default=None, metavar="REF", help="solo piezas que se acoplan con REF (compatibilidad barata, por metadatos)")
+    a = cs.add_parser("explicar", help="por qué una pieza se acopla (o no) con cada otra: puertos, radios y, por cada par, nivel, IoU, escalón y motivos")
+    root(a)
+    a.add_argument("ref", metavar="REF", help="pieza a explicar (id@versión)")
+    a.add_argument("--con", default=None, metavar="TIPO", help="solo contra piezas de este tipo (p. ej. torso_sup)")
     a = cs.add_parser("verificar", help="formato, hash, mallas cerradas, puertos, caras y altura de cada pieza")
     root(a)
     a = cs.add_parser("usos", help="recetas (y .proyecto) que usan una pieza, para saber qué figuras regenerar al cambiarla")
@@ -280,6 +284,36 @@ def _run_contract(cat, args) -> int:
     return 1 if probs else 0
 
 
+def _explicar(cat, ref: str, tipo: str | None = None) -> int:
+    """`afm catalogo explicar REF`: los puertos de la pieza y, contra cada otra pieza con un puerto de la misma clase, el resultado de la
+    compatibilidad barata (también los «no», que `listar --compatible-con` esconde) con sus motivos."""
+    from .ports import port_compat
+
+    try:
+        me = cat.meta(ref)
+    except (KeyError, ValueError, CatalogError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    rad = lambda p: "—" if p.face is None else f"{float(p.face.radius_eq):.2f}".replace(".", ",")
+    print(f"{me.ref} ({me.tipo}, altura de figura {me.altura_figura_mm}): " + ", ".join(f"{n} [{p.clase}/{p.rol}] r={rad(p)} mm" for n, p in me.puertos.items()))
+    for other in cat.list(tipo):
+        if other.id == me.id:
+            continue
+        rows = []
+        for na, pa in me.puertos.items():
+            for nb, pb in other.puertos.items():
+                if pa.clase != pb.clase or (nb.endswith("_der") and me.espejable) or (na.endswith("_der") and other.espejable):
+                    continue
+                c = port_compat(pa, pb, me.altura_figura_mm, other.altura_figura_mm, cat.params)
+                extra = "; ".join([*c.motivos, *c.avisos])
+                rows.append(f"    {na} ~ {nb} (r={rad(pb)} mm): {c.nivel.upper()}  IoU {c.iou:.2f}  escalón {c.escalon_mm:.2f} mm"
+                            + (f"  capacidad: {c.margenes_mm}" if c.margenes_mm else "") + (f"  → {extra}" if extra else ""))
+        if rows:
+            print(f"{other.ref} ({other.tipo}, altura {other.altura_figura_mm}):")
+            print("\n".join(rows))
+    return 0
+
+
 def run_catalogo(args) -> int:
     try:
         return _run(args)
@@ -298,6 +332,8 @@ def _run(args) -> int:
         print(f"Catálogo «{cat.name}» creado en {cat.root} (altura {cat.height_mm:g} mm, holgura {cat.params.clearance:g} mm)")
         return 0
     cat = _open(args)
+    if cmd == "explicar":
+        return _explicar(cat, args.ref, args.con)
     if cmd == "listar":
         metas = cat.list(args.tipo, args.etiqueta, args.estado, args.todas_las_versiones)
         if args.compatible_con:
