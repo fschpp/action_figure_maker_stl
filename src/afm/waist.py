@@ -44,6 +44,9 @@ MIN_PIN_SCALE = 0.4      # no se achica el pasador por debajo de esta fracción 
 PIN_ON = ("lower", "upper")
 
 
+SLIVER_RATIO = 1e-4      # un componente de menos de esta fracción del mayor es una astilla del corte, no una parte de la figura
+
+
 @dataclass
 class WaistSpec:
     """Cintura: plano de corte (3 puntos) y, opcionalmente, centro y medidas del pasador."""
@@ -191,7 +194,12 @@ def build_waist(torso: S.Manifold, spec: WaistSpec, p: Params, skin: S.Manifold 
         lower, upper = S.union(lower, pin), S.difference(upper, pocket)
     else:
         upper, lower = S.union(upper, pin), S.difference(lower, pocket)
-    info = {"pin_center": c.tolist(), "axis": n.tolist(), "pin_on": spec.pin_on,
+    # La cavidad y el corte dejan astillas de ~0 mm³ sueltas en el plano de la cintura (mallas importadas): se descartan, si no
+    # la pelvis «tiene 3 componentes» y la validación la rechaza aunque no haya ninguna parte real suelta.
+    n_before = len(upper.decompose()) + len(lower.decompose())
+    upper, lower = S.drop_small_components(upper, SLIVER_RATIO), S.drop_small_components(lower, SLIVER_RATIO)
+    slivers = n_before - len(upper.decompose()) - len(lower.decompose())
+    info = {"astillas_descartadas": slivers, "pin_center": c.tolist(), "axis": n.tolist(), "pin_on": spec.pin_on,
             "pin": dataclasses.asdict(pin_spec), "pin_reducido": None if k == 1.0 else round(k, 3),
             "pared_tras_cabeza_mm": round(lip_mm(pin_spec, p.clearance), 3),
             "relacion_cabeza_vastago": round(pin_spec.head_d / pin_spec.shaft_d, 3),

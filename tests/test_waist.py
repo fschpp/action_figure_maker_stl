@@ -291,3 +291,19 @@ def test_loose_components_are_described_by_size_and_place():
     txt = PL._components_detail(S.union(big, small))
     assert "el mayor tiene 1000.0 mm³" in txt and "8.0 mm³ en (31.0, 1.0, 6.0)" in txt
     assert PL._components_detail(big) == ""
+
+
+def test_build_waist_drops_slivers_left_by_the_cut(doll, params, monkeypatch):
+    """Dos astillas de ~0 mm³ en la pelvis daban «3 componentes (debería ser 1, soldado)» (Belgrano): se descartan al armar la cintura."""
+    real = S.difference
+
+    def dirty(a, b):
+        r = real(a, b)
+        bb = r.bounding_box()
+        return S.union(r, S.Manifold.cube((0.05, 0.05, 0.05)).translate((bb[3] + 5, bb[4] + 5, bb[5] + 5)))
+
+    monkeypatch.setattr(S, "difference", dirty)
+    wb = build_waist(doll, _waist(pin_on="upper"), params)
+    monkeypatch.setattr(S, "difference", real)
+    assert len(wb.upper.decompose()) == 1 and len(wb.lower.decompose()) == 1
+    assert wb.info["astillas_descartadas"] >= 1
