@@ -3,6 +3,9 @@
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
 ## Current Focus
+**Cara del cuello de la cabeza de reemplazo = corte completo (2026-11-08, rama `cara_cuello_corte_completo`, sobre main eaa7716):** el dibujo de `scripts/diagnostico_cuello.py` con Belgrano mostró que la cara catalogada tenía un hueco triangular en el medio (rojo punteado) mientras la de la interfaz estaba entera: `face_from_mesh` solo junta triángulos exactamente sobre el plano y en la malla importada algunos de la base quedan apenas inclinados; el pasador (círculo inscrito de la cara entera) caía en el hueco → «sobresale 0,17 mm / círculo Ø8,1». `extract._full_section_face` usa el corte completo cuando cubre más. Test con medición con hueco simulada. Hay que volver a catalogar la cabeza de Belgrano (versión nueva).
+
+## Current Focus (anterior)
 **Cabeza de REEMPLAZO: puerto `cuello` en el pasador (2026-11-08, rama `cabeza_reemplazo_pasador`):** el arreglo anterior (PR #73) solo cubría la cabeza que sale del modelo. La de Belgrano es de reemplazo (`replacement_path`) y `_replacement_head` seguía anotando el puerto en el centroide de la base, por eso `afm catalogo explicar` seguía diciendo «el pasador sobresale 0,32 mm / a 2,4 mm del mejor punto» aunque la interfaz mostraba 3,8 mm de margen. Nuevo `head.pin_center_on(face, plane, spec)` (lo usan `pin_center_of` y `_replacement_head`). Test: `test_replacement_head_port_sits_at_the_pin_not_at_the_base_centroid` (falla sin el arreglo). Hay que volver a catalogar la cabeza de Belgrano (versión nueva).
 
 ## Current Focus (anterior)
