@@ -284,6 +284,23 @@ def extract_all(body: S.Manifold, project: Project, prefix: str = "figura", plac
     return res
 
 
+def _full_section_face(face, frame: PortFrame, measured: PortFace) -> PortFace:
+    """Cara del puerto de una cabeza de reemplazo: el corte completo del cuello (el que ve la interfaz).
+
+    `face_from_mesh` solo junta los triángulos que yacen EXACTAMENTE sobre el plano; en una malla importada (Hunyuan) algunos
+    de la base quedan apenas inclinados y la cara sale con un hueco: el pasador, que se arma sobre el corte entero, parecía
+    salirse. Si el corte entero cubre más que lo medido se usa el corte entero."""
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+
+    polys = [Polygon(frame.to_uv(t)).buffer(0) for t in face.triangles]
+    shape = unary_union([q for q in polys if q.area > 1e-12])
+    if shape.is_empty:
+        return measured
+    full = PortFace.from_shape(shape)
+    return full if full.area > measured.area * 1.001 else measured
+
+
 def _replacement_head(spec: HeadSpec, neck: Plane, model_face, prefix: str, origin: dict, p: Params, warnings: list) -> Extracted:
     """Pieza `cabeza` con la cabeza de REEMPLAZO del proyecto (la de más detalle que se importó en lugar de la del modelo).
 
@@ -303,6 +320,7 @@ def _replacement_head(spec: HeadSpec, neck: Plane, model_face, prefix: str, orig
     fr = PortFrame(pin_center_on(face, neck, spec), face.outward.copy(), reference_for(face.outward, (0.0, 1.0, 0.0)))   # donde va el pasador
     tm = _clean(placed, "cabeza", warnings)
     fr, pface = _port_face(tm, fr, "cuello", warnings)
+    pface = _full_section_face(face, fr, pface)
     iou = info.get("coincidencia_base")
     if iou is not None and iou < MIN_BASE_IOU:
         warnings.append(f"cabeza de reemplazo: su base coincide solo un {100 * iou:.0f} % con el cuello del modelo: al armarla en "

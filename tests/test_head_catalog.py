@@ -155,3 +155,20 @@ def test_replacement_head_port_sits_at_the_pin_not_at_the_base_centroid(doll, he
             assert np.allclose(port.frame.center[1:], (1.0, 80.0), atol=0.6), port.frame.center
         else:
             assert pin_diagnosis(port.face, 4.1)["desvio"] < 0.3
+
+
+def test_replacement_head_face_has_no_hole_when_base_triangles_are_slightly_tilted(doll, head_stl, monkeypatch):
+    """Si la medición triángulo a triángulo deja un hueco (base de malla importada con triángulos apenas inclinados), la cara
+    catalogada sale del corte entero: el pasador no se sale de la cara."""
+    from shapely.geometry import Polygon
+    import afm.extract as X
+    from afm.ports import PortFace, pin_diagnosis
+    real = X.face_from_mesh
+
+    def holey(mesh, frame, **kw):
+        f = real(mesh, frame, **kw)
+        hole = Polygon([(-6, -6), (6, -6), (0, 8)])
+        return PortFace.from_shape(f.shape().difference(hole))
+    monkeypatch.setattr(X, "face_from_mesh", holey)
+    port = head_of(extract_all(doll, with_replacement(head_stl), "m", ["cabeza"])).meta.puertos["cuello"]
+    assert pin_diagnosis(port.face, 4.1)["margen"] > 0
