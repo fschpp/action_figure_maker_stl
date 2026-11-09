@@ -250,3 +250,23 @@ def test_measure_capacity_on_existing_pieces_and_cli(tmp_path, capsys):
     assert again.verify().ok
     c = port_compat(again.meta("brazo-muneco-01").puertos["hombro"], again.meta("torso-muneco-01").puertos["hombro_izq"], 100, 100, again.params)
     assert c.margenes_mm["capacidad_profundidad"] > 0 and not c.sin_capacidad
+
+
+def test_head_gap_with_click_matches_the_engine_that_shifts_the_mushroom():
+    """Con clic el hongo queda `disc_h` mm más adentro (`pin_shift_mm`): la capacidad tiene que contarlo igual que `_validate_hip_pin`,
+    si no el catálogo dice «ok» y la figura armada falla por cabezas a menos de 2·holgura."""
+    from afm.pipeline import hip_pin_walls
+
+    pc = dataclasses.replace(P, hip_detent=True)
+    shift = C.pin_shift("cadera", pc)
+    assert shift == pytest.approx(pc.detent.disc_h) and C.pin_shift("cadera", P) == 0.0 and C.pin_shift("hombro", pc) == 0.0
+    d = np.array([-1.0, 0.0, 0.0])
+    for x in (7.7, 9.55, 12.0):
+        ref = hip_pin_walls(pc.hip_pin, np.array([x, 0.0, 0.0]) + d * shift, d, pc.clearance)["separacion_cabezas_mm"]
+        assert C.head_gap(pc.hip_pin, x, -1.0, shift) == pytest.approx(ref)
+
+    def hip(x):
+        return socket("cadera", cap={"profundidad_mm": 30.0, "huella_radio_mm": pc.hip_pin.head_d / 2, "x_mm": x, "dir_x": -1.0})
+    assert C.check(plug("cadera"), hip(9.55), P)[0] == []                      # sin clic cabe (separación 5,9 mm)
+    bad = C.check(plug("cadera"), hip(9.55), pc)[0]                            # con clic: 0,9 mm < 1,0
+    assert len(bad) == 1 and "0.90" in bad[0]

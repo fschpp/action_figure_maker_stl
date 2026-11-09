@@ -202,7 +202,7 @@ def _label_lines(cat, contract) -> list[str]:
 
 def _run_capacity(cat, args) -> int:
     """`afm catalogo capacidad RUTA [ID …] [--escribir]`: mide (y opcionalmente guarda) la capacidad de las tomas con pasador."""
-    from .capacity import check, demand, head_gap, pin_of
+    from .capacity import check, demand, head_gap, pin_of, pin_shift
 
     params = cat.params
     metas = [cat.meta(r) for r in args.refs] if args.refs else cat.list()
@@ -222,7 +222,7 @@ def _run_capacity(cat, args) -> int:
             need = dem["profundidad_mm"] + dem["pared_min_mm"]
             line = f"  {m.ref:<28} {name:<12} profundidad {cap['profundidad_mm']:.2f} mm (pide {need:.2f}, margen {cap['profundidad_mm'] - need:+.2f})"
             if cap.get("x_mm") is not None:
-                gap = head_gap(pin_of(port.clase, params), cap["x_mm"], cap["dir_x"])
+                gap = head_gap(pin_of(port.clase, params), cap["x_mm"], cap["dir_x"], pin_shift(port.clase, params))
                 line += f" · cabezas a {gap:.2f} mm (mínimo {dem['separacion_min_mm']:.2f})"
             if cap["profundidad_mm"] < need or (cap.get("x_mm") is not None and gap < dem["separacion_min_mm"]):
                 line += "  ← el pasador de la línea no cabe"
