@@ -41,3 +41,18 @@ def test_armed_head_matches_the_port_to_port_placement(tilt_deg):
     # así que se compara sin la traslación; una cabeza girada 180° sobre el cuello (nariz hacia atrás) da varios mm de diferencia
     assert np.allclose(got.bounds - got.centroid, expected.bounds - expected.centroid, atol=0.35), (got.bounds, expected.bounds)
     assert np.linalg.norm(got.centroid - expected.centroid) < 1.5
+
+
+def test_cataloged_neck_port_sits_where_the_pin_is_built():
+    """El puerto `cuello` de la cabeza y de la toma del torso están en el centro del pasador (el del proyecto o el del círculo
+    inscrito), no en el centro de la cara: con un pasador descentrado el puerto quedaba a unos mm y la cara no lo contenía."""
+    from afm.head import build_head, split_head as _split
+    doll = S.to_manifold(make_doll())
+    pr = demo_project()
+    pr.head = dataclasses.replace(pr.head, pin_center=(0.0, 1.5, 80.0))
+    res = extract_all(doll, pr, "muneco", ["cabeza", "torso"])
+    ports = {e.meta.tipo: e.meta.puertos["cuello"] for e in res.pieces if e.meta.tipo in ("cabeza", "torso")}
+    for tipo, port in ports.items():
+        assert np.allclose(port.frame.center, (0.0, 1.5, 80.0), atol=0.05), (tipo, port.frame.center)
+    split = _split(doll, pr.head, Params())
+    assert np.allclose(build_head(split, pr.head, Params()).face.center, ports["cabeza"].frame.center, atol=0.05)

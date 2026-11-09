@@ -29,7 +29,7 @@ import numpy as np
 
 from . import meshio, solids as S
 from .hand import HandError, WristFrame, to_local
-from .head import HeadSpec, neck_plane, split_head
+from .head import HeadSpec, neck_plane, pin_center_of, split_head
 from .limbs import LimbSpec, limb_prism, separate_limb
 from .params import Params
 from .parts import PieceMeta, make_origin
@@ -210,7 +210,7 @@ def extract_all(body: S.Manifold, project: Project, prefix: str = "figura", plac
         neck = neck_plane(project.head)
         hs = dataclasses.replace(project.head, replacement_path=None)       # el cuello del MODELO: la cabeza original
         split = split_head(body, hs, p)
-        n_fr = PortFrame(split.face.center.copy(), split.face.outward.copy(), reference_for(split.face.outward, (0.0, 1.0, 0.0)))
+        n_fr = PortFrame(pin_center_of(split, hs), split.face.outward.copy(), reference_for(split.face.outward, (0.0, 1.0, 0.0)))
         head_tm = _clean(split.head, "cabeza", res.warnings)
         n_fr, n_face = _port_face(head_tm, n_fr, "cuello", res.warnings)
         head_port = Port("cuello", "enchufe", n_fr, n_face)       # el torso se acopla a este (el cuello del modelo)

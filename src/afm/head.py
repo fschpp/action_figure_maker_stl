@@ -498,6 +498,20 @@ def propose_pin_center(face: ContactFace) -> np.ndarray:
     return c
 
 
+def pin_center_of(split: HeadSplit, spec: HeadSpec) -> np.ndarray:
+    """Dónde va el pasador del cuello: el `pin_center` del proyecto (proyectado sobre el plano y sobre x = 0), el centro del
+    círculo inscrito mayor de la cara (`auto`) o el centro de la cara. Es el mismo que usa `build_head`, y el que tiene que
+    llevar el puerto `cuello` al catalogar (si no, un cuello inclinado o asimétrico deja el pasador fuera de la cara)."""
+    if spec.pin_center is not None:
+        c = np.asarray(spec.pin_center, float)
+        c = c - ((c - split.plane.origin) @ split.plane.normal) * split.plane.normal   # sobre el plano
+        c[0] = 0.0
+        return c
+    if spec.auto:
+        return propose_pin_center(split.face)
+    return split.face.center.copy()
+
+
 def build_head(split: HeadSplit, spec: HeadSpec, p: Params, trims=None) -> HeadBuild:
     """Cabeza entera con pasador + cavidad (el pasador dilatado por la holgura, como en los hombros)."""
     from .limbs import pin_margin
@@ -511,14 +525,7 @@ def build_head(split: HeadSplit, spec: HeadSpec, p: Params, trims=None) -> HeadB
     elif mine:     # los recortes se dibujan en el lado de trabajo: se aplican a la mitad y se espeja
         half = apply_trims(whole.trim_by_plane((1.0, 0.0, 0.0), 0.0), mine, spec.name)
         whole = S.union(half, S.mirror_x(half))
-    if spec.pin_center is not None:
-        c = np.asarray(spec.pin_center, float)
-        c = c - ((c - split.plane.origin) @ split.plane.normal) * split.plane.normal   # sobre el plano
-        c[0] = 0.0
-    elif spec.auto:
-        c = propose_pin_center(split.face)
-    else:
-        c = split.face.center
+    c = pin_center_of(split, spec)
     face = dataclasses.replace(split.face, center=c)
     pin = mushroom_pin(c, face.outward, p.neck_pin)
     return HeadBuild(head=S.union(whole, pin), pocket=S.dilate(pin, p.clearance), face=face,
