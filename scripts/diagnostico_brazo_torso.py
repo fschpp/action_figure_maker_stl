@@ -1,7 +1,8 @@
 """Dónde se tocan el brazo y el torso en una figura armada desde el catálogo.
 
 Uso:  python scripts/diagnostico_brazo_torso.py RECETA.receta.json RUTA_DEL_CATALOGO
-Arma la figura de la receta (como «Generar») y, para cada brazo, imprime el volumen que se superpone con el torso, dónde está
+      python scripts/diagnostico_brazo_torso.py PROYECTO.proyecto RUTA_DEL_CATALOGO [FIGURA.stl]
+Arma la figura de la receta o del proyecto (como «Generar»; con proyecto, el STL sale del propio proyecto si no se pasa) y, para cada brazo, imprime el volumen que se superpone con el torso, dónde está
 (caja y centro), la holgura mínima y la cara por donde se tocan. Sirve para ver de dónde sale «brazo: interpenetra el torso»
 o una holgura de 0 mm en el informe."""
 import sys
@@ -11,9 +12,12 @@ import numpy as np
 from afm.recipe import Recipe, assemble
 
 
-def main(receta, catalogo):
-    asm = assemble(Recipe.load(receta), catalogo, progress=print)
-    res = asm.result if hasattr(asm, "result") else asm.res
+def main(archivo, catalogo, stl=None):
+    if archivo.endswith(".proyecto"):
+        from afm.gui.session import Session
+        res = Session.open_project(archivo, stl, catalogo).build(progress=print).result
+    else:
+        res = assemble(Recipe.load(archivo), catalogo, progress=print).res
     torso = res.pieces["torso"]
     for name in ("brazo_izq", "brazo_der"):
         arm = res.pieces[name]
@@ -30,4 +34,4 @@ def main(receta, catalogo):
 
 
 if __name__ == "__main__":
-    main(*sys.argv[1:3])
+    main(*sys.argv[1:4])
