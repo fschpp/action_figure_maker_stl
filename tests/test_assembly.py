@@ -426,3 +426,16 @@ def test_pelvis_and_head_of_the_catalog_are_judged_by_the_host_capacity(doll, wa
         compat = res.report["piezas"][lugar]["compat"]
         assert not compat.get("sin_capacidad"), (lugar, compat)
         assert compat["margenes_mm"]["capacidad_profundidad"] > 0, (lugar, compat)
+
+
+def test_arm_without_declared_sweep_is_not_cataloged_as_not_rotating(extracted, project):
+    """El brazo catalogado no guarda barrido (0, 0): el armado lo leía como «no gira» y con clic perdía la vuelta completa del
+    hombro (clics, tallado del torso). Los brazos viejos con (0, 0) se leen igual que sin barrido; la pierna conserva su rango."""
+    from afm.assembly import _declared_sweep, synthesize_host
+
+    assert extracted["brazo"].meta.puertos["hombro"].sweep_deg is None
+    assert extracted["pierna"].meta.puertos["cadera"].sweep_deg is not None
+    assert _declared_sweep("arm", (0.0, 0.0)) is None and _declared_sweep("arm", None) is None
+    assert _declared_sweep("arm", (0.0, 90.0)) == (0.0, 90.0) and _declared_sweep("leg", (0.0, 95.0)) == (0.0, 95.0)
+    h = synthesize_host(_choices(extracted, "torso", "brazo", "pierna", "cabeza"), project.params)
+    assert next(l for l in h.limbs if l.kind == "arm").sweep_deg is None

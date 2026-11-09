@@ -245,7 +245,10 @@ def extract_all(body: S.Manifold, project: Project, prefix: str = "figura", plac
         place = "brazo" if kind == "arm" else "pierna"
         tm = _clean(limb, place, res.warnings)
         frame, pface = _port_face(tm, frame, spec.name, res.warnings)
-        port = Port(KIND_PORT[kind], "enchufe", frame, pface, tuple(float(x) for x in _sweep_range(spec, p)))
+        # El brazo sin barrido declarado NO guarda (0, 0): eso lo leería el armado como «no gira» y con clic dejaría el hombro sin
+        # la vuelta completa (clics y tallado del torso). Solo la pierna lleva su rango; el brazo, lo que el proyecto declare.
+        sw = _sweep_range(spec, p) if kind == "leg" else spec.sweep_deg
+        port = Port(KIND_PORT[kind], "enchufe", frame, pface, None if sw is None else tuple(float(x) for x in sw))
         ports_by_place[KIND_PORT[kind]] = port
         mesh, ports = tm, {port.clase: port}
         if kind == "arm" and wrist_points is not None:

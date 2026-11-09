@@ -342,9 +342,19 @@ def synthesize_host(parts: dict, params=None) -> SyntheticHost:
         c = np.asarray(toma.frame.center, float)
         limbs.append(LimbSpec(name=name, kind=kind, plane=Plane.from_normal(c, toma.frame.axis, name),
                               polygon=np.zeros((3, 3)), thickness=1.0, contact_axis=tuple(abs(float(x)) for x in toma.frame.axis),
-                              pin_center=tuple(float(x) for x in c), sweep_deg=None if lp.sweep_deg is None else tuple(lp.sweep_deg),
+                              pin_center=tuple(float(x) for x in c), sweep_deg=_declared_sweep(kind, lp.sweep_deg),
                               mechanism=mech))
     return SyntheticHost(body, limbs, faces, parts, head, waist, notes)
+
+
+def _declared_sweep(kind: str, sweep) -> tuple | None:
+    """Barrido que declara el puerto. Los brazos catalogados antes de que `extract` dejara de guardar el (0, 0) por defecto lo
+    traen como (0, 0): para el armado eso es «sin barrido» (None), no «el brazo no gira», que con clic le quitaba la vuelta
+    completa al hombro."""
+    if sweep is None:
+        return None
+    sw = tuple(float(x) for x in sweep)
+    return None if (kind == "arm" and sw == (0.0, 0.0)) else sw
 
 
 def transform_choice(choice: PartChoice, T) -> PartChoice:
