@@ -321,3 +321,20 @@ def test_neck_makes_the_tongue_a_u_shape_wide_where_it_meets_the_body(params):
         width[neck] = np.ptp(near[:, 1]) if len(near) else 0.0
     assert width[True] > 2 * 3.0 * 0.95                                       # ancho completo de la lengüeta (2·radio)
     assert width[True] > width[False] + 0.3
+
+
+def test_diagnostico_codo_script_finds_the_first_contact_angle(built):
+    """`scripts/diagnostico_codo.py`: primer ángulo de choque distal/proximal en extensión y flexión (los mismos topes que valida `validate`)."""
+    import importlib.util
+    import os
+    spec = importlib.util.spec_from_file_location("diagnostico_codo", os.path.join(os.path.dirname(__file__), "..", "scripts", "diagnostico_codo.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    res, _val, _j = built
+    jb = res.joints["codo"]
+    lo, hi = jb.flex
+    ext = mod.first_contact(jb, lo, -1.0, 2.0)
+    fle = mod.first_contact(jb, hi, +1.0, 2.0)
+    assert ext is not None and lo - 20.0 <= ext <= lo                      # el muñeco tiene tope de extensión a ≤ 10° del límite
+    assert fle is not None and hi <= fle <= hi + 20.0
+    assert mod.first_contact(jb, lo, -1.0, 2.0, limit=0.0) in (None, lo)   # límite 0: solo mira el ángulo de partida

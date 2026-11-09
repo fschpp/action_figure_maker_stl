@@ -3,6 +3,9 @@
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
 ## Current Focus
+**Pelvis de Belgrano sin astillas; queda el codo (2026-11-08, rama `diagnostico_codo`, sobre main 8c7d466):** tras `--forzar`, la pelvis de Güemes sobre el torso de Belgrano da solo `codo: sin tope de extensión: a −20° todavía no choca` (viene del brazo de Belgrano, plano heredado del patrón). Nuevo `scripts/diagnostico_codo.py PROYECTO FIGURA.stl [paso]`: imprime por articulación el rango de flexión y el primer ángulo de choque en extensión y en flexión (para distinguir «tope que cae unos grados más allá» —ajustable con `Params.stop_margin`— de «no hay tope» —hay que mover el plano de la articulación—). Test en `tests/test_joints.py`. Pendiente: correrlo con el proyecto de Belgrano y decidir; cadera de Belgrano (7,66 vs 8,30 mm; muslos que se interpenetran con la pierna de Güemes).
+
+## Current Focus (anterior)
 **Astillas en la pelvis (2026-11-08, rama `pelvis_sin_astillas`, sobre main 9d2ac09):** con el detalle de `_components_detail`, `afm catalogo certificar --forzar` mostró que los «3 componentes» de la pelvis eran dos astillas de **0,0 mm³** en (−2,4; 10,0; 75,7) y (−7,5; −7,2; 76,6), en el plano de la cintura (el mayor mide 6176,6 mm³): no hay sable ni faldón suelto. `waist.build_waist` ahora descarta los componentes de menos de `SLIVER_RATIO` (1e-4) del mayor tras restar la cavidad y unir el pasador, y deja `info["astillas_descartadas"]`. Tests: `tests/test_waist.py` (+1, 26 pasan). **Nota:** `afm catalogo certificar` reutiliza el resultado guardado si la clave no cambia; para ver un cambio de mensaje hay que usar `--forzar`. Quedan de Belgrano: codo sin tope de extensión (plano del codo heredado) y cadera (7,66 vs 8,30 mm de profundidad; «muslos se interpenetran» con la pierna de Güemes).
 
 ## Current Focus (anterior)
