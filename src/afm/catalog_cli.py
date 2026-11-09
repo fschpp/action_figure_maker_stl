@@ -298,9 +298,9 @@ def _explicar(cat, ref: str, tipo: str | None = None) -> int:
         if p.face is None:
             return "—"
         n, holes = len(p.face.polygons), sum(len(q["interiors"]) for q in p.face.polygons)
-        extra = (f", {n} trozos" if n > 1 else "") + (f", {holes} agujero(s)" if holes else "")
-        return f"{float(p.face.radius_eq):.2f}".replace(".", ",") + extra
-    print(f"{me.ref} ({me.tipo}, altura de figura {me.altura_figura_mm}): " + ", ".join(f"{n} [{p.clase}/{p.rol}] r={rad(p)} mm" for n, p in me.puertos.items()))
+        extra = (f" ({n} trozos" if n > 1 else "") + ((", " if n > 1 else " (") + f"{holes} agujero(s)" if holes else "") + (")" if n > 1 or holes else "")
+        return f"{float(p.face.radius_eq):.2f}".replace(".", ",") + " mm" + extra
+    print(f"{me.ref} ({me.tipo}, altura de figura {me.altura_figura_mm}): " + ", ".join(f"{n} [{p.clase}/{p.rol}] r={rad(p)}" for n, p in me.puertos.items()))
     for other in cat.list(tipo):
         if other.id == me.id:
             continue
@@ -311,7 +311,7 @@ def _explicar(cat, ref: str, tipo: str | None = None) -> int:
                     continue
                 c = port_compat(pa, pb, me.altura_figura_mm, other.altura_figura_mm, cat.params)
                 extra = "; ".join([*c.motivos, *c.avisos])
-                rows.append(f"    {na} ~ {nb} (r={rad(pb)} mm): {c.nivel.upper()}  IoU {c.iou:.2f}  escalón {c.escalon_mm:.2f} mm"
+                rows.append(f"    {na} ~ {nb} (r={rad(pb)}): {c.nivel.upper()}  IoU {c.iou:.2f}  escalón {c.escalon_mm:.2f} mm"
                             + (f"  capacidad: {c.margenes_mm}" if c.margenes_mm else "") + (f"  → {extra}" if extra else ""))
         if rows:
             print(f"{other.ref} ({other.tipo}, altura {other.altura_figura_mm}):")
