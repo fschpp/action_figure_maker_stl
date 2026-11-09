@@ -130,6 +130,9 @@ def coupling_transform(piece: PortFrame, target: PortFrame) -> np.ndarray:
     return mt @ np.linalg.inv(piece.matrix())
 
 
+SEAM_MM = 0.02        # costuras más finas que esto entre trozos de una cara se cierran
+
+
 @dataclass
 class PortFace:
     """Cara de unión: polígonos en (u, v) del puerto (el contorno exterior y los agujeros)."""
@@ -154,7 +157,12 @@ class PortFace:
         """La cara como geometría shapely en (u, v)."""
         from shapely.geometry import Polygon
         from shapely.ops import unary_union
-        return unary_union([Polygon(p["exterior"], p["interiors"]).buffer(0) for p in self.polygons])
+        shape = unary_union([Polygon(p["exterior"], p["interiors"]).buffer(0) for p in self.polygons])
+        if hasattr(shape, "geoms"):
+            # trozos que se tocan con una costura de centésimas de mm (la triangulación de una malla importada): una sola cara.
+            # Sin esto el diagnóstico mide el círculo inscrito solo en el trozo mayor y el borde incluye la costura.
+            shape = shape.buffer(SEAM_MM, join_style="mitre").buffer(-SEAM_MM, join_style="mitre")
+        return shape
 
     def to_dict(self) -> dict:
         return {"area_mm2": round(self.area, 4), "radio_eq_mm": round(self.radius_eq, 4), "poligonos": self.polygons}

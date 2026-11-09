@@ -294,7 +294,12 @@ def _explicar(cat, ref: str, tipo: str | None = None) -> int:
     except (KeyError, ValueError, CatalogError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
-    rad = lambda p: "—" if p.face is None else f"{float(p.face.radius_eq):.2f}".replace(".", ",")
+    def rad(p):
+        if p.face is None:
+            return "—"
+        n, holes = len(p.face.polygons), sum(len(q["interiors"]) for q in p.face.polygons)
+        extra = (f", {n} trozos" if n > 1 else "") + (f", {holes} agujero(s)" if holes else "")
+        return f"{float(p.face.radius_eq):.2f}".replace(".", ",") + extra
     print(f"{me.ref} ({me.tipo}, altura de figura {me.altura_figura_mm}): " + ", ".join(f"{n} [{p.clase}/{p.rol}] r={rad(p)} mm" for n, p in me.puertos.items()))
     for other in cat.list(tipo):
         if other.id == me.id:

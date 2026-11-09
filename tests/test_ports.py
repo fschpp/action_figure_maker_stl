@@ -225,3 +225,23 @@ def test_pin_reason_port_center_outside_the_face():
 def test_ok_compat_has_no_extra_keys():
     ok = port_compat(_port(8, "enchufe"), _port(8, "toma", up=False), 130, 130)
     assert "cara_chica_mm" not in ok.to_dict() and not ok.cara_chica
+
+
+def test_face_pieces_split_by_a_hairline_seam_are_one_face():
+    """La cara de una malla importada puede quedar en trozos pegados con una costura de décimas de µm: el diagnóstico del
+    pasador no debe tomar solo el trozo mayor (decía «sobresale» con el pasador en el medio de una cara que sí lo aloja)."""
+    from shapely.geometry import MultiPolygon, Polygon
+    from afm.ports import pin_diagnosis
+    a = Polygon([(-5, -5), (0, -5), (0, 5), (-5, 5)])
+    b = Polygon([(0.0003, -5), (5, -5), (5, 5), (0.0003, 5)])
+    face = PortFace.from_shape(MultiPolygon([a, b]))
+    assert len(face.polygons) == 2 and face.shape().geom_type == "Polygon"
+    d = pin_diagnosis(face, 4.1)
+    assert d["dentro"] and d["margen"] > 2.5 and d["circulo_d"] > 9.5 and d["desvio"] < 0.2
+
+
+def test_separate_pieces_far_apart_stay_separate():
+    from shapely.geometry import MultiPolygon, Polygon
+    a = Polygon([(-5, -5), (-1, -5), (-1, 5), (-5, 5)])
+    b = Polygon([(1, -5), (5, -5), (5, 5), (1, 5)])               # 2 mm de separación real: no es una costura
+    assert PortFace.from_shape(MultiPolygon([a, b])).shape().geom_type == "MultiPolygon"
