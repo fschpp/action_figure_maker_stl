@@ -649,11 +649,14 @@ En naranja se ve el contorno del pasador (vástago y cabeza); en verde, la posic
         _help(sec, "Elegí «Colocar el pasador» (marcador) en un miembro de la lista de planos. Se muestra la cara de corte de "
                    "frente, con el torso recortado: el círculo naranja es el vástago y el amarillo la cabeza del hongo; el punto "
                    "verde es dónde lo pondría el programa. Clic sobre la cara = mover el pasador; flechas = ajustar 0,1 mm "
-                   "(Mayús: 1 mm). Si no lo tocás, se usa la posición automática.")
+                   "(Mayús: 1 mm). Con un catálogo abierto, el círculo que sigue al puntero es la mira: verde si lo aceptan casi "
+                   "todas las piezas del catálogo, amarillo si solo una parte, rojo si ninguna (informativo, no una garantía); "
+                   "«Imán» (M) busca la mejor posición a ±2 mm. Si no lo tocás, se usa la posición automática.")
+        self.btn_pin_snap = self._button("Imán: mejor posición cercana (M)", lambda *_: self.ctrl.snap_pin())
         self.btn_pin_reset = self._button("Volver a la posición automática", lambda *_: self.ctrl.reset_pin())
         self.btn_pin_face = self._button("Mirar la cara de frente", lambda *_: self._pin_face_view())
         self.btn_pin_end = self._button("Terminar colocación del pasador (Esc)", lambda *_: self.ctrl.cancel())
-        for b in (self.btn_pin_reset, self.btn_pin_face, self.btn_pin_end):
+        for b in (self.btn_pin_snap, self.btn_pin_reset, self.btn_pin_face, self.btn_pin_end):
             sec.append(b)
 
         # --------------------------------------------------------- Recortes
@@ -1030,7 +1033,7 @@ exportar; tarda un poco más.")
                 b.set_sensitive(editing)
             self.btn_raise.set_sensitive(editing and ctrl.edit_cross)
             placing = ctrl.mode == Mode.PIN
-            for b in (self.btn_pin_reset, self.btn_pin_face, self.btn_pin_end):
+            for b in (self.btn_pin_snap, self.btn_pin_reset, self.btn_pin_face, self.btn_pin_end):
                 b.set_sensitive(placing)
             self.spin_over.set_value(ctrl.overhang_angle)
             self.chk_fill_hip.set_active(ctrl.session.project.params.flat_fill_hip)
@@ -1269,6 +1272,9 @@ exportar; tarda un poco más.")
         if self.ctrl.mode == Mode.HEAD_PIN and keyval in _ARROWS:
             du, dv = _ARROWS[keyval]
             self.ctrl.nudge_head_pin(du, dv, big=bool(state & Gdk.ModifierType.SHIFT_MASK))
+            return True
+        if self.ctrl.mode == Mode.PIN and keyval in (Gdk.KEY_m, Gdk.KEY_M):
+            self.ctrl.snap_pin()
             return True
         if self.ctrl.mode == Mode.PIN and keyval in _ARROWS:
             du, dv = _ARROWS[keyval]

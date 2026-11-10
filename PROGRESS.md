@@ -3,6 +3,25 @@
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
 ## Current Focus
+**Mira asistida del pasador, «bullseye» (2026-11-10, sobre main 426319e):** al colocar el pasador del hombro / cadera en el modo PIN, con un catálogo abierto, el círculo del vástago y el de la cabeza siguen al puntero y se pintan según cuántas piezas del catálogo aceptarían ese corte (verde ≥ 80 %, amarillo una parte, rojo ninguna, gris sin catálogo, rojo «fuera» si el centro no cae en la cara). La barra de estado dice «Mira: torsos 3/4 · brazos 17/21 · pared 2,1 mm» y, si falla, el motivo más repetido. Es informativo (nivel N0, «probablemente compatible»), como la guía de cortes. Tecla **M** / botón «Imán» mueve el pasador a la mejor posición a ±2 mm. El clic y las flechas agregan «Catálogo: …» al mensaje. Piezas: `src/afm/pin_aid.py` (`PinAid.evaluate` con caché por celda de 0,25 mm, `best_near`, `reference_faces`, `own_face`; sin GTK, usa `guide.coverage_of_port` sobre los dos sentidos: pieza → tomas y torso → enchufes), `Controller.pin_aid` / `pin_aim` / `_update_pin_aim` / `snap_pin` / `_aim_note` (enganchado a `update_hover`), fantasma `pasador:mira` + `pasador:mira_cabeza` en `_sync_pins`, y botón + tecla en `window.py`. Tests: `tests/test_pin_aid.py` (17, sin GTK).
+
+### Todo List
+- [x] `pin_aid.py` (lectura, caché, imán) corregido: el adjunto traía `f\"...\"` en `contador()` (SyntaxError); comillas arregladas.
+- [x] Fantasma con color + contador en la barra de estado + imán (M) en el modo PIN, solo si hay catálogo abierto.
+- [x] Tests de la mira (niveles, caché, imán, controlador, escena).
+- [ ] **Probar con GTK real** (no había GTK/GL en el entorno): el fantasma se ve y no parpadea al mover el puntero; el costo de `evaluate` con un catálogo grande (hoy solo catálogos de ejemplo; el caché es por celda de 0,25 mm).
+- [ ] Recuadro del punto 3 (cara del corte + círculo del pasador + contorno de la cara del catálogo superpuesto): la parte de datos ya está (`reference_faces`, `own_face`), falta el widget de dibujo.
+- [ ] Mapa de calor (punto 2) y aviso de choque en pose sentada (punto 5): no empezados; el choque necesita las mallas.
+- [ ] Decidir si `evaluate` debe notar `exclude_figure` cuando se cataloga el muñeco mismo (hoy se excluye por el nombre del STL abierto).
+
+### Latest Blockers/Discoveries
+- El adjunto `pin_aid.py` no compilaba (comillas escapadas en la línea 106); el resto encajó con las firmas reales de `guide`, `ports`, `extract`, `limbs.PinPreview` sin cambios.
+- En el muñeco de prueba el centro automático ya sobresale 0,7 mm del borde: `_pin_status` ahora agrega el conteo del catálogo también en ese caso.
+- La suite completa tarda >1 h en este entorno (20 % en ~13 min). Se corrió el subconjunto afectado: `test_pin_aid, test_gui_pin, test_guide, test_ports, test_gui_controller, test_gui_catalog, test_gui_phases35` → 167 pasaron, 4 se saltearon, 1 falló.
+- `tests/test_gui_catalog.py::test_cut_numbers_are_drawn_in_the_viewer` falla también en main limpio (verificado con un worktree sin los cambios); no es de este cambio.
+- `git stash -u` falla con archivos `git add -N` (intent-to-add): para comparar contra main usar `git worktree`.
+
+## Current Focus (anterior)
 **Reajustar la articulación de una pieza del catálogo (2026-11-10, sobre main c56abe1):** una pieza del catálogo ya guardaba su codo / rodilla en `meta.articulaciones` (marco de la pieza) pero era de solo lectura: para cambiar el eje, el plano o el rango había que volver al proyecto con el que se catalogó y volver a catalogar. Ahora el gestor («Administrar catálogo…») tiene el modo **«Reajustar articulación…»**, hermano de «Cortar la mano…»: la pieza se ve SOLA, en su marco, con la vista previa del hueco; se mueven altura del eje, inclinación del eje (frente), inclinación del plano (costado / «Enderezar»), rango, o se toca el eje con un clic; **«Guardar versión nueva»** escribe `id@n+1` (misma malla y puertos, estado *borrador*) y deja la original intacta. Piezas nuevas: `src/afm/joint_edit.py` (edición pura de un `JointSpec`: `with_height`, `with_axis_point`, `with_front_tilt`, `with_side_tilt`, `with_range`, `differs`; la misma geometría que los `Session.set_joint_*`, que no se tocaron), `joint_preview.prepare_piece` (la pieza en su marco + la cara de su puerto, como `prepare_limb_from_part` con la identidad), `Catalog.retune_joint` (valida tipo / clase / nombre / altura ≥ 0,5 mm / que algo cambió; versión nueva), `Session.catalog_joint_params` / `catalog_retune_joint`, `Controller.catalog_save_joint`, `catalog_manager.JointEditor` (+ `can_retune_joint`, `find_piece`; sin GTK, el cálculo se puede correr en un hilo con `job()` / `done()` y descarta resultados viejos) y, en la ventana, el panel del modo (`catalog_window.py`) más un botón «Reajustar la articulación de esta pieza…» en las filas de brazo / pierna de la pestaña Catálogo (`window.py`). Tests: `tests/test_joint_retune.py` (16, sin GTK). Doc: `docs/tutorial_gui.md`.
 
 ### Todo List
