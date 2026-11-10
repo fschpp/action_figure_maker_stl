@@ -1756,6 +1756,19 @@ class Session:
         except CatalogError as exc:
             raise ValueError(str(exc)) from exc
 
+    def catalog_joint_params(self):
+        """Parámetros de la línea del catálogo abierto: con los que se arma la articulación de una pieza al reajustarla."""
+        return self._catalog().params
+
+    def catalog_retune_joint(self, ref: str, joint, note: str = ""):
+        """Guarda la articulación reajustada como versión nueva de la pieza (`Catalog.retune_joint`): (meta, avisos)."""
+        from ..catalog import CatalogError
+
+        try:
+            return self._catalog().retune_joint(ref, joint, note)
+        except CatalogError as exc:
+            raise ValueError(str(exc)) from exc
+
     def _parts_using(self, cat, ref: str) -> list[str]:
         """Lugares de ESTA figura que tienen elegida la pieza `ref` (una `PartRef` sin versión = la última del id)."""
         from ..catalog import parse_ref

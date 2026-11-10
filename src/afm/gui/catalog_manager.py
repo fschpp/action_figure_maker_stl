@@ -429,3 +429,263 @@ class WristCutter:
             self.ctrl._changed("Primero elegí los 3 puntos de la muñeca y revisá el corte.", scene=False)
             return None
         return self.ctrl.catalog_cut_wrist(self.meta.ref, self.points, self.invert, self.hand_id or None, new_hand_version)
+
+
+# ------------------------------------------------------------------ reajustar la articulación de una pieza del catálogo
+PROX_COLOR = (0.85, 0.80, 0.68, 1.0)          # como en la vista previa de la ventana principal
+DIST_COLOR = (0.55, 0.75, 0.95, 1.0)
+
+
+def find_piece(metas, ref: str | None) -> PieceMeta | None:
+    """La pieza de `metas` que nombra `ref` (`id@n` = esa versión; `id` = la última), o None. Es como la ventana principal
+    resuelve la pieza de un lugar de la figura, que puede estar guardada sin versión fija."""
+    if not ref:
+        return None
+    pid, _, ver = ref.partition("@")
+    found = [m for m in metas if m.id == pid and (not ver or m.version == int(ver))]
+    return max(found, key=lambda m: m.version) if found else None
+
+
+def can_retune_joint(meta: PieceMeta | None) -> tuple[bool, str]:
+    """¿Se le puede reajustar la articulación a esta pieza? (sí/no, motivo cuando no)."""
+    if meta is None:
+        return False, "Elegí un brazo o una pierna de la lista."
+    if meta.tipo not in ("brazo", "pierna"):
+        return False, f"«{meta.ref}» es una pieza «{meta.tipo}»: solo un brazo o una pierna lleva rodilla / codo."
+    if not (meta.articulaciones or []):
+        return False, (f"«{meta.ref}» no trae articulación (se catalogó sin rodilla / codo): la articulación se define en la figura "
+                       "y se catalogan juntas.")
+    return True, ""
+
+
+class JointEditor:
+    """Modo «Reajustar articulación…» del gestor: la pieza sola (en su marco), con la articulación que trae, para mover el eje,
+    inclinar el plano o cambiar el rango viendo cuánto material se lleva el hueco → guardar como versión nueva.
+
+    Sin GTK: la ventana solo reenvía valores / clics y dibuja lo que pide `view()`. El cálculo (`job` / `done`) se puede correr
+    en un hilo: `job()` no toca el estado y `done()` descarta resultados de una articulación que ya cambió."""
+
+    def __init__(self, ctrl, meta: PieceMeta, mesh):
+        from ..joints import JointSpec
+
+        self.ctrl, self.meta, self.mesh = ctrl, meta, mesh
+        self.joints = [JointSpec.from_dict(d) for d in meta.articulaciones]
+        self._original = {j.name: j for j in self.joints}
+        self.joint = self.joints[0]
+        self.flex = 0.0
+        self.pv = None                          # JointPreview vigente (de `self._pv_key`)
+        self._pv_key = None
+        self.error = ""
+        self.busy = False
+        self.pick_axis = False                  # el próximo clic sobre la pieza mueve el eje
+        self._prep = None                       # (Manifold, ContactFace) de la pieza: se arma una vez
+        self._picker: Picker | None = None
+        self._drawn = None                      # (sig, parts) para no resubir la malla a la GPU en cada dibujo
+
+    # ---- estado
+    @property
+    def names(self) -> list[str]:
+        return [j.name for j in self.joints]
+
+    def select(self, name: str) -> None:
+        self.joint = next(j for j in self.joints if j.name == name)
+        self.pv, self._pv_key, self.error, self._drawn = None, None, "", None
+
+    @property
+    def original(self):
+        return self._original[self.joint.name]
+
+    @property
+    def changed(self) -> bool:
+        from ..joint_edit import differs
+
+        return differs(self.original, self.joint)
+
+    def height(self) -> float:
+        from ..joint_edit import height
+
+        return height(self.joint)
+
+    def front_tilt(self) -> float:
+        from ..joint_edit import front_tilt
+
+        return front_tilt(self.joint)
+
+    def side_tilt(self) -> float:
+        from ..joint_edit import side_tilt
+
+        return side_tilt(self.joint)
+
+    def limits(self) -> tuple[float, float]:
+        """Rango de flexión que se usa (el de la articulación o, si no lleva, el de los parámetros de la línea)."""
+        from ..joints import flex_range
+
+        return flex_range(self.joint, self._params())
+
+    def _params(self):
+        try:
+            return self.ctrl.session.catalog_joint_params()
+        except (ValueError, KeyError):
+            from ..params import Params
+            return Params()
+
+    # ---- cambios (cada uno deja el valor anterior si no sirve y explica por qué en `error`)
+    def _apply(self, fn, *args) -> str:
+        try:
+            new = fn(self.joint, *args)
+        except ValueError as exc:
+            self.error = f"No sirve: {exc}."
+            return self.error
+        i = self.joints.index(self.joint)
+        self.joints[i] = self.joint = new
+        self.error, self._drawn = "", None
+        return self.message()
+
+    def set_height(self, h: float) -> str:
+        from ..joint_edit import with_height
+
+        return self._apply(with_height, h)
+
+    def set_front_tilt(self, t: float) -> str:
+        from ..joint_edit import with_front_tilt
+
+        return self._apply(with_front_tilt, t)
+
+    def set_side_tilt(self, t: float) -> str:
+        from ..joint_edit import with_side_tilt
+
+        return self._apply(with_side_tilt, t)
+
+    def set_range(self, lo: float | None, hi: float | None) -> str:
+        from ..joint_edit import with_range
+
+        return self._apply(with_range, lo, hi)
+
+    def set_axis_point(self, point) -> str:
+        from ..joint_edit import with_axis_point
+
+        return self._apply(with_axis_point, point)
+
+    def reset(self) -> str:
+        i = self.joints.index(self.joint)
+        self.joints[i] = self.joint = self._original[self.joint.name]
+        self.error, self._drawn = "", None
+        return self.message()
+
+    def set_flex(self, flex: float) -> None:
+        self.flex = float(flex)
+        self._drawn = None
+
+    # ---- clic para mover el eje
+    def start_pick(self) -> str:
+        self.pick_axis, self._drawn = True, None
+        return "Hacé clic sobre el costado de la pieza, en el centro de la bisagra (se toman la altura y la profundidad del clic)."
+
+    def cancel_pick(self) -> None:
+        self.pick_axis, self._drawn = False, None
+
+    def pick_at(self, x: float, y: float, widget_size, image_size, yaw_off: float = 0.0, pitch_off: float = 0.0,
+                zoom: float = 1.0, pan=(0.0, 0.0)) -> str:
+        """Clic en (x, y) del widget sobre la pieza entera (el mismo encuadre que `view()` cuando `pick_axis`)."""
+        if not self.pick_axis:
+            return self.message()
+        img_w, img_h = image_size
+        hit = widget_to_image(x, y, widget_size[0], widget_size[1], img_w, img_h)
+        if hit is None:
+            return "Ese clic cayó fuera de la imagen. " + self.message()
+        cam = preview_camera(view_bounds(self.mesh, self.meta), img_w / img_h, yaw_off, pitch_off, zoom, pan)
+        origin, direction = cam.ray(hit[0], hit[1], img_w, img_h)
+        if self._picker is None:
+            self._picker = Picker(self.mesh)
+        res = self._picker.pick(origin, direction)
+        if res is None:
+            return "Ahí no hay pieza: hacé clic sobre el miembro. " + self.message()
+        msg = self.set_axis_point(res.point)
+        if not self.error:
+            self.pick_axis = False
+            msg = self.message()
+        return msg
+
+    # ---- cálculo de la vista previa
+    def key(self) -> str:
+        import json
+
+        return json.dumps(self.joint.to_dict(), sort_keys=True, default=float)
+
+    def needs_compute(self) -> bool:
+        return not self.busy and self._pv_key != self.key()
+
+    def job(self):
+        """(clave, función) del cálculo de la vista previa de la articulación vigente. La función no toca el estado: se puede
+        correr en un hilo y entregar el resultado a `done`."""
+        import copy
+
+        from ..joint_preview import prepare_piece, preview_joint
+
+        if self._prep is None:
+            self._prep = prepare_piece(self.meta, self.mesh)
+        (limb, face), joint, p = self._prep, copy.deepcopy(self.joint), copy.deepcopy(self._params())
+        self.busy = True
+        return self.key(), (lambda: preview_joint(limb, face, joint, p))
+
+    def done(self, key: str, pv, err) -> bool:
+        """Entrega el resultado de `job`. False si ya no corresponde (la articulación cambió mientras se calculaba)."""
+        self.busy = False
+        if key != self.key():
+            return False
+        self._pv_key, self._drawn = key, None
+        self.pv = None if err is not None else pv
+        self.error = "" if err is None else (str(err) if isinstance(err, ValueError) else f"{type(err).__name__}: {err}")
+        return True
+
+    def compute(self) -> None:
+        """Calcula la vista previa en el acto (sin hilo)."""
+        try:
+            key, run = self.job()
+        except ValueError as exc:
+            self.busy = False
+            self._pv_key, self.pv, self.error = self.key(), None, str(exc)
+            return
+        try:
+            res, err = run(), None
+        except Exception as exc:               # cualquier falla del motor se muestra en el estado
+            res, err = None, exc
+        self.done(key, res, err)
+
+    # ---- qué dibujar
+    def view(self):
+        """(partes, encuadre, marcas) para `PreviewRenderer.render_parts`. Con `pick_axis`: la pieza entera (para tocar el eje);
+        si no, la articulación (proximal tallado + distal girado a la flexión mostrada); sin cálculo todavía, la pieza entera."""
+        c = np.asarray(self.joint.axis_center, float)
+        d = np.asarray(self.joint.axis_dir, float)
+        marks = np.array([c - d * 5.0, c + d * 5.0])
+        if self.pick_axis or self.pv is None:
+            sig = ("pieza",)
+            if self._drawn is None or self._drawn[0] != sig:
+                self._drawn = (sig, [("pieza", self.mesh, ARM_COLOR)])
+            return self._drawn[1], np.asarray(view_bounds(self.mesh, self.meta), float), marks
+        sig = (id(self.pv), round(self.flex, 6))
+        if self._drawn is None or self._drawn[0] != sig:
+            parts = [("proximal", self.pv.proximal_mesh(), PROX_COLOR), ("distal", self.pv.distal_mesh(self.flex), DIST_COLOR)]
+            self._drawn = (sig, parts)
+        b = self.pv.build
+        marks = np.array([b.center - b.axis * b.tips[0], b.center + b.axis * b.tips[1]])
+        return self._drawn[1], None, marks
+
+    def message(self) -> str:
+        if self.error:
+            return self.error
+        if self.pick_axis:
+            return "Hacé clic sobre el costado de la pieza, en el centro de la bisagra."
+        if self.pv is None:
+            return "Calculando la articulación…" if self.busy else "Movés el eje, el plano o el rango y la vista previa se recalcula."
+        txt = self.pv.summary()
+        return txt + ("\n  (actualizando…)" if self.busy else "") + ("" if self.changed else "\n  Sin cambios respecto de la versión guardada.")
+
+    # ---- guardar
+    def save(self):
+        """Guarda la articulación como versión nueva de la pieza. Devuelve la meta nueva o None (el motivo queda en `ctrl.message`)."""
+        if not self.changed:
+            self.ctrl._changed("No cambiaste nada: no hay nada que guardar.", scene=False)
+            return None
+        return self.ctrl.catalog_save_joint(self.meta.ref, self.joint)

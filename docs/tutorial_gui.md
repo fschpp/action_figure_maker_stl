@@ -354,8 +354,29 @@ abre sin STL): el proyecto no trae rodilla ni codo propios, vienen dentro de las
 La lista muestra las de las piezas elegidas, ya colocadas en la figura, y la vista previa las arma igual. Son **de solo
 lectura**: el eje, el plano y el rango son los de la pieza catalogada (la altura, la inclinación y «Enderezar» quedan
 deshabilitados, y el texto lo avisa); lo que sí se puede es girar la **flexión mostrada** y leer cuánto material se lleva el
-hueco y los avisos. Para cambiarlos hay que ajustar la articulación en el proyecto con el que se catalogó el brazo / la pierna
-y volver a catalogar. Si las piezas elegidas no traen articulación, el texto dice que no hay nada que previsualizar.
+hueco y los avisos. Para cambiarlos, reajustá la articulación de la pieza en **Administrar catálogo → «Reajustar articulación…»**
+(abajo) y elegí la versión nueva en la figura. Si las piezas elegidas no traen articulación, el texto dice que no hay nada que
+previsualizar.
+
+**Reajustar la articulación de una pieza del catálogo.** Una pieza del catálogo guarda su articulación (eje, plano, rango) en
+`meta.articulaciones`. Para cambiarla sin volver al proyecto con el que se catalogó: **Administrar catálogo…** → elegí UN brazo o
+UNA pierna que traiga articulación → **«Reajustar articulación…»** (también hay un botón «Reajustar la articulación de esta pieza…»
+en la pestaña Catálogo, en la fila de un brazo o pierna elegidos, que abre la ventana con la pieza ya elegida). Se ve la pieza **sola**,
+en su propio marco, con la misma vista previa de arriba:
+
+1. **Altura del eje**, **inclinación del eje (de frente)**, **inclinación del plano (de costado)** (o **«Enderezar el plano»**) y el **rango**
+   de flexión: al moverlos se recalcula el hueco en segundo plano (un cuarto de segundo después del último cambio) y el texto dice
+   cuántos mm³ se lleva y los avisos. Un valor que no sirve (eje a menos de 0,5 mm del plano…) vuelve al anterior y explica por qué.
+2. **«Mover el eje con un clic»** muestra la pieza entera: un clic sobre su costado pone el eje ahí (se toman la altura y la profundidad
+   del clic; la x no cambia). **«Flexión mostrada»** gira el distal sin recalcular. **«Restablecer»** vuelve a la articulación guardada.
+3. **«Guardar versión nueva»**: la malla y los puertos son los mismos; la versión nueva (`id@n+1`, en estado *borrador*) trae la articulación
+   reajustada. La versión original **no se toca**: las recetas y figuras que la fijan por `id@n` siguen armando igual. Después elegí la versión
+   nueva en el lugar de la figura (o dejá el lugar sin versión fija para que tome la última).
+
+Lo que **no** se ve acá: el barrido del codo tallando el torso de una figura (depende del torso con el que se arme) ni los pasadores de
+hombro / cadera. Revisá la figura armada antes de imprimir. La función no cambia la compatibilidad de los puertos (cintura, hombro, cadera,
+muñeca); igual, `afm catalogo cobertura` antes y después sale de la misma pieza. *(La ventana no se pudo probar con GTK real; la lógica tiene
+tests en `tests/test_joint_retune.py`.)*
 
 ### 7.2d Mecanismo de clic (hombro y cadera)
 
@@ -549,7 +570,7 @@ Una **línea** de figuras comparte un catálogo: una carpeta con las piezas ya c
 3a. **Nuevo héroe desde el patrón…** crea el proyecto de un héroe nuevo a partir del proyecto de una figura patrón que ya funciona (p. ej. Güemes). Elegís el proyecto del patrón, el STL del héroe y dónde guardar (por defecto, junto al STL); si el héroe lleva sombrero o plumas, la altura de la coronilla en unidades del STL, y si lleva abrigo largo, la altura de la entrepierna en mm. Copia cintura, cuello, rodillas, codos, muñeca, pasadores y parámetros, y vuelve a dibujar las siluetas de brazos y piernas sobre la malla del héroe (no copia recortes, piezas de catálogo ni escalas del patrón). Lo hace en segundo plano, abre el proyecto y muestra una imagen de frente y de costado con los planos dibujados: si alguno no cae donde debe, corregilo en Planos o en el editor de siluetas. Es lo mismo que `afm desde-patron`. Después se usa «Ajustar cintura y muñeca al patrón…» (punto siguiente).
 3b. **Ajustar cintura y muñeca al patrón…** (pestaña Catálogo, con el catálogo abierto) es para un héroe nuevo que reutiliza la pelvis y la mano de la figura patrón (p. ej. Güemes). Compara el radio de la cara de la cintura y de la muñeca de esta figura con las de la pelvis y la mano del catálogo y propone cuánto mover cada plano. Si el catálogo tiene más de una pelvis o mano, elegí cuál en las listas. «Medir» repite el cálculo, «Aplicar» mueve los planos (después revisalos en el visor; Planos → Cintura / Mano sigue funcionando para retocarlos) y el texto dice la escala que aún sobra (el contrato de la cintura admite ±10 %). Con la casilla «escalar también la pelvis del patrón», «Aplicar» escribe además la escala de la pieza «pelvis» (la inversa de la que sobra en el héroe) cuando entra en ese tope; la mano no se reescala, así que en la muñeca solo se mueve el plano. Es lo mismo que `afm ajustar-cintura-muneca`. Necesita los 3 puntos de la muñeca definidos en la figura y que el catálogo tenga una pelvis (cintura) y una mano.
 4. **Elegir las piezas.** En «Pieza de cada lugar» elegís «la del modelo» o una pieza del catálogo. «Generar figura» la pone en el puerto del modelo, sin escalarla, y la fila dice cómo acopla: **ok**, **aviso** o **no**, con el IoU y el escalón entre las caras. «Revisar las piezas elegidas» lo mide sin generar y las dibuja ya colocadas (verde = ok, ámbar = aviso, rojo = no); «Ver por qué» superpone las dos caras. «Armar figura desde catálogo (sin STL)…» arma una figura nueva solo con piezas del catálogo.
-5. **Administrar catálogo…** lista todas las versiones de pieza con vista previa y permite eliminar una o varias; los lugares que usaban una pieza borrada vuelven a la del modelo.
+5. **Administrar catálogo…** lista todas las versiones de pieza con vista previa y permite eliminar una o varias; los lugares que usaban una pieza borrada vuelven a la del modelo. Con un brazo o una pierna elegidos también permite **«Cortar la mano…»** y **«Reajustar articulación…»** (ver «Vista previa de la articulación»).
 
 **Qué significa cada resultado.** «No» = esa pieza no se acopla (la cara no alcanza para el pasador con pared, no hay cuerpo suficiente detrás de la toma, las cabezas de la cadera se cruzan, o en la pose sentada el brazo choca con la pierna). «Aviso» = acopla, pero con poco margen o con un escalón visible entre las caras; si el aviso es solo de aspecto, la guía lo marca «(solo aspecto)». Si la guía dice **«N piezas sin la capacidad del anfitrión medida»**, esas tomas se catalogaron antes de que se midiera cuánto cuerpo hay detrás de la cara y esa parte no se juzgó: se arregla con `afm catalogo capacidad RUTA --escribir`.
 

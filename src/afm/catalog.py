@@ -334,6 +334,44 @@ class Catalog:
                         warnings=list(plan.warnings) + [w for w in dict.fromkeys(w1 + w2)],
                         hand_volume_mm3=plan.hand_volume_mm3, wrist_radius_mm=plan.wrist_radius_mm)
 
+    def retune_joint(self, ref: str, joint, note: str = "") -> tuple[P.PieceMeta, list[str]]:
+        """Guarda una versión nueva de la pieza `ref` (un `brazo` o una `pierna`) con la articulación `joint` (`JointSpec` en el
+        marco de la pieza) en lugar de la del mismo nombre. La malla y los puertos no cambian: la articulación es un dato de
+        la pieza (el hueco se talla al armar), así que la versión nueva es la misma malla con otro eje / plano / rango.
+
+        Las piezas son inmutables: la versión original queda como está (las recetas que la fijan por `id@n` arman igual) y la
+        nueva sale en estado «borrador». Devuelve (meta de la versión nueva, avisos)."""
+        import copy
+
+        from .joint_edit import MIN_H_MM, differs, height
+        from .joints import JointSpec
+
+        meta, mesh = self.load(ref)
+        kind = {"brazo": "elbow", "pierna": "knee"}.get(meta.tipo)
+        if kind is None:
+            raise CatalogError(f"«{meta.ref}» es una pieza «{meta.tipo}»: solo un brazo o una pierna lleva articulación")
+        if joint.kind != kind:
+            raise CatalogError(f"la articulación «{joint.name}» es «{joint.kind}» y una pieza «{meta.tipo}» lleva «{kind}»")
+        slots = [i for i, jd in enumerate(meta.articulaciones or []) if jd.get("name") == joint.name]
+        if not slots:
+            raise CatalogError(f"«{meta.ref}» no trae una articulación «{joint.name}» para reajustar")
+        before = JointSpec.from_dict(meta.articulaciones[slots[0]])
+        if not differs(before, joint):
+            raise CatalogError("la articulación no cambió: no hay nada que guardar")
+        if height(joint) < MIN_H_MM:
+            raise CatalogError(f"el eje tiene que quedar al menos {MIN_H_MM:g} mm arriba del plano de articulación")
+        new = copy.deepcopy(meta)
+        new.articulaciones[slots[0]] = joint.to_dict()
+        new.estado = "borrador"
+        new.origen = {**new.origen, "nota": note or f"articulación «{joint.name}» reajustada desde {meta.ref}",
+                      "fecha": P.make_origin()["fecha"], "motor": __version__}
+        warnings = []
+        later = [v for v in self.versions(meta.id) if v > meta.version]
+        if later:
+            warnings.append(f"«{meta.id}» ya tiene versiones más nuevas ({later}); la nueva sale de la {meta.version} y las pasa por encima")
+        saved, w = self.add_piece(mesh, new, new_version=True)
+        return saved, warnings + w
+
     def cut_wrist(self, ref: str, points, invert: bool = False, hand_id: str | None = None,
                   new_hand_version: bool = False) -> "WristCut":
         """Le corta la mano a un brazo que ya está en el catálogo (no se vuelve a necesitar la figura ni su `.proyecto`).

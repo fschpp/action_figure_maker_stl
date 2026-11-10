@@ -3128,6 +3128,23 @@ class Controller:
         self._changed(msg, scene=False)
         return res
 
+    def catalog_save_joint(self, ref: str, joint):
+        """«Reajustar articulación…» del gestor del catálogo: guarda la articulación `joint` de la pieza `ref` como versión nueva.
+        Devuelve la meta nueva o None (el motivo queda en el mensaje). La versión original y la figura abierta no se tocan."""
+        if self.busy:
+            self._changed("Esperá a que termine la tarea en curso para guardar la articulación.", scene=False)
+            return None
+        try:
+            meta, warns = self.session.catalog_retune_joint(ref, joint)
+        except ValueError as e:
+            self._changed(f"No se guardó la articulación: {e}", scene=False)
+            return None
+        msg = f"Articulación «{joint.name}» reajustada: versión nueva {meta.ref} (borrador). {ref} no se tocó."
+        if warns:
+            msg += " Avisos: " + "; ".join(warns)
+        self._changed(msg, scene=False)
+        return meta
+
     def clear_hand(self) -> None:
         self._changed("Se vuelve a usar la mano original del modelo." if self.session.clear_hand()
                       else "No había mano de reemplazo.")

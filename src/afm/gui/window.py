@@ -16,6 +16,7 @@ gi.require_version("Gdk", "4.0")
 from gi.repository import Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 
 from ..head import MIN_BASE_IOU, REPLACEMENT_SCALE_RANGE, REPLACEMENT_UPS  # noqa: E402
+from .catalog_manager import can_retune_joint, find_piece  # noqa: E402
 from .controller import GRIP_FIELDS, JOINT_PREFIX, PARAM_FIELDS, TRIM_OP_LABELS, TRIM_SHAPE_LABELS, TRIM_SHAPES, Controller, Mode  # noqa: E402
 from .progress_panel import ProgressPanel  # noqa: E402
 from .render import SceneRenderer  # noqa: E402
@@ -1437,6 +1438,7 @@ exportar; tarda un poco más.")
         self._parts_sig = sig
         while (child := self.parts_box.get_first_child()) is not None:
             self.parts_box.remove(child)
+        pieces = ctrl.catalog_pieces() if root else []
         for r in rows:
             lugar, refs = r["lugar"], choices[r["lugar"]]
             box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
@@ -1460,6 +1462,13 @@ exportar; tarda un poco más.")
                 box.append(lbl)
                 if r.get("previa"):
                     box.append(self._part_actions(lugar, r))
+                piece = find_piece(pieces, r["pieza"]) if lugar in ("brazo", "pierna") else None
+                if piece is not None and can_retune_joint(piece)[0]:
+                    btn = Gtk.Button(label="Reajustar la articulación de esta pieza…", halign=Gtk.Align.START,
+                                     tooltip_text="Abre «Administrar catálogo» con esta pieza para mover el eje de la bisagra, inclinar el plano o cambiar el rango "
+                                                  "viendo el hueco; se guarda como versión nueva de la pieza (después elegila en este lugar).")
+                    btn.connect("clicked", self._on_retune_joint, piece.ref)
+                    box.append(btn)
             self.parts_box.append(box)
 
     def _scale_line(self, lugar: str) -> Gtk.Box:
@@ -1972,6 +1981,12 @@ exportar; tarda un poco más.")
         win.connect("close-request", self._on_catalog_manager_closed)
         self._catalog_win = win
         win.present()
+
+    def _on_retune_joint(self, _btn, ref: str) -> None:
+        """«Reajustar la articulación de esta pieza…»: abre el gestor del catálogo con `ref` elegida y el modo de reajuste activo."""
+        self._on_catalog_manage()
+        if self._catalog_win is not None:
+            self._catalog_win.edit_joint(ref)
 
     def _on_catalog_manager_closed(self, *_) -> bool:
         self._catalog_win = None

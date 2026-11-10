@@ -13,11 +13,13 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gdk, GLib, Gtk, Pango  # noqa: E402
 
-from .catalog_manager import (ALL_TYPES, CatalogManager, PreviewRenderer, WristCutter, can_cut_wrist, detail_text,  # noqa: E402
-                              matches, row_text)
+from .catalog_manager import (ALL_TYPES, CatalogManager, JointEditor, PreviewRenderer, WristCutter, can_cut_wrist,  # noqa: E402
+                              can_retune_joint, detail_text, matches, row_text)
 from .catalog_manager import ZOOM_STEP, zoom_about  # noqa: E402
 from .catalog_manager import view_bounds as CM_view_bounds  # noqa: E402
+from .window import _no_scroll_change  # noqa: E402
 
+JOINT_DELAY_MS = 250        # espera tras el último cambio de un valor antes de recalcular el hueco (se mueve un spin varias veces seguidas)
 CLICK_MAX_PX = 4.0          # un arrastre más corto que esto es un clic (marca un punto); más largo gira la vista
 
 
@@ -42,6 +44,9 @@ class CatalogManagerWindow(Gtk.Window):
         self._press = (0.0, 0.0)              # dónde empezó el último arrastre (widget): si fue un clic, ahí se marca un punto
         self._img_size = (self.preview.width, self.preview.height)
         self._cutter: WristCutter | None = None      # modo «Cortar la mano…» (None = no está activo)
+        self._jeditor: JointEditor | None = None     # modo «Reajustar articulación…» (None = no está activo)
+        self._jupdating = False                      # se están poniendo valores en los spins: no recalcular
+        self._jtimer = 0                             # GLib source del recálculo pendiente
 
         paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL, wide_handle=True)
         paned.set_start_child(self._build_list())
@@ -140,12 +145,17 @@ class CatalogManagerWindow(Gtk.Window):
         self.btn_wrist.set_sensitive(False)
         self.btn_wrist.connect("clicked", self._on_wrist_start)
         bar.append(self.btn_wrist)
+        self.btn_joint = Gtk.Button(label="Reajustar articulación…")
+        self.btn_joint.set_sensitive(False)
+        self.btn_joint.connect("clicked", self._on_joint_start)
+        bar.append(self.btn_joint)
         self.btn_delete = Gtk.Button(label="Eliminar…")
         self.btn_delete.add_css_class("destructive-action")
         self.btn_delete.connect("clicked", self._on_delete)
         bar.append(self.btn_delete)
         box.append(bar)
         box.append(self._build_wrist_panel())
+        box.append(self._build_joint_panel())
 
         self.lbl_detail = Gtk.Label(xalign=0, yalign=0, wrap=True, selectable=True)
         self.lbl_detail.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
@@ -201,7 +211,7 @@ class CatalogManagerWindow(Gtk.Window):
             ok, why = False, "Esperá a que termine la tarea en curso."
         if ok and self._shown is None:
             ok, why = False, "No hay vista previa de la pieza para marcar la muñeca."
-        self.btn_wrist.set_sensitive(ok and self._cutter is None)
+        self.btn_wrist.set_sensitive(ok and self._cutter is None and self._jeditor is None)
         self.btn_wrist.set_tooltip_text("Le corta la mano al brazo: tocás 3 puntos de la muñeca sobre la vista previa y se guarda una versión "
                                         "nueva del brazo sin mano más la mano como pieza aparte (el brazo original no se toca)." if ok else why)
 
@@ -278,7 +288,273 @@ class CatalogManagerWindow(Gtk.Window):
                 break
         self.lbl_status.set_text(self.ctrl.message or "")                # después: elegir otra pieza limpia el texto de estado
 
+    # ------------------------------------------------------------ reajustar la articulación de una pieza
+    def _build_joint_panel(self) -> Gtk.Widget:
+        """Panel del modo «Reajustar articulación…» (oculto hasta que se activa)."""
+        self.joint_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, visible=False)
+        self.lbl_joint = Gtk.Label(xalign=0, wrap=True, selectable=True)
+        self.lbl_joint.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        self.joint_panel.append(self.lbl_joint)
+        self.dd_joint = Gtk.DropDown.new_from_strings(["(ninguna)"])
+        self.dd_joint.connect("notify::selected", self._on_joint_choice)
+        self.dd_joint.set_visible(False)                        # solo si la pieza trae más de una articulación
+        self.joint_panel.append(self.dd_joint)
+        grid = Gtk.Grid(column_spacing=8, row_spacing=4)
+        self._jspin: dict[str, Gtk.SpinButton] = {}
+        specs = (("h", "Altura del eje sobre el plano (mm)", 0.5, 15.0, 0.1, 2,
+                  "Sube o baja el eje de la bisagra en vertical. Más alto = el hueco se lleva más material del miembro."),
+                 ("front", "Inclinación del eje, de frente (°)", -45.0, 45.0, 0.5, 1,
+                  "Ángulo del eje visto de frente (0 = a lo largo de X; + = z sube con x)."),
+                 ("side", "Inclinación del plano, de costado (°)", -60.0, 60.0, 1.0, 1,
+                  "Ángulo del plano visto de costado (+ = sube hacia +Y). 0 = plano recto: el eje no se mueve; lo que se corre es el plano."),
+                 ("lo", "Rango: mínimo (°, negativo = hiperextensión)", -45.0, 149.0, 1.0, 0, "Flexión mínima del rango de la articulación."),
+                 ("hi", "Rango: máximo (°)", -44.0, 150.0, 1.0, 0, "Flexión máxima del rango de la articulación."),
+                 ("flex", "Flexión mostrada (°)", -45.0, 150.0, 5.0, 0, "Solo recoloca la pieza distal en la vista previa: no cambia lo que se guarda."))
+        for i, (key, label, lo, hi, step, digits, tip) in enumerate(specs):
+            grid.attach(Gtk.Label(label=label, xalign=0, hexpand=True, wrap=True, tooltip_text=tip), 0, i, 1, 1)
+            sp = Gtk.SpinButton.new_with_range(lo, hi, step)
+            sp.set_digits(digits)
+            sp.set_tooltip_text(tip)
+            sp.connect("value-changed", lambda b, k=key: None if self._jupdating else self._on_joint_value(k, b.get_value()))
+            _no_scroll_change(sp)
+            self._jspin[key] = sp
+            grid.attach(sp, 1, i, 1, 1)
+        self.joint_panel.append(grid)
+        row = Gtk.Box(spacing=6)
+        self.btn_joint_pick = Gtk.Button(label="Mover el eje con un clic")
+        self.btn_joint_pick.set_tooltip_text("Muestra la pieza entera: un clic sobre su costado pone el eje ahí (se toman la altura y la profundidad del clic).")
+        self.btn_joint_pick.connect("clicked", self._on_joint_pick)
+        self.btn_joint_straight = Gtk.Button(label="Enderezar el plano")
+        self.btn_joint_straight.set_tooltip_text("Inclinación de costado 0°: el eje no se mueve y conserva su altura; se corre el plano.")
+        self.btn_joint_straight.connect("clicked", lambda *_: self._on_joint_value("side", 0.0))
+        self.btn_joint_reset = Gtk.Button(label="Restablecer")
+        self.btn_joint_reset.set_tooltip_text("Vuelve a la articulación de la versión guardada.")
+        self.btn_joint_reset.connect("clicked", self._on_joint_reset)
+        for b in (self.btn_joint_pick, self.btn_joint_straight, self.btn_joint_reset):
+            row.append(b)
+        self.joint_panel.append(row)
+        row = Gtk.Box(spacing=6)
+        row.append(Gtk.Label(label="Se guarda como versión nueva (borrador); la actual no se toca.", xalign=0, hexpand=True, wrap=True))
+        self.btn_joint_cancel = Gtk.Button(label="Cancelar (Esc)")
+        self.btn_joint_cancel.connect("clicked", lambda *_: self._joint_cancel())
+        self.btn_joint_save = Gtk.Button(label="Guardar versión nueva")
+        self.btn_joint_save.add_css_class("suggested-action")
+        self.btn_joint_save.connect("clicked", self._on_joint_save)
+        row.append(self.btn_joint_cancel)
+        row.append(self.btn_joint_save)
+        self.joint_panel.append(row)
+        return self.joint_panel
+
+    def _sync_joint_button(self, refs: list[str]) -> None:
+        """«Reajustar articulación…» se puede usar con UN brazo / pierna elegido que trae articulación."""
+        ok, why = False, "Elegí un brazo o una pierna de la lista."
+        if len(refs) == 1:
+            meta = next((m for _row, m in self._rows if m.ref == refs[0]), None)
+            ok, why = can_retune_joint(meta)
+        elif len(refs) > 1:
+            why = "Elegí una sola pieza."
+        if ok and self.ctrl.busy:
+            ok, why = False, "Esperá a que termine la tarea en curso."
+        if ok and self._shown is None:
+            ok, why = False, "No hay vista previa de la pieza."
+        self.btn_joint.set_sensitive(ok and self._jeditor is None and self._cutter is None)
+        self.btn_joint.set_tooltip_text("Mové el eje de la bisagra, inclinás el plano o cambiá el rango viendo cuánto material se lleva el hueco; "
+                                        "se guarda como una versión nueva de la pieza (la actual no se toca)." if ok else why)
+
+    def edit_joint(self, ref: str) -> None:
+        """Elige la pieza `ref` (`id@n`, o `id` = la última versión) y abre «Reajustar articulación…» (lo llama la ventana principal)."""
+        self._reload()
+        pid, _, ver = ref.partition("@")
+        found = [(row, m) for row, m in self._rows if m.id == pid and (not ver or m.version == int(ver))]
+        if not found:
+            self.lbl_status.set_text(f"«{ref}» no está en la lista (¿hay un filtro puesto?).")
+            return
+        row, _m = max(found, key=lambda t: t[1].version)
+        self.listbox.unselect_all()
+        self.listbox.select_row(row)
+        self._on_joint_start()
+
+    def _on_joint_start(self, *_) -> None:
+        if self._shown is None or self._jeditor is not None or self._cutter is not None:
+            return
+        meta, mesh = self._shown
+        ok, why = can_retune_joint(meta)
+        if not ok:
+            self.lbl_status.set_text(why)
+            return
+        ed = self._jeditor = JointEditor(self.ctrl, meta, mesh)
+        self._dyaw = self._dpitch = 0.0
+        self._zoom, self._pan = 1.0, (0.0, 0.0)
+        model = Gtk.StringList.new(ed.names)
+        self._jupdating = True
+        try:
+            self.dd_joint.set_model(model)
+            self.dd_joint.set_selected(0)
+        finally:
+            self._jupdating = False
+        self.dd_joint.set_visible(len(ed.names) > 1)
+        self.joint_panel.set_visible(True)
+        self.btn_joint.set_sensitive(False)
+        self.btn_wrist.set_sensitive(False)
+        self.btn_delete.set_sensitive(False)
+        self._joint_fill()
+        self._joint_schedule(0)
+
+    def _joint_cancel(self, redraw: bool = True) -> None:
+        if self._jeditor is None:
+            return
+        if self._jtimer:
+            GLib.source_remove(self._jtimer)
+            self._jtimer = 0
+        self._jeditor = None
+        self.joint_panel.set_visible(False)
+        self._sync_joint_button(self._selected_refs())
+        self._sync_wrist_button(self._selected_refs())
+        self.btn_delete.set_sensitive(bool(self._selected_refs()) and not self.ctrl.busy)
+        if redraw:
+            self._redraw()
+
+    def _joint_fill(self) -> None:
+        """Pone en los spins los valores de la articulación que se edita (sin disparar recálculos)."""
+        ed = self._jeditor
+        if ed is None:
+            return
+        lo, hi = ed.limits()
+        self._jupdating = True
+        try:
+            for key, val in (("h", ed.height()), ("front", ed.front_tilt()), ("side", ed.side_tilt()), ("lo", lo), ("hi", hi), ("flex", ed.flex)):
+                self._jspin[key].set_value(val)
+        finally:
+            self._jupdating = False
+
+    def _on_joint_choice(self, *_) -> None:
+        ed = self._jeditor
+        if ed is None or self._jupdating:
+            return
+        i = self.dd_joint.get_selected()
+        if 0 <= i < len(ed.names):
+            ed.select(ed.names[i])
+            self._joint_fill()
+            self._joint_schedule(0)
+
+    def _on_joint_value(self, key: str, value: float) -> None:
+        ed = self._jeditor
+        if ed is None:
+            return
+        if key == "flex":                                      # solo recoloca el distal: no recalcula el hueco
+            ed.set_flex(value)
+            self._joint_refresh()
+            return
+        if key == "h":
+            ed.set_height(value)
+        elif key == "front":
+            ed.set_front_tilt(value)
+        elif key == "side":
+            ed.set_side_tilt(value)
+        else:                                                  # "lo" / "hi": los dos van juntos
+            ed.set_range(self._jspin["lo"].get_value(), self._jspin["hi"].get_value())
+        if ed.error:                                           # no sirvió: los spins vuelven a lo que vale
+            self._joint_fill()
+        elif key == "side":
+            self._joint_fill()                                 # enderezar / inclinar el plano no cambia la altura, pero la redondea
+        self._joint_refresh()
+        self._joint_schedule()
+
+    def _on_joint_reset(self, *_) -> None:
+        if self._jeditor is not None:
+            self._jeditor.reset()
+            self._joint_fill()
+            self._joint_refresh()
+            self._joint_schedule(0)
+
+    def _on_joint_pick(self, *_) -> None:
+        ed = self._jeditor
+        if ed is not None:
+            self.lbl_joint.set_text(ed.start_pick())
+            self._zoom, self._pan = 1.0, (0.0, 0.0)
+            self._redraw()
+
+    def _joint_refresh(self) -> None:
+        """Texto, botones y dibujo según el estado del editor."""
+        ed = self._jeditor
+        if ed is None:
+            return
+        self.lbl_joint.set_text(ed.message())
+        self.btn_joint_save.set_sensitive(ed.changed and not ed.busy and not ed.error)
+        self.btn_joint_reset.set_sensitive(ed.changed)
+        self.btn_joint_pick.set_sensitive(not ed.pick_axis)
+        self._redraw()
+
+    def _joint_schedule(self, delay_ms: int = JOINT_DELAY_MS) -> None:
+        """Pide recalcular el hueco dentro de `delay_ms` (cada cambio nuevo reinicia la espera)."""
+        if self._jtimer:
+            GLib.source_remove(self._jtimer)
+        self._jtimer = GLib.timeout_add(max(int(delay_ms), 1), self._joint_run)
+
+    def _joint_run(self) -> bool:
+        self._jtimer = 0
+        ed = self._jeditor
+        if ed is None or not ed.needs_compute():               # (si sigue calculando el anterior, `_joint_done` vuelve a pedirlo)
+            return False
+        try:
+            key, run = ed.job()
+        except ValueError as exc:                              # la pieza no se puede preparar (sin puerto, etc.)
+            ed.error = str(exc)
+            ed.busy = False
+            ed._pv_key = ed.key()
+            self._joint_refresh()
+            return False
+        self._joint_refresh()                                  # «Calculando…»
+
+        def work() -> None:
+            try:
+                res, err = run(), None
+            except Exception as exc:                           # noqa: BLE001  (cualquier falla del motor va al texto, no tira la ventana)
+                res, err = None, exc
+            GLib.idle_add(self._joint_done, key, res, err)
+
+        import threading
+        threading.Thread(target=work, daemon=True, name="afm-joint-retune").start()
+        return False
+
+    def _joint_done(self, key: str, pv, err) -> bool:
+        ed = self._jeditor
+        if ed is None:
+            return False
+        first = ed.pv is None
+        ed.done(key, pv, err)
+        if first and ed.pv is not None and not ed.pick_axis:
+            self._zoom, self._pan = 1.0, (0.0, 0.0)            # el encuadre pasa de la pieza entera a la articulación
+        if ed.needs_compute():                                 # cambió algo mientras se calculaba
+            self._joint_schedule()
+        self._joint_refresh()
+        return False
+
+    def _on_joint_save(self, *_) -> None:
+        ed = self._jeditor
+        if ed is None or self.ctrl.busy or ed.busy:
+            return
+        meta = ed.save()
+        if meta is None:                                       # el motivo está en el mensaje del controlador
+            self.lbl_joint.set_text(self.ctrl.message or "No se pudo guardar.")
+            return
+        self._joint_cancel(redraw=False)
+        self._reload()
+        for row, m in self._rows:                              # deja elegida SOLO la versión nueva para verla
+            if m.ref == meta.ref:
+                self.listbox.unselect_all()
+                self.listbox.select_row(row)
+                break
+        self.lbl_status.set_text(self.ctrl.message or "")
+
     def _on_window_key(self, _ctl, keyval, _code, _state) -> bool:
+        if keyval == Gdk.KEY_Escape and self._jeditor is not None:
+            if self._jeditor.pick_axis:
+                self._jeditor.cancel_pick()
+                self._joint_refresh()
+            else:
+                self._joint_cancel()
+            return True
         if keyval == Gdk.KEY_Escape and self._cutter is not None:
             self._wrist_cancel()
             return True
@@ -380,12 +656,15 @@ class CatalogManagerWindow(Gtk.Window):
         n = len(refs)
         if self._cutter is not None and refs != [self._cutter.meta.ref]:        # eligió otra pieza: se sale del modo sin guardar nada
             self._wrist_cancel(redraw=False)
+        if self._jeditor is not None and refs != [self._jeditor.meta.ref]:
+            self._joint_cancel(redraw=False)
         self.btn_delete.set_label("Eliminar…" if n == 0 else f"Eliminar {n} pieza(s)…")
-        self.btn_delete.set_sensitive(bool(n) and not self.ctrl.busy and self._cutter is None)
+        self.btn_delete.set_sensitive(bool(n) and not self.ctrl.busy and self._cutter is None and self._jeditor is None)
         if n == 0:
             self.lbl_detail.set_text("Elegí una pieza de la lista para verla." if self._rows else "El catálogo no tiene piezas (todavía).")
             self._show(None)
             self._sync_wrist_button(refs)
+            self._sync_joint_button(refs)
             return
         meta = next(m for _row, m in self._rows if m.ref == refs[0])
         text = detail_text(meta, self.mgr.uses(meta.ref))
@@ -395,6 +674,7 @@ class CatalogManagerWindow(Gtk.Window):
         if self._shown is None or self._shown[0].ref != meta.ref:      # agregar una a la selección no redibuja la misma
             self._show(meta)
         self._sync_wrist_button(refs)
+        self._sync_joint_button(refs)
 
     def _show(self, meta) -> None:
         """Pone `meta` (o nada) en la vista previa, en vista 3/4."""
@@ -419,8 +699,12 @@ class CatalogManagerWindow(Gtk.Window):
             return
         meta, mesh = self._shown
         c = self._cutter
+        ed = self._jeditor
         try:
-            if c is not None and c.preview_parts() is not None:          # corte calculado: brazo sin mano en gris y la mano en verde
+            if ed is not None:                                           # reajustando la articulación: el hueco, o la pieza entera para tocar el eje
+                parts, bounds, marks = ed.view()
+                img = self.preview.render_parts(parts, self._dyaw, self._dpitch, marks, bounds=bounds, zoom=self._zoom, pan=self._pan)
+            elif c is not None and c.preview_parts() is not None:          # corte calculado: brazo sin mano en gris y la mano en verde
                 img = self.preview.render_parts(c.preview_parts(), self._dyaw, self._dpitch, c.marks(),
                                                 zoom=self._zoom, pan=self._pan,
                                                 bounds=CM_view_bounds(mesh, meta))      # mismo encuadre que antes del corte: la vista no salta
@@ -443,6 +727,17 @@ class CatalogManagerWindow(Gtk.Window):
 
     def _on_drag_end(self, _g, dx: float, dy: float) -> None:
         """Un arrastre casi sin movimiento es un clic: con el modo «Cortar la mano…» activo, marca un punto de la muñeca."""
+        ed = self._jeditor
+        if ed is not None and ed.pick_axis and (dx * dx + dy * dy) ** 0.5 <= CLICK_MAX_PX and self._shown is not None:
+            x, y = self._press[0] + dx, self._press[1] + dy
+            ed.pick_at(x, y, (float(self.picture.get_width()), float(self.picture.get_height())), self._img_size, self._dyaw, self._dpitch,
+                       self._zoom, self._pan)
+            if not ed.pick_axis and not ed.error:               # el eje se movió: se recalcula y se vuelve a ver el hueco
+                self._zoom, self._pan = 1.0, (0.0, 0.0)
+                self._joint_fill()
+                self._joint_schedule(0)
+            self._joint_refresh()
+            return
         c = self._cutter
         if c is None or (dx * dx + dy * dy) ** 0.5 > CLICK_MAX_PX or self._shown is None:
             return
@@ -512,7 +807,7 @@ class CatalogManagerWindow(Gtk.Window):
     # ------------------------------------------------------------ eliminar
     def _on_delete(self, *_) -> None:
         refs = self._selected_refs()
-        if not refs or self.ctrl.busy or self._cutter is not None:
+        if not refs or self.ctrl.busy or self._cutter is not None or self._jeditor is not None:
             return
         msg, detail = self.mgr.confirm_for(refs)
         dlg = Gtk.AlertDialog(message=msg, detail=detail, buttons=["Cancelar", "Eliminar"], cancel_button=0, default_button=0)

@@ -97,6 +97,26 @@ def prepare_limb_from_part(body: S.Manifold, spec: LimbSpec, choice, p: Params, 
     return apply_trims(pp.mesh, list(trims or []), spec.name), pp.face
 
 
+def prepare_piece(meta, mesh) -> tuple[S.Manifold, ContactFace]:
+    """La pieza de catálogo SOLA, en su propio marco (el de la figura de origen), lista para `preview_joint`: la malla y la
+    cara de contacto de su puerto (`hombro` / `cadera`). Es lo que `prepare_limb_from_part` calcula al colocarla, con la
+    transformación identidad: sirve para reajustar la articulación de la pieza (`meta.articulaciones`, que está en ese
+    mismo marco) sin figura huésped. Falla con ValueError si la pieza no es un brazo / pierna o no tiene su puerto."""
+    from .assembly import AssemblyError, PartChoice, _face_triangles
+
+    kind = {"brazo": "arm", "pierna": "leg"}.get(meta.tipo)
+    if kind is None:
+        raise ValueError(f"«{meta.ref}» es una pieza «{meta.tipo}»: solo un brazo o una pierna lleva rodilla / codo")
+    try:
+        port = PartChoice(meta, mesh).port(kind)
+    except AssemblyError as exc:
+        raise ValueError(str(exc)) from exc
+    f = port.frame
+    face = ContactFace(f.center.copy(), f.axis.copy(), float(port.face.area if port.face is not None else 0.0),
+                       None if port.face is None else _face_triangles(port.face, f))
+    return S.to_manifold(mesh), face
+
+
 def _crop_box(center, half_size: float) -> S.Manifold:
     c = np.asarray(center, float)
     return S.Manifold.cube((2 * half_size,) * 3).translate(tuple(c - half_size))
