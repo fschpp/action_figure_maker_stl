@@ -1413,7 +1413,7 @@ exportar; tarda un poco más.")
         self.btn_cat_add.set_sensitive(bool(loaded and root and not ctrl.busy))
         self.btn_cat_guide.set_sensitive(bool(loaded and not ctrl.busy))
         self.btn_cat_fitcm.set_sensitive(bool(loaded and root and not ctrl.busy))
-        self.btn_cat_manage.set_sensitive(bool(root and not ctrl.busy))
+        self.btn_cat_manage.set_sensitive(not ctrl.busy)       # sin proyecto ni catálogo abierto: al apretar abre el recordado o pide la carpeta
         self.btn_cat_build.set_sensitive(not ctrl.busy)
         self.btn_build_cat.set_sensitive(not ctrl.busy)
         if self._catalog_win is not None:
@@ -1975,6 +1975,31 @@ exportar; tarda un poco más.")
             self._catalog_win.refresh_if_changed()
             self._catalog_win.present()
             return
+        if not self.ctrl.session.catalog_root:           # no hace falta proyecto ni STL: usa el último catálogo o pide la carpeta
+            from . import settings as GUI_SETTINGS
+
+            last = GUI_SETTINGS.last_catalog()
+            if last and self.ctrl.open_catalog(last):
+                self._open_catalog_manager()
+                return
+            dlg = Gtk.FileDialog(title="Catálogo de la línea (carpeta)")
+
+            def finished(d, res):
+                try:
+                    f = d.select_folder_finish(res)
+                except GLib.Error:
+                    return                                # cancelado
+                try:
+                    if self.ctrl.open_catalog(f.get_path()):
+                        self._open_catalog_manager()
+                except Exception as e:                    # noqa: BLE001
+                    self._error(e)
+
+            dlg.select_folder(self, None, finished)
+            return
+        self._open_catalog_manager()
+
+    def _open_catalog_manager(self) -> None:
         from .catalog_window import CatalogManagerWindow
 
         win = CatalogManagerWindow(self, self.ctrl)

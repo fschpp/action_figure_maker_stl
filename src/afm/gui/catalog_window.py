@@ -154,6 +154,7 @@ class CatalogManagerWindow(Gtk.Window):
         self.btn_delete.connect("clicked", self._on_delete)
         bar.append(self.btn_delete)
         box.append(bar)
+        box.append(self._build_flex_row())
         box.append(self._build_wrist_panel())
         box.append(self._build_joint_panel())
 
@@ -289,6 +290,32 @@ class CatalogManagerWindow(Gtk.Window):
         self.lbl_status.set_text(self.ctrl.message or "")                # después: elegir otra pieza limpia el texto de estado
 
     # ------------------------------------------------------------ reajustar la articulación de una pieza
+    def _build_flex_row(self) -> Gtk.Widget:
+        """«Flexión mostrada (°)»: visible siempre que la pieza elegida (brazo / pierna) traiga articulación, sin entrar en
+        «Reajustar articulación…». Moverla abre la vista de la articulación y dobla la pieza distal (no cambia lo que se guarda)."""
+        tip = "Solo recoloca la pieza distal en la vista previa: no cambia lo que se guarda."
+        self.flex_row = Gtk.Box(spacing=8, visible=False)
+        self.flex_row.append(Gtk.Label(label="Flexión mostrada (°)", xalign=0, hexpand=True, tooltip_text=tip))
+        sp = Gtk.SpinButton.new_with_range(-45.0, 150.0, 5.0)
+        sp.set_digits(0)
+        sp.set_tooltip_text(tip)
+        sp.connect("value-changed", lambda b: None if self._jupdating else self._on_flex_value(b.get_value()))
+        _no_scroll_change(sp)
+        self.spin_flex = sp
+        self.flex_row.append(sp)
+        return self.flex_row
+
+    def _on_flex_value(self, value: float) -> None:
+        """Cambió la flexión mostrada: si todavía no se está en el modo de articulación, se abre (calcula el hueco una vez)."""
+        if self._jeditor is None:
+            if not self.btn_joint.get_sensitive():
+                return
+            self._on_joint_start()
+            if self._jeditor is None:
+                return
+        self._on_joint_value("flex", value)
+        self._joint_fill()                                  # al abrir el modo los spins se llenaron con 0: vuelve a verse lo pedido
+
     def _build_joint_panel(self) -> Gtk.Widget:
         """Panel del modo «Reajustar articulación…» (oculto hasta que se activa)."""
         self.joint_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, visible=False)
@@ -308,8 +335,7 @@ class CatalogManagerWindow(Gtk.Window):
                  ("side", "Inclinación del plano, de costado (°)", -60.0, 60.0, 1.0, 1,
                   "Ángulo del plano visto de costado (+ = sube hacia +Y). 0 = plano recto: el eje no se mueve; lo que se corre es el plano."),
                  ("lo", "Rango: mínimo (°, negativo = hiperextensión)", -45.0, 149.0, 1.0, 0, "Flexión mínima del rango de la articulación."),
-                 ("hi", "Rango: máximo (°)", -44.0, 150.0, 1.0, 0, "Flexión máxima del rango de la articulación."),
-                 ("flex", "Flexión mostrada (°)", -45.0, 150.0, 5.0, 0, "Solo recoloca la pieza distal en la vista previa: no cambia lo que se guarda."))
+                 ("hi", "Rango: máximo (°)", -44.0, 150.0, 1.0, 0, "Flexión máxima del rango de la articulación."))
         for i, (key, label, lo, hi, step, digits, tip) in enumerate(specs):
             grid.attach(Gtk.Label(label=label, xalign=0, hexpand=True, wrap=True, tooltip_text=tip), 0, i, 1, 1)
             sp = Gtk.SpinButton.new_with_range(lo, hi, step)
@@ -358,6 +384,8 @@ class CatalogManagerWindow(Gtk.Window):
         if ok and self._shown is None:
             ok, why = False, "No hay vista previa de la pieza."
         self.btn_joint.set_sensitive(ok and self._jeditor is None and self._cutter is None)
+        self.flex_row.set_visible(ok or self._jeditor is not None)          # con articulación: se ve aunque no se esté reajustando
+        self.flex_row.set_sensitive(self._cutter is None and (self._jeditor is not None or (ok and not self.ctrl.busy)))
         self.btn_joint.set_tooltip_text("Mové el eje de la bisagra, inclinás el plano o cambiá el rango viendo cuánto material se lleva el hueco; "
                                         "se guarda como una versión nueva de la pieza (la actual no se toca)." if ok else why)
 
@@ -408,6 +436,11 @@ class CatalogManagerWindow(Gtk.Window):
             self._jtimer = 0
         self._jeditor = None
         self.joint_panel.set_visible(False)
+        self._jupdating = True
+        try:
+            self.spin_flex.set_value(0.0)
+        finally:
+            self._jupdating = False
         self._sync_joint_button(self._selected_refs())
         self._sync_wrist_button(self._selected_refs())
         self.btn_delete.set_sensitive(bool(self._selected_refs()) and not self.ctrl.busy)
@@ -422,8 +455,9 @@ class CatalogManagerWindow(Gtk.Window):
         lo, hi = ed.limits()
         self._jupdating = True
         try:
-            for key, val in (("h", ed.height()), ("front", ed.front_tilt()), ("side", ed.side_tilt()), ("lo", lo), ("hi", hi), ("flex", ed.flex)):
+            for key, val in (("h", ed.height()), ("front", ed.front_tilt()), ("side", ed.side_tilt()), ("lo", lo), ("hi", hi)):
                 self._jspin[key].set_value(val)
+            self.spin_flex.set_value(ed.flex)
         finally:
             self._jupdating = False
 
