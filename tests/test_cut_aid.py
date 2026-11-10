@@ -249,6 +249,15 @@ def test_seated_clash_refuses_the_limb_the_guide_does_not_measure(ctrl):
         ctrl.session.cut_seated("brazo 2")                                  # hay dos brazos: la guía mide el primero
 
 
+def test_seated_blocked_says_why_without_measuring(ctrl, ctrl2):
+    """El botón de la ventana se apaga con el motivo (no hace falta apretarlo para enterarse)."""
+    assert "la guía mide el brazo con el plano «brazo»" in ctrl.session.cut_seated_blocked("brazo 2")
+    assert ctrl.session.cut_seated_blocked("nadie") == "no hay un miembro «nadie»"
+    assert ctrl2.session.cut_seated_blocked("brazo 2") is None and ctrl2.cut_seated_blocked() is None
+    ctrl2.session.catalog_root = None
+    assert "Abrí un catálogo" in ctrl2.cut_seated_blocked()
+
+
 def test_controller_shows_the_seated_clash_and_forgets_it_when_the_cut_moves(ctrl2):
     ctrl, sc = ctrl2, Scene()
     key, run = ctrl.cut_seated_job()
@@ -266,3 +275,29 @@ def test_controller_reports_seated_errors(ctrl2):
     assert ctrl2.cut_seated is None and "No se pudo medir el choque" in ctrl2.message
     ctrl2.toggle_cut_aim()
     assert ctrl2.cut_seated_job() is None and "necesita la mira del corte" in ctrl2.message
+
+
+def test_offset_limb_stays_on_the_last_edited_limb_when_several_are_on_the_symmetry(ctrl2):
+    c = ctrl2
+    assert c.offset_limb() == "brazo 2"                                   # activo (edit_limb)
+    c.edit_limb = None                                                    # terminó de editar: con brazo y pierna, antes se apagaba
+    assert c.offset_limb() == "brazo 2"
+    c.session.remove_limb("brazo 2")                                      # si el miembro ya no existe, no se queda colgado de él
+    assert c.offset_limb() in (None, "pierna 2")
+    c.edit_limb = "pierna 2"
+    assert c.offset_limb() == "pierna 2"
+
+
+def test_numbering_the_cuts_does_not_wipe_the_aim_items_on_every_sync(ctrl2):
+    """`_sync_cut_numbers` y la mira comparten el prefijo «corte:»: los números no deben borrar la cinta ni el fantasma."""
+    from test_gui_phases35 import FakeScene
+
+    sc, removed = FakeScene(), []
+    orig = sc.remove
+    sc.remove = lambda key: (removed.append(key) if key in sc.items else None, orig(key))[1]    # solo los borrados de verdad
+    ctrl2.set_group_visible("planes", True)                                 # con los planos visibles se numeran los cortes
+    ctrl2.sync(sc)
+    assert any(k.startswith("corte:mira_") for k in sc.items) and any(k.startswith("corte:simetria:") for k in sc.items)
+    removed.clear()
+    ctrl2.sync(sc)
+    assert not [k for k in removed if k.startswith(("corte:mira_", "corte:cinta_", "corte:mejor"))]

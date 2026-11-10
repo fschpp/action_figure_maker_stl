@@ -405,9 +405,10 @@ class MainWindow(Gtk.ApplicationWindow):
         self.btn_cut_snap.set_tooltip_text("El imán del corte: mueve el plano a la mejor posición de la cinta (±3 mm). Solo cambia la distancia "
                                            "al plano de simetría; después hay que revisar el pasador.")
         self.btn_cut_seated = self._button("Medir choque en pose sentada", self._on_cut_seated)
-        self.btn_cut_seated.set_tooltip_text("Arma el brazo y la pierna de esta figura sobre cada torso del catálogo, sienta la pierna y mide si "
-                                             "chocan. Tarda (carga las mallas): se mide solo en la posición elegida. Si choca, aparece un punto "
-                                             "violeta en la cinta.")
+        self._cut_seated_tip = ("Arma el brazo y la pierna de esta figura sobre cada torso del catálogo, sienta la pierna y mide si "
+                                "chocan. Tarda (carga las mallas): se mide solo en la posición elegida. Si choca, aparece un punto "
+                                "violeta en la cinta.")
+        self.btn_cut_seated.set_tooltip_text(self._cut_seated_tip)
         row.append(self.btn_cut_snap)
         row.append(self.btn_cut_seated)
         sec.append(row)
@@ -1048,7 +1049,9 @@ exportar; tarda un poco más.")
             self.cut_area.set_visible(box is not None)
             self.cut_area.queue_draw()
             self.btn_cut_snap.set_sensitive(box is not None and not ctrl.busy)
-            self.btn_cut_seated.set_sensitive(box is not None and not ctrl.busy)
+            why = ctrl.cut_seated_blocked() if box is not None else None        # el motivo va al tooltip en vez de avisar al apretar
+            self.btn_cut_seated.set_sensitive(box is not None and not ctrl.busy and why is None)
+            self.btn_cut_seated.set_tooltip_text(why or self._cut_seated_tip)
             self.chk_side.set_sensitive(loaded and has_sym)
             self.chk_side.set_active(ctrl.one_side)
             for group, chk in self.chk_show.items():

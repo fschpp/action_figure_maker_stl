@@ -10,6 +10,7 @@ simetría, ``work`` coincide con ``figure``.
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from enum import Enum
 
@@ -3347,9 +3348,13 @@ class Controller:
         """Miembro activo cuyo desplazamiento de corte se puede editar (el del pasador o el de la silueta)."""
         for name in (self.pin_limb, self.edit_limb):
             if name is not None and self.session.limb_offset(name) is not None:
+                self._last_offset_limb = name
                 return name
         sym = [l.name for l in self.session.project.limbs if self.session.limb_offset(l.name) is not None]
-        return sym[0] if len(sym) == 1 else None
+        if len(sym) == 1:
+            return sym[0]
+        last = getattr(self, "_last_offset_limb", None)       # varios sobre la simetría y ninguno activo: el último que se editó
+        return last if last in sym else None
 
     def set_limb_offset(self, name: str, mm: float) -> None:
         try:
@@ -3547,8 +3552,8 @@ class Controller:
                     key = f"corte:{e.id}:n{i}"
                     scene.set_lines(key, path, (1.0, 1.0, 1.0, 1.0), on_top=True)
                     wanted.add(key)
-        for key in [k for k in scene.items if k.startswith("corte:") and k not in wanted]:
-            scene.remove(key)
+        for key in [k for k in scene.items if k.startswith("corte:") and re.search(r":n\d+$", k) and k not in wanted]:
+            scene.remove(key)                       # solo los números: la mira del corte también pinta con «corte:…» (mira_, cinta_, mejor…)
 
     def group_visible(self, group: str) -> bool:
         """Interruptor general: «planes» (todos los planos), «pins» (marcas de pasadores y ejes de articulación) o
@@ -4141,6 +4146,11 @@ class Controller:
 
     def _cut_seated_key(self, aim: dict) -> tuple:
         return (aim["limb"], id(self.session.cut_aid(aim["limb"])), round(float(aim["reading"].offset_mm), 3))
+
+    def cut_seated_blocked(self) -> str | None:
+        """Por qué no se puede medir el choque sentado del corte que se mira (None = se puede); lo usa el botón de la ventana."""
+        name = self.offset_limb()
+        return "Elegí un miembro con corte sobre la simetría." if name is None else self.session.cut_seated_blocked(name)
 
     def cut_seated_job(self):
         """Prepara el choque en pose sentada del corte actual: `(clave, trabajo)`; `trabajo(progreso)` va en un hilo y `finish_cut_seated`

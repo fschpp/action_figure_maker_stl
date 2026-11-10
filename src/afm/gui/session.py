@@ -470,30 +470,45 @@ class Session:
         self._cut_aid_cache = ((name, key), aid)
         return aid
 
+    def cut_seated_blocked(self, name: str) -> str | None:
+        """Por qué NO se puede medir el choque en pose sentada del corte de `name` (None = se puede). Es barato: no mide nada;
+        lo usa la ventana para apagar el botón con el motivo y `cut_seated` para negarse."""
+        from ..cut_aid import unsupported
+        from ..guide import _limb_spec
+
+        spec = self.limb(name)
+        if spec is None:
+            return f"no hay un miembro «{name}»"
+        if self.work is None:
+            return "Abrí un STL"
+        if not self.catalog_root:
+            return "Abrí un catálogo para medir el choque con sus piezas"
+        why = unsupported(spec)
+        if why:
+            return why
+        place = "brazo" if spec.kind == "arm" else "pierna"
+        picked = _limb_spec(self.project, place)
+        if picked is None or picked.name != name:
+            return (f"la guía mide el {place} con el plano «{picked.name if picked else '?'}», no con «{name}»: el choque en "
+                    "pose sentada se mide solo para ese")
+        return None
+
     def cut_seated(self, name: str, offset: float | None = None) -> dict:
         """Choque en la pose sentada del corte de `name` a `offset` mm (por omisión el actual), sin armar la figura: mide el corte
         con `guide.measure_cuts` (miembro de esta figura sobre los torsos del catálogo y su torso con los miembros del catálogo) y
         resume los choques (`cut_aid.seated_summary`). Es lento (carga mallas): se pide solo para la posición elegida. Corre con
         copias del proyecto: se puede llamar desde un hilo."""
-        from ..cut_aid import seated_summary, unsupported
-        from ..guide import _limb_spec, measure_cuts
+        from ..cut_aid import seated_summary
+        from ..guide import measure_cuts
 
         spec = self.limb(name)
         if spec is None:
             raise KeyError(name)
-        if self.work is None:
-            raise ValueError("Abrí un STL")
-        if not self.catalog_root:
-            raise ValueError("Abrí un catálogo para medir el choque con sus piezas")
-        why = unsupported(spec)
+        why = self.cut_seated_blocked(name)
         if why:
             raise ValueError(why)
         off = float(self.limb_offset(name) if offset is None else offset)
         place = "brazo" if spec.kind == "arm" else "pierna"
-        picked = _limb_spec(self.project, place)
-        if picked is None or picked.name != name:
-            raise ValueError(f"la guía mide el {place} con el plano «{picked.name if picked else '?'}», no con «{name}»: el choque en "
-                             "pose sentada se mide solo para ese")
         trial = dataclasses.replace(copy.deepcopy(self.project), limbs=[
             dataclasses.replace(l, cut_offset=off, pin_center=None) if l.name == name else l for l in copy.deepcopy(self.project.limbs)])
         stl = os.path.basename(self.stl_path or "") or None

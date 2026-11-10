@@ -291,6 +291,9 @@ def test_cut_numbers_are_drawn_in_the_viewer(ctrl):
 
     sc = FakeScene()
     ctrl.sync(sc)
+    assert not [k for k in sc.items if k.startswith("corte:")]               # los planos arrancan ocultos: tampoco se numeran
+    ctrl.set_group_visible("planes", True)
+    ctrl.sync(sc)
     keys = [k for k in sc.items if k.startswith("corte:")]
     assert keys and any(k.startswith("corte:simetria:") for k in keys)
     ctrl.set_show_cut_numbers(False)
