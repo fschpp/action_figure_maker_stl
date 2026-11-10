@@ -3,6 +3,22 @@
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
 ## Current Focus
+**Mira del corte: cinta de calor + fantasma de la sección (2026-11-10, rama `mira_cinta_corte`, sobre main e0e10bd):** equivalente a la mira del pasador pero para DÓNDE poner el plano del miembro. Nuevo `src/afm/cut_aid.py` (`CutAid`: `reading_at(offset)`, `strip(centro)` ±3 mm cada 0,25 mm, `best(centro)`; solo `limbs.contact_preview` + `PinAid.evaluate` contra los metadatos de puertos, con caché por celda de 0,05 mm; ~16 ms por lectura y ~0,13 s la cinta entera con el muñeco). `Session.cut_aid(name)` la arma y la guarda mientras no cambien malla, silueta, plano, parámetros ni catálogo (el desplazamiento NO está en la clave). `Controller`: `cut_aim()` / `cut_aim_text()` / `toggle_cut_aim()` / `_sync_cut_aim` (contorno de la sección pintado con el nivel `corte:mira_i`, cinta de puntos verde / amarillo / rojo a lo largo del eje de contacto `corte:cinta_*`, punto blanco en la mejor posición `corte:mejor`; apagada en el modo PIN, donde ya está la mira del pasador; nunca levanta: sin catálogo o con extrusión «symmetric» muestra el motivo). Ventana: casilla «Mira del corte» y una línea de texto bajo «Corte a (mm del plano de simetría)»: «corte a 15,00 mm · torsos 1/1 · … — mejor cerca: 15,75 mm (…)». Tests: `tests/test_cut_aid.py` (10 pasan).
+
+### Todo List
+- [x] `CutAid` (lectura, cinta, imán de solo lectura `best`) + caché en `Session`.
+- [x] Fantasma coloreado y cinta en el visor + texto en la ventana (sin probar con GTK/GL real).
+- [ ] **Probar en la GUI real** con un catálogo grande: aspecto de la cinta (puntos de 8 px) y costo de la primera cinta con una figura de ~100 000 triángulos.
+- [ ] Atajo / botón «Ir a la mejor» (imán del plano, solo altura e inclinación): decidido dejarlo para un segundo paso.
+- [ ] Recuadro de la sección con las caras del catálogo encima (como `pin_aid_view.draw_aim_box`).
+- [ ] Choque en pose sentada solo sobre el candidato elegido (tercer color).
+
+### Latest Blockers/Discoveries
+- El catálogo de ejemplo es del mismo STL que el muñeco: con `exclude_figure` no queda ninguna pieza y la lectura sale «sin_catalogo». Los tests agregan torsos de «otra figura» (`clone` de `test_pin_aid`).
+- La cinta mide la distancia al plano de simetría, así que solo existe para miembros con plano sobre la simetría y extrusión «outward» (`cut_aid.unsupported` da el motivo).
+- Con el muñeco el nivel de la cinta es «ok» en las 25 posiciones aunque la pared sea 0,6 mm (< 1,2): el nivel sale de la cobertura del catálogo (`AimReading`), no de la pared.
+
+## Current Focus (anterior)
 **Mapa de calor de la mira del pasador (2026-11-10, sobre main cf1d6ea):** al entrar al modo PIN con catálogo abierto, la cara se barre UNA vez (`PinAid.heatmap`, paso 1 mm, tope 1600 puntos, reusa `evaluate` y su caché, así que cada color coincide con el de la mira) y se pintan puntos verde / amarillo / rojo sobre la cara donde cabe el pasador (`pasador:calor_ok|aviso|no`, `Controller._sync_pin_heat`), para apuntar sin mover el mouse. Tecla **H** o botón «Mapa de calor: mostrar / ocultar» lo oculta. Sin GTK: `tests/test_pin_aid.py` (+4). **Aviso de choque en pose sentada: NO hecho en la lectura en vivo.** Necesita la malla del miembro que sale de ESTE corte (aún no existe al apuntar) y la del otro miembro de la figura; armarlas cuesta segundos por punto. Sigue en la guía de cortes (`guide.SeatedClash`). Opción para después: un botón «Verificar choque sentado» que corra una vez sobre el punto elegido.
 
 ### Todo List

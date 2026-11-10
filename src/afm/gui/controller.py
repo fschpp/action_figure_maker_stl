@@ -235,6 +235,7 @@ class Controller:
         self.pin_prev = None                         # PinPreview de ese miembro (cara de contacto)
         self.pin_aid = None                          # PinAid (mira asistida) del modo PIN; None sin catálogo abierto
         self.heat_visible = True                     # mapa de calor de la mira (se puede ocultar)
+        self.cut_aim_visible = True                  # mira del corte: cinta de color y fantasma de la sección (se puede apagar)
         self.pin_aim = None                          # última lectura de la mira bajo el puntero (AimReading)
         self.mirror_live = False                     # con «un solo lado»: mostrar el espejo del lado de trabajo en vivo
         self.pose_view = False                       # vista previa de la figura generada con las piernas en la pose sentada
@@ -3799,6 +3800,7 @@ class Controller:
         self._sync_polygons(scene)
         self._sync_pins(scene)
         self._sync_head_pin(scene)
+        self._sync_cut_aim(scene)
         self._sync_joints(scene)
         self._sync_trims(scene)
         self._sync_mirror(scene, drawn, pin_plane)
@@ -4000,6 +4002,95 @@ class Controller:
             scene.set_lines("pasador:mira", circle_world(prev.plane, g, pin.shaft_d / 2), aim.color, closed=True, on_top=True)
             scene.set_lines("pasador:mira_cabeza", circle_world(prev.plane, g, pin.head_d / 2), aim.color, closed=True,
                             on_top=True)
+
+    # ------------------------------------------------ mira del corte (cinta de calor + fantasma de la sección)
+    CUT_KEYS = ("ok", "aviso", "no", "fuera")
+
+    def toggle_cut_aim(self) -> None:
+        self.cut_aim_visible = not self.cut_aim_visible
+        self._changed("Mira del corte " + ("visible." if self.cut_aim_visible else "oculta."))
+
+    def cut_aim(self) -> dict | None:
+        """Lo que la mira del corte muestra para el miembro cuyo desplazamiento se edita: `{limb, reading, strip, best, improves}`,
+        o `{limb, note}` con el motivo si no se puede medir (sin catálogo, extrusión «symmetric»…). None si no hay un miembro
+        con desplazamiento, o se está en otro modo. Nunca levanta: la ayuda no debe romper la edición."""
+        if not self.session.loaded or self.mode == Mode.PIN or self.busy:
+            return None
+        name = self.offset_limb()
+        if name is None:
+            return None
+        try:
+            aid = self.session.cut_aid(name)
+            cur = self.session.limb_offset(name)
+            key = (id(aid), round(float(cur), 3))
+            last = getattr(self, "_cut_aim_cache", None)
+            if last is not None and last[0] == key:
+                return last[1]
+            strip = aid.strip(cur)
+            best, improves = aid.best(cur)
+            out = {"limb": name, "reading": aid.reading_at(cur), "strip": strip, "best": best, "improves": improves}
+        except (ValueError, KeyError, OSError) as e:
+            out = {"limb": name, "note": str(e)}
+        except Exception as e:  # noqa: BLE001
+            out = {"limb": name, "note": f"no se pudo medir el corte ({e})"}
+        if "note" not in out:
+            self._cut_aim_cache = (key, out)
+        return out
+
+    def cut_aim_text(self) -> str:
+        """Línea para la ventana: «corte a 12,50 mm · torsos 3/4 · brazos 17/21 · pared 1,4 mm — mejor: 13,25 mm (…)»."""
+        if not self.cut_aim_visible:
+            return ""
+        aim = self.cut_aim()
+        if aim is None:
+            return ""
+        if "note" in aim:
+            return "Mira del corte: " + aim["note"]
+        txt = aim["reading"].texto()
+        best = aim["best"]
+        if best is not None and aim["improves"]:
+            txt += f" — mejor cerca: {best.offset_mm:.2f} mm ({best.contador()})".replace(".", ",")
+        elif best is not None:
+            txt += " — es la mejor posición de la cinta"
+        return txt
+
+    def _sync_cut_aim(self, scene) -> None:
+        """El fantasma de la sección del corte (contorno pintado con el nivel) y la cinta: un punto verde / amarillo / rojo cada
+        `STEP_MM` a lo largo de la distancia al plano de simetría, desde la cara de contacto actual; el blanco es la mejor posición."""
+        keys = [f"corte:mira_{i}" for i in range(6)] + [f"corte:cinta_{k}" for k in self.CUT_KEYS] + ["corte:mejor"]
+        aim = self.cut_aim() if self.cut_aim_visible else None
+        if aim is None or "note" in aim:
+            for k in keys:
+                scene.remove(k)
+            return
+        cur = aim["reading"]
+        rings = cur.rings_world()
+        for i in range(6):
+            if i < len(rings):
+                scene.set_lines(f"corte:mira_{i}", rings[i], cur.color, closed=True, on_top=True)
+            else:
+                scene.remove(f"corte:mira_{i}")
+        spec = self.session.limb(aim["limb"])
+        axis = np.asarray(spec.contact_axis, float)
+        axis = axis / np.linalg.norm(axis)
+        base = next((r.prev.plane.origin for r in [cur] + list(aim["strip"]) if r.prev is not None), None)
+        groups: dict[str, list] = {k: [] for k in self.CUT_KEYS}
+        if base is not None:
+            for r in aim["strip"]:
+                groups.setdefault(r.nivel, []).append(np.asarray(base, float) + axis * (r.offset_mm - cur.offset_mm))
+        for nivel in self.CUT_KEYS:
+            key = f"corte:cinta_{nivel}"
+            if not groups.get(nivel):
+                scene.remove(key)
+                continue
+            r_, g_, b_, _a = _pin_aid_colors()[nivel]
+            scene.set_points(key, np.array(groups[nivel]), (r_, g_, b_, 0.85), 8.0, on_top=True)
+        best = aim["best"]
+        if base is not None and best is not None:
+            scene.set_points("corte:mejor", (np.asarray(base, float) + axis * (best.offset_mm - cur.offset_mm))[None],
+                             (1.0, 1.0, 1.0, 1.0), 12.0, on_top=True)
+        else:
+            scene.remove("corte:mejor")
 
     def toggle_heat(self) -> None:
         self.heat_visible = not self.heat_visible

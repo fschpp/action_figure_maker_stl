@@ -423,6 +423,52 @@ class Session:
         p = self.project.params
         return p.hip_pin if spec.kind == "leg" else p.shoulder_pin
 
+    # ------------------------------------------------- mira del corte (cinta de calor del desplazamiento)
+    def _catalog_stamp(self) -> float:
+        """Cambia cuando se agrega / quita una pieza del catálogo abierto (para descartar la cinta medida con el anterior)."""
+        stamp = 0.0
+        try:
+            for name in ("linea.json", "piezas"):
+                stamp = max(stamp, os.path.getmtime(os.path.join(self.catalog_root, name)))
+        except OSError:
+            pass
+        return stamp
+
+    def cut_aid(self, name: str):
+        """`cut_aid.CutAid` del miembro `name`: mide, sin armar la figura, cuánto del catálogo acepta el corte a cada distancia del
+        plano de simetría. Se guarda mientras no cambien la malla, la silueta, el plano, los parámetros ni el catálogo (el propio
+        desplazamiento NO es parte de la clave: es justo lo que se barre). Falla con ValueError si no se puede medir."""
+        from ..cut_aid import CutAid, unsupported
+
+        spec = self.limb(name)
+        if spec is None:
+            raise KeyError(name)
+        if self.work is None:
+            raise ValueError("Abrí un STL")
+        if self.project.symmetry is None:
+            raise ValueError("Falta el plano de simetría")
+        if not self.catalog_root:
+            raise ValueError("Abrí un catálogo para medir el corte contra sus piezas")
+        why = unsupported(spec)
+        if why:
+            raise ValueError(why)
+        params = self.project.params
+        stl = os.path.basename(self.stl_path or "") or None
+        key = (id(self.work), np.asarray(spec.polygon).tobytes(), spec.plane.origin.tobytes(), spec.plane.normal.tobytes(),
+               spec.thickness, spec.kind, spec.extrude, tuple(spec.contact_axis), spec.burr, params.burr, params.ref_height,
+               spec.auto, tuple(spec.cap_dir), self.catalog_root, self._catalog_stamp(), stl,
+               None if spec.cross is None else (np.asarray(spec.cross.polygon).tobytes(), spec.cross.plane.origin.tobytes(),
+                                                spec.cross.plane.normal.tobytes(), spec.cross.thickness))
+        cache = getattr(self, "_cut_aid_cache", None)
+        if cache is not None and cache[0] == (name, key):
+            return cache[1]
+        if getattr(self, "_half_key", None) != id(self.work):
+            self._half = S.to_manifold(self.work).trim_by_plane((1.0, 0.0, 0.0), 0.0)
+            self._half_key = id(self.work)
+        aid = CutAid(self._half, spec, self._catalog(), params, height_mm=params.ref_height, exclude_figure=stl)
+        self._cut_aid_cache = ((name, key), aid)
+        return aid
+
     def pin_preview(self, name: str) -> PinPreview:
         """Cara de contacto (plano de corte) del miembro y centro por defecto del pasador.
 

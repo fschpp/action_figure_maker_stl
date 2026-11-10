@@ -391,6 +391,15 @@ class MainWindow(Gtk.ApplicationWindow):
         self.spin_cut.connect("value-changed", self._on_cut_offset)
         row.append(self.spin_cut)
         sec.append(row)
+        self.chk_cut_aim = Gtk.CheckButton(label="Mira del corte (cinta de color y sección)")
+        self.chk_cut_aim.set_tooltip_text("Con un catálogo abierto: pinta la sección del corte con el color de cuánto del catálogo lo acepta "
+                                          "(verde = casi todo, amarillo = una parte, rojo = nada) y deja una cinta de puntos del mismo color "
+                                          "a lo largo de la distancia al plano de simetría, ±3 mm cada 0,25 mm; el punto blanco es la mejor "
+                                          "posición de la cinta. Es informativo (no mira el choque en pose sentada).")
+        self.chk_cut_aim.connect("toggled", lambda b: None if self._updating else self.ctrl.toggle_cut_aim())
+        sec.append(self.chk_cut_aim)
+        self.lbl_cut_aim = Gtk.Label(label="", xalign=0, wrap=True, selectable=True)
+        sec.append(self.lbl_cut_aim)
         sub = _collapsible(sec, "Rodillas y codos", sub=True)
         self.btn_knee = self._button("Agregar rodilla a una pierna (3 puntos)",
                                      lambda *_: self.ctrl.start_joint_plane_for_kind("leg"))
@@ -1016,6 +1025,10 @@ exportar; tarda un poco más.")
             self.spin_cut.set_sensitive(off_limb is not None)
             if off_limb is not None:
                 self.spin_cut.set_value(ctrl.session.limb_offset(off_limb))
+            self.chk_cut_aim.set_sensitive(off_limb is not None)
+            if self.chk_cut_aim.get_active() != ctrl.cut_aim_visible:
+                self.chk_cut_aim.set_active(ctrl.cut_aim_visible)
+            self.lbl_cut_aim.set_text(ctrl.cut_aim_text() if off_limb is not None else "")
             self.chk_side.set_sensitive(loaded and has_sym)
             self.chk_side.set_active(ctrl.one_side)
             for group, chk in self.chk_show.items():
