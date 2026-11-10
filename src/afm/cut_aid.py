@@ -26,6 +26,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from . import guide as G
 from . import limbs as L
 from .catalog import Catalog
 from .extract import KIND_PORT
@@ -105,7 +106,7 @@ class CutAid:
         self.params = params or cat.params
         self.height_mm = height_mm
         self.exclude_figure = exclude_figure or None
-        self.calib = calib
+        self.calib = calib if calib is not None else G.load_calibration(cat.root)     # una sola vez, no en cada lectura
         self._cache: dict = {}
         self._strips: dict = {}
 
@@ -132,11 +133,29 @@ class CutAid:
         except ValueError as exc:
             return CutReading(offset, error=str(exc))
         try:
-            aid = PinAid(prev, spec.kind, self.cat, self.params, height_mm=self.height_mm, exclude_figure=self.exclude_figure,
-                         calib=self.calib)
+            aid = self._pin_aid(prev)
             return CutReading(offset, aid.evaluate(prev.project(prev.default_center)), prev)
         except ValueError as exc:             # cara degenerada: se ve la sección pero no se puede leer contra el catálogo
             return CutReading(offset, prev=prev, error=str(exc))
+
+    def _pin_aid(self, prev) -> PinAid:
+        return PinAid(prev, self.spec.kind, self.cat, self.params, height_mm=self.height_mm, exclude_figure=self.exclude_figure,
+                      calib=self.calib)
+
+    # ------------------------------------------------------------------ recuadro de la sección
+    def box_data(self, offset: float) -> dict | None:
+        """Lo que dibuja el recuadro (`pin_aid_view.draw_aim_box`) para el corte a `offset`: la sección de ESTE corte y, encima, el contorno
+        de la cara de cada pieza del catálogo con la que se acoplaría, coloreado por nivel, para ver el desajuste. El círculo naranja es
+        el pasador automático. None si en esa posición no hay cara o no se puede leer contra el catálogo."""
+        from .pin_aid_view import aim_box_data
+
+        r = self.reading_at(offset)
+        if r.prev is None or r.aim is None:
+            return None
+        aid = self._pin_aid(r.prev)
+        data = aim_box_data(aid, aid.evaluate(r.prev.project(r.prev.default_center)))
+        data["texto"] = r.texto()
+        return data
 
     # ------------------------------------------------------------------ cinta e imán
     def strip(self, center: float, span: float = SPAN_MM, step: float = STEP_MM) -> list:
@@ -154,3 +173,34 @@ class CutAid:
             return None, False
         best = max(cands, key=lambda r: r.clave() + (-abs(r.offset_mm - center),))
         return best, bool(cur.aim is None or best.clave() > cur.clave())
+
+
+# ---------------------------------------------------------------------------------------------------- choque en pose sentada
+def seated_summary(measure, offset: float, tol: float | None = None) -> dict:
+    """Resume el choque brazo–pierna en la pose sentada de UN corte medido con `guide.measure_cuts` (el miembro de esta figura sobre
+    los torsos del catálogo y su torso con los miembros del catálogo). Solo se calcula sobre la posición elegida, no en cada
+    movimiento: necesita las mallas de las piezas.
+
+    `{"offset", "choques": [(ref, mm³)], "total", "texto", "choca"}`; `total` = piezas medidas. Sin catálogo o sin cara: `choques` vacío y
+    `total` 0 (el texto lo dice)."""
+    tol = G.SIT_CLASH_TOL if tol is None else tol
+    choques: list = []
+    total = 0
+    for cov in (getattr(measure, "as_plug", None), getattr(measure, "as_socket", None)):
+        if cov is None:
+            continue
+        for f in cov.fits:
+            if f.choque_mm3 is None:
+                continue
+            total += 1
+            if f.choque_mm3 > tol:
+                choques.append((f.ref, float(f.choque_mm3)))
+    head = f"corte a {offset:.2f} mm".replace(".", ",")
+    if not total:
+        texto = head + " · pose sentada: no se pudo medir contra ninguna pieza del catálogo"
+    elif choques:
+        peor = max(v for _r, v in choques)
+        texto = head + f" · pose sentada: {len(choques)} de {total} piezas chocan (la peor {peor:.1f} mm³)".replace(".", ",")
+    else:
+        texto = head + f" · pose sentada: sin choque con las {total} piezas medidas"
+    return {"offset": float(offset), "choques": choques, "total": total, "texto": texto, "choca": bool(choques)}

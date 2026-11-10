@@ -236,6 +236,7 @@ class Controller:
         self.pin_aid = None                          # PinAid (mira asistida) del modo PIN; None sin catálogo abierto
         self.heat_visible = True                     # mapa de calor de la mira (se puede ocultar)
         self.cut_aim_visible = True                  # mira del corte: cinta de color y fantasma de la sección (se puede apagar)
+        self.cut_seated: dict | None = None          # último choque en pose sentada medido (`cut_aid.seated_summary` + su clave)
         self.pin_aim = None                          # última lectura de la mira bajo el puntero (AimReading)
         self.mirror_live = False                     # con «un solo lado»: mostrar el espejo del lado de trabajo en vivo
         self.pose_view = False                       # vista previa de la figura generada con las piernas en la pose sentada
@@ -4052,12 +4053,16 @@ class Controller:
             txt += f" — mejor cerca: {best.offset_mm:.2f} mm ({best.contador()})".replace(".", ",")
         elif best is not None:
             txt += " — es la mejor posición de la cinta"
+        cs = self._cut_seated_now(aim)
+        if cs is not None:
+            txt += (" · ⚠ choca sentado: " + f"{len(cs['choques'])} de {cs['total']} piezas" if cs["choca"]
+                    else f" · sentado: sin choque ({cs['total']} piezas)")
         return txt
 
     def _sync_cut_aim(self, scene) -> None:
         """El fantasma de la sección del corte (contorno pintado con el nivel) y la cinta: un punto verde / amarillo / rojo cada
         `STEP_MM` a lo largo de la distancia al plano de simetría, desde la cara de contacto actual; el blanco es la mejor posición."""
-        keys = [f"corte:mira_{i}" for i in range(6)] + [f"corte:cinta_{k}" for k in self.CUT_KEYS] + ["corte:mejor"]
+        keys = [f"corte:mira_{i}" for i in range(6)] + [f"corte:cinta_{k}" for k in self.CUT_KEYS] + ["corte:mejor", "corte:sentado"]
         aim = self.cut_aim() if self.cut_aim_visible else None
         if aim is None or "note" in aim:
             for k in keys:
@@ -4091,6 +4096,77 @@ class Controller:
                              (1.0, 1.0, 1.0, 1.0), 12.0, on_top=True)
         else:
             scene.remove("corte:mejor")
+        cs = self._cut_seated_now(aim)                       # el tercer color: violeta donde se midió y chocan en la pose sentada
+        if base is not None and cs is not None and cs["choca"]:
+            scene.set_points("corte:sentado", (np.asarray(base, float) + axis * (cs["offset"] - cur.offset_mm))[None],
+                             (0.72, 0.35, 0.95, 1.0), 16.0, on_top=True)
+        else:
+            scene.remove("corte:sentado")
+
+    def snap_cut(self, quiet: bool = False) -> bool:
+        """El «imán» del corte: lleva el plano del miembro a la mejor posición de la cinta (±3 mm; solo cambia la distancia al plano
+        de simetría, la silueta no se toca). `quiet`: sin mensaje cuando no hay nada que hacer (la tecla M no debe molestar).
+        Devuelve si movió el corte."""
+        aim = self.cut_aim() if self.cut_aim_visible else None
+        if aim is None or "note" in aim:
+            if not quiet:
+                self._changed("El imán del corte necesita la mira del corte: un miembro sobre el plano de simetría, un catálogo abierto y la casilla encendida.", scene=False)
+            return False
+        best = aim["best"]
+        if best is None or not aim["improves"]:
+            if not quiet:
+                self._changed("El corte ya está en la mejor posición de la cinta (±3 mm).", scene=False)
+            return False
+        name, mm = aim["limb"], round(float(best.offset_mm), 2)
+        self.set_limb_offset(name, mm)
+        if abs((self.session.limb_offset(name) or 0.0) - mm) > 1e-6:                     # `set_limb_offset` lo rechazó: ya dejó el motivo
+            return False
+        self._changed(f"Imán del corte: «{name}» a {mm:.2f} mm ({best.contador()}). Revisá el pasador.".replace(".", ",", 1))
+        return True
+
+    def cut_aim_box(self) -> dict | None:
+        """Datos del recuadro de la sección (`pin_aid_view.draw_aim_box`) para el corte actual, o None si la mira no está disponible."""
+        aim = self.cut_aim() if self.cut_aim_visible else None
+        if aim is None or "note" in aim:
+            return None
+        try:
+            key = (id(self.session.cut_aid(aim["limb"])), round(float(aim["reading"].offset_mm), 3))
+            last = getattr(self, "_cut_box_cache", None)
+            if last is None or last[0] != key:
+                last = (key, self.session.cut_aid(aim["limb"]).box_data(aim["reading"].offset_mm))
+                self._cut_box_cache = last
+            return last[1]
+        except Exception:  # noqa: BLE001 — el recuadro nunca debe romper la edición
+            return None
+
+    def _cut_seated_key(self, aim: dict) -> tuple:
+        return (aim["limb"], id(self.session.cut_aid(aim["limb"])), round(float(aim["reading"].offset_mm), 3))
+
+    def cut_seated_job(self):
+        """Prepara el choque en pose sentada del corte actual: `(clave, trabajo)`; `trabajo(progreso)` va en un hilo y `finish_cut_seated`
+        guarda el resultado. Es la parte lenta de la mira (mallas de todo el catálogo), por eso se pide sobre una posición elegida."""
+        aim = self.cut_aim() if self.cut_aim_visible else None
+        if aim is None or "note" in aim:
+            self._changed("El choque en pose sentada necesita la mira del corte (un miembro sobre la simetría y un catálogo abierto).", scene=False)
+            return None
+        key, name, off = self._cut_seated_key(aim), aim["limb"], float(aim["reading"].offset_mm)
+        return key, (lambda _progress: self.session.cut_seated(name, off))
+
+    def finish_cut_seated(self, key, res, err) -> None:
+        if err is not None:
+            self.cut_seated = None
+            self._changed(f"No se pudo medir el choque en pose sentada: {err}.", scene=False)
+            return
+        self.cut_seated = dict(res, key=key)
+        self._changed(res["texto"])
+
+    def _cut_seated_now(self, aim: dict) -> dict | None:
+        """El choque medido, si es del corte que se está mirando (si se movió el plano, el resultado ya no vale)."""
+        cs = self.cut_seated
+        try:
+            return cs if cs is not None and cs["key"] == self._cut_seated_key(aim) else None
+        except (ValueError, KeyError):
+            return None
 
     def toggle_heat(self) -> None:
         self.heat_visible = not self.heat_visible

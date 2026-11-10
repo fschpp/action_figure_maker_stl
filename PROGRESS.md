@@ -3,6 +3,21 @@
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
 ## Current Focus
+**Mira del corte, segundo paso: imán, recuadro de la sección y choque en pose sentada (2026-11-10, rama `mira_corte_iman`, sobre main cb2364b):** (1) **Imán del plano:** `Controller.snap_cut(quiet)` lleva el corte a la mejor posición de la cinta (±3 mm; solo la distancia al plano de simetría: `CutAid` no mide inclinación ni silueta); tecla **M** fuera del modo PIN (en PIN sigue siendo el imán del pasador) y botón «Ir a la mejor posición del corte (M)». (2) **Recuadro de la sección:** `CutAid.box_data(offset)` arma lo mismo que el recuadro del pasador (`pin_aid_view.aim_box_data` / `draw_aim_box`: cara propia + contorno de las caras del catálogo por nivel + pasador automático) para el corte actual; `Controller.cut_aim_box()` y un `Gtk.DrawingArea` bajo la línea de texto de la mira. (3) **Choque en pose sentada, bajo demanda:** `Session.cut_seated(name, offset)` corre `guide.measure_cuts` con una copia del proyecto con el corte a `offset` y lo resume con `cut_aid.seated_summary` (cuántas piezas del catálogo chocan y la peor, mm³); botón «Medir choque en pose sentada» (corre en un hilo con `_run_task`), el resultado se guarda con la clave del corte, se agrega al texto («⚠ choca sentado: 1 de 4 piezas») y, si choca, un punto violeta grande en la cinta (`corte:sentado`); si se mueve el plano la medición se descarta sola. `CutAid` lee la calibración del catálogo una sola vez. Tests: `tests/test_cut_aid.py` (17 pasan, 1 se salta sin `cairo`).
+
+### Todo List
+- [x] Imán del plano (tecla M + botón).
+- [x] Recuadro de la sección con las caras del catálogo.
+- [x] Choque sentado sobre el candidato elegido (botón, hilo, punto violeta).
+- [ ] **Probar en la GUI real (GTK/GL):** la tecla M, el recuadro (`cairo` no está en este entorno: el test de dibujo se salta), el botón del choque con un catálogo grande y cuánto tarda `measure_cuts`.
+- [ ] Imán que también toque la inclinación del plano: hoy no hay lectura para eso (haría falta medir la cara con el plano inclinado).
+- [ ] Con un brazo y una pierna sobre la simetría la mira solo sigue al miembro activo (`offset_limb`: el del pasador o la silueta que se edita); si ninguno está activo y hay más de uno, el spin «Corte a …» y la mira quedan apagados (comportamiento previo del spin).
+
+### Latest Blockers/Discoveries
+- `guide.measure_cuts` mide UN brazo y UNA pierna (`_pick_limbs`): si el proyecto tiene dos brazos, `Session.cut_seated` se niega para el que la guía no mide (dice cuál mide).
+- El choque sentado solo existe cuando el catálogo tiene torsos / miembros de otras figuras con las dos tomas (hombro_izq y cadera_izq) y el miembro compañero de esa figura; con el catálogo de ejemplo + clones de «otra figura» da 1 de 4 piezas (brazo-otra-a, 232 mm³) con el corte a 15 mm.
+
+## Current Focus (anterior)
 **Mira del corte: cinta de calor + fantasma de la sección (2026-11-10, rama `mira_cinta_corte`, sobre main e0e10bd):** equivalente a la mira del pasador pero para DÓNDE poner el plano del miembro. Nuevo `src/afm/cut_aid.py` (`CutAid`: `reading_at(offset)`, `strip(centro)` ±3 mm cada 0,25 mm, `best(centro)`; solo `limbs.contact_preview` + `PinAid.evaluate` contra los metadatos de puertos, con caché por celda de 0,05 mm; ~16 ms por lectura y ~0,13 s la cinta entera con el muñeco). `Session.cut_aid(name)` la arma y la guarda mientras no cambien malla, silueta, plano, parámetros ni catálogo (el desplazamiento NO está en la clave). `Controller`: `cut_aim()` / `cut_aim_text()` / `toggle_cut_aim()` / `_sync_cut_aim` (contorno de la sección pintado con el nivel `corte:mira_i`, cinta de puntos verde / amarillo / rojo a lo largo del eje de contacto `corte:cinta_*`, punto blanco en la mejor posición `corte:mejor`; apagada en el modo PIN, donde ya está la mira del pasador; nunca levanta: sin catálogo o con extrusión «symmetric» muestra el motivo). Ventana: casilla «Mira del corte» y una línea de texto bajo «Corte a (mm del plano de simetría)»: «corte a 15,00 mm · torsos 1/1 · … — mejor cerca: 15,75 mm (…)». Tests: `tests/test_cut_aid.py` (10 pasan).
 
 ### Todo List

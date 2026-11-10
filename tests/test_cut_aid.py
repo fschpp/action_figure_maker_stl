@@ -168,3 +168,101 @@ def test_cut_aim_is_off_in_pin_mode(ctrl):
     sc = Scene()
     ctrl._sync_cut_aim(sc)
     assert not sc.items
+
+
+# ============================================ imán del plano, recuadro de la sección y choque en pose sentada
+@pytest.fixture()
+def ctrl2(stl_path, root):
+    """Un brazo y una pierna con el plano sobre la simetría (la guía mide uno de cada clase) y, en el catálogo, una figura «otra» con
+    torso, brazo y pierna: así hay torsos y miembros de otra figura contra los cuales medir el choque sentado."""
+    from test_pin_aid import clone
+
+    cat = Catalog.open(root)
+    for ref, new in (("brazo-muneco-01", "brazo-otra-a"), ("pierna-muneco-01", "pierna-otra-a")):
+        clone(cat, ref, new, 1.0)
+    c = Controller()
+    c.open_stl(stl_path)
+    c.auto_symmetry()
+    s = c.session
+    sym = s.project.symmetry
+    for name, kind, src in (("brazo 2", "arm", "brazo"), ("pierna 2", "leg", "pierna")):
+        poly = np.asarray(next(l for l in demo_project().limbs if l.name == src).polygon)
+        s.add_limb(name, kind, Plane.from_normal(sym.origin, sym.normal, name), auto=True, extrude="outward")
+        s.set_limb_polygon(name, sym.to_world(np.array([[-40, poly[:, 2].min()], [40, poly[:, 2].min()],
+                                                         [40, poly[:, 2].max()], [-40, poly[:, 2].max()]], float)))
+    s.set_limb_offset("brazo 2", 15.0)
+    s.open_catalog(root)
+    c.edit_limb = "brazo 2"                      # con brazo y pierna sobre la simetría, la GUI sabe cuál se edita por el miembro activo
+    return c
+
+
+def test_box_data_has_own_face_and_catalog_faces(ctrl):
+    aid = ctrl.session.cut_aid("brazo 2")
+    data = aid.box_data(15.0)
+    assert data["propia"] and data["refs"]                                  # la sección y las caras de los torsos del catálogo
+    assert {nivel for _ref, nivel, _rings in data["refs"]} <= {"ok", "aviso", "no"}
+    assert data["texto"].startswith("corte a 15,00 mm")
+    assert aid.box_data(0.2) is None                                        # sin cara en esa posición
+
+
+def test_box_draws_on_a_cairo_surface(ctrl):
+    cairo = pytest.importorskip("cairo")
+    from afm.pin_aid_view import draw_aim_box
+
+    surf = cairo.ImageSurface(cairo.FORMAT_ARGB32, 300, 220)
+    draw_aim_box(cairo.Context(surf), 300, 220, ctrl.cut_aim_box())
+    assert bytes(surf.get_data()).count(b"\x00") < 300 * 220 * 4            # pintó algo
+
+
+def test_snap_moves_the_cut_to_the_best_position_and_settles(ctrl):
+    sc = Scene()
+    start = ctrl.session.limb_offset("brazo 2")
+    assert ctrl.cut_aim()["improves"]
+    assert ctrl.snap_cut() and ctrl.session.limb_offset("brazo 2") != start
+    assert "Imán del corte" in ctrl.message
+    for _ in range(6):                                                      # a lo sumo unos pasos hasta la mejor (la cinta se corre con el corte)
+        if not ctrl.snap_cut(quiet=True):
+            break
+    assert not ctrl.cut_aim()["improves"]
+    assert ctrl.snap_cut() is False and "mejor posición" in ctrl.message   # ya está: lo dice y no mueve
+    ctrl._sync_cut_aim(sc)
+
+
+def test_snap_is_silent_without_the_aim(ctrl):
+    ctrl.toggle_cut_aim()
+    before = ctrl.message
+    assert ctrl.snap_cut(quiet=True) is False and ctrl.message == before
+    assert ctrl.snap_cut() is False and "necesita la mira del corte" in ctrl.message
+    assert ctrl.cut_aim_box() is None
+
+
+def test_seated_clash_is_measured_only_on_demand(ctrl2):
+    s = ctrl2.session
+    res = s.cut_seated("brazo 2")
+    assert res["total"] > 0 and res["offset"] == 15.0 and "pose sentada" in res["texto"]
+    assert res["choca"] == bool(res["choques"])
+    assert all(mm3 > 0 for _ref, mm3 in res["choques"])
+
+
+def test_seated_clash_refuses_the_limb_the_guide_does_not_measure(ctrl):
+    with pytest.raises(ValueError, match="la guía mide el brazo con el plano «brazo»"):
+        ctrl.session.cut_seated("brazo 2")                                  # hay dos brazos: la guía mide el primero
+
+
+def test_controller_shows_the_seated_clash_and_forgets_it_when_the_cut_moves(ctrl2):
+    ctrl, sc = ctrl2, Scene()
+    key, run = ctrl.cut_seated_job()
+    ctrl.finish_cut_seated(key, run(lambda _t: None), None)
+    assert "sentado" in ctrl.cut_aim_text() or "choca" in ctrl.cut_aim_text()
+    ctrl._sync_cut_aim(sc)
+    assert ("corte:sentado" in sc.items) == ctrl.cut_seated["choca"]        # el punto violeta solo si choca
+    ctrl.set_limb_offset("brazo 2", 16.0)                                   # el plano se movió: la medición ya no vale
+    ctrl._sync_cut_aim(sc)
+    assert "corte:sentado" not in sc.items and "sentado" not in ctrl.cut_aim_text()
+
+
+def test_controller_reports_seated_errors(ctrl2):
+    ctrl2.finish_cut_seated(None, None, ValueError("falta algo"))
+    assert ctrl2.cut_seated is None and "No se pudo medir el choque" in ctrl2.message
+    ctrl2.toggle_cut_aim()
+    assert ctrl2.cut_seated_job() is None and "necesita la mira del corte" in ctrl2.message

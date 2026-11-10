@@ -9,6 +9,7 @@ Marcos de coordenadas (igual que el CLI, ver `afm.cli.run`):
 """
 from __future__ import annotations
 
+import copy
 import dataclasses
 import json
 import os
@@ -468,6 +469,39 @@ class Session:
         aid = CutAid(self._half, spec, self._catalog(), params, height_mm=params.ref_height, exclude_figure=stl)
         self._cut_aid_cache = ((name, key), aid)
         return aid
+
+    def cut_seated(self, name: str, offset: float | None = None) -> dict:
+        """Choque en la pose sentada del corte de `name` a `offset` mm (por omisión el actual), sin armar la figura: mide el corte
+        con `guide.measure_cuts` (miembro de esta figura sobre los torsos del catálogo y su torso con los miembros del catálogo) y
+        resume los choques (`cut_aid.seated_summary`). Es lento (carga mallas): se pide solo para la posición elegida. Corre con
+        copias del proyecto: se puede llamar desde un hilo."""
+        from ..cut_aid import seated_summary, unsupported
+        from ..guide import _limb_spec, measure_cuts
+
+        spec = self.limb(name)
+        if spec is None:
+            raise KeyError(name)
+        if self.work is None:
+            raise ValueError("Abrí un STL")
+        if not self.catalog_root:
+            raise ValueError("Abrí un catálogo para medir el choque con sus piezas")
+        why = unsupported(spec)
+        if why:
+            raise ValueError(why)
+        off = float(self.limb_offset(name) if offset is None else offset)
+        place = "brazo" if spec.kind == "arm" else "pierna"
+        picked = _limb_spec(self.project, place)
+        if picked is None or picked.name != name:
+            raise ValueError(f"la guía mide el {place} con el plano «{picked.name if picked else '?'}», no con «{name}»: el choque en "
+                             "pose sentada se mide solo para ese")
+        trial = dataclasses.replace(copy.deepcopy(self.project), limbs=[
+            dataclasses.replace(l, cut_offset=off, pin_center=None) if l.name == name else l for l in copy.deepcopy(self.project.limbs)])
+        stl = os.path.basename(self.stl_path or "") or None
+        cuts = {m.lugar: m for m in measure_cuts(trial, S.to_manifold(self.work), self._catalog(), exclude_figure=stl)}
+        m = cuts.get(place)
+        if m is None or m.error or m.port is None:
+            raise ValueError((m.error if m else None) or "no se pudo medir el corte en esa posición")
+        return seated_summary(m, off)
 
     def pin_preview(self, name: str) -> PinPreview:
         """Cara de contacto (plano de corte) del miembro y centro por defecto del pasador.

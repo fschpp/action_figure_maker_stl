@@ -400,6 +400,21 @@ class MainWindow(Gtk.ApplicationWindow):
         sec.append(self.chk_cut_aim)
         self.lbl_cut_aim = Gtk.Label(label="", xalign=0, wrap=True, selectable=True)
         sec.append(self.lbl_cut_aim)
+        row = Gtk.Box(spacing=6)
+        self.btn_cut_snap = self._button("Ir a la mejor posición del corte (M)", lambda *_: self.ctrl.snap_cut())
+        self.btn_cut_snap.set_tooltip_text("El imán del corte: mueve el plano a la mejor posición de la cinta (±3 mm). Solo cambia la distancia "
+                                           "al plano de simetría; después hay que revisar el pasador.")
+        self.btn_cut_seated = self._button("Medir choque en pose sentada", self._on_cut_seated)
+        self.btn_cut_seated.set_tooltip_text("Arma el brazo y la pierna de esta figura sobre cada torso del catálogo, sienta la pierna y mide si "
+                                             "chocan. Tarda (carga las mallas): se mide solo en la posición elegida. Si choca, aparece un punto "
+                                             "violeta en la cinta.")
+        row.append(self.btn_cut_snap)
+        row.append(self.btn_cut_seated)
+        sec.append(row)
+        # Recuadro de la sección: la cara de este corte y, encima, las caras del catálogo con las que se acopla (como el del pasador)
+        self.cut_area = Gtk.DrawingArea(content_width=300, content_height=220, visible=False)
+        self.cut_area.set_draw_func(self._draw_cut_aim)
+        sec.append(self.cut_area)
         sub = _collapsible(sec, "Rodillas y codos", sub=True)
         self.btn_knee = self._button("Agregar rodilla a una pierna (3 puntos)",
                                      lambda *_: self.ctrl.start_joint_plane_for_kind("leg"))
@@ -1029,6 +1044,11 @@ exportar; tarda un poco más.")
             if self.chk_cut_aim.get_active() != ctrl.cut_aim_visible:
                 self.chk_cut_aim.set_active(ctrl.cut_aim_visible)
             self.lbl_cut_aim.set_text(ctrl.cut_aim_text() if off_limb is not None else "")
+            box = ctrl.cut_aim_box() if off_limb is not None else None
+            self.cut_area.set_visible(box is not None)
+            self.cut_area.queue_draw()
+            self.btn_cut_snap.set_sensitive(box is not None and not ctrl.busy)
+            self.btn_cut_seated.set_sensitive(box is not None and not ctrl.busy)
             self.chk_side.set_sensitive(loaded and has_sym)
             self.chk_side.set_active(ctrl.one_side)
             for group, chk in self.chk_show.items():
@@ -1244,6 +1264,21 @@ exportar; tarda un poco más.")
             cam.orbit(ddx, ddy)
         self.gl.queue_render()
 
+    def _draw_cut_aim(self, _area, cr, w: int, h: int) -> None:
+        """El recuadro de la sección del corte actual con las caras del catálogo encima."""
+        from ..pin_aid_view import draw_aim_box
+
+        data = self.ctrl.cut_aim_box()
+        if data is not None:
+            draw_aim_box(cr, w, h, data)
+
+    def _on_cut_seated(self, *_) -> None:
+        job = self.ctrl.cut_seated_job()
+        if job is None:
+            return
+        key, run = job
+        self._run_task("Midiendo el choque en pose sentada…", run, lambda res, err: self.ctrl.finish_cut_seated(key, res, err))
+
     def _draw_aim(self, _area, cr, w: int, h: int) -> None:
         """El recuadro de la mira: lo que lee bajo el puntero o, si no hay lectura, en el centro actual del pasador."""
         from ..pin_aid_view import aim_box_data, draw_aim_box
@@ -1309,6 +1344,8 @@ exportar; tarda un poco más.")
             return True
         if self.ctrl.mode == Mode.PIN and keyval in (Gdk.KEY_m, Gdk.KEY_M):
             self.ctrl.snap_pin()
+            return True
+        if self.ctrl.mode != Mode.PIN and keyval in (Gdk.KEY_m, Gdk.KEY_M) and self.ctrl.snap_cut(quiet=True):
             return True
         if self.ctrl.mode == Mode.PIN and keyval in (Gdk.KEY_h, Gdk.KEY_H):
             self.ctrl.toggle_heat()
