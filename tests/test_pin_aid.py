@@ -249,3 +249,32 @@ def test_snap_places_the_pin_on_a_reading_at_least_as_good(ctrl, cat):
     assert ctrl.message.startswith("Imán")
     after = ctrl.pin_aid.evaluate(ctrl.pin_prev.project(ctrl.session.limb("brazo").pin_center))
     assert after.clave() >= before.clave()
+
+
+# ---------------------------------------------------------------------------------------------------- recuadro (bullseye)
+def test_aim_box_data_and_drawing(prev_arm, cat, tmp_path):
+    cairo = pytest.importorskip("cairo")
+    from afm import pin_aid_view as V
+
+    aid = PinAid(prev_arm, "arm", cat)
+    r = aid.evaluate(prev_arm.project(prev_arm.default_center))
+    data = V.aim_box_data(aid, r)
+    assert data["propia"] and data["refs"] and len(data["refs"]) <= V.MAX_REFS
+    assert [V._ORDER.get(n, 3) for _r, n, _s in data["refs"]] == sorted(V._ORDER.get(n, 3) for _r, n, _s in data["refs"])
+    assert data["vastago"] == aid.pin.shaft_d / 2 and data["texto"] == r.texto()
+    surf = cairo.ImageSurface(cairo.FORMAT_ARGB32, 240, 200)
+    V.draw_aim_box(cairo.Context(surf), 240, 200, data)
+    buf = bytes(surf.get_data())
+    assert len(set(buf[i:i + 4] for i in range(0, len(buf), 400))) > 4            # algo más que el fondo liso
+    surf.write_to_png(str(tmp_path / "bullseye.png"))
+
+
+def test_aim_box_outside_the_face_has_only_text(prev_arm, cat):
+    cairo = pytest.importorskip("cairo")
+    from afm import pin_aid_view as V
+
+    aid = PinAid(prev_arm, "arm", cat)
+    r = aid.evaluate(prev_arm.project(prev_arm.face.center) + np.array([60.0, 0.0]))
+    data = V.aim_box_data(aid, r)
+    assert data["propia"] == [] and data["refs"] == [] and data["nivel"] == "fuera"
+    V.draw_aim_box(cairo.Context(cairo.ImageSurface(cairo.FORMAT_ARGB32, 120, 100)), 120, 100, data)   # no falla
