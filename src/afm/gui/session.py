@@ -64,6 +64,11 @@ class BuildOutcome:
     validation: dict
 
 
+def json_sig(obj) -> str:
+    """Firma de texto de un dict/lista con arreglos de numpy (para saber si algo cambió)."""
+    return json.dumps(obj, sort_keys=True, default=lambda o: np.asarray(o).tolist())
+
+
 class Session:
     def __init__(self, project: Project | None = None):
         self.project = project or Project()
@@ -669,6 +674,117 @@ class Session:
             j.flex_range = (lo, hi)
         self.outcome = None
         return j
+
+    # ------------------------------------------- articulación: altura del eje y plano (vista previa)
+    def _joint_normal(self, j: JointSpec) -> np.ndarray:
+        n = np.asarray(j.plane.normal, float)
+        n = n / np.linalg.norm(n)
+        return -n if n[2] < 0 else n                          # lado proximal = arriba (figura de pie, Z arriba)
+
+    def joint_height(self, name: str) -> float:
+        """Distancia (mm) del eje de la bisagra al plano de articulación, medida a lo largo de la normal."""
+        j = self.joint(name)
+        if j is None:
+            raise KeyError(name)
+        return float((np.asarray(j.axis_center, float) - np.asarray(j.plane.origin, float)) @ self._joint_normal(j))
+
+    def set_joint_height(self, name: str, h: float) -> JointSpec:
+        """Sube o baja el eje en vertical (x e y no cambian) hasta que quede a `h` mm del plano."""
+        j = self.joint(name)
+        if j is None:
+            raise KeyError(name)
+        h = float(h)
+        if h < 0.5:
+            raise ValueError(f"el eje tiene que quedar al menos 0,5 mm arriba del plano de articulación (pedido: {h:.2f} mm)")
+        n = self._joint_normal(j)
+        c = np.asarray(j.axis_center, float)
+        c[2] += (h - self.joint_height(name)) / float(n[2])      # en vertical: x e y no cambian, la altura sobre el plano sí
+        j.axis_center = tuple(float(x) for x in c)
+        self.outcome = None
+        return j
+
+    @staticmethod
+    def joint_plane_side_tilt_deg(normal) -> float:
+        """Inclinación de COSTADO (vista lateral) del plano de una articulación: ángulo de su traza en YZ respecto de
+        Y, positivo si z sube con y. Un plano horizontal da 0; es el par de `plane_front_tilt_deg` (vista de frente)."""
+        n = np.asarray(normal, float)
+        n = n / np.linalg.norm(n)
+        if n[2] < 0:
+            n = -n
+        return float(np.degrees(np.arctan2(-n[1] * n[2], 1.0 - n[1] ** 2))) + 0.0
+
+    def set_joint_plane_side_tilt(self, name: str, tilt_deg: float) -> JointSpec:
+        """Pone la inclinación de costado del plano en `tilt_deg` (0 = «enderezarlo»), sin tocar la inclinación de frente.
+
+        El eje no se mueve y conserva su altura sobre el plano: lo que se corre es el plano (que sigue pasando a esa
+        altura bajo el eje). Con el plano más recto el hueco se lleva menos brazo, pero el corte cambia de lugar."""
+        j = self.joint(name)
+        if j is None:
+            raise KeyError(name)
+        t = float(tilt_deg)
+        if abs(t) > 60.0:
+            raise ValueError("la inclinación de costado tiene que estar entre −60° y 60°")
+        n = self._joint_normal(j)
+        h = self.joint_height(name)
+        new = np.array([n[0] / n[2], -np.tan(np.radians(t)), 1.0])     # misma pendiente de frente, nueva de costado
+        new = new / np.linalg.norm(new)
+        if new[2] < 0.5:
+            raise ValueError("con esa inclinación el plano deja de cortar el miembro a lo largo (tiene que ser casi horizontal)")
+        c = np.asarray(j.axis_center, float)
+        j.plane = Plane.from_normal(c - new * h, new, j.plane.name)
+        self.outcome = None
+        return j
+
+    def joint_preview_key(self, name: str) -> str:
+        """Firma de todo lo que cambia el resultado de la vista previa de la articulación (si no cambia, no se recalcula)."""
+        j = self.joint(name)
+        if j is None:
+            raise KeyError(name)
+        spec = self.limb(j.limb)
+        prj = self.project
+        trims = [t.to_dict() for t in prj.trims if t.target == j.limb]
+        blob = {"joint": j.to_dict(), "limb": spec.to_dict() if spec is not None else None, "trims": trims,
+                "params": prj.params.to_dict(), "work": id(self.work)}
+        return json_sig(blob)
+
+    def joint_preview_job(self, name: str):
+        """Trabajo de la vista previa de la articulación `name`, apto para correr en un hilo (trabaja con copias).
+
+        Devuelve `run(cache) -> JointPreview`. `cache` es un dict que el que llama conserva entre corridas: guarda el
+        miembro ya cortado (`prepare_limb`, lo caro), que solo se rehace si cambian el miembro, sus recortes o los
+        parámetros. Falla con ValueError si la figura no se puede previsualizar así (piezas de catálogo, escaladas)."""
+        import copy
+        from ..customize import needed
+        from ..joint_preview import prepare_limb, preview_joint
+
+        j = self.joint(name)
+        if j is None:
+            raise KeyError(name)
+        spec = self.limb(j.limb)
+        if spec is None:
+            raise KeyError(j.limb)
+        if j.limb in (self._resolved_parts() or {}):
+            raise ValueError(f"«{j.limb}» usa una pieza de catálogo: su articulación es la de la pieza (por ahora sin vista previa)")
+        if needed(self.project):
+            raise ValueError("la figura tiene piezas escaladas: la vista previa de la articulación todavía no las contempla")
+        work = self.work
+        joint = copy.deepcopy(j)
+        spec = copy.deepcopy(spec)
+        p = copy.deepcopy(self.project.params)
+        trims = copy.deepcopy(list(self.project.trims))
+
+        def run(cache: dict | None = None):
+            cache = {} if cache is None else cache
+            lk = (id(work), json_sig(spec.to_dict()), json_sig([t.to_dict() for t in trims if t.target == spec.name]),
+                  json_sig(p.to_dict()))
+            if cache.get("key") != lk:
+                cache["key"] = None
+                cache["val"] = prepare_limb(S.to_manifold(work), spec, p, trims)
+                cache["key"] = lk
+            limb, face = cache["val"]
+            return preview_joint(limb, face, joint, p)
+
+        return run
 
     def remove_joint(self, name: str) -> None:
         self.project.joints = [j for j in self.project.joints if j.name != name]

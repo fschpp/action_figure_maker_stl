@@ -134,6 +134,9 @@ class MainWindow(Gtk.ApplicationWindow):
         super().__init__(application=app, title="Action Figure Maker", default_width=1240, default_height=780)
         self.ctrl = ctrl
         self.ctrl.on_change = self._refresh
+        # los cálculos largos del controlador (vista previa de la articulación) corren en un hilo y vuelven por acá
+        self.ctrl.call_in_main = lambda f, *a: GLib.idle_add(lambda: (f(*a), False)[1])
+        self._joint_names: list[str] = []
         self.mgl = None
         self.scene: SceneRenderer | None = None
         self._updating = False
@@ -719,6 +722,39 @@ En naranja se ve el contorno del pasador (vástago y cabeza); en verde, la posic
             groups[_param_group(key)].append(row)
             self.param_spins[key] = spin
 
+        sec = _collapsible(box, "Vista previa de la articulación", expanded=False)
+        _help(sec, "Arma SOLO la rodilla o el codo (recortada alrededor del eje) para ver cuánto material se lleva el hueco "
+                   "mientras movés el eje, el plano o el rango, sin esperar a «Generar figura». Se recalcula sola (unos "
+                   "segundos) y muestra el último resultado hasta que llega el nuevo. Con la vista previa encendida se oculta "
+                   "la figura.")
+        row = Gtk.Box(spacing=6)
+        row.append(Gtk.Label(label="Articulación", xalign=0, hexpand=True))
+        self.dd_jprev = Gtk.DropDown.new_from_strings(["(ninguna)"])
+        self.dd_jprev.connect("notify::selected", self._on_jprev_choice)
+        row.append(self.dd_jprev)
+        sec.append(row)
+        self.chk_jprev = Gtk.CheckButton(label="Ver solo la articulación (sin generar la figura)")
+        self.chk_jprev.connect("toggled", lambda b: None if self._updating else self.ctrl.set_joint_preview(self._jprev_name(), b.get_active()))
+        sec.append(self.chk_jprev)
+        self.spin_jh = self._joint_spin(sec, "Altura del eje sobre el plano (mm)", 0.5, 15.0, 0.1, 2,
+                                        lambda n, v: self.ctrl.set_joint_height(n, v))
+        row = Gtk.Box(spacing=6)
+        row.append(Gtk.Label(label="Inclinación del plano de costado (°)", xalign=0, hexpand=True, wrap=True,
+                             tooltip_text="Ángulo del plano visto de costado (+ = sube hacia +Y). 0 = plano recto: el eje no se "
+                                          "mueve y conserva su altura; lo que se corre es el plano."))
+        self.spin_jtilt = Gtk.SpinButton.new_with_range(-60.0, 60.0, 1.0)
+        self.spin_jtilt.set_digits(1)
+        self.spin_jtilt.connect("value-changed", lambda b: None if self._updating or self._jprev_name() is None
+                                else self.ctrl.set_joint_plane_side_tilt(self._jprev_name(), b.get_value()))
+        row.append(self.spin_jtilt)
+        row.append(self._button("Enderezar", lambda *_: self._jprev_name() is not None
+                                and self.ctrl.set_joint_plane_side_tilt(self._jprev_name(), 0.0)))
+        sec.append(row)
+        self.spin_jflex = self._joint_spin(sec, "Flexión mostrada (°)", -45.0, 150.0, 5.0, 0,
+                                           lambda n, v: self.ctrl.set_joint_preview_flex(v))
+        self.lbl_jprev = Gtk.Label(label="", xalign=0, wrap=True, selectable=True)
+        sec.append(self.lbl_jprev)
+
         sec = _collapsible(box, "Perfil de línea", expanded=False)
         _help(sec, "Un perfil guarda estos parámetros para reusarlos en la próxima figura de la línea.")
         row = Gtk.Box(spacing=6)
@@ -775,6 +811,52 @@ exportar; tarda un poco más.")
 
         self.sidebar_box = self.tabs                  # lo que se desactiva mientras se genera
         return self.tabs
+
+    def _joint_spin(self, sec: Gtk.Box, label: str, lo: float, hi: float, step: float, digits: int, on_change) -> Gtk.SpinButton:
+        row = Gtk.Box(spacing=6)
+        row.append(Gtk.Label(label=label, xalign=0, hexpand=True, wrap=True))
+        spin = Gtk.SpinButton.new_with_range(lo, hi, step)
+        spin.set_digits(digits)
+        spin.connect("value-changed", lambda b: None if self._updating or self._jprev_name() is None
+                     else on_change(self._jprev_name(), b.get_value()))
+        row.append(spin)
+        sec.append(row)
+        return spin
+
+    def _jprev_name(self) -> str | None:
+        i = self.dd_jprev.get_selected()
+        return self._joint_names[i] if 0 <= i < len(self._joint_names) else None
+
+    def _on_jprev_choice(self, *_a) -> None:
+        if self._updating:
+            return
+        if self.ctrl.show_joint_preview and self._jprev_name() is not None:
+            self.ctrl.set_joint_preview(self._jprev_name(), True)     # cambió de articulación: se recalcula
+        else:
+            self._refresh()
+
+    def _refresh_joint_preview(self) -> None:
+        """Lista de articulaciones, controles de la vista previa y su texto (se llama dentro de `_refresh`)."""
+        ctrl = self.ctrl
+        names = [j.name for j in ctrl.session.project.joints] if ctrl.loaded else []
+        if names != self._joint_names:
+            keep = self._jprev_name()
+            self._joint_names = names
+            self.dd_jprev.set_model(Gtk.StringList.new([n.capitalize() for n in names] or ["(ninguna)"]))
+            self.dd_jprev.set_selected(names.index(keep) if keep in names else 0)
+        if ctrl.show_joint_preview and ctrl._jp["name"] in names:
+            self.dd_jprev.set_selected(names.index(ctrl._jp["name"]))
+        name = self._jprev_name()
+        has = name is not None
+        for w in (self.chk_jprev, self.spin_jh, self.spin_jtilt, self.spin_jflex):
+            w.set_sensitive(has)
+        self.chk_jprev.set_active(ctrl.show_joint_preview)
+        if has:
+            for spin, val in ((self.spin_jh, ctrl.joint_height(name)), (self.spin_jtilt, ctrl.joint_plane_side_tilt(name)),
+                              (self.spin_jflex, ctrl._jp["flex"])):
+                if abs(spin.get_value() - val) > 1e-9:
+                    spin.set_value(val)
+        self.lbl_jprev.set_text(ctrl.joint_preview_status() if has else "Agregá la rodilla o el codo de un miembro (pestaña Planos).")
 
     def _tab_page(self, title: str) -> Gtk.Box:
         """Agrega una pestaña con scroll propio y devuelve la caja donde van sus secciones."""
@@ -945,6 +1027,7 @@ exportar; tarda un poco más.")
             self.dd_front.set_selected(0 if ctrl.session.project.front == "+Y" else 1)
             self._rebuild_plane_list()
             self._rebuild_trim_ui()
+            self._refresh_joint_preview()
         finally:
             self._updating = False
         self.gl.queue_render()

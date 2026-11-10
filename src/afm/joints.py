@@ -211,9 +211,13 @@ class JointBuild:
         return S.rotate_about_axis(self.distal if mf is None else mf, self.center, self.axis, self.raw(flex_deg))
 
 
-def build_joint(limb: S.Manifold, joint: JointSpec, toward: np.ndarray, p: Params) -> JointBuild:
+def build_joint(limb: S.Manifold, joint: JointSpec, toward: np.ndarray, p: Params, segments: int = 12,
+                rod_step: float = 0.25) -> JointBuild:
     """Parte `limb` (miembro de pie, con su pasador) en proximal y distal. `toward` es un punto del lado
-    proximal (la cara de contacto con el torso): orienta la normal del plano hacia él."""
+    proximal (la cara de contacto con el torso): orienta la normal del plano hacia él.
+
+    `segments` (resolución de la dilatación por holgura) y `rod_step` (paso con que se mide el largo del bastago) solo
+    los baja la vista previa (`joint_preview`); con los valores por omisión sale lo de siempre."""
     if joint.kind not in KINDS:
         raise ValueError(f"tipo de articulación desconocido: {joint.kind!r}")
     hinge = hinge_for(joint, p)
@@ -271,14 +275,14 @@ def build_joint(limb: S.Manifold, joint: JointSpec, toward: np.ndarray, p: Param
     # Los bulones / el bastago son cuerpos de revolución sobre el propio eje: girarlos no los mueve, y unir 20 copias casi
     # idénticas (facetas que coinciden casi pero no del todo) deja aristas de 4 caras en la pieza proximal. Se ensanchan
     # una vez y se suman sin rotar; el resto del distal sí se barre. Dilatar distribuye sobre la unión: el sólido es el mismo.
-    grown = dilate_anisotropic(body_dist, p.clearance, p.axial_clearance, axis)
+    grown = dilate_anisotropic(body_dist, p.clearance, p.axial_clearance, axis, segments)
     sweep_body = S.union(*[S.rotate_about_axis(grown, c, axis, a) for a in angles])
     if hinge.rod:
         # Material que de verdad queda alrededor del eje una vez tallado el barrido del cuerpo distal: con el eje inclinado
         # respecto del plano de corte, ese núcleo se afina hacia un lado, y el bastago tiene que acabar donde todavía hay pared.
         need_r = hinge.pin_d / 2 + p.clearance + SHOULDER_WALL            # orificio + pared mínima alrededor
         slot = hinge.tongue_t / 2 + p.axial_clearance + 0.1
-        ext = rod_extent(S.difference(prox0, sweep_body), c, axis, need_r, up, start=slot)
+        ext = rod_extent(S.difference(prox0, sweep_body), c, axis, need_r, up, step=rod_step, start=slot)
         floor = hinge.tongue_t / 2 + 0.5
         keep = max(hinge.rod_wall, 0.0) + (p.axial_clearance if hinge.rod_wall > 0 else 0.0)
         tips = tuple((e - keep) if (ext is not None and e - keep >= floor) else tip for e in (ext or (0.0, 0.0)))
@@ -290,7 +294,7 @@ def build_joint(limb: S.Manifold, joint: JointSpec, toward: np.ndarray, p: Param
     else:
         bolts = [_bolt(c, axis * s, hinge, 32) for s in (1.0, -1.0)]
     distal = S.largest_component(S.union(body_dist, *bolts))
-    grown_bolts = [dilate_anisotropic(b, p.clearance, p.axial_clearance, axis) for b in bolts]
+    grown_bolts = [dilate_anisotropic(b, p.clearance, p.axial_clearance, axis, segments) for b in bolts]
     sweep = S.union(sweep_body, *grown_bolts)
     proximal = S.largest_component(S.difference(prox0, sweep))
     return JointBuild(proximal, distal, c, axis, sgn, (lo, hi), [float(a) for a in angles], h, radius, warnings,

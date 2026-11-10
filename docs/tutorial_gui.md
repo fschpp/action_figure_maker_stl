@@ -327,6 +327,27 @@ Una articulación por miembro. Quitar el miembro (o la fila amarilla) la quita. 
 torso** el barrido del antebrazo al flexionar el codo; el informe trae `torso_tallado_mm3` con el material quitado (0 si
 el brazo cuelga separado del torso). *(Esta parte de la ventana no se pudo probar con GTK real; la lógica sí tiene tests.)*
 
+#### Vista previa de la articulación (sin generar la figura)
+
+El hueco de una rodilla o un codo se lleva material del miembro (y, en un brazo, del torso): cuánto depende de la **altura
+del eje sobre el plano**, de la **inclinación del plano** (de frente y de costado) y del **rango de flexión**. Para verlo
+mientras ajustás, sin esperar a «Generar figura», usá la pestaña **Parámetros → «Vista previa de la articulación»**:
+
+1. Elegí la articulación y marcá **«Ver solo la articulación»**. Se arma solo esa bisagra (el miembro recortado a una caja de
+   ±28 mm alrededor del eje) y se oculta la figura: proximal tallado en beige, distal en celeste y el eje en rojo.
+2. Movés **«Altura del eje sobre el plano»** (el eje sube o baja en vertical), **«Inclinación del plano de costado»**
+   (o **«Enderezar»**: el plano queda recto, el eje no se mueve y conserva su altura) y el rango de flexión (fila de la
+   articulación en la lista de planos). Se recalcula sola en segundo plano (unos segundos); mientras tanto se ve el último
+   resultado.
+3. **«Flexión mostrada»** gira la pieza distal a ese ángulo sin recalcular el hueco.
+4. El texto de abajo dice cuántos mm³ (y qué % del brazo) se llevó el hueco, la altura del eje, el radio de la lengüeta y los
+   avisos (por ejemplo, poca pared alrededor del bulón). Si no se puede (eje a menos de 0,5 mm del plano…) dice por qué.
+
+La vista previa usa el mismo motor que la figura final, con un paso de barrido más grueso (10°), así que la forma del hueco
+es la que va a salir salvo el escalón del paso. No tiene en cuenta el pasador del hombro ni las articulaciones de piezas de
+catálogo (usan la de la pieza). *(La ventana se probó con GTK real bajo Xvfb; la lógica tiene tests en
+`tests/test_joint_preview.py`.)*
+
 ### 7.2d Mecanismo de clic (hombro y cadera)
 
 Además del hongo, el hombro y la cadera pueden llevar un **clic print-in-place**: un disco con 4 muescas en el miembro y

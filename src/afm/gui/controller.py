@@ -253,6 +253,10 @@ class Controller:
         self._grip_prop_error = ""
         self.show_cut_numbers = True                 # rotular cada corte con su número en el visor
         self.show_part_preview = True                # dibujar las piezas de catálogo elegidas antes de generar
+        self.show_joint_preview = False              # vista previa de la articulación (rodilla / codo) en lugar de la figura
+        self.call_in_main = None                     # callable(f, *args): la ventana lo pone para que los cálculos corran en un hilo
+        self._jp: dict = {"name": None, "key": None, "pv": None, "flex": 0.0, "busy": False, "error": "",
+                          "cache": {}, "drawn": None}      # estado de la vista previa de la articulación
         self.scene_dirty = True
         self.on_change = None                        # callable() para refrescar la barra lateral
         if self.session.loaded:
@@ -671,6 +675,143 @@ class Controller:
             return False
         self._changed(f"Rango de la {name}: {self.joint_range_text(name)}. Hay que generar de nuevo.")
         return True
+
+    # ------------------------------------- vista previa de la articulación (sin generar la figura)
+    def joint_height(self, name: str) -> float:
+        return self.session.joint_height(name)
+
+    def set_joint_height(self, name: str, h: float) -> bool:
+        """Sube o baja el eje de la articulación (altura sobre el plano, en mm)."""
+        try:
+            self.session.set_joint_height(name, h)
+        except (ValueError, KeyError) as e:
+            self._changed(f"No sirve: {e}.", scene=False)
+            return False
+        self._changed(f"Eje de la {name} a {self.session.joint_height(name):.2f} mm del plano. Hay que generar de nuevo.")
+        return True
+
+    def joint_plane_side_tilt(self, name: str) -> float:
+        return Session.joint_plane_side_tilt_deg(self.session.joint(name).plane.normal)
+
+    def set_joint_plane_side_tilt(self, name: str, tilt_deg: float) -> bool:
+        """Inclina (o endereza, con 0) de costado el plano de la articulación; el eje no se mueve."""
+        try:
+            self.session.set_joint_plane_side_tilt(name, tilt_deg)
+        except (ValueError, KeyError) as e:
+            self._changed(f"No sirve: {e}.", scene=False)
+            return False
+        self._changed(f"Plano de la {name}: {self.joint_plane_side_tilt(name):.1f}° de costado. Hay que generar de nuevo.")
+        return True
+
+    def set_joint_preview(self, name: str | None, on: bool) -> bool:
+        """Enciende o apaga la vista previa de una articulación (por omisión, la primera del proyecto)."""
+        if not on:
+            self.show_joint_preview = False
+            self._changed("Vista previa de la articulación apagada.")
+            return True
+        if name is None and self.session.project.joints:
+            name = self.session.project.joints[0].name
+        if name is None or self.session.joint(name) is None:
+            self.show_joint_preview = False
+            self._changed("No hay ninguna articulación para previsualizar: agregá la rodilla o el codo de un miembro.")
+            return False
+        jp = self._jp
+        if jp["name"] != name:
+            jp.update(name=name, key=None, pv=None, error="", cache={}, drawn=None)
+        self.show_joint_preview = True
+        self._changed(f"Vista previa de la {name}: mové el eje, el plano o el rango y se recalcula sola.")
+        return True
+
+    def set_joint_preview_flex(self, flex: float) -> None:
+        """Flexión a la que se muestra la pieza distal (solo la recoloca: no recalcula el hueco)."""
+        self._jp["flex"] = float(flex)
+        self._changed()
+
+    def joint_preview_status(self) -> str:
+        jp = self._jp
+        if not self.show_joint_preview:
+            return ""
+        if jp["error"]:
+            return f"No se puede previsualizar: {jp['error']}"
+        if jp["pv"] is None:
+            return "Calculando la articulación…"
+        return jp["pv"].summary() + ("\n  (actualizando…)" if jp["busy"] else "")
+
+    def _request_joint_preview(self, name: str) -> None:
+        """Lanza el cálculo si cambió algo desde el último (en un hilo si la ventana puso `call_in_main`)."""
+        jp = self._jp
+        try:
+            key = self.session.joint_preview_key(name)
+        except KeyError:
+            return
+        if jp["busy"] or key == jp["key"]:
+            return
+        try:
+            run = self.session.joint_preview_job(name)
+        except (ValueError, KeyError) as e:
+            self._joint_preview_done(key, None, e)
+            return
+        jp["busy"] = True
+
+        def work():
+            try:
+                return run(jp["cache"]), None
+            except Exception as e:                   # cualquier falla del motor se muestra en el estado, no tira la ventana
+                return None, e
+
+        if self.call_in_main is None:
+            self._joint_preview_done(key, *work())
+            return
+
+        def threaded():
+            res, err = work()
+            self.call_in_main(self._joint_preview_done, key, res, err)
+
+        import threading
+        threading.Thread(target=threaded, daemon=True, name="afm-joint-preview").start()
+
+    def _joint_preview_done(self, key: str, pv, err) -> None:
+        jp = self._jp
+        jp["busy"], jp["key"] = False, key
+        jp["pv"] = None if err is not None else pv
+        jp["error"] = "" if err is None else (str(err) if isinstance(err, (ValueError, KeyError)) else f"{type(err).__name__}: {err}")
+        jp["drawn"] = None
+        self.scene_dirty = True                      # si algo cambió mientras se calculaba, el próximo sync recalcula
+        if self.on_change:
+            self.on_change()
+
+    _JOINT_PREVIEW_HIDE = ("figura", "voladizos", "mano:", "cabeza:reemplazo", "parte:", "accesorio:")
+
+    def _sync_joint_preview(self, scene) -> None:
+        """Dibuja SOLO la articulación (proximal tallado + distal girado) y oculta la figura (la escena no dibuja
+        mallas translúcidas: no se puede ver una a través de la otra)."""
+        jp = self._jp
+        name = jp["name"]
+        if self.show_joint_preview and (name is None or self.session.joint(name) is None):
+            self.show_joint_preview = False
+        if not self.show_joint_preview:
+            for key in [k for k in scene.items if k.startswith("junta:")]:
+                scene.remove(key)
+            jp["drawn"] = None
+            return
+        self._request_joint_preview(name)
+        pv = jp["pv"]
+        if pv is None:                               # calculando o con error: la figura se queda a la vista
+            for key in [k for k in scene.items if k.startswith("junta:")]:
+                scene.remove(key)
+            jp["drawn"] = None
+            return
+        for key in list(scene.items):
+            if key.startswith(self._JOINT_PREVIEW_HIDE) or (key.startswith("espejo:") and "silueta" not in key):
+                scene.show(key, False)
+        sig = (id(pv), round(jp["flex"], 6))
+        if jp["drawn"] != sig or "junta:prox" not in scene.items:
+            scene.set_mesh("junta:prox", pv.proximal_mesh(), color=(0.85, 0.80, 0.68, 1.0))
+            scene.set_mesh("junta:dist", pv.distal_mesh(jp["flex"]), color=(0.55, 0.75, 0.95, 1.0))
+            b = pv.build
+            ends = np.array([b.center - b.axis * b.tips[0], b.center + b.axis * b.tips[1]])
+            scene.set_lines("junta:eje", ends, (1.0, 0.3, 0.3, 1.0), on_top=True)
+            jp["drawn"] = sig
 
     def joint_limits(self, name: str) -> tuple[float, float]:
         from ..joints import flex_range
@@ -3542,6 +3683,7 @@ class Controller:
         self._sync_joints(scene)
         self._sync_trims(scene)
         self._sync_mirror(scene, drawn, pin_plane)
+        self._sync_joint_preview(scene)
 
     def _work_without_head(self) -> trimesh.Trimesh:
         """La malla de trabajo sin la cabeza original (lado del cuello hacia arriba), en caché: solo para el espejo."""
