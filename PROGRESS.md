@@ -3,6 +3,20 @@
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
 ## Current Focus
+**Mapa de calor de la mira del pasador (2026-11-10, sobre main cf1d6ea):** al entrar al modo PIN con catálogo abierto, la cara se barre UNA vez (`PinAid.heatmap`, paso 1 mm, tope 1600 puntos, reusa `evaluate` y su caché, así que cada color coincide con el de la mira) y se pintan puntos verde / amarillo / rojo sobre la cara donde cabe el pasador (`pasador:calor_ok|aviso|no`, `Controller._sync_pin_heat`), para apuntar sin mover el mouse. Tecla **H** o botón «Mapa de calor: mostrar / ocultar» lo oculta. Sin GTK: `tests/test_pin_aid.py` (+4). **Aviso de choque en pose sentada: NO hecho en la lectura en vivo.** Necesita la malla del miembro que sale de ESTE corte (aún no existe al apuntar) y la del otro miembro de la figura; armarlas cuesta segundos por punto. Sigue en la guía de cortes (`guide.SeatedClash`). Opción para después: un botón «Verificar choque sentado» que corra una vez sobre el punto elegido.
+
+### Todo List
+- [x] Mapa de calor (barrido único + puntos por nivel + toggle H).
+- [x] Tecla M: no choca con otro atajo (solo se atiende en modo PIN; H tampoco).
+- [ ] **Probar con GTK/GL real**: costo del barrido en una cara grande (~4 s en el peor caso, en la primera vez que se dibuja), tamaño de punto 5 px, aspecto del fantasma.
+- [ ] Choque en pose sentada bajo demanda (botón) — pendiente de decisión.
+- [ ] «torsos 0/4» con el muñeco (centro automático sobresale 0,7 mm): sin investigar.
+- [ ] `exclude_figure` al catalogar el muñeco mismo.
+
+### Latest Blockers/Discoveries
+- El barrido se calcula perezosamente en el primer dibujo, no al entrar: si se nota una pausa, pasarlo a un hilo.
+
+## Current Focus (anterior)
 **Mira asistida del pasador, «bullseye» (2026-11-10, sobre main 426319e):** al colocar el pasador del hombro / cadera en el modo PIN, con un catálogo abierto, el círculo del vástago y el de la cabeza siguen al puntero y se pintan según cuántas piezas del catálogo aceptarían ese corte (verde ≥ 80 %, amarillo una parte, rojo ninguna, gris sin catálogo, rojo «fuera» si el centro no cae en la cara). La barra de estado dice «Mira: torsos 3/4 · brazos 17/21 · pared 2,1 mm» y, si falla, el motivo más repetido. Es informativo (nivel N0, «probablemente compatible»), como la guía de cortes. Tecla **M** / botón «Imán» mueve el pasador a la mejor posición a ±2 mm. El clic y las flechas agregan «Catálogo: …» al mensaje. Piezas: `src/afm/pin_aid.py` (`PinAid.evaluate` con caché por celda de 0,25 mm, `best_near`, `reference_faces`, `own_face`; sin GTK, usa `guide.coverage_of_port` sobre los dos sentidos: pieza → tomas y torso → enchufes), `Controller.pin_aid` / `pin_aim` / `_update_pin_aim` / `snap_pin` / `_aim_note` (enganchado a `update_hover`), fantasma `pasador:mira` + `pasador:mira_cabeza` en `_sync_pins`, y botón + tecla en `window.py`. **Recuadro (punto 3)** en la sección PIN: `src/afm/pin_aid_view.py` (`aim_box_data` + `draw_aim_box`, cairo, sin GTK) dibuja la cara de ESTE corte, el círculo del vástago y la cabeza y, superpuestas, las caras de hasta 12 tomas del catálogo coloreadas por nivel (las que fallan arriba); la ventana lo muestra en un `Gtk.DrawingArea` (`_draw_aim`). Tests: `tests/test_pin_aid.py` (19, sin GTK).
 
 ### Todo List

@@ -18,7 +18,8 @@ sentada (`guide.SeatedClash`): necesita las mallas y es caro para recalcularlo e
 guía de cortes.
 
 `PinAid.evaluate(uv)` lee un punto (con caché por celda de `CELL_MM`) y `PinAid.best_near(uv)` es el «imán»: la mejor posición
-dentro de `NEAR_RADIUS_MM`. No importa GTK.
+dentro de `NEAR_RADIUS_MM`. `PinAid.heatmap()` barre la cara una vez (paso `HEAT_STEP_MM`) para pintar la franja verde / amarilla /
+roja sin mover el mouse. No importa GTK.
 """
 from __future__ import annotations
 
@@ -40,6 +41,8 @@ NEAR_RADIUS_MM = 2.0       # el imán busca hasta esta distancia del pasador (lo
 NEAR_STEP_MM = 0.5         # paso de la grilla fina del imán
 NEAR_COARSE_MM = 1.0       # paso de la grilla gruesa con la que el imán elige la zona antes de afinar
 CACHE_MAX = 4096
+HEAT_STEP_MM = 1.0         # paso del barrido del mapa de calor (una vez al activar la herramienta)
+HEAT_MAX_POINTS = 1600     # tope de puntos del barrido: en caras grandes el paso crece para no pasarse
 
 LEVELS = ("ok", "aviso", "no", "fuera", "sin_catalogo")
 LEVEL_COLORS = {            # RGBA del fantasma en el visor y del recuadro
@@ -157,6 +160,8 @@ class PinAid:
         self._origin = np.asarray(prev.plane.origin, float)
         self._shape0 = self._shape_in_port(self._origin)
         self._cache: dict = {}
+        self._heat: list | None = None
+        self._heat_world: dict | None = None
 
     # ------------------------------------------------------------------ puerto en un punto
     def _frame(self, center) -> PortFrame:
@@ -249,6 +254,37 @@ class PinAid:
             return None
         fine = self._best(self._grid(np.asarray(coarse.uv), NEAR_COARSE_MM, NEAR_STEP_MM), c)
         return fine if fine is not None and fine.clave() >= coarse.clave() else coarse
+
+    # ------------------------------------------------------------------ mapa de calor
+    def heatmap(self, step: float = HEAT_STEP_MM) -> list:
+        """Barre la cara UNA vez (el resultado queda guardado) y devuelve `[(uv, nivel)]` de los puntos donde cabe el pasador.
+
+        Sirve para pintar la franja verde sobre la cara y apuntar sin mover el mouse. Usa `evaluate` (y su caché), así que el
+        color de cada punto coincide con el de la mira. Si la cara es grande el paso crece hasta `HEAT_MAX_POINTS` puntos."""
+        if self._heat is not None:
+            return self._heat
+        x0, y0, x1, y1 = self.prev.shape.bounds
+        step = max(float(step), 1e-3)
+        while math.ceil((x1 - x0) / step) * math.ceil((y1 - y0) / step) > HEAT_MAX_POINTS:
+            step *= 1.1
+        out = []
+        for u in np.arange(x0 + step / 2, x1, step):
+            for v in np.arange(y0 + step / 2, y1, step):
+                q = np.array([u, v])
+                if not self.prev.fit(q, self.pin.shaft_d)[0]:
+                    continue
+                out.append(((float(u), float(v)), self.evaluate(q).nivel))
+        self._heat = out
+        return out
+
+    def heat_points(self) -> dict:
+        """El mapa de calor agrupado por nivel como puntos del mundo: `{nivel: ndarray (n, 3)}` (sin los niveles vacíos)."""
+        if self._heat_world is None:
+            groups: dict = {}
+            for uv, nivel in self.heatmap():
+                groups.setdefault(nivel, []).append(self.center_world(uv))
+            self._heat_world = {k: np.asarray(v) for k, v in groups.items()}
+        return self._heat_world
 
     # ------------------------------------------------------------------ dibujo
     def reference_faces(self, reading: AimReading) -> list:

@@ -50,6 +50,12 @@ def fill_hip_message(ss: dict, wanted: bool) -> str:
         f"holgura de pie {r['holgura_de_pie_mm']:g} mm" for k, r in done.items()) + "."
 
 
+def _pin_aid_colors() -> dict:
+    from ..pin_aid import LEVEL_COLORS
+
+    return LEVEL_COLORS
+
+
 class Mode(Enum):
     VIEW = "ver"
     CROWN = "coronilla"
@@ -228,6 +234,7 @@ class Controller:
         self.pin_limb: str | None = None            # miembro cuyo pasador se está colocando (modo PIN)
         self.pin_prev = None                         # PinPreview de ese miembro (cara de contacto)
         self.pin_aid = None                          # PinAid (mira asistida) del modo PIN; None sin catálogo abierto
+        self.heat_visible = True                     # mapa de calor de la mira (se puede ocultar)
         self.pin_aim = None                          # última lectura de la mira bajo el puntero (AimReading)
         self.mirror_live = False                     # con «un solo lado»: mostrar el espejo del lado de trabajo en vivo
         self.pose_view = False                       # vista previa de la figura generada con las piernas en la pose sentada
@@ -3954,7 +3961,8 @@ class Controller:
             scene.set_points(key, np.asarray(l.pin_center, float)[None], (1.0, 0.55, 0.1, 1.0), 10.0)
             scene.show(key, l.name not in self.hidden and self.group_visible("pins"))
         pin_keys = ("pasador:cara", "pasador:borde", "pasador:silueta", "pasador:vastago", "pasador:cabeza",
-                    "pasador:centro", "pasador:auto", "pasador:mira", "pasador:mira_cabeza")
+                    "pasador:centro", "pasador:auto", "pasador:mira", "pasador:mira_cabeza",
+                    "pasador:calor_ok", "pasador:calor_aviso", "pasador:calor_no")
         if editing is None:
             for key in [k for k in scene.items if k.startswith("pasador:") and k not in wanted]:
                 scene.remove(key)
@@ -3982,6 +3990,7 @@ class Controller:
             scene.set_points("pasador:auto", prev.default_center[None], (0.6, 0.9, 0.6, 1.0), 7.0, on_top=True)
         else:
             scene.remove("pasador:auto")
+        self._sync_pin_heat(scene)
         aim = self.pin_aim if self._pin_aim_active() else None
         if aim is None:                                 # el fantasma de la mira: vástago y cabeza con el color del nivel
             scene.remove("pasador:mira")
@@ -3991,6 +4000,30 @@ class Controller:
             scene.set_lines("pasador:mira", circle_world(prev.plane, g, pin.shaft_d / 2), aim.color, closed=True, on_top=True)
             scene.set_lines("pasador:mira_cabeza", circle_world(prev.plane, g, pin.head_d / 2), aim.color, closed=True,
                             on_top=True)
+
+    def toggle_heat(self) -> None:
+        self.heat_visible = not self.heat_visible
+        self._changed("Mapa de calor del pasador " + ("visible." if self.heat_visible else "oculto."))
+
+    HEAT_KEYS = ("ok", "aviso", "no")
+
+    def _sync_pin_heat(self, scene) -> None:
+        """El mapa de calor de la mira: puntos verde / amarillo / rojo sobre la cara, donde cabe el pasador. Se barre UNA vez
+        (la primera vez que se dibuja en el modo PIN) y queda guardado en la `PinAid`; fuera del modo se saca de la escena."""
+        groups = {}
+        if self._pin_aim_active() and self.heat_visible:
+            try:
+                groups = self.pin_aid.heat_points()
+            except Exception:                           # la ayuda nunca debe romper el modo PIN
+                groups = {}
+        for nivel in self.HEAT_KEYS:
+            key = f"pasador:calor_{nivel}"
+            pts = groups.get(nivel)
+            if pts is None or len(pts) == 0:
+                scene.remove(key)
+                continue
+            r, g, b, _a = _pin_aid_colors()[nivel]
+            scene.set_points(key, pts, (r, g, b, 0.55), 5.0, on_top=True)
 
     def _sync_head_pin(self, scene) -> None:
         """Pasador del cuello: un punto si se eligió a mano y, en el modo HEAD_PIN, la cara de canto, el contorno de
