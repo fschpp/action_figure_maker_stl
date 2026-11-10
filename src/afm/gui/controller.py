@@ -1357,10 +1357,12 @@ class Controller:
         self.pin_aim = r
         motivo = r.peor_motivo() if r.nivel != "ok" else None
         self.message = "Mira: " + r.texto() + (f" · {motivo}" if motivo else "")
-        self.scene_dirty = True
-        if self.on_change:
-            self.on_change()
+        self.scene_dirty = True                      # la ventana refresca solo la barra de estado y el recuadro (no toda la interfaz)
         return True
+
+    def aim_active(self) -> bool:
+        """True si hay que leer la mira cuando el puntero se mueve (modo PIN con catálogo abierto)."""
+        return self._pin_aim_active()
 
     def _clear_pin_aim(self) -> bool:
         if self.pin_aim is None:

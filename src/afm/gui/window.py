@@ -658,6 +658,10 @@ En naranja se ve el contorno del pasador (vástago y cabeza); en verde, la posic
         self.btn_pin_end = self._button("Terminar colocación del pasador (Esc)", lambda *_: self.ctrl.cancel())
         for b in (self.btn_pin_snap, self.btn_pin_reset, self.btn_pin_face, self.btn_pin_end):
             sec.append(b)
+        # Recuadro de la mira: la cara de este corte con el pasador y, encima, las caras del catálogo (solo con catálogo abierto)
+        self.aim_area = Gtk.DrawingArea(content_width=300, content_height=220, visible=False)
+        self.aim_area.set_draw_func(self._draw_aim)
+        sec.append(self.aim_area)
 
         # --------------------------------------------------------- Recortes
         box = self._tab_page("Recortes")
@@ -1035,6 +1039,8 @@ exportar; tarda un poco más.")
             placing = ctrl.mode == Mode.PIN
             for b in (self.btn_pin_snap, self.btn_pin_reset, self.btn_pin_face, self.btn_pin_end):
                 b.set_sensitive(placing)
+            self.aim_area.set_visible(ctrl.aim_active())
+            self.aim_area.queue_draw()
             self.spin_over.set_value(ctrl.overhang_angle)
             self.chk_fill_hip.set_active(ctrl.session.project.params.flat_fill_hip)
             self.chk_fill_hip.set_sensitive(self.chk_flat.get_active())
@@ -1224,10 +1230,20 @@ exportar; tarda un poco más.")
             cam.orbit(ddx, ddy)
         self.gl.queue_render()
 
+    def _draw_aim(self, _area, cr, w: int, h: int) -> None:
+        """El recuadro de la mira: lo que lee bajo el puntero o, si no hay lectura, en el centro actual del pasador."""
+        from ..pin_aid_view import aim_box_data, draw_aim_box
+
+        ctrl = self.ctrl
+        if not ctrl.aim_active():
+            return
+        r = ctrl.pin_aim or ctrl.pin_aid.evaluate(ctrl.pin_prev.project(ctrl._pin_center(ctrl.pin_limb)))
+        draw_aim_box(cr, w, h, aim_box_data(ctrl.pin_aid, r))
+
     def _on_gl_motion(self, _c, x: float, y: float) -> None:
         """Marca el vértice cercano al puntero (modos de elegir puntos). Se agrupan los eventos: la búsqueda traza un rayo."""
         self._hover_pos = (x, y)
-        if self.ctrl.hover_active() and not self._hover_timer:
+        if (self.ctrl.hover_active() or self.ctrl.aim_active()) and not self._hover_timer:
             self._hover_timer = GLib.timeout_add(30, self._hover_tick)
 
     def _hover_tick(self) -> bool:
@@ -1236,6 +1252,10 @@ exportar; tarda un poco más.")
         if pos is not None and not self._drag["moved"] and self.ctrl.update_hover(
                 pos[0], pos[1], max(self.gl.get_width(), 1), max(self.gl.get_height(), 1)):
             self.gl.queue_render()
+            if self.ctrl.aim_active():                  # la mira: solo la barra de estado y el recuadro, no toda la interfaz
+                probs = self.ctrl.problems()
+                self._set_status(self.ctrl.message, "Pendiente: " + "; ".join(probs) if probs else "Siluetas completas.")
+                self.aim_area.queue_draw()
         return False
 
     def _on_gl_leave(self, _c) -> None:
