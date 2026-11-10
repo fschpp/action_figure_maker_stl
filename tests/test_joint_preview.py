@@ -185,3 +185,58 @@ def test_preview_needs_a_joint(ctrl):
     ctrl.session.remove_joint("codo")
     ctrl.set_joint_preview(None, True)
     assert not ctrl.show_joint_preview and "No hay ninguna articulación" in ctrl.message
+
+
+# ------------------------------------------------------ miembro que es una pieza de catálogo
+@pytest.fixture(scope="module")
+def arm_choice(params):
+    from afm.assembly import PartChoice
+    from afm.extract import extract_all
+
+    project = demo_project()
+    body = S.to_manifold(make_doll())
+    ext = {e.meta.tipo: e for e in extract_all(body, project, "muneco", figure="doll").pieces}
+    return PartChoice(ext["brazo"].meta, ext["brazo"].mesh)
+
+
+def test_catalog_arm_in_its_own_port_previews_like_the_model_arm(arm, arm_choice, params):
+    """La pieza extraída del muñeco, puesta en su propio lugar, es el mismo brazo: la vista previa da lo mismo."""
+    from afm.joint_preview import prepare_limb_from_part
+
+    limb, face = arm
+    spec = next(l for l in demo_project().limbs if l.name == "brazo")
+    plimb, pface = prepare_limb_from_part(S.to_manifold(make_doll()), spec, arm_choice, params)
+    assert float(plimb.volume()) == pytest.approx(float(limb.volume()), rel=0.01)
+    assert np.allclose(pface.center, face.center, atol=1e-3)
+    a, b = preview_joint(limb, face, elbow(), params), preview_joint(plimb, pface, elbow(), params)
+    assert b.carved_mm3 == pytest.approx(a.carved_mm3, rel=0.05)
+
+
+def test_controller_previews_a_joint_on_a_catalog_part(ctrl, arm_choice, monkeypatch):
+    """Belgrano: el brazo es una pieza de catálogo y el codo es el del proyecto; antes se negaba («usa una pieza de catálogo»)."""
+    from afm.project import PartRef
+
+    s = ctrl.session
+    s.project.parts = {"brazo": PartRef(id="brazo-demo", linea="demo")}
+    monkeypatch.setattr(s, "_resolved_parts", lambda: {"brazo": arm_choice})
+    scene = FakeScene()
+    ctrl.set_joint_preview("codo", True)
+    ctrl.sync(scene)
+    assert ctrl.joint_preview_status().startswith("Hueco"), ctrl.joint_preview_status()
+    assert "junta:prox" in scene.items and scene.visible["figura"] is False
+    k = s.joint_preview_key("codo")
+    s.project.parts = {}
+    assert s.joint_preview_key("codo") != k                            # cambiar la pieza invalida el cálculo
+
+
+def test_preview_frames_the_camera_on_the_joint_once(ctrl):
+    scene = FakeScene()
+    far = ctrl.camera.distance
+    ctrl.set_joint_preview("codo", True)
+    ctrl.sync(scene)
+    near = ctrl.camera.distance
+    assert near < far / 2 and np.allclose(ctrl.camera.target, ctrl._jp["pv"].build.center, atol=15.0)
+    ctrl.camera.distance = near * 1.7                                  # el usuario aleja la cámara: no se le vuelve a encuadrar
+    ctrl.set_joint_height("codo", 2.0)
+    ctrl.sync(scene)
+    assert ctrl.camera.distance == pytest.approx(near * 1.7)

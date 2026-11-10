@@ -11,7 +11,7 @@ _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic
 - [x] Sección en la ventana (probada bajo Xvfb con el muñeco).
 - [ ] **Probar con el codo real de Belgrano** (`belgrano_lq_rsized_fixed_ok.proyecto`): encender la vista previa y mover altura / inclinación / rango; medir cuánto tarda (con el muñeco ~3–4 s).
 - [/] Decidir con la vista previa qué combinación (altura del eje, plano recto, barrido) deja pared ≥ 1,2 mm sin comerse el brazo; si hace falta, limitar el barrido a la sección real del extremo del antebrazo.
-- [ ] Vista previa también para las articulaciones que traen las piezas de catálogo (hoy se avisa que usan la de la pieza).
+- [x] Vista previa con el miembro como pieza de catálogo (`prepare_limb_from_part`, caso Belgrano: brazo de Güemes + codo del proyecto). Pendiente: articulaciones que traen las propias piezas de catálogo (`meta.articulaciones`) y figuras solo-catálogo.
 
 ### Latest Blockers/Discoveries
 - El barrido de `build_joint` es el de TODO el cuerpo distal (el antebrazo entero, dilatado) en cada ángulo del rango: el hueco que queda en el brazo es la «cuña» que recorre la cara de corte del antebrazo alrededor del eje. Por eso pesan tanto la altura del eje sobre el plano, la inclinación del plano y el rango.

@@ -4,7 +4,8 @@
 eje, inclinar el plano o cambiar el rango cambia cuánto material se lleva el hueco. Para poder ver ese efecto mientras se
 ajustan los valores, este módulo arma SOLO la articulación:
 
-* `prepare_limb`: el miembro del modelo (corte + recortes), calculado una vez por miembro (es lo caro).
+* `prepare_limb` / `prepare_limb_from_part`: el miembro del modelo (corte + recortes) o la pieza de catálogo colocada en su
+  lugar, calculado una vez por miembro (es lo caro).
 * `preview_joint`: recorta el miembro a una caja alrededor del eje (`crop_mm`) y llama a `build_joint` con un paso de
   barrido más grueso (`PREVIEW_STEP`). Devuelve el proximal tallado, el distal girado a la flexión que se pida y los
   números que importan para decidir: volumen que se llevó el hueco, altura del eje sobre el plano, avisos.
@@ -77,6 +78,23 @@ def prepare_limb(body: S.Manifold, spec: LimbSpec, p: Params, trims: list[Trim] 
         half = body.trim_by_plane((1.0, 0.0, 0.0), 0.0)
     limb_raw, face = separate_limb(half, spec, p.burr)
     return apply_trims(limb_raw, list(trims or []), spec.name), face
+
+
+def prepare_limb_from_part(body: S.Manifold, spec: LimbSpec, choice, p: Params, trims: list[Trim] | None = None,
+                           half: S.Manifold | None = None) -> tuple[S.Manifold, ContactFace]:
+    """Igual que `prepare_limb`, pero el miembro es una **pieza de catálogo** (`assembly.PartChoice`) llevada al lugar del
+    miembro del modelo, como hace `pipeline.build`: el lugar lo da la cara de contacto del miembro propio en el torso y la
+    pieza se coloca por su puerto (sin escala). Los recortes manuales se aplican a la pieza ya colocada."""
+    from .assembly import AssemblyError, place_part
+
+    if half is None:
+        half = body.trim_by_plane((1.0, 0.0, 0.0), 0.0)
+    _own, host_face = separate_limb(half, spec, p.burr)
+    try:
+        pp = place_part(choice, spec.kind, host_face, p, p.ref_height)       # sin `host_mesh`: la capacidad no cambia la forma
+    except AssemblyError as exc:
+        raise ValueError(f"«{spec.name}»: {exc}") from exc
+    return apply_trims(pp.mesh, list(trims or []), spec.name), pp.face
 
 
 def _crop_box(center, half_size: float) -> S.Manifold:

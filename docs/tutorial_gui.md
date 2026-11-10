@@ -344,9 +344,10 @@ mientras ajustás, sin esperar a «Generar figura», usá la pestaña **Parámet
    avisos (por ejemplo, poca pared alrededor del bulón). Si no se puede (eje a menos de 0,5 mm del plano…) dice por qué.
 
 La vista previa usa el mismo motor que la figura final, con un paso de barrido más grueso (10°), así que la forma del hueco
-es la que va a salir salvo el escalón del paso. No tiene en cuenta el pasador del hombro ni las articulaciones de piezas de
-catálogo (usan la de la pieza). *(La ventana se probó con GTK real bajo Xvfb; la lógica tiene tests en
-`tests/test_joint_preview.py`.)*
+es la que va a salir salvo el escalón del paso. Si el miembro es una **pieza de catálogo** (p. ej. el brazo de Güemes en
+Belgrano) se coloca en el lugar del miembro del modelo igual que al generar, y la articulación es la del proyecto. No tiene en
+cuenta el pasador del hombro ni la mano, y se niega con piezas escaladas o una figura armada solo con catálogo. *(La ventana
+se probó con GTK real bajo Xvfb; la lógica tiene tests en `tests/test_joint_preview.py`.)*
 
 ### 7.2d Mecanismo de clic (hombro y cadera)
 

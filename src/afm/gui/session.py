@@ -744,18 +744,20 @@ class Session:
         prj = self.project
         trims = [t.to_dict() for t in prj.trims if t.target == j.limb]
         blob = {"joint": j.to_dict(), "limb": spec.to_dict() if spec is not None else None, "trims": trims,
-                "params": prj.params.to_dict(), "work": id(self.work)}
+                "params": prj.params.to_dict(), "work": id(self.work),
+                "part": prj.parts[j.limb].to_dict() if j.limb in prj.parts else None, "catalog": self.catalog_root}
         return json_sig(blob)
 
     def joint_preview_job(self, name: str):
         """Trabajo de la vista previa de la articulación `name`, apto para correr en un hilo (trabaja con copias).
 
         Devuelve `run(cache) -> JointPreview`. `cache` es un dict que el que llama conserva entre corridas: guarda el
-        miembro ya cortado (`prepare_limb`, lo caro), que solo se rehace si cambian el miembro, sus recortes o los
-        parámetros. Falla con ValueError si la figura no se puede previsualizar así (piezas de catálogo, escaladas)."""
+        miembro ya cortado (`prepare_limb`, lo caro), que solo se rehace si cambian el miembro, su pieza de catálogo,
+        sus recortes o los parámetros. Falla con ValueError si no se puede previsualizar así (piezas escaladas, figura
+        armada solo con catálogo)."""
         import copy
         from ..customize import needed
-        from ..joint_preview import prepare_limb, preview_joint
+        from ..joint_preview import prepare_limb, prepare_limb_from_part, preview_joint
 
         j = self.joint(name)
         if j is None:
@@ -763,10 +765,12 @@ class Session:
         spec = self.limb(j.limb)
         if spec is None:
             raise KeyError(j.limb)
-        if j.limb in (self._resolved_parts() or {}):
-            raise ValueError(f"«{j.limb}» usa una pieza de catálogo: su articulación es la de la pieza (por ahora sin vista previa)")
         if needed(self.project):
             raise ValueError("la figura tiene piezas escaladas: la vista previa de la articulación todavía no las contempla")
+        if self.catalog_only():
+            raise ValueError("la figura se arma solo con piezas de catálogo: la vista previa todavía no la contempla")
+        choice = (self._resolved_parts() or {}).get(j.limb)        # pieza de catálogo en ese lugar (None = miembro del modelo)
+        part_sig = "" if choice is None else json_sig({"ref": self.project.parts[j.limb].to_dict(), "root": self.catalog_root})
         work = self.work
         joint = copy.deepcopy(j)
         spec = copy.deepcopy(spec)
@@ -776,10 +780,12 @@ class Session:
         def run(cache: dict | None = None):
             cache = {} if cache is None else cache
             lk = (id(work), json_sig(spec.to_dict()), json_sig([t.to_dict() for t in trims if t.target == spec.name]),
-                  json_sig(p.to_dict()))
+                  json_sig(p.to_dict()), part_sig)
             if cache.get("key") != lk:
                 cache["key"] = None
-                cache["val"] = prepare_limb(S.to_manifold(work), spec, p, trims)
+                body = S.to_manifold(work)
+                cache["val"] = (prepare_limb(body, spec, p, trims) if choice is None
+                                else prepare_limb_from_part(body, spec, choice, p, trims))
                 cache["key"] = lk
             limb, face = cache["val"]
             return preview_joint(limb, face, joint, p)

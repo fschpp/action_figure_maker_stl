@@ -718,6 +718,7 @@ class Controller:
         jp = self._jp
         if jp["name"] != name:
             jp.update(name=name, key=None, pv=None, error="", cache={}, drawn=None)
+        jp["framed"] = None                          # al encender, la cámara se vuelve a encuadrar sobre la articulación
         self.show_joint_preview = True
         self._changed(f"Vista previa de la {name}: mové el eje, el plano o el rango y se recalcula sola.")
         return True
@@ -776,6 +777,10 @@ class Controller:
         jp["pv"] = None if err is not None else pv
         jp["error"] = "" if err is None else (str(err) if isinstance(err, (ValueError, KeyError)) else f"{type(err).__name__}: {err}")
         jp["drawn"] = None
+        if pv is not None and jp.get("framed") != jp["name"] and self.show_joint_preview:
+            jp["framed"] = jp["name"]                # la primera vez: acercar la cámara a la articulación (si no, se ve diminuta)
+            b = np.vstack([pv.proximal_mesh().bounds, pv.distal_mesh(jp["flex"]).bounds])
+            self.camera.frame(np.array([b.min(axis=0), b.max(axis=0)]))
         self.scene_dirty = True                      # si algo cambió mientras se calculaba, el próximo sync recalcula
         if self.on_change:
             self.on_change()
