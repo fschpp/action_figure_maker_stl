@@ -278,3 +278,54 @@ def test_aim_box_outside_the_face_has_only_text(prev_arm, cat):
     data = V.aim_box_data(aid, r)
     assert data["propia"] == [] and data["refs"] == [] and data["nivel"] == "fuera"
     V.draw_aim_box(cairo.Context(cairo.ImageSurface(cairo.FORMAT_ARGB32, 120, 100)), 120, 100, data)   # no falla
+
+
+# ---------------------------------------------------------------------------------------------------- mapa de calor
+def test_heatmap_sweeps_the_face_once_and_matches_the_reading(prev_arm, cat, monkeypatch):
+    aid = PinAid(prev_arm, "arm", cat)
+    heat = aid.heatmap()
+    assert heat and all(n in PA.LEVELS for _uv, n in heat)
+    for uv, nivel in heat[:: max(1, len(heat) // 5)]:                        # el color del mapa es el de la mira
+        assert aid.evaluate(uv).nivel == nivel
+        assert prev_arm.fit(np.asarray(uv), aid.pin.shaft_d)[0]              # solo donde cabe el pasador
+    monkeypatch.setattr(aid, "evaluate", lambda *a, **k: pytest.fail("el barrido se repite"))
+    assert aid.heatmap() is heat                                             # una sola vez
+
+
+def test_heatmap_step_grows_on_big_faces(prev_arm, cat):
+    aid = PinAid(prev_arm, "arm", cat)
+    assert len(aid.heatmap(step=0.01)) <= PA.HEAT_MAX_POINTS
+
+
+def test_heat_points_are_world_points_on_the_face_plane(prev_arm, cat):
+    aid = PinAid(prev_arm, "arm", cat)
+    groups = aid.heat_points()
+    assert groups and sum(len(v) for v in groups.values()) == len(aid.heatmap())
+    for pts in groups.values():
+        d = (pts - prev_arm.plane.origin) @ prev_arm.plane.normal
+        assert np.allclose(d, 0.0, atol=1e-6)
+    assert aid.heat_points() is groups
+
+
+def test_controller_paints_heat_points_in_pin_mode(prev_arm, cat):
+    """El controlador arma los puntos del mapa de calor en la escena (sin GL: una escena de mentira)."""
+    class Scene:
+        def __init__(self):
+            self.items = {}
+
+        def set_points(self, key, pts, color, size, on_top=False):
+            self.items[key] = (np.asarray(pts), color)
+
+        def remove(self, key):
+            self.items.pop(key, None)
+
+    c = Controller.__new__(Controller)
+    c.heat_visible = True
+    c.pin_aid = PinAid(prev_arm, "arm", cat)
+    c._pin_aim_active = lambda: True
+    sc = Scene()
+    c._sync_pin_heat(sc)
+    assert sc.items and all(k.startswith("pasador:calor_") for k in sc.items)
+    c.heat_visible = False
+    c._sync_pin_heat(sc)
+    assert not sc.items
