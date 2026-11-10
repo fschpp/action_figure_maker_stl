@@ -346,8 +346,16 @@ mientras ajustás, sin esperar a «Generar figura», usá la pestaña **Parámet
 La vista previa usa el mismo motor que la figura final, con un paso de barrido más grueso (10°), así que la forma del hueco
 es la que va a salir salvo el escalón del paso. Si el miembro es una **pieza de catálogo** (p. ej. el brazo de Güemes en
 Belgrano) se coloca en el lugar del miembro del modelo igual que al generar, y la articulación es la del proyecto. No tiene en
-cuenta el pasador del hombro ni la mano, y se niega con piezas escaladas o una figura armada solo con catálogo. *(La ventana
-se probó con GTK real bajo Xvfb; la lógica tiene tests en `tests/test_joint_preview.py`.)*
+cuenta el pasador del hombro ni la mano, y se niega con piezas escaladas. *(La ventana se probó con GTK real bajo Xvfb; la
+lógica tiene tests en `tests/test_joint_preview.py`.)*
+
+**Figura armada desde el catálogo** («Armar desde catálogo» / «Armar y exportar»; también el `.proyecto` que escribe, que se
+abre sin STL): el proyecto no trae rodilla ni codo propios, vienen dentro de las piezas del catálogo (`meta.articulaciones`).
+La lista muestra las de las piezas elegidas, ya colocadas en la figura, y la vista previa las arma igual. Son **de solo
+lectura**: el eje, el plano y el rango son los de la pieza catalogada (la altura, la inclinación y «Enderezar» quedan
+deshabilitados, y el texto lo avisa); lo que sí se puede es girar la **flexión mostrada** y leer cuánto material se lleva el
+hueco y los avisos. Para cambiarlos hay que ajustar la articulación en el proyecto con el que se catalogó el brazo / la pierna
+y volver a catalogar. Si las piezas elegidas no traen articulación, el texto dice que no hay nada que previsualizar.
 
 ### 7.2d Mecanismo de clic (hombro y cadera)
 

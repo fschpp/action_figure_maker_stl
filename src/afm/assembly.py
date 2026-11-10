@@ -157,6 +157,14 @@ def place_part(choice: PartChoice, kind: str, host_face: ContactFace, params=Non
     return PlacedPart(choice, kind, S.to_manifold(mesh), face, T, placed_port, compat)
 
 
+def placed_joints(pp: PlacedPart, limb: str) -> list:
+    """Articulaciones internas de la pieza (`meta.articulaciones`, en el marco de la pieza) llevadas a su lugar en la figura,
+    para el miembro `limb`. Es la misma transformación que aplica `pipeline.build` al colocar una pieza de catálogo."""
+    from .joints import JointSpec
+
+    return [JointSpec.from_dict(jd).transformed(pp.T, limb) for jd in pp.choice.meta.articulaciones or []]
+
+
 HEAD_INSET_MM = 1.5     # el cuerpo bajo el cuello termina `clearance` antes del plano: la capacidad se mide desde un poco adentro
 HIP_TOL_MM = 1.0        # distancia máxima entre la cadera de la pelvis de catálogo y la del miembro del modelo sin avisar
 

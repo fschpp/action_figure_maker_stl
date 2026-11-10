@@ -80,6 +80,7 @@ class Session:
         self.outcome: BuildOutcome | None = None
         self._zmin_file = 0.0
         self.catalog_origin: dict | None = None      # bloque `catalogo_solo` del .proyecto: figura toda de catálogo, sin STL
+        self._catalog_joint_cache: dict | None = None  # articulaciones de las piezas de catálogo ya colocadas (ver `catalog_joints`)
 
     # ------------------------------------------------------------------ carga
     def load(self, path: str, crown_z: float | None = None, progress=None) -> meshio.LoadReport:
@@ -502,6 +503,82 @@ class Session:
     def joint_of_limb(self, limb: str) -> JointSpec | None:
         return next((j for j in self.project.joints if j.limb == limb), None)
 
+    # ------------- articulaciones que traen las piezas de catálogo (figura armada solo con catálogo)
+    def _catalog_joint_sig(self) -> str:
+        """Firma de lo que decide dónde quedan las articulaciones de las piezas de catálogo: qué piezas (id y versión), de qué
+        catálogo y con qué escalas de la receta. No incluye los parámetros: el lugar de cada pieza no depende de ellos."""
+        origin = None if self.catalog_origin is None else self.catalog_origin.get("receta")
+        return json_sig({"parts": {k: v.to_dict() for k, v in self.project.parts.items()}, "root": self.catalog_root,
+                         "origin": origin})
+
+    def _catalog_joint_state(self, host=None) -> dict:
+        """Lleva cada miembro de catálogo con articulación a su lugar en el cuerpo base y guarda sus `JointSpec` ya colocadas.
+
+        `{"sig", "joints": {nombre: JointSpec}, "placed": {miembro: PlacedPart}, "error": str}`. Se recuerda por firma (no se
+        recalcula si no cambian las piezas) y también el fallo, para no reintentar en cada refresco de la ventana. `host` es un
+        `SyntheticHost` ya armado (lo trae `load_catalog_body`); sin él se arma acá, que es lo caro."""
+        from ..assembly import AssemblyError, place_part, placed_joints, synthesize_host
+
+        sig = self._catalog_joint_sig()
+        cached = self._catalog_joint_cache
+        if host is None and cached is not None and cached["sig"] == sig:
+            return cached
+        state = {"sig": sig, "joints": {}, "placed": {}, "error": ""}
+        try:
+            probs = self.catalog_only_problems()
+            if probs:
+                raise ValueError("; ".join(probs))
+            p = self.project.params
+            if host is None:
+                host = synthesize_host(self._catalog_only_choices(), p)
+            own = {{"arm": "brazo", "leg": "pierna"}[l.kind]: l.name for l in self.project.limbs if l.name in self.project.parts}
+            for hl in host.limbs:
+                choice, face = host.parts.get(hl.name), host.faces.get(hl.name)
+                if choice is None or face is None or not (choice.meta.articulaciones or []):
+                    continue
+                lname = own.get(hl.name, hl.name)          # nombre del miembro en el proyecto (no siempre el del huésped)
+                pp = place_part(choice, hl.kind, face, p, p.ref_height)
+                for j in placed_joints(pp, lname):
+                    if j.kind != JOINT_KIND_BY_LIMB.get(hl.kind):
+                        raise ValueError(f"«{lname}»: la articulación «{j.name}» de la pieza es «{j.kind}» y el miembro es «{hl.kind}»")
+                    state["joints"][j.name] = j
+                    state["placed"][lname] = pp
+        except (AssemblyError, ValueError) as exc:
+            state.update(joints={}, placed={}, error=str(exc))
+        self._catalog_joint_cache = state
+        return state
+
+    def catalog_joints(self) -> dict[str, JointSpec]:
+        """Rodilla / codo que traen las piezas de catálogo, ya colocadas en la figura: `{nombre: JointSpec}`. Solo con torso de
+        catálogo (la figura sale entera del catálogo) y con el modelo cargado; vacío si no hay o no se puede armar. Son de
+        solo lectura: el eje, el plano y el rango vienen de la pieza catalogada."""
+        if not self.loaded or not self.catalog_only():
+            return {}
+        return dict(self._catalog_joint_state()["joints"])
+
+    def catalog_joint_error(self) -> str:
+        """Por qué no se pudieron colocar las articulaciones de catálogo ('' si se pudo o no corresponde)."""
+        return self._catalog_joint_state()["error"] if self.loaded and self.catalog_only() else ""
+
+    def is_catalog_joint(self, name: str) -> bool:
+        return name in self.catalog_joints()
+
+    def joints_listed(self) -> list[JointSpec]:
+        """Articulaciones que ve el usuario / la vista previa: con torso de catálogo, las de las piezas elegidas (la figura se
+        genera solo con ellas: las del proyecto no cuentan); si no, las del proyecto."""
+        if self.catalog_only():
+            return list(self.catalog_joints().values())
+        return list(self.project.joints)
+
+    def joint_any(self, name: str) -> JointSpec | None:
+        """Como `joint`, pero también encuentra las articulaciones de catálogo (de solo lectura)."""
+        return next((j for j in self.joints_listed() if j.name == name), None)
+
+    def _refuse_catalog_joint(self, name: str) -> None:
+        if self.is_catalog_joint(name):
+            raise ValueError(f"la articulación «{name}» viene de la pieza de catálogo: su eje, plano y rango son los de la pieza "
+                             "(se cambian en el proyecto con el que se catalogó)")
+
     @staticmethod
     def _tilt_axis(tilt_deg: float) -> tuple:
         """Eje visto de frente: gira alrededor de Y (0 = a lo largo de X; positivo = z sube con x), como la
@@ -640,6 +717,7 @@ class Session:
     def set_joint_axis(self, name: str, point_world=None, tilt_deg: float | None = None) -> JointSpec:
         """Mueve el eje de la bisagra: `point_world` fija (y, z) del eje (la x se conserva: el eje atraviesa el
         miembro), `tilt_deg` lo inclina. Falla con ValueError si queda a menos de 0,5 mm del lado proximal del plano."""
+        self._refuse_catalog_joint(name)
         j = self.joint(name)
         if j is None:
             raise KeyError(name)
@@ -662,6 +740,7 @@ class Session:
 
     def set_joint_range(self, name: str, lo: float | None, hi: float | None) -> JointSpec:
         """Rango de flexión (°, hiperextensión negativa). `None, None` vuelve al de los parámetros."""
+        self._refuse_catalog_joint(name)
         j = self.joint(name)
         if j is None:
             raise KeyError(name)
@@ -683,13 +762,14 @@ class Session:
 
     def joint_height(self, name: str) -> float:
         """Distancia (mm) del eje de la bisagra al plano de articulación, medida a lo largo de la normal."""
-        j = self.joint(name)
+        j = self.joint_any(name)
         if j is None:
             raise KeyError(name)
         return float((np.asarray(j.axis_center, float) - np.asarray(j.plane.origin, float)) @ self._joint_normal(j))
 
     def set_joint_height(self, name: str, h: float) -> JointSpec:
         """Sube o baja el eje en vertical (x e y no cambian) hasta que quede a `h` mm del plano."""
+        self._refuse_catalog_joint(name)
         j = self.joint(name)
         if j is None:
             raise KeyError(name)
@@ -718,6 +798,7 @@ class Session:
 
         El eje no se mueve y conserva su altura sobre el plano: lo que se corre es el plano (que sigue pasando a esa
         altura bajo el eje). Con el plano más recto el hueco se lleva menos brazo, pero el corte cambia de lugar."""
+        self._refuse_catalog_joint(name)
         j = self.joint(name)
         if j is None:
             raise KeyError(name)
@@ -737,9 +818,11 @@ class Session:
 
     def joint_preview_key(self, name: str) -> str:
         """Firma de todo lo que cambia el resultado de la vista previa de la articulación (si no cambia, no se recalcula)."""
-        j = self.joint(name)
+        j = self.joint_any(name)
         if j is None:
             raise KeyError(name)
+        if self.is_catalog_joint(name):            # articulación de una pieza de catálogo: depende de las piezas, no del modelo
+            return json_sig({"joint": j.to_dict(), "catalog": self._catalog_joint_sig(), "params": self.project.params.to_dict()})
         spec = self.limb(j.limb)
         prj = self.project
         trims = [t.to_dict() for t in prj.trims if t.target == j.limb]
@@ -759,6 +842,8 @@ class Session:
         from ..customize import needed
         from ..joint_preview import prepare_limb, prepare_limb_from_part, preview_joint
 
+        if self.is_catalog_joint(name):
+            return self._catalog_joint_preview_job(name)
         j = self.joint(name)
         if j is None:
             raise KeyError(name)
@@ -768,7 +853,8 @@ class Session:
         if needed(self.project):
             raise ValueError("la figura tiene piezas escaladas: la vista previa de la articulación todavía no las contempla")
         if self.catalog_only():
-            raise ValueError("la figura se arma solo con piezas de catálogo: la vista previa todavía no la contempla")
+            raise ValueError("la figura se arma solo con piezas de catálogo y esta articulación no es de ninguna de ellas: "
+                             "las del proyecto no entran en esa figura")
         choice = (self._resolved_parts() or {}).get(j.limb)        # pieza de catálogo en ese lugar (None = miembro del modelo)
         part_sig = "" if choice is None else json_sig({"ref": self.project.parts[j.limb].to_dict(), "root": self.catalog_root})
         work = self.work
@@ -789,6 +875,23 @@ class Session:
                 cache["key"] = lk
             limb, face = cache["val"]
             return preview_joint(limb, face, joint, p)
+
+        return run
+
+    def _catalog_joint_preview_job(self, name: str):
+        """Trabajo de la vista previa de una articulación que trae una pieza de catálogo (figura armada solo con catálogo).
+
+        El miembro ya está colocado en el cuerpo base (`_catalog_joint_state`), así que no hay nada caro que preparar: solo se
+        recorta alrededor del eje y se arma el hueco, con los mismos números que la figura final (salvo el paso del barrido)."""
+        import copy
+        from ..joint_preview import preview_joint
+
+        j = self.catalog_joints()[name]
+        pp = self._catalog_joint_state()["placed"][j.limb]
+        joint, p = copy.deepcopy(j), copy.deepcopy(self.project.params)
+
+        def run(cache: dict | None = None):
+            return preview_joint(pp.mesh, pp.face, joint, p)
 
         return run
 
@@ -1864,6 +1967,7 @@ class Session:
         mesh = S.to_trimesh(host.body)
         ext = mesh.bounds[1] - mesh.bounds[0]
         self.stl_path, self.base = None, mesh
+        self._catalog_joint_state(host)        # el huésped ya está armado: de acá salen las articulaciones de las piezas
         self.report = meshio.LoadReport(original_height=float(ext[2]), was_watertight=True)
         self._zmin_file = float(mesh.bounds[0][2])
         self.outcome = None

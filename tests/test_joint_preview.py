@@ -1,10 +1,17 @@
 """Vista previa de la articulación (rodilla / codo) sin generar la figura: motor, sesión y controlador (sin GTK)."""
 import dataclasses
+import json
+import os
+import shutil
+import types
 
 import numpy as np
 import pytest
 
+from afm import catalog_project as CP
 from afm import solids as S
+from afm.assembly import synthesize_host
+from afm.recipe import Recipe, load_choices, recipe_params
 from afm.gui.controller import Controller
 from afm.gui.session import Session
 from afm.joint_preview import prepare_limb, preview_joint
@@ -240,3 +247,140 @@ def test_preview_frames_the_camera_on_the_joint_once(ctrl):
     ctrl.set_joint_height("codo", 2.0)
     ctrl.sync(scene)
     assert ctrl.camera.distance == pytest.approx(near * 1.7)
+
+
+# ------------------------------------------- figura armada desde el catálogo («Armar y exportar», sin STL)
+EJEMPLO = os.path.join(os.path.dirname(__file__), "..", "catalogo", "ejemplo")
+
+
+def _catalog_project(base, with_elbow: bool) -> str:
+    """`.proyecto` de «Armar y exportar» del muñeco de ejemplo (sin generar la figura); con `with_elbow` el brazo catalogado
+    trae su codo (`meta.articulaciones`), como el brazo de Belgrano."""
+    root = str(base / "ejemplo")
+    shutil.copytree(EJEMPLO, root)
+    if with_elbow:
+        pj = os.path.join(root, "piezas", "brazo", "brazo-muneco-01@1.pieza.json")
+        d = json.load(open(pj))
+        d["articulaciones"] = [elbow().to_dict()]
+        json.dump(d, open(pj, "w"))
+    recipe = Recipe.load(os.path.join(root, "recetas", "muneco.receta.json"))
+    cat, choices = load_choices(recipe, root)
+    p = recipe_params(recipe, cat)
+    host = synthesize_host(choices, p)
+    path = str(base / "muneco.proyecto")
+    CP.save(types.SimpleNamespace(recipe=recipe, catalog=cat, host=host, params=p), path)      # lo mismo que escribe `afm armar`
+    return path
+
+
+@pytest.fixture(scope="module")
+def catalog_elbow_path(tmp_path_factory):
+    return _catalog_project(tmp_path_factory.mktemp("codo_catalogo"), with_elbow=True)
+
+
+@pytest.fixture()
+def cctrl(catalog_elbow_path):
+    c = Controller()
+    c.open_project(catalog_elbow_path)
+    return c
+
+
+def test_catalog_project_lists_the_joint_its_piece_brings(cctrl):
+    s = cctrl.session
+    assert s.stl_path is None and s.catalog_only() and s.project.joints == []       # el proyecto no trae articulaciones propias
+    assert [j.name for j in s.joints_listed()] == ["codo"]
+    assert s.is_catalog_joint("codo") and not cctrl.joint_editable("codo")
+    j = s.joint_any("codo")
+    assert j.limb == "brazo" and j.kind == "elbow"
+    assert np.allclose(j.axis_center, (18.5, 0.0, 62.0), atol=1e-6)                 # la pieza está en su lugar: no se movió
+    assert s.joint_height("codo") == pytest.approx(3.0)
+    assert cctrl.joint_plane_side_tilt("codo") == pytest.approx(0.0, abs=1e-6)
+
+
+def test_catalog_project_previews_the_joint_and_hides_the_figure(cctrl):
+    scene = FakeScene()
+    cctrl.set_joint_preview(None, True)                  # sin nombre: la primera de la lista
+    assert cctrl.show_joint_preview and "pieza de catálogo" in cctrl.message
+    cctrl.sync(scene)                                    # sin ventana: el cálculo es síncrono
+    status = cctrl.joint_preview_status()
+    assert status.startswith("Hueco"), status
+    pv = cctrl._jp["pv"]
+    assert pv.carved_mm3 > 1.0 and 0.0 < pv.carved_pct < 100.0 and pv.h == pytest.approx(3.0)
+    assert pv.proximal_mesh().is_watertight
+    assert "junta:prox" in scene.items and "junta:dist" in scene.items and scene.visible["figura"] is False
+    cctrl.set_joint_preview_flex(60.0)                   # solo recoloca el distal: no recalcula
+    cctrl.sync(scene)
+    assert cctrl._jp["pv"] is pv
+    cctrl.set_joint_preview("codo", False)
+    cctrl.sync(scene)
+    assert "junta:prox" not in scene.items and scene.visible["figura"] is True
+
+
+def test_catalog_joint_matches_the_same_joint_on_the_model_arm(cctrl, arm, params):
+    """La pieza de catálogo del muñeco es el brazo del muñeco: el hueco que se ve es el mismo que con el brazo del modelo."""
+    limb, face = arm
+    expected = preview_joint(limb, face, elbow(), params)
+    cctrl.set_joint_preview("codo", True)
+    cctrl.sync(FakeScene())
+    got = cctrl._jp["pv"]
+    assert got.proximal_mm3 > 0 and got.carved_mm3 == pytest.approx(expected.carved_mm3, rel=0.15)
+
+
+def test_catalog_joint_is_read_only(cctrl):
+    s = cctrl.session
+    key = s.joint_preview_key("codo")
+    for call in (lambda: s.set_joint_height("codo", 2.0), lambda: s.set_joint_plane_side_tilt("codo", 0.0),
+                 lambda: s.set_joint_range("codo", 0.0, 45.0), lambda: s.set_joint_axis("codo", None, 5.0)):
+        with pytest.raises(ValueError, match="pieza de catálogo"):
+            call()
+    assert cctrl.set_joint_height("codo", 2.0) is False and "pieza de catálogo" in cctrl.message
+    assert s.joint_preview_key("codo") == key and s.joint_height("codo") == pytest.approx(3.0)
+    lo, hi = cctrl.joint_limits("codo")                  # el rango de la pieza se puede leer aunque no se pueda cambiar
+    assert lo < hi
+
+
+def test_preview_key_changes_with_the_pieces_and_the_params(cctrl):
+    s = cctrl.session
+    k = s.joint_preview_key("codo")
+    assert s.joint_preview_key("codo") == k                                          # estable si nada cambia
+    s.project.params = dataclasses.replace(s.project.params, clearance=s.project.params.clearance + 0.1)
+    assert s.joint_preview_key("codo") != k                                          # los parámetros sí lo cambian
+
+
+def test_removing_the_piece_drops_its_joint_from_the_preview(cctrl):
+    s = cctrl.session
+    scene = FakeScene()
+    cctrl.set_joint_preview("codo", True)
+    cctrl.sync(scene)
+    assert "junta:prox" in scene.items
+    s.project.parts.pop("brazo")                         # sin el brazo de catálogo ya no hay codo
+    assert s.joints_listed() == [] and s.joint_any("codo") is None
+    cctrl.sync(scene)
+    assert not cctrl.show_joint_preview and "junta:prox" not in scene.items
+
+
+def test_catalog_project_without_joints_in_its_pieces_says_so(tmp_path):
+    c = Controller()
+    c.open_project(_catalog_project(tmp_path, with_elbow=False))
+    assert c.session.catalog_only() and c.session.joints_listed() == []
+    c.set_joint_preview(None, True)
+    assert not c.show_joint_preview and "no traen rodilla ni codo" in c.message
+
+
+def test_catalog_joint_failure_is_reported_not_raised(tmp_path):
+    """Un codo mal puesto en la pieza (eje bajo el plano) se muestra en el estado, como con el codo del modelo."""
+    path = _catalog_project(tmp_path, with_elbow=True)
+    pj = os.path.join(str(tmp_path / "ejemplo"), "piezas", "brazo", "brazo-muneco-01@1.pieza.json")
+    d = json.load(open(pj))
+    d["articulaciones"] = [elbow(h=0.2).to_dict()]
+    json.dump(d, open(pj, "w"))
+    c = Controller()
+    c.open_project(path)
+    c.set_joint_preview("codo", True)
+    c.sync(FakeScene())
+    assert c.joint_preview_status().startswith("No se puede previsualizar") and "0,5 mm" in c.joint_preview_status()
+
+
+def test_model_joints_are_listed_as_before(ctrl):
+    s = ctrl.session
+    assert not s.catalog_only() and [j.name for j in s.joints_listed()] == ["codo"]
+    assert s.joint_any("codo") is s.joint("codo") and not s.is_catalog_joint("codo") and ctrl.joint_editable("codo")

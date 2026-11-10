@@ -691,7 +691,21 @@ class Controller:
         return True
 
     def joint_plane_side_tilt(self, name: str) -> float:
-        return Session.joint_plane_side_tilt_deg(self.session.joint(name).plane.normal)
+        return Session.joint_plane_side_tilt_deg(self.session.joint_any(name).plane.normal)
+
+    def joint_editable(self, name: str) -> bool:
+        """False para la articulación que trae una pieza de catálogo: se ve en la vista previa pero no se ajusta acá."""
+        return not self.session.is_catalog_joint(name)
+
+    def no_joint_text(self) -> str:
+        """Qué decir cuando no hay articulación para previsualizar."""
+        s = self.session
+        if s.catalog_only():
+            err = s.catalog_joint_error()
+            if err:
+                return f"No se puede previsualizar: {err}."
+            return "Las piezas de catálogo elegidas no traen rodilla ni codo: no hay articulación para previsualizar."
+        return "No hay ninguna articulación para previsualizar: agregá la rodilla o el codo de un miembro."
 
     def set_joint_plane_side_tilt(self, name: str, tilt_deg: float) -> bool:
         """Inclina (o endereza, con 0) de costado el plano de la articulación; el eje no se mueve."""
@@ -709,18 +723,23 @@ class Controller:
             self.show_joint_preview = False
             self._changed("Vista previa de la articulación apagada.")
             return True
-        if name is None and self.session.project.joints:
-            name = self.session.project.joints[0].name
-        if name is None or self.session.joint(name) is None:
+        listed = self.session.joints_listed()
+        if name is None and listed:
+            name = listed[0].name
+        if name is None or self.session.joint_any(name) is None:
             self.show_joint_preview = False
-            self._changed("No hay ninguna articulación para previsualizar: agregá la rodilla o el codo de un miembro.")
+            self._changed(self.no_joint_text())
             return False
         jp = self._jp
         if jp["name"] != name:
             jp.update(name=name, key=None, pv=None, error="", cache={}, drawn=None)
         jp["framed"] = None                          # al encender, la cámara se vuelve a encuadrar sobre la articulación
         self.show_joint_preview = True
-        self._changed(f"Vista previa de la {name}: mové el eje, el plano o el rango y se recalcula sola.")
+        if self.joint_editable(name):
+            self._changed(f"Vista previa de la {name}: mové el eje, el plano o el rango y se recalcula sola.")
+        else:
+            self._changed(f"Vista previa de la {name} de la pieza de catálogo: se ve tal como se catalogó (el eje y el plano no "
+                          "se mueven acá); cambiá la flexión mostrada para verla doblar.")
         return True
 
     def set_joint_preview_flex(self, flex: float) -> None:
@@ -792,7 +811,7 @@ class Controller:
         mallas translúcidas: no se puede ver una a través de la otra)."""
         jp = self._jp
         name = jp["name"]
-        if self.show_joint_preview and (name is None or self.session.joint(name) is None):
+        if self.show_joint_preview and (name is None or self.session.joint_any(name) is None):
             self.show_joint_preview = False
         if not self.show_joint_preview:
             for key in [k for k in scene.items if k.startswith("junta:")]:
@@ -820,7 +839,7 @@ class Controller:
 
     def joint_limits(self, name: str) -> tuple[float, float]:
         from ..joints import flex_range
-        return flex_range(self.session.joint(name), self.session.project.params)
+        return flex_range(self.session.joint_any(name), self.session.project.params)
 
     def set_joint_limit(self, name: str, which: str, value: float) -> bool:
         """Cambia solo el mínimo («lo») o el máximo («hi») del rango de flexión, conservando el otro."""
