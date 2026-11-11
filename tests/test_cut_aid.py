@@ -244,14 +244,24 @@ def test_seated_clash_is_measured_only_on_demand(ctrl2):
     assert all(mm3 > 0 for _ref, mm3 in res["choques"])
 
 
-def test_seated_clash_refuses_the_limb_the_guide_does_not_measure(ctrl):
-    with pytest.raises(ValueError, match="la guía mide el brazo con el plano «brazo»"):
-        ctrl.session.cut_seated("brazo 2")                                  # hay dos brazos: la guía mide el primero
+def test_seated_clash_measures_the_requested_arm_even_if_another_comes_first(ctrl2):
+    """Con dos brazos la guía mide el primero: `cut_seated` pone primero el que se pide (antes se negaba)."""
+    s = ctrl2.session
+    ref = s.cut_seated("brazo 2")
+    for l in demo_project().limbs:                                           # un brazo frontal, y que quede ANTES de «brazo 2»
+        if l.kind == "arm":
+            s.add_limb(l.name, l.kind, l.plane, l.thickness, auto=True)
+    s.set_limb_polygon("brazo", demo_project().limbs[0].polygon)
+    s.project.limbs.sort(key=lambda l: l.name != "brazo")
+    assert [l.name for l in s.project.limbs if l.kind == "arm"] == ["brazo", "brazo 2"]
+    res = s.cut_seated("brazo 2")
+    assert res["total"] == ref["total"] and res["choques"] == ref["choques"] and res["offset"] == 15.0
+    assert [l.name for l in s.project.limbs if l.kind == "arm"] == ["brazo", "brazo 2"]      # no tocó el proyecto
 
 
 def test_seated_blocked_says_why_without_measuring(ctrl, ctrl2):
     """El botón de la ventana se apaga con el motivo (no hace falta apretarlo para enterarse)."""
-    assert "la guía mide el brazo con el plano «brazo»" in ctrl.session.cut_seated_blocked("brazo 2")
+    assert ctrl.session.cut_seated_blocked("brazo 2") is None                # dos brazos: ya no es un motivo
     assert ctrl.session.cut_seated_blocked("nadie") == "no hay un miembro «nadie»"
     assert ctrl2.session.cut_seated_blocked("brazo 2") is None and ctrl2.cut_seated_blocked() is None
     ctrl2.session.catalog_root = None
