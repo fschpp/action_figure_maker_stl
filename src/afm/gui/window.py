@@ -663,6 +663,17 @@ En naranja se ve el contorno del pasador (vástago y cabeza); en verde, la posic
         self.aim_area = Gtk.DrawingArea(content_width=300, content_height=220, visible=False)
         self.aim_area.set_draw_func(self._draw_aim)
         sec.append(self.aim_area)
+        # Cinta de calor del corte: una celda por desplazamiento del plano (clic = poner el corte ahí) y el botón del mejor
+        self.btn_cut_best = self._button("Mejor corte de la cinta", lambda *_: self.ctrl.snap_cut())
+        self.btn_cut_best.set_tooltip_text("Mueve el plano de corte al desplazamiento con más piezas del catálogo compatibles "
+                                           "(informativo: no mira el choque en la pose sentada; para eso, la Guía de cortes).")
+        sec.append(self.btn_cut_best)
+        self.cut_area = Gtk.DrawingArea(content_width=300, content_height=56, visible=False)
+        self.cut_area.set_draw_func(self._draw_cut_ribbon)
+        click = Gtk.GestureClick()
+        click.connect("pressed", self._on_cut_ribbon_click)
+        self.cut_area.add_controller(click)
+        sec.append(self.cut_area)
 
         # --------------------------------------------------------- Recortes
         box = self._tab_page("Recortes")
@@ -1042,6 +1053,9 @@ exportar; tarda un poco más.")
                 b.set_sensitive(placing)
             self.aim_area.set_visible(ctrl.aim_active())
             self.aim_area.queue_draw()
+            self.cut_area.set_visible(ctrl.cut_active())
+            self.btn_cut_best.set_sensitive(ctrl.cut_active())
+            self.cut_area.queue_draw()
             self.spin_over.set_value(ctrl.overhang_angle)
             self.chk_fill_hip.set_active(ctrl.session.project.params.flat_fill_hip)
             self.chk_fill_hip.set_sensitive(self.chk_flat.get_active())
@@ -1240,6 +1254,21 @@ exportar; tarda un poco más.")
             return
         r = ctrl.pin_aim or ctrl.pin_aid.evaluate(ctrl.pin_prev.project(ctrl._pin_center(ctrl.pin_limb)))
         draw_aim_box(cr, w, h, aim_box_data(ctrl.pin_aid, r))
+
+    def _draw_cut_ribbon(self, _area, cr, w: int, h: int) -> None:
+        from ..cut_aid_view import draw_ribbon
+
+        data = self.ctrl.cut_ribbon_data()
+        if data is not None:
+            draw_ribbon(cr, w, h, data)
+
+    def _on_cut_ribbon_click(self, _g, _n: int, x: float, _y: float) -> None:
+        from ..cut_aid_view import offset_at
+
+        data = self.ctrl.cut_ribbon_data()
+        off = None if data is None else offset_at(data, max(self.cut_area.get_width(), 1), x)
+        if off is not None:
+            self.ctrl.set_cut_from_ribbon(off)
 
     def _on_gl_motion(self, _c, x: float, y: float) -> None:
         """Marca el vértice cercano al puntero (modos de elegir puntos). Se agrupan los eventos: la búsqueda traza un rayo."""

@@ -234,6 +234,7 @@ class Controller:
         self.pin_limb: str | None = None            # miembro cuyo pasador se está colocando (modo PIN)
         self.pin_prev = None                         # PinPreview de ese miembro (cara de contacto)
         self.pin_aid = None                          # PinAid (mira asistida) del modo PIN; None sin catálogo abierto
+        self.cut_aid = None                          # CutAid (cinta de calor del corte) del modo PIN
         self.heat_visible = True                     # mapa de calor de la mira (se puede ocultar)
         self.pin_aim = None                          # última lectura de la mira bajo el puntero (AimReading)
         self.mirror_live = False                     # con «un solo lado»: mostrar el espejo del lado de trabajo en vivo
@@ -868,7 +869,7 @@ class Controller:
         self.clear_hover()
         self.draft, self.edit_limb, self.edit_cross = None, None, False
         self.pin_limb, self.pin_prev = None, None
-        self.pin_aid, self.pin_aim = None, None
+        self.pin_aid, self.pin_aim, self.cut_aid = None, None, None
         self.head_pin_prev = None
         self.joint_limb, self.joint_name = None, None
         was_trim = self.trim_cfg is not None
@@ -1286,6 +1287,7 @@ class Controller:
             return
         self.mode, self.pin_limb, self.pin_prev = Mode.PIN, name, prev
         self.pin_aid, self.pin_aim = self._make_pin_aid(name, prev), None
+        self.cut_aid = self._make_cut_aid(name)
         face = prev.face
         half = float(max(np.ptp(prev.plane.to_uv(r), axis=0).max() for r in prev.rings_world())) * 0.65 or 10.0
         self.camera.look_along(face.outward, face.center, max(half, 8.0))
@@ -1308,6 +1310,55 @@ class Controller:
                           exclude_figure=os.path.basename(self.session.stl_path or "") or None)
         except (ValueError, KeyError, OSError):
             return None
+
+    def _make_cut_aid(self, name: str):
+        """La cinta de calor del corte (`cut_aid.CutAid`) del miembro `name`. None sin catálogo, si el corte no aplica (extrusión
+        «symmetric») o si no se puede armar: el modo PIN anda igual, solo sin la cinta."""
+        if not self.session.catalog_root or self.session.work is None:
+            return None
+        from ..cut_aid import LUGAR_OF_KIND, CutAid
+
+        spec = self.session.limb(name)
+        try:
+            params = self.session.project.params
+            aid = CutAid(self.session.project, S.to_manifold(self.session.work), LUGAR_OF_KIND[spec.kind], self.session._catalog(),
+                         params, exclude_figure=os.path.basename(self.session.stl_path or "") or None)
+        except (ValueError, KeyError, OSError):
+            return None
+        return aid if aid.aplicable else None
+
+    def cut_active(self) -> bool:
+        return self.mode == Mode.PIN and self.cut_aid is not None and not self.busy
+
+    def cut_ribbon_data(self) -> dict | None:
+        """Los datos de la franja del corte (`cut_aid_view.ribbon_data`) o None si la cinta no está activa."""
+        if not self.cut_active():
+            return None
+        from ..cut_aid_view import ribbon_data
+
+        try:
+            return ribbon_data(self.cut_aid)
+        except Exception:                               # la ayuda nunca debe romper el modo PIN
+            return None
+
+    def snap_cut(self) -> None:
+        """Mueve el plano de corte al mejor desplazamiento de la cinta (el «imán» del corte)."""
+        if not self.cut_active():
+            self._changed("La cinta del corte necesita un catálogo abierto y un miembro con extrusión «outward».", scene=False)
+            return
+        best = self.cut_aid.best()
+        if best is None:
+            self._changed("Ningún desplazamiento de la cinta deja el vástago dentro de la cara.", scene=False)
+            return
+        if abs(best.uv[0] - self.cut_aid.base) < 1e-9:
+            self._changed(f"El corte actual ({self.cut_aid.base:.2f} mm) ya es el mejor de la cinta: {best.texto()}.", scene=False)
+            return
+        self.set_limb_offset(self.pin_limb, best.uv[0])
+
+    def set_cut_from_ribbon(self, offset: float) -> None:
+        """Clic sobre una celda de la franja: pone el plano de corte en ese desplazamiento."""
+        if self.cut_active() and abs(offset - self.cut_aid.base) > 1e-9:
+            self.set_limb_offset(self.pin_limb, float(offset))
 
     def _pin_center(self, name: str) -> np.ndarray:
         """Centro del pasador que se usaría ahora: el indicado, o el que propone el programa."""
@@ -3962,7 +4013,8 @@ class Controller:
             scene.show(key, l.name not in self.hidden and self.group_visible("pins"))
         pin_keys = ("pasador:cara", "pasador:borde", "pasador:silueta", "pasador:vastago", "pasador:cabeza",
                     "pasador:centro", "pasador:auto", "pasador:mira", "pasador:mira_cabeza",
-                    "pasador:calor_ok", "pasador:calor_aviso", "pasador:calor_no")
+                    "pasador:calor_ok", "pasador:calor_aviso", "pasador:calor_no",
+                    "pasador:corte_ok", "pasador:corte_aviso", "pasador:corte_no", "pasador:corte_mejor")
         if editing is None:
             for key in [k for k in scene.items if k.startswith("pasador:") and k not in wanted]:
                 scene.remove(key)
@@ -3991,6 +4043,7 @@ class Controller:
         else:
             scene.remove("pasador:auto")
         self._sync_pin_heat(scene)
+        self._sync_cut_ribbon(scene)
         aim = self.pin_aim if self._pin_aim_active() else None
         if aim is None:                                 # el fantasma de la mira: vástago y cabeza con el color del nivel
             scene.remove("pasador:mira")
@@ -4024,6 +4077,42 @@ class Controller:
                 continue
             r, g, b, _a = _pin_aid_colors()[nivel]
             scene.set_points(key, pts, (r, g, b, 0.55), 5.0, on_top=True)
+
+    def _sync_cut_ribbon(self, scene) -> None:
+        """La cinta de calor del corte en el visor: un punto por desplazamiento del plano, sobre la normal que atraviesa el centro
+        de la cara (verde / amarillo / rojo; el mejor, blanco y más grande). Se ve al girar la cámara de costado. Se calcula
+        UNA vez al entrar al modo y queda en la `CutAid`."""
+        keys = ("pasador:corte_ok", "pasador:corte_aviso", "pasador:corte_no", "pasador:corte_mejor")
+        rib = []
+        if self.cut_active() and self.heat_visible and self.pin_prev is not None:
+            try:
+                rib = self.cut_aid.ribbon()
+            except Exception:                           # la ayuda nunca debe romper el modo PIN
+                rib = []
+        if not rib:
+            for k in keys:
+                scene.remove(k)
+            return
+        n = np.asarray(self.session.limb(self.pin_limb).plane.normal, float)
+        n = (-n if n[0] < -1e-6 else n) / np.linalg.norm(n)
+        c = np.asarray(self.pin_prev.face.center, float)
+        base = self.cut_aid.base
+        groups: dict = {"ok": [], "aviso": [], "no": []}
+        for off, r in rib:
+            groups["no" if r.nivel in ("fuera", "no", "sin_catalogo") else r.nivel].append(c + n * (off - base))
+        colors = _pin_aid_colors()
+        for nivel, pts in groups.items():
+            key = f"pasador:corte_{nivel}"
+            if not pts:
+                scene.remove(key)
+                continue
+            r_, g_, b_, _a = colors[nivel]
+            scene.set_points(key, np.asarray(pts), (r_, g_, b_, 0.9), 8.0, on_top=True)
+        best = self.cut_aid.best()
+        if best is None:
+            scene.remove(keys[3])
+        else:
+            scene.set_points(keys[3], (c + n * (best.uv[0] - base))[None], (1.0, 1.0, 1.0, 1.0), 12.0, on_top=True)
 
     def _sync_head_pin(self, scene) -> None:
         """Pasador del cuello: un punto si se eligió a mano y, en el modo HEAD_PIN, la cara de canto, el contorno de
