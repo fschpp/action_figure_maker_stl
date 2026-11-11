@@ -712,7 +712,11 @@ class Controller:
 
     def joint_editable(self, name: str) -> bool:
         """False para la articulación que trae una pieza de catálogo: se ve en la vista previa pero no se ajusta acá."""
-        return not self.session.is_catalog_joint(name)
+        return not self.session.is_catalog_joint(name) and not self.session.is_hip_preview(name)
+
+    def is_hip_preview(self, name: str | None) -> bool:
+        """True si la entrada de la vista previa es la cadera de una pierna (no se ajusta acá: se ve doblar el muslo)."""
+        return name is not None and self.session.is_hip_preview(name)
 
     def no_joint_text(self) -> str:
         """Qué decir cuando no hay articulación para previsualizar."""
@@ -722,7 +726,7 @@ class Controller:
             if err:
                 return f"No se puede previsualizar: {err}."
             return "Las piezas de catálogo elegidas no traen rodilla ni codo: no hay articulación para previsualizar."
-        return "No hay ninguna articulación para previsualizar: agregá la rodilla o el codo de un miembro."
+        return "No hay ninguna articulación para previsualizar: agregá la rodilla o el codo de un miembro, o una pierna (cadera)."
 
     def set_joint_plane_side_tilt(self, name: str, tilt_deg: float) -> bool:
         """Inclina (o endereza, con 0) de costado el plano de la articulación; el eje no se mueve."""
@@ -740,19 +744,26 @@ class Controller:
             self.show_joint_preview = False
             self._changed("Vista previa de la articulación apagada.")
             return True
-        listed = self.session.joints_listed()
+        listed = self.session.preview_names()
         if name is None and listed:
-            name = listed[0].name
-        if name is None or self.session.joint_any(name) is None:
+            name = listed[0]
+        if not self.session.preview_exists(name):
             self.show_joint_preview = False
             self._changed(self.no_joint_text())
             return False
         jp = self._jp
         if jp["name"] != name:
             jp.update(name=name, key=None, pv=None, error="", cache={}, drawn=None)
+            if self.is_hip_preview(name):
+                jp["flex"] = 0.0                      # la cadera arranca de pie; el giro lo elige quien mira
         jp["framed"] = None                          # al encender, la cámara se vuelve a encuadrar sobre la articulación
         self.show_joint_preview = True
-        if self.joint_editable(name):
+        if self.is_hip_preview(name):
+            hi = self.session.project.params.sit_angle
+            self._changed(f"Vista previa de la {name}: el pasador y el hueco que talla el barrido en la pelvis. Cambiá la flexión "
+                          f"mostrada (0° de pie, {hi:g}° sentada) para ver girar el muslo; el pasador y el barrido se ajustan "
+                          "en «Parámetros» y «Colocar pasador».")
+        elif self.joint_editable(name):
             self._changed(f"Vista previa de la {name}: mové el eje, el plano o el rango y se recalcula sola.")
         else:
             self._changed(f"Vista previa de la {name} de la pieza de catálogo: se ve tal como se catalogó (el eje y el plano no "
@@ -828,7 +839,7 @@ class Controller:
         mallas translúcidas: no se puede ver una a través de la otra)."""
         jp = self._jp
         name = jp["name"]
-        if self.show_joint_preview and (name is None or self.session.joint_any(name) is None):
+        if self.show_joint_preview and not self.session.preview_exists(name):
             self.show_joint_preview = False
         if not self.show_joint_preview:
             for key in [k for k in scene.items if k.startswith("junta:")]:

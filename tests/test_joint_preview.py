@@ -190,8 +190,16 @@ def test_controller_preview_reports_errors_instead_of_failing(ctrl):
 
 def test_preview_needs_a_joint(ctrl):
     ctrl.session.remove_joint("codo")
+    ctrl.session.project.limbs = [l for l in ctrl.session.project.limbs if l.kind != "leg"]    # sin pierna tampoco hay cadera
     ctrl.set_joint_preview(None, True)
     assert not ctrl.show_joint_preview and "No hay ninguna articulación" in ctrl.message
+
+
+def test_preview_without_joints_falls_back_to_the_hip(ctrl):
+    """Sin rodilla ni codo, la vista previa ofrece la cadera de la pierna (antes no había nada que mostrar)."""
+    ctrl.session.remove_joint("codo")
+    assert ctrl.set_joint_preview(None, True) and ctrl.show_joint_preview
+    assert ctrl.is_hip_preview(ctrl._jp["name"])
 
 
 # ------------------------------------------------------ miembro que es una pieza de catálogo

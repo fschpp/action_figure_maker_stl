@@ -757,6 +757,25 @@ class Session:
         """Como `joint`, pero también encuentra las articulaciones de catálogo (de solo lectura)."""
         return next((j for j in self.joints_listed() if j.name == name), None)
 
+    # --- cadera en la vista previa: una «articulación» más por pierna (el pasador + el barrido de cadera)
+    def hip_previews(self) -> list[str]:
+        """Entradas de cadera de la vista previa: una por pierna del modelo. Con torso de catálogo no hay: la figura sale
+        entera del catálogo y esas piernas no son las del modelo."""
+        from ..joint_preview import hip_preview_name
+        if self.catalog_only():
+            return []
+        return [hip_preview_name(l.name) for l in self.project.limbs if l.kind == "leg"]
+
+    def preview_names(self) -> list[str]:
+        """Todo lo que se puede previsualizar: las articulaciones (rodilla, codo) y la cadera de cada pierna."""
+        return [j.name for j in self.joints_listed()] + self.hip_previews()
+
+    def is_hip_preview(self, name: str) -> bool:
+        return name in self.hip_previews()
+
+    def preview_exists(self, name: str | None) -> bool:
+        return name is not None and (self.joint_any(name) is not None or self.is_hip_preview(name))
+
     def _refuse_catalog_joint(self, name: str) -> None:
         if self.is_catalog_joint(name):
             raise ValueError(f"la articulación «{name}» viene de la pieza de catálogo: su eje, plano y rango son los de la pieza "
@@ -1001,6 +1020,16 @@ class Session:
 
     def joint_preview_key(self, name: str) -> str:
         """Firma de todo lo que cambia el resultado de la vista previa de la articulación (si no cambia, no se recalcula)."""
+        if self.is_hip_preview(name):
+            from ..joint_preview import hip_limb_name
+            lname = hip_limb_name(name)
+            spec = self.limb(lname)
+            prj = self.project
+            blob = {"hip": lname, "limb": spec.to_dict() if spec is not None else None,
+                    "trims": [t.to_dict() for t in prj.trims if t.target == lname], "params": prj.params.to_dict(),
+                    "work": id(self.work), "part": prj.parts[lname].to_dict() if lname in prj.parts else None,
+                    "catalog": self.catalog_root}
+            return json_sig(blob)
         j = self.joint_any(name)
         if j is None:
             raise KeyError(name)
@@ -1025,6 +1054,8 @@ class Session:
         from ..customize import needed
         from ..joint_preview import prepare_limb, prepare_limb_from_part, preview_joint
 
+        if self.is_hip_preview(name):
+            return self._hip_preview_job(name)
         if self.is_catalog_joint(name):
             return self._catalog_joint_preview_job(name)
         j = self.joint(name)
@@ -1058,6 +1089,46 @@ class Session:
                 cache["key"] = lk
             limb, face = cache["val"]
             return preview_joint(limb, face, joint, p)
+
+        return run
+
+    def _hip_preview_job(self, name: str):
+        """Trabajo de la vista previa de la cadera de una pierna (apto para un hilo; trabaja con copias). Devuelve
+        `run(cache) -> HipPreview`. El `cache` guarda la pierna ya cortada y la mitad del cuerpo (lo caro), que solo se rehacen
+        si cambian la pierna, su pieza de catálogo, sus recortes o los parámetros. Falla con ValueError como la vista previa
+        de las demás articulaciones (piezas escaladas, figura armada solo con catálogo)."""
+        import copy
+        from ..customize import needed
+        from ..joint_preview import hip_limb_name, prepare_limb, prepare_limb_from_part, preview_hip
+
+        lname = hip_limb_name(name)
+        spec = self.limb(lname) if lname else None
+        if spec is None:
+            raise KeyError(name)
+        if needed(self.project):
+            raise ValueError("la figura tiene piezas escaladas: la vista previa de la cadera todavía no las contempla")
+        if self.catalog_only():
+            raise ValueError("la figura se arma solo con piezas de catálogo: la cadera del modelo no entra en esa figura")
+        choice = (self._resolved_parts() or {}).get(lname)
+        part_sig = "" if choice is None else json_sig({"ref": self.project.parts[lname].to_dict(), "root": self.catalog_root})
+        work = self.work
+        spec = copy.deepcopy(spec)
+        p = copy.deepcopy(self.project.params)
+        trims = copy.deepcopy(list(self.project.trims))
+
+        def run(cache: dict | None = None):
+            cache = {} if cache is None else cache
+            lk = ("hip", id(work), json_sig(spec.to_dict()), json_sig([t.to_dict() for t in trims if t.target == spec.name]),
+                  json_sig(p.to_dict()), part_sig)
+            if cache.get("key") != lk:
+                cache["key"] = None
+                body = S.to_manifold(work)
+                half = body.trim_by_plane((1.0, 0.0, 0.0), 0.0)
+                cache["val"] = (prepare_limb(body, spec, p, trims, half) if choice is None
+                                else prepare_limb_from_part(body, spec, choice, p, trims, half)), half
+                cache["key"] = lk
+            (limb, face), half = cache["val"]
+            return preview_hip(half, limb, face, spec, p)
 
         return run
 

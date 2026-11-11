@@ -139,3 +139,126 @@ def preview_joint(limb: S.Manifold, face: ContactFace, joint: JointSpec, p: Para
     after = float(jb.proximal.volume())
     return JointPreview(joint=joint, build=jb, carved_mm3=max(before - after, 0.0), proximal_mm3=after,
                         prox_before_mm3=before, flex_range=tuple(jb.flex), warnings=list(jb.warnings))
+
+
+# ------------------------------------------------------------------------------------------------ cadera
+HIP_PREFIX = "cadera de "        # nombre de la «articulación» de cadera de un miembro en la vista previa: «cadera de pierna»
+HIP_CROP_MM = 45.0               # mitad del lado de la caja que se conserva alrededor del pasador de cadera
+
+
+def hip_preview_name(limb_name: str) -> str:
+    return HIP_PREFIX + limb_name
+
+
+def hip_limb_name(name: str) -> str | None:
+    """Nombre del miembro de una entrada de cadera de la vista previa, o None si no lo es."""
+    return name[len(HIP_PREFIX):] if name.startswith(HIP_PREFIX) and len(name) > len(HIP_PREFIX) else None
+
+
+@dataclass
+class HipBuild:
+    """Lo mínimo de `JointBuild` que usa el visor: el eje del pasador, la pelvis tallada y el muslo con su pasador."""
+
+    center: np.ndarray                 # centro del pasador sobre la cara de contacto
+    axis: np.ndarray                   # eje de giro (+ángulo = hacia adelante, como en `pipeline`)
+    tips: tuple                        # largo del eje que se dibuja a cada lado (mm)
+    proximal: S.Manifold               # pelvis / torso tallado con el barrido de cadera
+    distal: S.Manifold                 # muslo con el pasador (o el disco de clic), de pie
+    flex: tuple                        # rango del barrido (mín, máx) en grados
+
+    def rotate_distal(self, angle_deg: float) -> S.Manifold:
+        return S.rotate_about_axis(self.distal, self.center, self.axis, float(angle_deg))
+
+
+@dataclass
+class HipPreview:
+    """Vista previa de la cadera con la misma interfaz que `JointPreview` (el visor dibuja las dos igual)."""
+
+    limb: str
+    build: HipBuild
+    carved_mm3: float                  # volumen de la pelvis (dentro de la caja) que se llevó el hueco del barrido
+    proximal_mm3: float
+    prox_before_mm3: float
+    flex_range: tuple
+    pin_margin_mm: float | None = None
+    mechanism: str = "hongo"
+    warnings: list = field(default_factory=list)
+    _proximal_mesh: trimesh.Trimesh | None = None
+
+    @property
+    def carved_pct(self) -> float:
+        return 100.0 * self.carved_mm3 / self.prox_before_mm3 if self.prox_before_mm3 > 0 else 0.0
+
+    def proximal_mesh(self) -> trimesh.Trimesh:
+        if self._proximal_mesh is None:
+            self._proximal_mesh = S.to_trimesh(self.build.proximal)
+        return self._proximal_mesh
+
+    def distal_mesh(self, flex: float = 0.0) -> trimesh.Trimesh:
+        """El muslo girado `flex` grados alrededor del pasador (0 = de pie; `sit_angle` = pose sentada)."""
+        return S.to_trimesh(self.build.rotate_distal(float(flex)))
+
+    def summary(self) -> str:
+        lo, hi = self.flex_range
+        text = (f"Cadera ({self.mechanism}): el hueco se lleva {self.carved_mm3:.0f} mm³ de la pelvis ({self.carved_pct:.0f} %) · "
+                f"barrido {lo:g}° … {hi:g}° · «Flexión mostrada» gira el muslo alrededor del pasador")
+        if self.pin_margin_mm is not None:
+            text += f" · margen del vástago al borde de la cara {self.pin_margin_mm:.1f} mm"
+        return text + ("".join(f"\\n  · {w}" for w in self.warnings) if self.warnings else "")
+
+
+def preview_hip(half: S.Manifold, limb: S.Manifold, face: ContactFace, spec: LimbSpec, p: Params,
+                crop_mm: float = HIP_CROP_MM, step: float = PREVIEW_STEP) -> HipPreview:
+    """Arma SOLO la cadera: el muslo con su pasador y la pelvis tallada con el barrido de cadera, recortados a una caja
+    alrededor del pasador. Hace lo mismo que `pipeline.build` para un miembro `leg` (hongo: el miembro + pasador ensanchado
+    por la holgura y girado en todo el rango; clic: el volumen del mecanismo), con un paso de barrido más grueso.
+
+    `half`: la mitad +X del cuerpo; `limb` / `face`: el muslo ya cortado (`prepare_limb`). El muslo del torso se resta antes de
+    tallar, así que `carved_mm3` es lo que el hueco le saca a la pelvis ADEMÁS del lugar del propio muslo. Con la caja se
+    ignora la parte del muslo que queda fuera de ella (la forma del hueco cerca del pasador es la misma)."""
+    from . import detent as DT
+    from .limbs import pin_margin
+    from .pins import mushroom_pin
+    from .pipeline import _detent_sweep, _pin_spec, _rotation_axis, _sweep_range
+
+    if spec.kind != "leg":
+        raise ValueError(f"«{spec.name}» no es una pierna: la cadera solo existe en las piernas")
+    center = np.asarray(face.center, float)
+    box = _crop_box(center, crop_mm)
+    limb_c = S.intersection(limb, box)
+    torso_c = S.intersection(half, box)
+    if limb_c.is_empty() or torso_c.is_empty():
+        raise ValueError(f"«{spec.name}»: el pasador de cadera queda fuera del cuerpo (revisá el plano de la pierna)")
+    torso_c = S.difference(torso_c, limb_c)
+    before = float(torso_c.volume())
+    pin = _pin_spec(spec, p)
+    axis = _rotation_axis(face)
+    fast = dataclasses.replace(p, sweep_step=max(float(p.sweep_step), float(step)))
+    dspec = DT.detent_spec_for(spec, p)
+    if dspec is not None:
+        rng = _detent_sweep(spec, p) or (0.0, 0.0)
+        dl = DT.build_detent_limb(spec.name, limb_c, face, axis, dspec, fast, pin, float(p.sit_angle), rng)
+        distal, sweep, mech = dl.limb, dl.sweep, "clic"
+    else:
+        distal = S.union(limb_c, mushroom_pin(face.center, face.outward, pin))
+        grown = S.dilate(distal, p.clearance, PREVIEW_SEGMENTS)
+        a0, a1 = _sweep_range(spec, p)
+        angles = np.arange(a0, a1 + 1e-9, fast.sweep_step) if a1 > a0 else [a0]
+        if len(angles) > 1 and angles[-1] < a1 - 1e-9:
+            angles = np.append(angles, a1)
+        sweep = S.union(*[S.rotate_about_axis(grown, center, axis, float(a)) for a in angles])
+        mech = "hongo"
+    a0, a1 = _sweep_range(spec, p)
+    proximal = S.difference(torso_c, sweep)
+    margin = pin_margin(face, pin.shaft_d)
+    warnings: list = []
+    if margin is not None and margin < 0:
+        warnings.append(f"el vástago de Ø{pin.shaft_d:g} mm sobresale {-margin:.2f} mm de la cara de contacto")
+    elif margin is not None and margin < p.min_wall:
+        warnings.append(f"pared de {margin:.2f} mm alrededor del vástago (mínimo {p.min_wall:g} mm)")
+    after = float(proximal.volume())
+    reach = float(pin.shaft_len + pin.head_h)
+    build = HipBuild(center=center, axis=axis, tips=(reach, reach), proximal=proximal, distal=distal, flex=(float(a0), float(a1)))
+    return HipPreview(limb=spec.name, build=build, carved_mm3=max(before - after, 0.0), proximal_mm3=after,
+                      prox_before_mm3=before, flex_range=(float(a0), float(a1)), pin_margin_mm=margin, mechanism=mech,
+                      warnings=warnings)
