@@ -588,6 +588,37 @@ afm catalogo verificar RUTA                      # coherencia del catálogo, del
 
 Sin contrato todo funciona igual; el contrato solo agrega la etiqueta de talle y los avisos de «fuera de contrato». El detalle de cada comando está en el [`README.md`](../README.md) y el diseño en [`PLAN_compatibilidad_cortes_catalogo.md`](PLAN_compatibilidad_cortes_catalogo.md).
 
+### 7.7 Mira asistida: ver si un corte o un pasador es compatible sin armar la figura
+
+Con un **catálogo abierto** (sección «Piezas de catálogo»), al armar una figura nueva para agregarla al catálogo el programa puede decirte,
+mientras elegís, cuánto del catálogo aceptaría ese corte. Es lo mismo que mide la «Guía de cortes», pero en el momento del clic y sin
+generar nada: solo compara los metadatos de los puertos (clase, caras, pared del pasador, escalón). Se mide en las dos direcciones: la
+pieza que saldría de esta figura contra las tomas del catálogo («torsos 3/4») y el torso de esta figura contra los enchufes del
+catálogo («brazos 17/21», «cabezas 1/1», «pelvis 2/3»).
+
+**Cómo leer el color.** Verde: lo aceptan casi todas las piezas (80 % o más, contando «ok» y «aviso»). Amarillo: una parte. Rojo: ninguna,
+o el pasador no entra en la cara. Gris: no hay piezas con el puerto opuesto para comparar. Es un nivel N0: **informado, no garantizado**.
+Ni el IoU ni el escalón predicen del todo si «Generar» va a pasar la validación, y la mira **no mide el choque en la pose sentada**
+(eso sigue en la Guía de cortes y, para el corte de un miembro, en el botón «Medir choque en pose sentada»).
+
+| Qué elegís | Cómo se ve | Teclas / botones |
+|---|---|---|
+| **Pasador de hombro / cadera** (modo pasador, §7.2) | Fantasma del pasador (vástago y cabeza) coloreado bajo el cursor, contador y pared en la barra de Estado («Mira: torsos 3/4 · brazos 17/21 · pared 2,1 mm»), recuadro con la cara del corte y el contorno de las caras del catálogo encima (se ve el desajuste y la pared que queda) | **M** = imán (mejor posición a ±2 mm); **H** = mapa de calor de toda la cara; flechas = 0,1 mm (Mayús 1 mm) |
+| **Corte lateral de un miembro** («Corte a (mm del plano de simetría)») | Casilla «Mira del corte»: sección coloreada y una cinta de puntos verde / amarillo / rojo de ±3 mm a lo largo del eje de contacto; punto blanco = mejor posición | **M** (fuera del modo pasador) o «Ir a la mejor posición del corte»; «Medir choque en pose sentada» (en un hilo) |
+| **Pasador del cuello y de la cintura** (vista de costado) | Igual que el del hombro, pero el pasador solo se desliza adelante / atrás por la recta x = 0 de la cara: el mapa de calor y el imán barren esa recta | **M**, **H** y flechas, como arriba |
+| **Plano del cuello y de la cintura** | Sección coloreada y cinta de ±4 mm cada 0,5 mm a lo largo de la **normal** del plano (con la inclinación que dieron los 3 puntos); recuadro de la sección | «Mirar este plano», «−0,5 mm» / «+0,5 mm» e «Imán del plano» en la sección del plano |
+
+Detalles que conviene saber:
+
+* El centro del puerto que se cataloga es el del pasador elegido, por eso **dónde hagas clic cambia la compatibilidad**. En el cuello es
+  siempre el del pasador; en la cintura, el del pasador **solo si lo elegiste** (si no, sigue siendo el centroide de la cara, para no
+  mover los puertos de las piezas ya catalogadas).
+* Deslizar el plano del cuello o de la cintura (botones ±0,5 mm o imán) **descarta el pasador elegido**: la cara cambia y hay que volver
+  a revisarlo. Con una cabeza de reemplazo, el cuello se mide con la cabeza ORIGINAL del modelo (la de reemplazo se escala a esa base).
+* El imán de un miembro solo mueve la distancia al plano de simetría; no toca la inclinación del plano.
+* Sin catálogo abierto, o con un catálogo sin piezas con ese puerto, la mira dice «sin catálogo para comparar»; el pasador y los planos
+  se eligen igual que siempre.
+
 ## 8. Lista de planos
 
 Debajo de los botones aparece la lista de planos creados: **Simetría**, uno por cada miembro, la **cabeza** (cuello), la **cintura** y las articulaciones.

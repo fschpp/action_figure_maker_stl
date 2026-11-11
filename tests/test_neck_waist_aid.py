@@ -137,6 +137,45 @@ def test_joint_aid_reads_the_catalog_and_has_a_strip(ctrl):
         assert best is None or best.aim is not None
 
 
+@pytest.fixture(scope="module")
+def waist_root(tmp_path_factory):
+    """Catálogo con piezas que SÍ tienen puerto `cintura` (torso superior + pelvis de «otra» figura, y dos clones con la cara al 90 % y
+    al 20 %): el de ejemplo no trae ninguna, y sin ellas la mira de la cintura no tiene contra qué medir."""
+    from test_pin_aid import clone
+
+    pr = demo_project()
+    pr.waist = WaistSpec(Plane.from_points(*WAIST, "cintura"))
+    res = extract_all(S.to_manifold(make_doll()), pr, "otra", figure="otra.stl")
+    cat = Catalog.create(str(tmp_path_factory.mktemp("nwwaist") / "linea"), "prueba", 100.0)
+    for e in res.pieces:
+        if e.meta.tipo in ("torso_sup", "pelvis"):
+            cat.add_piece(e.mesh, e.meta)
+    for k, i in ((0.9, "b"), (0.2, "c")):
+        for ref in ("torso-sup-otra-01", "pelvis-otra-01"):
+            clone(cat, ref, ref.replace("otra", f"x{i}"), k, figura=f"x{i}.stl")
+    return cat.root
+
+
+def test_waist_aid_measures_both_directions_against_waist_pieces(stl_path, waist_root):
+    c = Controller()
+    c.open_stl(stl_path)
+    c.auto_symmetry()
+    for l in demo_project().limbs:
+        c.session.add_limb(l.name, l.kind, l.plane, l.thickness, auto=True)
+        c.session.set_limb_polygon(l.name, l.polygon)
+    c.session.set_waist(Plane.from_points(*WAIST, "cintura"))
+    c.session.open_catalog(waist_root)
+    aim = c.session.joint_aid("cintura").reading_at(0.0).aim
+    assert aim is not None and aim.nombres == ("torsos", "pelvis")
+    assert (aim.plug.universo, aim.socket.universo) == (3, 3)                  # la pelvis contra 3 torsos; el torso contra 3 pelvis
+    for side in (aim.plug, aim.socket):
+        assert {f.ref.split("-")[-2]: f.nivel for f in side.fits} == {"otra": "ok", "xb": "aviso", "xc": "no"}
+    assert aim.contador() == "torsos 2/3 · pelvis 2/3" and aim.nivel == "aviso"     # 2 de 3: ni verde ni rojo
+    assert "no entra" in aim.peor_motivo() or "coinciden" in aim.peor_motivo()
+    best, _ = c.session.joint_aid("cintura").best(0.0)
+    assert best is not None and best.aim.contador() == aim.contador()
+
+
 def test_shift_plane_moves_along_the_normal_and_drops_the_chosen_pin(ctrl):
     s = ctrl.session
     s.set_waist_pin(s.waist_pin_preview().default_center + np.array([0, 0.5, 0.0]))

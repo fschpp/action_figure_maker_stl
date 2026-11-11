@@ -3,6 +3,23 @@
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
 ## Current Focus
+**Mira asistida del cuello y de la cintura: prueba real, test de la cintura y tutorial (2026-11-10, sobre main 5f72edc):** el commit 5f72edc ya trajo `src/afm/neck_waist_aid.py` (`LinePinAid`: el pasador del cuello / la cintura solo recorre la recta x = 0 de la cara; `AxisCutAid`: el plano se desliza sobre su normal ±4 mm cada 0,5 mm, con imán y recuadro), `Session.joint_aid` / `shift_plane`, los modos `HEAD_PIN` y `WAIST_PIN` con fantasma, **M** (imán) y **H** (mapa de calor), y en la ventana la sección «Mira del plano del cuello / de la cintura» (casilla, texto, «Mirar este plano», −0,5 / +0,5 mm, «Imán del plano» y recuadro con cairo). Esta pasada no cambió el motor: (1) se probó la ventana real con GTK 4 + cairo bajo Xvfb (cuello con el catálogo de ejemplo + clones: «torsos 3/3 · cabezas 1/1 · pared 4,2 mm», ±0,5 mm, imán que vuelve a 0,00, recuadro dibujado, modos `WAIST_PIN` / `HEAD_PIN`, **M** y **H** sin errores); (2) nuevo test `test_waist_aid_measures_both_directions_against_waist_pieces` con un catálogo que SÍ tiene puertos `cintura` (torso superior + pelvis de «otra» figura y clones al 90 % y 20 %): la cintura da «torsos 2/3 · pelvis 2/3», nivel amarillo, con ok / aviso (IoU 75 %) / no (el pasador de Ø6 no entra); hasta ahora la cintura solo se probaba con el catálogo de ejemplo, que no trae ninguna pieza con ese puerto, y el test viejo aceptaba `best is None`; (3) `docs/tutorial_gui.md` §7.7 explica las cuatro miras (pasador de hombro/cadera, corte lateral, pasador y plano de cuello/cintura), cómo leer el color y que es N0.
+
+### Todo List
+- [x] Probar la ventana real (GTK 4 + cairo bajo Xvfb, sin GL) con las secciones de cuello y cintura.
+- [x] Test de la cintura contra piezas con puerto `cintura` (las dos direcciones, los tres niveles).
+- [x] Tutorial §7.7 (las miras no estaban documentadas).
+- [ ] **Probar con GL real y un catálogo grande** (cinta de puntos, fantasma y mapa de calor en el visor; aquí no hay `moderngl`): sigue pendiente como en las miras anteriores.
+- [ ] **Probar con Belgrano / Güemes reales** (cabeza de reemplazo, cintura con `torso_sup` + `pelvis`): hasta ahora solo el muñeco y clones.
+- [ ] Decidir si el verde debe contar solo los «ok» o también los «aviso» (ver abajo).
+- [ ] Imán que también toque la inclinación del plano (sigue sin decisión de diseño: eje de giro, rango y paso).
+
+### Latest Blockers/Discoveries
+- `AimReading.nivel` usa `cobertura = (ok + aviso) / total ≥ 0,8` para el verde: un catálogo donde todas las piezas dan «aviso» por IoU (75 % < 80 %) se pinta **verde**. Es el criterio de «compatible con n de N» de la guía, pero para el color del bullseye puede engañar; el texto del contador es igual de optimista. No se cambió: es una decisión de producto (¿verde solo con `cobertura_plena`?).
+- El catálogo de ejemplo no tiene puertos `cintura`, así que la mira de la cintura dice «sin catálogo para comparar» con él; los tests nuevos arman uno con `extract_all` (`torso_sup` + `pelvis`) y `Catalog.create`.
+- Para probar GTK con cairo en un entorno limpio: `apt-get install gir1.2-gtk-4.0 python3-gi-cairo python3-cairo` y `pip install pycairo`; sin `moderngl` el visor 3D no se dibuja (`_on_realize` imprime el error) pero la ventana, los controles y el recuadro sí.
+
+## Current Focus (anterior)
 **Choque sentado con dos brazos o dos piernas (2026-11-10, rama `choque_sentado_varios`, sobre main 73d3e84):** `Session.cut_seated(name)` ya no se niega cuando hay dos miembros de la misma clase: `guide.measure_cuts` mide el PRIMER brazo / pierna del proyecto (`_pick_limbs`), así que la copia de prueba del proyecto (la real no se toca) pone primero al miembro pedido entre los de su clase. `cut_seated_blocked` pierde ese motivo (sigue: sin STL, sin catálogo, miembro inexistente, extrusión no soportada), así que el botón «Medir choque en pose sentada» queda habilitado también para el segundo brazo. Tests: `tests/test_cut_aid.py` 21 (el viejo «se niega con dos brazos» pasó a «mide el pedido aunque otro venga primero», y falla sin el cambio); sesión + guía + catálogo GUI + mira del pasador: 85 pasan.
 
 ### Todo List
