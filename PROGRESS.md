@@ -3,6 +3,20 @@
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
 ## Current Focus
+**Gestión del catálogo: renombrar, columnas por tipo y pin de articulación visible (2026-11-11, sobre main 2cb78b1):** «Administrar catálogo» pasa de una línea de texto por pieza a una tabla (Nombre · Tipo · Ver. · Articulación · Estado · Origen) que se ordena con un clic en el título de la columna (por «Tipo» se agrupan cabezas, torsos, piernas…); `Renombrar… (F2)` cambia el nombre para mostrar (campo opcional `nombre` de la ficha, de todas las versiones del `id`; el `id` / `ref`, el STL y el hash NO cambian, así que recetas y figuras siguen armando igual; el índice `CATALOGO.md` gana la columna Nombre); la columna «Articulación» dice «● con codo / ○ sin codo» (brazo), «● con rodilla / ○ sin rodilla» (pierna) o «toma de codo / rodilla»; y la vista previa dibuja los pasadores de puerto como cilindros sólidos (antes líneas de 1 px) y el eje del codo / rodilla como cilindro azul que atraviesa la pieza, con su plano celeste y una leyenda de colores. Tests nuevos en `tests/test_catalog_rename_columns.py`.
+
+### Todo List
+- [x] Campo `nombre` + `Catalog.rename_piece` + `Session/Controller.catalog_rename`.
+- [x] Tabla con columnas ordenables, columna «Articulación», búsqueda por nombre.
+- [x] Pasadores y eje de articulación como sólidos en la vista previa + leyenda.
+- [/] **Correr la suite** (`pytest tests/test_catalog_rename_columns.py tests/test_catalog_manager.py tests/test_catalog.py`) y probar la ventana real con GTK + GL: este parche se armó sin GTK ni GL, ventana y vista previa sin probar.
+- [ ] Usar el nombre también en «Armar desde catálogo» (hoy esos menús muestran el `id`).
+
+### Latest Blockers/Discoveries
+- Renombrar NO cambia el `id`: las piezas son inmutables y las recetas las fijan por `id@n`; cambiar el `id` rompería recetas. Si se quiere renombrar el `id` de verdad hay que reescribir recetas / `.proyecto` (no hecho).
+- «Columna por tipo de parte» se interpretó como una columna «Tipo» ordenable (no una columna por cada tipo); si se quería un tablero con una columna por tipo, es otro diseño.
+
+## Current Focus (anterior)
 **Vista previa de la cadera (parche del usuario, 2026-11-11, sobre main e0d21e8):** la «Vista previa de la articulación» ahora lista también «cadera de <pierna>» (pasador + hueco del barrido en la pelvis; «Flexión mostrada» gira el muslo; `joint_preview.preview_hip`, `Session.preview_names/hip_previews`, `Controller.is_hip_preview`). De ese parche, la parte de «Administrar catálogo» (botón activo por defecto, fila «Flexión mostrada» visible) ya estaba en main y se omitió; se aplicó el resto sin cambios. `tests/test_hip_preview.py` + `test_joint_preview.py`: 44 pasan. Sin probar en GTK/GL real.
 
 ## Current Focus (anterior)

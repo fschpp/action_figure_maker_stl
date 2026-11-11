@@ -56,6 +56,19 @@ class PieceError(ValueError):
     """La pieza no cumple el formato (tipo desconocido, puertos que faltan, hash que no coincide…)."""
 
 
+NAME_MAX = 60
+
+
+def clean_name(text: str) -> str:
+    """Nombre para mostrar ya limpio (espacios colapsados). Vacío = quitar el nombre y volver a mostrar el `id`."""
+    name = " ".join((text or "").split())
+    if any(ord(c) < 32 for c in name):
+        raise PieceError("el nombre no puede llevar caracteres de control")
+    if len(name) > NAME_MAX:
+        raise PieceError(f"el nombre es demasiado largo ({len(name)} > {NAME_MAX} caracteres)")
+    return name
+
+
 def stl_name(piece_id: str, version: int) -> str:
     return f"{piece_id}@{version}.stl"
 
@@ -93,6 +106,12 @@ class PieceMeta:
     mecanismo: dict | None = None
     estado: str = "borrador"
     etiquetas: list = field(default_factory=list)
+    nombre: str = ""                    # nombre para mostrar (opcional, editable); el `id` y la `ref` no cambian nunca
+
+    @property
+    def display_name(self) -> str:
+        """Nombre que se ve en las listas: el `nombre` si lo tiene, si no el `id`."""
+        return self.nombre or self.id
 
     @property
     def ref(self) -> str:
@@ -138,6 +157,12 @@ class PieceMeta:
         return out
 
     def to_dict(self) -> dict:
+        d = self._base_dict()
+        if self.nombre:                 # solo si se renombró: las fichas viejas quedan idénticas
+            d["nombre"] = self.nombre
+        return d
+
+    def _base_dict(self) -> dict:
         return {"formato": PIECE_FORMAT, "id": self.id, "version": int(self.version), "tipo": self.tipo,
                 "descripcion": self.descripcion, "origen": self.origen,
                 "altura_figura_mm": self.altura_figura_mm, "lado": self.lado, "espejable": bool(self.espejable),
@@ -157,7 +182,8 @@ class PieceMeta:
                    espejable=bool(d.get("espejable", True)), stl=d.get("stl", ""), sha256=d.get("sha256", ""),
                    volumen_mm3=float(d.get("volumen_mm3", 0.0)), bbox=d.get("bbox", [[0.0] * 3, [0.0] * 3]),
                    articulaciones=d.get("articulaciones", []), mecanismo=d.get("mecanismo"),
-                   estado=d.get("estado", "borrador"), etiquetas=list(d.get("etiquetas", [])))
+                   estado=d.get("estado", "borrador"), etiquetas=list(d.get("etiquetas", [])),
+                   nombre=str(d.get("nombre") or ""))
 
 
 def _as_trimesh(mesh):

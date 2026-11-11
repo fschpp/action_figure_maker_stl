@@ -84,14 +84,51 @@ def matches(meta: PieceMeta, text: str = "", tipo: str | None = None) -> bool:
     words = (text or "").lower().split()
     if not words:
         return True
-    hay = " ".join([meta.ref, meta.tipo, meta.estado, " ".join(meta.etiquetas), piece_origin(meta),
+    hay = " ".join([meta.ref, meta.nombre, meta.tipo, meta.estado, joint_label(meta), " ".join(meta.etiquetas), piece_origin(meta),
                     str(meta.origen.get("proyecto") or ""), str(meta.origen.get("fecha") or ""), meta.descripcion]).lower()
     return all(w in hay for w in words)
 
 
+JOINT_OF_TYPE = {"brazo": "codo", "pierna": "rodilla"}                     # miembros que pueden traer la articulación propia
+SOCKET_OF_TYPE = {"antebrazo": "codo", "pantorrilla": "rodilla", "bota": "rodilla"}   # piezas distales: llevan la toma del otro lado
+
+
+def joint_label(meta: PieceMeta) -> str:
+    """Si la pieza trae pin de articulación, dicho sin ambigüedad: «● con codo» / «○ sin codo» (brazo), «● con rodilla» /
+    «○ sin rodilla» (pierna), «toma de codo / rodilla» (antebrazo, pantorrilla, bota) o «—» (el resto de los tipos)."""
+    name = JOINT_OF_TYPE.get(meta.tipo)
+    if name:
+        return f"● con {name}" if (meta.articulaciones or []) else f"○ sin {name}"
+    if meta.tipo in SOCKET_OF_TYPE:
+        return f"toma de {SOCKET_OF_TYPE[meta.tipo]}"
+    return "—"
+
+
+def has_joint_pin(meta: PieceMeta) -> bool:
+    return meta.tipo in JOINT_OF_TYPE and bool(meta.articulaciones or [])
+
+
+# Columnas de la lista: (clave, título, ancho en caracteres)
+COLUMNS = (("nombre", "Nombre", 24), ("tipo", "Tipo", 10), ("version", "Ver.", 4), ("articulacion", "Articulación", 14),
+           ("estado", "Estado", 9), ("origen", "Origen", 18))
+
+
+def row_cells(meta: PieceMeta) -> dict[str, str]:
+    """Texto de cada columna de la lista para `meta`."""
+    return {"nombre": meta.display_name, "tipo": meta.tipo, "version": f"@{meta.version}", "articulacion": joint_label(meta),
+            "estado": meta.estado, "origen": piece_origin(meta)}
+
+
+def sort_pieces(metas, key: str = "tipo", descending: bool = False) -> list[PieceMeta]:
+    """Ordena por la columna `key` (desempata por nombre y versión): ordenar por «tipo» agrupa cabezas, torsos, piernas…"""
+    if key not in {k for k, _t, _w in COLUMNS}:
+        raise ValueError(f"columna desconocida «{key}»")
+    return sorted(metas, key=lambda m: (row_cells(m)[key].lower(), m.display_name.lower(), m.version), reverse=descending)
+
+
 def row_text(meta: PieceMeta) -> str:
     """Una línea de la lista: «pierna-belgrano-01@2 · pierna · borrador · belgrano_viejo.stl»."""
-    parts = [meta.ref, meta.tipo, meta.estado]
+    parts = [meta.ref if not meta.nombre else f"{meta.nombre} ({meta.ref})", meta.tipo, meta.estado]
     if piece_origin(meta):
         parts.append(piece_origin(meta))
     return " · ".join(parts)
@@ -100,13 +137,15 @@ def row_text(meta: PieceMeta) -> str:
 def detail_text(meta: PieceMeta, uses: list[str] | None = None) -> str:
     """Ficha de una pieza para el panel de la derecha."""
     size = np.asarray(meta.bbox[1], float) - np.asarray(meta.bbox[0], float)
-    lines = [f"{meta.ref}", f"Tipo: {meta.tipo} · estado: {meta.estado} · etiquetas: {', '.join(meta.etiquetas) or '—'}",
+    lines = [f"{meta.ref}" + (f" — «{meta.nombre}»" if meta.nombre else ""), f"Tipo: {meta.tipo} · estado: {meta.estado} · etiquetas: {', '.join(meta.etiquetas) or '—'}",
              f"Tamaño: {size[0]:.1f} × {size[1]:.1f} × {size[2]:.1f} mm · volumen {meta.volumen_mm3:.0f} mm³".replace(".", ",")]
     if meta.altura_figura_mm:
         lines.append(f"Altura de la figura de origen: {meta.altura_figura_mm:g} mm".replace(".", ","))
     org = piece_origin(meta)
     proj = meta.origen.get("proyecto")
     lines.append(f"Origen: {org or '—'}" + (f" · proyecto {proj}" if proj else "") + (f" · {meta.origen['fecha']}" if meta.origen.get("fecha") else ""))
+    if meta.tipo in JOINT_OF_TYPE or meta.tipo in SOCKET_OF_TYPE:
+        lines.append(f"Articulación: {joint_label(meta)}" + (" (el eje se ve en azul en la vista previa)" if has_joint_pin(meta) else ""))
     if meta.puertos:
         lines.append("Puertos: " + ", ".join(f"{n} ({p.rol})" for n, p in meta.puertos.items()))
     ag = (meta.mecanismo or {}).get("agarre")
@@ -131,6 +170,80 @@ def port_markers(meta: PieceMeta, length: float) -> tuple[np.ndarray, list[np.nd
         pts.append(c)
         segs.append(np.array([c, c + a * length]))
     return (np.array(pts) if pts else np.zeros((0, 3))), segs
+
+
+PIN_LEGEND = ("Naranja: puertos / pasadores de encastre (cilindro con su dirección) · Azul: eje de la articulación (codo / rodilla), "
+              "con su plano celeste")
+JOINT_COLOR = (0.20, 0.50, 1.0, 1.0)
+JOINT_PLANE_COLOR = (0.30, 0.75, 1.0, 0.28)
+
+
+def _cyl(center, axis, radius: float, length: float):
+    import trimesh
+
+    axis = np.asarray(axis, float)
+    axis = axis / np.linalg.norm(axis)
+    z = np.array([0.0, 0.0, 1.0])
+    v, c = np.cross(z, axis), float(z @ axis)
+    if np.linalg.norm(v) < 1e-9:
+        rot = np.eye(3) if c > 0 else np.diag([1.0, -1.0, -1.0])
+    else:
+        k = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
+        rot = np.eye(3) + k + k @ k * (1.0 / (1.0 + c))
+    T = np.eye(4)
+    T[:3, :3] = rot
+    T[:3, 3] = np.asarray(center, float)
+    return trimesh.creation.cylinder(radius=radius, height=length, sections=24, transform=T)
+
+
+def pin_radius(mesh_extent: float) -> float:
+    """Radio con que se dibuja un pasador en la vista previa: se ve grueso aunque la pieza sea chica (≥ 0,9 mm)."""
+    return max(0.9, float(mesh_extent) * 0.02)
+
+
+def pin_meshes(meta: PieceMeta, mesh) -> list[tuple[str, object, tuple]]:
+    """Pasadores como sólidos de verdad (no líneas de 1 px): [(nombre, malla, color)]. Cada puerto, un cilindro naranja que
+    sale de la pieza en la dirección de su eje; cada articulación (codo / rodilla), un cilindro azul que atraviesa la pieza a lo
+    largo del eje de la bisagra y sobresale 2 mm de cada lado, más su diámetro real (`HingeSpec.pin_d`) si es mayor."""
+    from ..joints import JointSpec
+    from ..params import HingeSpec
+
+    ext = float(max(mesh.extents))
+    out: list[tuple[str, object, tuple]] = []
+    length = ext * 0.25
+    r = pin_radius(ext)
+    for name, p in meta.puertos.items():
+        c, a = np.asarray(p.frame.center, float), np.asarray(p.frame.axis, float)
+        out.append((f"pasador:{name}", _cyl(c + a * length / 2, a, r, length), PreviewRenderer.PORT_COLOR))
+    if meta.tipo in JOINT_OF_TYPE:
+        corners = np.asarray(mesh.bounds, float)
+        for jd in meta.articulaciones or []:
+            try:
+                j = JointSpec.from_dict(jd)
+            except Exception:                                        # noqa: BLE001  (ficha rara: se dibuja lo demás)
+                continue
+            c, a = np.asarray(j.axis_center, float), np.asarray(j.axis_dir, float)
+            a = a / np.linalg.norm(a)
+            box = np.array([[x, y, z] for x in corners[:, 0] for y in corners[:, 1] for z in corners[:, 2]])
+            t = (box - c) @ a
+            lo, hi = float(t.min()) - 2.0, float(t.max()) + 2.0
+            pin_d = (j.hinge or HingeSpec()).pin_d
+            out.append((f"eje:{j.name}", _cyl(c + a * (lo + hi) / 2, a, max(r, pin_d / 2), hi - lo), JOINT_COLOR))
+    return out
+
+
+def joint_planes(meta: PieceMeta):
+    """[(nombre, Plane)] de las articulaciones de la pieza (para dibujar el plano translúcido)."""
+    from ..joints import JointSpec
+
+    out = []
+    if meta.tipo in JOINT_OF_TYPE:
+        for jd in meta.articulaciones or []:
+            try:
+                out.append((f"plano:{jd.get('name', '')}", JointSpec.from_dict(jd).plane))
+            except Exception:                                        # noqa: BLE001
+                continue
+    return out
 
 
 def view_bounds(mesh, meta: PieceMeta | None = None) -> np.ndarray:
@@ -170,6 +283,7 @@ class PreviewRenderer:
         self.width, self.height = width, height
         self.error: str | None = None
         self._off = None
+        self._key = None
         self._mesh = None            # la malla que ya está en la GPU (arrastrar para girar no la vuelve a subir)
 
     def _ensure(self):
@@ -201,14 +315,20 @@ class PreviewRenderer:
         if off is None:
             raise RuntimeError(self.error or "sin vista previa")
         with off.ctx:                        # vuelve a poner este contexto como el actual (GTK tiene el suyo)
-            if self._mesh is not mesh:
+            key = (id(mesh), meta.ref if meta is not None else None, len(meta.articulaciones or []) if meta is not None else 0)
+            if self._mesh is not mesh or self._key != key:
                 off.scene.clear()
                 off.scene.set_mesh("pieza", mesh, self.PIECE_COLOR)
-                if meta is not None and meta.puertos:
-                    pts, segs = port_markers(meta, float(max(mesh.extents)) * 0.25)
-                    off.scene.set_points("puertos", pts, self.PORT_COLOR, size=11.0, on_top=True)
-                    off.scene.set_lines("ejes", segs, self.PORT_COLOR, on_top=True)
+                if meta is not None:
+                    for name, pm, color in pin_meshes(meta, mesh):          # pasadores y ejes como sólidos: se ven aunque la pieza sea chica
+                        off.scene.set_mesh(name, pm, color)
+                    if meta.puertos:
+                        pts, _segs = port_markers(meta, float(max(mesh.extents)) * 0.25)
+                        off.scene.set_points("puertos", pts, self.PORT_COLOR, size=14.0, on_top=True)
+                    for name, plane in joint_planes(meta):
+                        off.scene.set_plane(name, plane, float(max(mesh.extents)) * 0.35, color=JOINT_PLANE_COLOR)
                 self._mesh = mesh
+                self._key = key
             self._marks(off, marks)
             return off.render(preview_camera(view_bounds(mesh, meta), off.width / off.height, yaw_off, pitch_off, zoom, pan))
 

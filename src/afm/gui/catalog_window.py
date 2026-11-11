@@ -13,8 +13,8 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gdk, GLib, Gtk, Pango  # noqa: E402
 
-from .catalog_manager import (ALL_TYPES, CatalogManager, JointEditor, PreviewRenderer, WristCutter, can_cut_wrist,  # noqa: E402
-                              can_retune_joint, detail_text, matches, row_text)
+from .catalog_manager import (ALL_TYPES, COLUMNS, PIN_LEGEND, CatalogManager, JointEditor, PreviewRenderer, WristCutter,  # noqa: E402
+                              can_cut_wrist, can_retune_joint, detail_text, matches, row_cells, sort_pieces)
 from .catalog_manager import ZOOM_STEP, zoom_about  # noqa: E402
 from .catalog_manager import view_bounds as CM_view_bounds  # noqa: E402
 from .window import _no_scroll_change  # noqa: E402
@@ -25,13 +25,15 @@ CLICK_MAX_PX = 4.0          # un arrastre más corto que esto es un clic (marca 
 
 class CatalogManagerWindow(Gtk.Window):
     def __init__(self, parent: Gtk.Window, ctrl):
-        super().__init__(title="Administrar catálogo de piezas", transient_for=parent, default_width=1020, default_height=640)
+        super().__init__(title="Administrar catálogo de piezas", transient_for=parent, default_width=1240, default_height=680)
         self.ctrl = ctrl
         self.mgr = CatalogManager(ctrl)
         self.preview = PreviewRenderer()
         self._rows: list = []                 # [(Gtk.ListBoxRow, PieceMeta)] de lo que muestra la lista
         self._updating = False
         self._signature = None
+        self._sort = ("tipo", False)           # (columna, descendente): ordenar por «tipo» agrupa cabezas, torsos, piernas…
+        self._head_labels: dict[str, Gtk.Label] = {}
         self._shown = None                    # (meta, malla) de la pieza que se está viendo
         self._dyaw = 0.0
         self._dpitch = 0.0
@@ -51,7 +53,7 @@ class CatalogManagerWindow(Gtk.Window):
         paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL, wide_handle=True)
         paned.set_start_child(self._build_list())
         paned.set_end_child(self._build_detail())
-        paned.set_position(430)
+        paned.set_position(640)
         paned.set_resize_start_child(False)
         paned.set_shrink_start_child(False)
         paned.set_shrink_end_child(False)
@@ -81,6 +83,7 @@ class CatalogManagerWindow(Gtk.Window):
         row.append(btn_all)
         box.append(row)
 
+        box.append(self._build_header())
         self.listbox = Gtk.ListBox(selection_mode=Gtk.SelectionMode.MULTIPLE)
         self.listbox.add_css_class("boxed-list")
         self.listbox.connect("selected-rows-changed", self._on_selection)
@@ -96,10 +99,48 @@ class CatalogManagerWindow(Gtk.Window):
         sw.set_child(self.listbox)
         box.append(sw)
         hint = Gtk.Label(label="Clic elige una sola pieza; Mayús + clic (o Ctrl + clic) agrega o quita otra. Filtrá por texto y usá «Elegir todas las que se ven» "
-                               "para borrar de una vez, por ejemplo, todo lo catalogado desde un proyecto equivocado.",
+                               "para borrar de una vez, por ejemplo, todo lo catalogado desde un proyecto equivocado. Clic en el título de una columna "
+                               "ordena (por «Tipo» se agrupan cabezas, torsos, piernas…); F2 renombra la pieza elegida.",
                          xalign=0, wrap=True)
         hint.add_css_class("dim-label")
         box.append(hint)
+        return box
+
+    def _build_header(self) -> Gtk.Widget:
+        """Cabecera de la tabla: un clic en una columna ordena por ella (otro clic invierte); «Tipo» agrupa por cabeza, torso, pierna…"""
+        head = Gtk.Box(spacing=8, margin_start=8, margin_end=8)
+        for key, title, width in COLUMNS:
+            lab = Gtk.Label(xalign=0, width_chars=width, max_width_chars=width, ellipsize=Pango.EllipsizeMode.END,
+                            tooltip_text=f"Ordenar por «{title}» (otro clic invierte el orden)")
+            lab.add_css_class("heading")
+            click = Gtk.GestureClick(button=1)
+            click.connect("pressed", lambda *_a, k=key: self._on_sort(k))
+            lab.add_controller(click)
+            self._head_labels[key] = lab
+            head.append(lab)
+        self._sync_header()
+        return head
+
+    def _sync_header(self) -> None:
+        key, desc = self._sort
+        for k, title, _w in COLUMNS:
+            self._head_labels[k].set_text(title + ((" ▼" if desc else " ▲") if k == key else ""))
+
+    def _on_sort(self, key: str) -> None:
+        self._sort = (key, not self._sort[1] if self._sort[0] == key else False)
+        self._sync_header()
+        self._reload()
+
+    def _row_widget(self, meta) -> Gtk.Widget:
+        """Una fila de la tabla: una etiqueta por columna; la articulación va en verde si trae pin y atenuada si no."""
+        box = Gtk.Box(spacing=8, margin_top=4, margin_bottom=4, margin_start=8, margin_end=8)
+        cells = row_cells(meta)
+        for key, _title, width in COLUMNS:
+            lab = Gtk.Label(label=cells[key], xalign=0, width_chars=width, max_width_chars=width, ellipsize=Pango.EllipsizeMode.END,
+                            tooltip_text=cells[key])
+            if key == "articulacion":
+                lab.add_css_class("success" if cells[key].startswith("●") else "dim-label")
+            box.append(lab)
         return box
 
     def _build_detail(self) -> Gtk.Widget:
@@ -128,6 +169,9 @@ class CatalogManagerWindow(Gtk.Window):
         frame = Gtk.Frame()
         frame.set_child(self.picture)
         box.append(frame)
+        legend = Gtk.Label(label=PIN_LEGEND, xalign=0, wrap=True)
+        legend.add_css_class("dim-label")
+        box.append(legend)
 
         bar = Gtk.Box(spacing=6)
         reset = Gtk.Button(label="Vista 3/4")
@@ -149,6 +193,12 @@ class CatalogManagerWindow(Gtk.Window):
         self.btn_joint.set_sensitive(False)
         self.btn_joint.connect("clicked", self._on_joint_start)
         bar.append(self.btn_joint)
+        self.btn_rename = Gtk.Button(label="Renombrar… (F2)")
+        self.btn_rename.set_sensitive(False)
+        self.btn_rename.set_tooltip_text("Cambia el nombre con que se ve la pieza (todas sus versiones). El id y la referencia no cambian: "
+                                         "las recetas y figuras que la usan siguen armando igual.")
+        self.btn_rename.connect("clicked", self._on_rename)
+        bar.append(self.btn_rename)
         self.btn_delete = Gtk.Button(label="Eliminar…")
         self.btn_delete.add_css_class("destructive-action")
         self.btn_delete.connect("clicked", self._on_delete)
@@ -213,6 +263,7 @@ class CatalogManagerWindow(Gtk.Window):
         if ok and self._shown is None:
             ok, why = False, "No hay vista previa de la pieza para marcar la muñeca."
         self.btn_wrist.set_sensitive(ok and self._cutter is None and self._jeditor is None)
+        self._sync_rename_button(refs)
         self.btn_wrist.set_tooltip_text("Le corta la mano al brazo: tocás 3 puntos de la muñeca sobre la vista previa y se guarda una versión "
                                         "nueva del brazo sin mano más la mano como pieza aparte (el brazo original no se toca)." if ok else why)
 
@@ -660,7 +711,7 @@ class CatalogManagerWindow(Gtk.Window):
         if sorted({m.tipo for m in everything}) != self._type_names():
             self._fill_types([m.tipo for m in everything])
         text, tipo = self.search.get_text(), self._type_filter()
-        metas = [m for m in everything if matches(m, text, tipo)]
+        metas = sort_pieces([m for m in everything if matches(m, text, tipo)], *self._sort)
         root = self.ctrl.session.catalog_root
         total = len(everything)
         self.lbl_title.set_text("No hay un catálogo abierto." if not root else
@@ -672,8 +723,7 @@ class CatalogManagerWindow(Gtk.Window):
             self._rows = []
             for m in metas:
                 row = Gtk.ListBoxRow()
-                row.set_child(Gtk.Label(label=row_text(m), xalign=0, ellipsize=Pango.EllipsizeMode.END,
-                                        margin_top=4, margin_bottom=4, margin_start=8, margin_end=8))
+                row.set_child(self._row_widget(m))
                 self.listbox.append(row)
                 self._rows.append((row, m))
                 if m.ref in keep:
@@ -694,6 +744,7 @@ class CatalogManagerWindow(Gtk.Window):
             self._joint_cancel(redraw=False)
         self.btn_delete.set_label("Eliminar…" if n == 0 else f"Eliminar {n} pieza(s)…")
         self.btn_delete.set_sensitive(bool(n) and not self.ctrl.busy and self._cutter is None and self._jeditor is None)
+        self._sync_rename_button(refs)
         if n == 0:
             self.lbl_detail.set_text("Elegí una pieza de la lista para verla." if self._rows else "El catálogo no tiene piezas (todavía).")
             self._show(None)
@@ -833,10 +884,54 @@ class CatalogManagerWindow(Gtk.Window):
         self._redraw()
 
     def _on_key(self, _ctl, keyval, _code, _state) -> bool:
+        if keyval == Gdk.KEY_F2:
+            self._on_rename()
+            return True
         if keyval in (Gdk.KEY_Delete, Gdk.KEY_KP_Delete):
             self._on_delete()
             return True
         return False
+
+    # ------------------------------------------------------------ renombrar
+    def _sync_rename_button(self, refs: list[str]) -> None:
+        ok = len(refs) == 1 and not self.ctrl.busy and self._cutter is None and self._jeditor is None
+        self.btn_rename.set_sensitive(ok)
+
+    def _on_rename(self, *_) -> None:
+        refs = self._selected_refs()
+        if len(refs) != 1 or self.ctrl.busy or self._cutter is not None or self._jeditor is not None:
+            return
+        meta = next(m for _row, m in self._rows if m.ref == refs[0])
+        dlg = Gtk.Window(title="Renombrar pieza", transient_for=self, modal=True, default_width=440, resizable=False)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_top=12, margin_bottom=12, margin_start=12, margin_end=12)
+        box.append(Gtk.Label(label=f"Nombre para «{meta.id}» (se aplica a todas sus versiones). Vacío = volver a mostrar el id.",
+                             xalign=0, wrap=True))
+        entry = Gtk.Entry(text=meta.nombre, placeholder_text=meta.id, max_length=60, activates_default=True)
+        box.append(entry)
+        row = Gtk.Box(spacing=6, halign=Gtk.Align.END)
+        cancel = Gtk.Button(label="Cancelar")
+        cancel.connect("clicked", lambda *_: dlg.close())
+        ok = Gtk.Button(label="Renombrar")
+        ok.add_css_class("suggested-action")
+
+        def accept(*_) -> None:
+            if self.ctrl.catalog_rename(meta.ref, entry.get_text()):
+                dlg.close()
+                self._reload()
+                self.lbl_status.set_text(self.ctrl.message or "")
+            else:
+                self.lbl_status.set_text(self.ctrl.message or "")
+                dlg.close()
+
+        ok.connect("clicked", accept)
+        entry.connect("activate", accept)
+        row.append(cancel)
+        row.append(ok)
+        box.append(row)
+        dlg.set_child(box)
+        dlg.set_default_widget(ok)
+        dlg.present()
+        entry.grab_focus()
 
     # ------------------------------------------------------------ eliminar
     def _on_delete(self, *_) -> None:

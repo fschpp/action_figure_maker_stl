@@ -3370,6 +3370,21 @@ class Controller:
         self._changed(msg, scene=bool(res["quitadas"]))
         return not res["errores"]
 
+    def catalog_rename(self, ref: str, nombre: str) -> bool:
+        """Renombra (nombre para mostrar) la pieza `ref` del catálogo abierto. El `id` y las referencias no cambian."""
+        if self.busy:
+            self._changed("Esperá a que termine la tarea en curso para renombrar piezas.", scene=False)
+            return False
+        try:
+            metas = self.session.catalog_rename(ref, nombre)
+        except ValueError as e:
+            self._changed(f"No se renombró: {e}", scene=False)
+            return False
+        name = metas[0].display_name
+        self._changed(f"«{metas[0].id}» ahora se muestra como «{name}»." if metas[0].nombre else f"«{metas[0].id}» vuelve a mostrarse con su id.",
+                      scene=False)
+        return True
+
     def catalog_cut_wrist(self, ref: str, points, invert: bool = False, hand_id: str | None = None, new_hand_version: bool = False):
         """«Cortar la mano…» del gestor del catálogo: guarda el brazo `ref` sin mano (versión nueva) y la mano como pieza aparte.
         Devuelve el `WristCut` o None si no se pudo (el motivo queda en el mensaje). No toca la figura abierta."""

@@ -413,6 +413,31 @@ class Catalog:
         self.write_index()
         return m
 
+    def rename_piece(self, ref: str, nombre: str) -> list[P.PieceMeta]:
+        """Cambia el nombre para mostrar de una pieza (TODAS las versiones de su `id`). Es solo un dato de la ficha: el `id`, la
+        `ref`, el STL y el hash no cambian, así que las recetas y los proyectos que la nombran siguen armando igual.
+        `nombre` vacío quita el nombre (se vuelve a mostrar el `id`). No se admite un nombre que ya usa OTRA pieza (ni el `id`
+        de otra), para que la lista no tenga dos filas iguales."""
+        try:
+            name = P.clean_name(nombre)
+        except P.PieceError as exc:
+            raise CatalogError(str(exc)) from exc
+        pid, _ver = parse_ref(ref)
+        metas = [m for m in self._metas() if m.id == pid]
+        if not metas:
+            raise CatalogError(f"no hay ninguna pieza «{ref}» en el catálogo «{self.name}»")
+        if name:
+            for o in self._metas():
+                if o.id != pid and name.lower() in (o.display_name.lower(), o.id.lower()):
+                    raise CatalogError(f"el nombre «{name}» ya lo usa la pieza «{o.id}»: elegí otro")
+        for m in metas:
+            m.nombre = name
+            path = os.path.join(self._dir(m.tipo), P.meta_name(m.id, m.version))
+            with open(path, "w") as f:
+                json.dump(m.to_dict(), f, indent=2, ensure_ascii=False)
+        self.write_index()
+        return metas
+
     def measure_capacity(self, ref: str, write: bool = False) -> dict:
         """Capacidad del anfitrión de cada toma con pasador de `ref` (plan de compatibilidad, Fase 3): `{puerto: dict | None}`,
         medida sobre el STL de la pieza (con la comprobación del hash). Con `write=True` la deja en el `.pieza.json`
@@ -660,13 +685,13 @@ class Catalog:
         if not metas:
             lines.append("(sin piezas todavía)")
         else:
-            lines += ["| Pieza | Tipo | Estado | Etiquetas | Puertos | Origen | Volumen (mm³) |", "|---|---|---|---|---|---|---|"]
+            lines += ["| Pieza | Nombre | Tipo | Estado | Etiquetas | Puertos | Origen | Volumen (mm³) |", "|---|---|---|---|---|---|---|---|"]
             for m in metas:
                 origen = m.origen.get("figura") or m.origen.get("nota") or ""
                 ag = (m.mecanismo or {}).get("agarre") or {}
                 grip = (f"agarre Ø{ag['diametro_taladro_mm']:g}" if m.tipo == "mano" and "diametro_taladro_mm" in ag
                         else f"agarre Ø{ag['taladro_mm']:g}" if m.tipo == "accesorio" and "taladro_mm" in ag else "")
-                lines.append(f"| `{m.ref}` | {m.tipo} | {m.estado} | {', '.join(m.etiquetas) or '—'} | "
+                lines.append(f"| `{m.ref}` | {m.nombre or '—'} | {m.tipo} | {m.estado} | {', '.join(m.etiquetas) or '—'} | "
                              f"{', '.join(list(m.puertos) + ([grip] if grip else [])) or '—'} | {origen} | {m.volumen_mm3:.0f} |")
         path = os.path.join(self.root, "CATALOGO.md")
         with open(path, "w") as f:

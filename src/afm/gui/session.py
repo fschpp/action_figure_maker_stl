@@ -2064,6 +2064,15 @@ class Session:
             self._part_preview = None
         return {"eliminadas": res.refs, "quitadas": cleared, "errores": res.errors}
 
+    def catalog_rename(self, ref: str, nombre: str) -> list:
+        """Cambia el nombre para mostrar de la pieza `ref` (todas sus versiones; `Catalog.rename_piece`). Devuelve las metas."""
+        from ..catalog import CatalogError
+
+        try:
+            return self._catalog().rename_piece(ref, nombre)
+        except CatalogError as exc:
+            raise ValueError(str(exc)) from exc
+
     def _resolved_parts(self):
         """`Project.parts` -> piezas cargadas del catálogo abierto (o de la ruta por defecto de su línea)."""
         if not self.project.parts:
