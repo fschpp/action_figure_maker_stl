@@ -771,11 +771,12 @@ En naranja se ve el contorno del pasador (vástago y cabeza); en verde, la posic
             self.param_spins[key] = spin
 
         sec = _collapsible(box, "Vista previa de la articulación", expanded=False)
-        _help(sec, "Arma SOLO la rodilla o el codo (recortada alrededor del eje) para ver cuánto material se lleva el hueco "
+        _help(sec, "Arma SOLO la rodilla, el codo o la cadera (recortada alrededor del eje) para ver cuánto material se lleva el hueco "
                    "mientras movés el eje, el plano o el rango, sin esperar a «Generar figura». Se recalcula sola (unos "
                    "segundos) y muestra el último resultado hasta que llega el nuevo. Con la vista previa encendida se oculta "
                    "la figura. En una figura armada desde el catálogo se ve la articulación de la pieza tal como se catalogó "
-                   "(el eje y el plano no se mueven acá).")
+                   "(el eje y el plano no se mueven acá). La cadera muestra el pasador y el hueco del barrido en la pelvis: «Flexión "
+                   "mostrada» gira el muslo (0° de pie, hasta la pose sentada).")
         row = Gtk.Box(spacing=6)
         row.append(Gtk.Label(label="Articulación", xalign=0, hexpand=True))
         self.dd_jprev = Gtk.DropDown.new_from_strings(["(ninguna)"])
@@ -888,7 +889,7 @@ exportar; tarda un poco más.")
     def _refresh_joint_preview(self) -> None:
         """Lista de articulaciones, controles de la vista previa y su texto (se llama dentro de `_refresh`)."""
         ctrl = self.ctrl
-        names = [j.name for j in ctrl.session.joints_listed()] if ctrl.loaded else []
+        names = ctrl.session.preview_names() if ctrl.loaded else []
         if names != self._joint_names:
             keep = self._jprev_name()
             self._joint_names = names
@@ -898,6 +899,7 @@ exportar; tarda un poco más.")
             self.dd_jprev.set_selected(names.index(ctrl._jp["name"]))
         name = self._jprev_name()
         has = name is not None
+        hip = has and ctrl.is_hip_preview(name)               # la cadera se ve girar, no se ajusta acá
         editable = has and ctrl.joint_editable(name)          # la de una pieza de catálogo solo se ve
         for w in (self.chk_jprev, self.spin_jflex):
             w.set_sensitive(has)
@@ -905,16 +907,19 @@ exportar; tarda un poco más.")
             w.set_sensitive(editable)
         self.chk_jprev.set_active(ctrl.show_joint_preview)
         if has:
-            for spin, val in ((self.spin_jh, ctrl.joint_height(name)), (self.spin_jtilt, ctrl.joint_plane_side_tilt(name)),
-                              (self.spin_jflex, ctrl._jp["flex"])):
+            vals = [(self.spin_jflex, ctrl._jp["flex"])]
+            if not hip:
+                vals += [(self.spin_jh, ctrl.joint_height(name)), (self.spin_jtilt, ctrl.joint_plane_side_tilt(name))]
+            for spin, val in vals:
                 if abs(spin.get_value() - val) > 1e-9:
                     spin.set_value(val)
         if has:
-            note = "" if editable else "Articulación de la pieza de catálogo: el eje, el plano y el rango son los de la pieza.\n"
+            note = ("" if editable or hip else
+                    "Articulación de la pieza de catálogo: el eje, el plano y el rango son los de la pieza.\n")
             self.lbl_jprev.set_text(note + ctrl.joint_preview_status())
         else:
             self.lbl_jprev.set_text(ctrl.no_joint_text() if ctrl.loaded and ctrl.session.catalog_only()
-                                    else "Agregá la rodilla o el codo de un miembro (pestaña Planos).")
+                                    else "Agregá la rodilla o el codo de un miembro, o una pierna (cadera), en la pestaña Planos.")
 
     def _tab_page(self, title: str) -> Gtk.Box:
         """Agrega una pestaña con scroll propio y devuelve la caja donde van sus secciones."""
