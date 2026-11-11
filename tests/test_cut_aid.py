@@ -311,3 +311,35 @@ def test_numbering_the_cuts_does_not_wipe_the_aim_items_on_every_sync(ctrl2):
     removed.clear()
     ctrl2.sync(sc)
     assert not [k for k in removed if k.startswith(("corte:mira_", "corte:cinta_", "corte:mejor"))]
+
+
+def test_cut_plane_is_drawn_at_the_offset_and_follows_it(ctrl):
+    """«Corte a (mm)» tiene feedback en el visor: un plano aparte (blanco) en x = corte; el de la silueta no se mueve."""
+    from test_gui_phases35 import FakeScene
+
+    ctrl.set_group_visible("planes", True)
+    sc = FakeScene()
+    ctrl.sync(sc)
+    key = "plano:brazo 2:corte"
+    assert key in sc.items and key + ":borde" in sc.items
+    assert sc.items[key][1].origin[0] == pytest.approx(15.0)
+    ctrl.set_limb_offset("brazo 2", 17.0)
+    ctrl.sync(sc)
+    assert sc.items[key][1].origin[0] == pytest.approx(17.0)             # sigue al valor
+    assert sc.items["plano:brazo 2"][1].origin[0] == pytest.approx(0.0)    # el plano de la silueta (donde se hacen los clics) queda
+    assert "plano:brazo:corte" not in sc.items and "plano:pierna:corte" not in sc.items   # planos frontales: el desplazamiento no aplica
+    ctrl.set_group_visible("planes", False)
+    ctrl.sync(sc)                                                        # oculto no lo saca de la escena, solo lo apaga: no debe romper
+    ctrl.session.limb("brazo 2").extrude = "symmetric"                   # con extrusión simétrica el desplazamiento no se usa
+    ctrl.sync(sc)
+    assert key not in sc.items and key + ":borde" not in sc.items
+
+
+def test_cut_plane_matches_the_prism_plane():
+    from afm import limbs as L
+
+    sym = Plane.from_normal((0, 0, 0), (1, 0, 0), "simetría")
+    spec = L.LimbSpec("b", "arm", Plane.from_normal(sym.origin, -sym.normal, "b"), np.zeros((0, 3)), 12.0, extrude="outward")
+    cp = L.cut_plane(spec, 10.0)
+    assert cp.origin[0] == pytest.approx(10.0) and cp.normal[0] == pytest.approx(1.0)   # normal orientada a +X, como el prisma
+    assert L.cut_plane(L.LimbSpec("s", "arm", sym, np.zeros((0, 3)), 12.0, extrude="symmetric"), 10.0) is None

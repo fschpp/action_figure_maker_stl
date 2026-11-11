@@ -255,6 +255,7 @@ que cubre). El clic y las flechas fijan el pasador sobre ese plano.
 (calibrado con Güemes, Belgrano y Azurduy con la figura a 100 mm); en el **brazo** hay que indicarlo (la cara del hombro de Güemes está
 a ≈ 9,7 mm). Cambiar el desplazamiento mueve la cara de contacto, así que descarta el pasador elegido y, si estás en el modo pasador,
 vuelve a calcular la cara. Ese plano no puede ser el de simetría con desplazamiento 0: esa cara es el corte de la mitad.
+**Feedback en el visor:** el plano de la lista (el de color) es donde se dibuja la silueta y no se mueve; el corte real se ve como un **plano blanco** aparte, en x = «Corte a», que sigue al valor del control. Solo aparece en brazos y piernas sobre la simetría con extrusión «outward».
 
 **Alcance del pasador.** Si la cara está muy cerca del plano de simetría, el pasador de un lado y el del espejo se cruzan (Güemes:
 caras a ±5,28 mm, pasadores de 6,6 mm). Al entrar al modo, el Estado agrega «Aviso: cruza con el del otro lado por X mm» (una sola vez: no depende de dónde pongas el pasador sobre la cara). Se arregla acortando el pasador
