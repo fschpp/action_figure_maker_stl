@@ -32,7 +32,7 @@ _MODE_TITLES = {Mode.VIEW: "", Mode.CROWN: "  ·  marcando coronilla", Mode.SYMM
                 Mode.JOINT_PLANE: "  ·  plano de articulación", Mode.JOINT_AXIS: "  ·  colocando eje de bisagra",
                 Mode.JOINT_LINES: "  ·  codo con 2 líneas (de frente)", Mode.JOINT_SIDE: "  ·  guías de la articulación (de costado)",
                 Mode.FLAT_PLANE: "  ·  plano de corte sin soportes",
-                Mode.HEAD_PIN: "  ·  pasador del cuello (de costado)"}
+                Mode.HEAD_PIN: "  ·  pasador del cuello (de costado)", Mode.WAIST_PIN: "  ·  pasador de la cintura (de costado)"}
 _TRIM_OPS = ("subtract", "union")
 
 
@@ -430,6 +430,15 @@ class MainWindow(Gtk.ApplicationWindow):
         self.btn_waist = self._button("Agregar cintura: cortar el torso y girar a los costados (3 puntos)",
                                       lambda *_: self.ctrl.start_waist_plane())
         sec.append(self.btn_waist)
+        self.btn_waist_pin = self._button("Elegir dónde va el pasador de la cintura (vista de costado)", lambda *_: self.ctrl.start_waist_pin())
+        self.btn_waist_pin.set_tooltip_text("Con un pasador elegido, el puerto «cintura» que se cataloga va en él (como el cuello y los miembros); "
+                                            "sin elegir, queda en el centro de la cara, como siempre. Clic = mover; flechas = 0,1 mm; M = imán; H = mapa de calor.")
+        self.btn_waist_pin_reset = self._button("Pasador de la cintura: volver a la posición automática", lambda *_: self.ctrl.reset_waist_pin())
+        self.btn_waist_snap = self._button("Imán del pasador (M)", lambda *_: self.ctrl.snap_pin())
+        self.btn_waist_heat = self._button("Mapa de calor del pasador (H)", lambda *_: self.ctrl.toggle_heat())
+        for b in (self.btn_waist_pin, self.btn_waist_pin_reset, self.btn_waist_snap, self.btn_waist_heat):
+            sec.append(b)
+        self._build_joint_aim(sec, "cintura")
 
         sec = _collapsible(box, "Mano estándar")
         self.btn_hand = self._button("Extraer mano estándar de esta figura (3 puntos en la muñeca izquierda)",
@@ -564,6 +573,11 @@ class MainWindow(Gtk.ApplicationWindow):
         for b in (self.btn_neck, self.btn_head_stl, self.btn_head_orig, self.btn_head_cut, self.btn_head_uncut,
                   self.btn_head_pin, self.btn_head_pin_reset):
             sec.append(b)
+        self.btn_head_snap = self._button("Imán del pasador (M)", lambda *_: self.ctrl.snap_pin())
+        self.btn_head_heat = self._button("Mapa de calor del pasador (H)", lambda *_: self.ctrl.toggle_heat())
+        sec.append(self.btn_head_snap)
+        sec.append(self.btn_head_heat)
+        self._build_joint_aim(sec, "cuello")
         row = Gtk.Box(spacing=6)
         row.append(Gtk.Label(label="Cabeza de reemplazo: eje «arriba» del STL", xalign=0, hexpand=True))
         self.dd_head_up = Gtk.DropDown.new_from_strings(list(REPLACEMENT_UPS))
@@ -1020,6 +1034,13 @@ exportar; tarda un poco más.")
             self.btn_head_stl.set_sensitive(loaded and head is not None)
             self.btn_head_pin.set_sensitive(loaded and head is not None)
             self.btn_head_pin_reset.set_sensitive(loaded and head is not None and head.pin_center is not None)
+            waist = ctrl.session.project.waist if loaded else None
+            self.btn_waist_pin.set_sensitive(loaded and waist is not None)
+            self.btn_waist_pin_reset.set_sensitive(loaded and waist is not None and waist.pin_center is not None)
+            joint_pin = ctrl.mode in (Mode.HEAD_PIN, Mode.WAIST_PIN)
+            for b in (self.btn_head_snap, self.btn_head_heat, self.btn_waist_snap, self.btn_waist_heat):
+                b.set_sensitive(joint_pin)
+            self._sync_joint_aim_ui(loaded)
             self.btn_head_orig.set_sensitive(loaded and head is not None and head.replacement_path is not None)
             rep = loaded and head is not None and head.replacement_path is not None
             for b in (self.dd_head_up, self.btn_head_cut, *self.head_spins.values()):
@@ -1076,6 +1097,8 @@ exportar; tarda un poco más.")
             placing = ctrl.mode == Mode.PIN
             for b in (self.btn_pin_snap, self.btn_pin_heat, self.btn_pin_reset, self.btn_pin_face, self.btn_pin_end):
                 b.set_sensitive(placing)
+            for b in (self.btn_pin_snap, self.btn_pin_heat, self.btn_pin_end):      # también en el pasador del cuello / la cintura
+                b.set_sensitive(placing or joint_pin)
             self.aim_area.set_visible(ctrl.aim_active())
             self.aim_area.queue_draw()
             self.spin_over.set_value(ctrl.overhang_angle)
@@ -1267,6 +1290,73 @@ exportar; tarda un poco más.")
             cam.orbit(ddx, ddy)
         self.gl.queue_render()
 
+    def _build_joint_aim(self, sec: Gtk.Box, lugar: str) -> None:
+        """Mira del plano del cuello / de la cintura: casilla, texto, botones para mirarlo, correrlo (±0,5 mm) y el imán, y el recuadro
+        de la sección. La cinta se pinta en el visor mientras esta sección es la que se mira (`Controller.joint_focus`)."""
+        w = {}
+        name = "del cuello" if lugar == "cuello" else "de la cintura"
+
+        def focus(fn):
+            def go(*_):
+                self.ctrl.set_joint_focus(lugar)
+                fn()
+                self._refresh()
+            return go
+
+        w["chk"] = Gtk.CheckButton(label=f"Mira del plano {name} (cinta de color y sección)")
+        w["chk"].set_tooltip_text("Con un catálogo abierto: pinta la sección del plano con el color de cuánto del catálogo la acepta (verde = casi "
+                                  "todo, amarillo = una parte, rojo = nada) y una cinta de puntos a lo largo de la normal del plano, ±4 mm cada "
+                                  "0,5 mm; el punto blanco es la mejor posición. Informativo, no una garantía.")
+        w["chk"].connect("toggled", lambda b: None if self._updating else self.ctrl.toggle_cut_aim())
+        sec.append(w["chk"])
+        w["lbl"] = Gtk.Label(label="", xalign=0, wrap=True, selectable=True)
+        sec.append(w["lbl"])
+        row = Gtk.Box(spacing=6)
+        w["look"] = self._button(f"Mirar este plano", focus(lambda: None))
+        w["minus"] = self._button("−0,5 mm", focus(lambda: self.ctrl.shift_joint_plane(lugar, -0.5)))
+        w["plus"] = self._button("+0,5 mm", focus(lambda: self.ctrl.shift_joint_plane(lugar, 0.5)))
+        w["snap"] = self._button("Imán del plano", focus(lambda: self.ctrl.snap_joint()))
+        w["snap"].set_tooltip_text("Desliza el plano a la mejor posición de la cinta (±4 mm sobre su normal). Descarta el pasador elegido: hay "
+                                   "que volver a revisarlo. (La tecla M sigue moviendo solo el corte lateral de un miembro.)")
+        for b in (w["look"], w["minus"], w["plus"], w["snap"]):
+            row.append(b)
+        sec.append(row)
+        w["area"] = Gtk.DrawingArea(content_width=300, content_height=220, visible=False)
+        w["area"].set_draw_func(lambda _a, cr, wd, ht: self._draw_joint_aim(cr, wd, ht, lugar))
+        sec.append(w["area"])
+        exp = sec.get_parent()
+        if isinstance(exp, Gtk.Expander):                      # abrir la sección elige el plano que se mira
+            exp.connect("notify::expanded", lambda e, _p: (self.ctrl.set_joint_focus(lugar) if e.get_expanded()
+                                                           else self.ctrl.joint_focus == lugar and self.ctrl.set_joint_focus(None),
+                                                           self._refresh()))
+        self.joint_aim_w = getattr(self, "joint_aim_w", {})
+        self.joint_aim_w[lugar] = w
+
+    def _sync_joint_aim_ui(self, loaded: bool) -> None:
+        ctrl = self.ctrl
+        for lugar, w in getattr(self, "joint_aim_w", {}).items():
+            spec = (ctrl.session.project.head if lugar == "cuello" else ctrl.session.project.waist) if loaded else None
+            ok = spec is not None and not ctrl.busy
+            for k in ("look", "minus", "plus", "snap", "chk"):
+                w[k].set_sensitive(ok)
+            if w["chk"].get_active() != ctrl.cut_aim_visible:
+                w["chk"].set_active(ctrl.cut_aim_visible)
+            mine = ok and ctrl.joint_focus == lugar
+            w["lbl"].set_text(ctrl.joint_aim_text() if mine else "")
+            box = ctrl.joint_aim_box() if mine else None
+            w["area"].set_visible(box is not None)
+            w["area"].queue_draw()
+            w["snap"].set_sensitive(box is not None and ok)
+
+    def _draw_joint_aim(self, cr, w: int, h: int, lugar: str) -> None:
+        from ..pin_aid_view import draw_aim_box
+
+        if self.ctrl.joint_focus != lugar:
+            return
+        data = self.ctrl.joint_aim_box()
+        if data is not None:
+            draw_aim_box(cr, w, h, data)
+
     def _draw_cut_aim(self, _area, cr, w: int, h: int) -> None:
         """El recuadro de la sección del corte actual con las caras del catálogo encima."""
         from ..pin_aid_view import draw_aim_box
@@ -1284,13 +1374,14 @@ exportar; tarda un poco más.")
 
     def _draw_aim(self, _area, cr, w: int, h: int) -> None:
         """El recuadro de la mira: lo que lee bajo el puntero o, si no hay lectura, en el centro actual del pasador."""
-        from ..pin_aid_view import aim_box_data, draw_aim_box
+        from ..pin_aid_view import draw_aim_box
 
         ctrl = self.ctrl
         if not ctrl.aim_active():
             return
-        r = ctrl.pin_aim or ctrl.pin_aid.evaluate(ctrl.pin_prev.project(ctrl._pin_center(ctrl.pin_limb)))
-        draw_aim_box(cr, w, h, aim_box_data(ctrl.pin_aid, r))
+        data = ctrl.aim_box()
+        if data is not None:
+            draw_aim_box(cr, w, h, data)
 
     def _on_gl_motion(self, _c, x: float, y: float) -> None:
         """Marca el vértice cercano al puntero (modos de elegir puntos). Se agrupan los eventos: la búsqueda traza un rayo."""
@@ -1341,16 +1432,21 @@ exportar; tarda un poco más.")
         if self.ctrl.mode == Mode.FLAT_PLANE and keyval in (Gdk.KEY_Up, Gdk.KEY_Down):
             self.ctrl.nudge_flat(1 if keyval == Gdk.KEY_Up else -1, big=bool(state & Gdk.ModifierType.SHIFT_MASK))
             return True
+        if self.ctrl.mode == Mode.WAIST_PIN and keyval in _ARROWS:
+            du, dv = _ARROWS[keyval]
+            self.ctrl.nudge_waist_pin(du, dv, big=bool(state & Gdk.ModifierType.SHIFT_MASK))
+            return True
         if self.ctrl.mode == Mode.HEAD_PIN and keyval in _ARROWS:
             du, dv = _ARROWS[keyval]
             self.ctrl.nudge_head_pin(du, dv, big=bool(state & Gdk.ModifierType.SHIFT_MASK))
             return True
-        if self.ctrl.mode == Mode.PIN and keyval in (Gdk.KEY_m, Gdk.KEY_M):
+        pin_mode = self.ctrl.mode in (Mode.PIN, Mode.HEAD_PIN, Mode.WAIST_PIN)
+        if pin_mode and keyval in (Gdk.KEY_m, Gdk.KEY_M):
             self.ctrl.snap_pin()
             return True
-        if self.ctrl.mode != Mode.PIN and keyval in (Gdk.KEY_m, Gdk.KEY_M) and self.ctrl.snap_cut(quiet=True):
+        if not pin_mode and keyval in (Gdk.KEY_m, Gdk.KEY_M) and self.ctrl.snap_cut(quiet=True):
             return True
-        if self.ctrl.mode == Mode.PIN and keyval in (Gdk.KEY_h, Gdk.KEY_H):
+        if pin_mode and keyval in (Gdk.KEY_h, Gdk.KEY_H):
             self.ctrl.toggle_heat()
             return True
         if self.ctrl.mode == Mode.PIN and keyval in _ARROWS:

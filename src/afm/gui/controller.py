@@ -76,6 +76,7 @@ class Mode(Enum):
     JOINT_AXIS = "eje_articulacion"      # un clic sobre la figura fija (y, z) del eje de la bisagra
     TRIM_PICK = "recorte_clic"      # un clic sobre la figura pone el centro de un recorte esfera / caja / cilindro
     HEAD_PIN = "pasador_cabeza"     # vista de costado: un clic (o flechas) pone el pasador del cuello adelante / atrás sobre la cara
+    WAIST_PIN = "pasador_cintura"   # vista de costado: un clic (o flechas) pone el pasador de la cintura adelante / atrás sobre la cara
     FLAT_PLANE = "plano_sin_soportes"   # figura generada sentada, vista Derecha: un clic (o flechas) fija la altura del corte plano
 
 EXPORT_ONLY_PARAMS = frozenset({"flat_depth"})   # parámetros que no cambian las piezas generadas
@@ -231,6 +232,9 @@ class Controller:
         self.edit_cross = False                     # el polígono en edición es el 2.º corte (frente) del miembro
         self.joint_limb: str | None = None          # miembro al que se le está definiendo la articulación (JOINT_PLANE)
         self.head_pin_prev = None                   # HeadPinPreview mientras se coloca el pasador del cuello (HEAD_PIN)
+        self.waist_pin_prev = None                  # LinePinPreview mientras se coloca el pasador de la cintura (WAIST_PIN)
+        self.joint_prev = None                      # LinePinPreview que lee la mira en HEAD_PIN / WAIST_PIN (con `pin_aid` = LinePinAid)
+        self.joint_focus: str | None = None         # «cuello» | «cintura»: cuyo plano muestra la cinta de color (sección abierta de la ventana)
         self.joint_name: str | None = None          # articulación cuyo eje se está colocando (JOINT_AXIS)
         self.joint_guides: dict[str, tuple] = {}    # articulación -> (línea del brazo 2×3, línea del antebrazo 2×3) dibujadas
         self.pin_limb: str | None = None            # miembro cuyo pasador se está colocando (modo PIN)
@@ -873,7 +877,7 @@ class Controller:
         self.draft, self.edit_limb, self.edit_cross = None, None, False
         self.pin_limb, self.pin_prev = None, None
         self.pin_aid, self.pin_aim = None, None
-        self.head_pin_prev = None
+        self.head_pin_prev, self.waist_pin_prev, self.joint_prev = None, None, None
         self.joint_limb, self.joint_name = None, None
         was_trim = self.trim_cfg is not None
         self.trim_cfg, self.edit_trim = None, None
@@ -882,7 +886,7 @@ class Controller:
         if not quiet:
             self._changed("Edición del recorte terminada." if was_trim
                           else "Edición de silueta terminada." if was == Mode.POLYGON
-                          else "Colocación del pasador terminada." if was in (Mode.PIN, Mode.HEAD_PIN)
+                          else "Colocación del pasador terminada." if was in (Mode.PIN, Mode.HEAD_PIN, Mode.WAIST_PIN)
                           else "Ajuste del plano de corte terminado." if was == Mode.FLAT_PLANE else "Cancelado.")
 
     def undo_point(self) -> None:
@@ -1352,13 +1356,34 @@ class Controller:
         c = self.pin_aid.evaluate(uv).contador()
         return f" Catálogo: {c}." if c else ""
 
+    def _joint_mode(self) -> str | None:
+        """«cuello» / «cintura» mientras se coloca su pasador de costado (HEAD_PIN / WAIST_PIN), si no None."""
+        return {Mode.HEAD_PIN: "cuello", Mode.WAIST_PIN: "cintura"}.get(self.mode)
+
+    def _joint_active(self) -> bool:
+        return self._joint_mode() is not None and self.joint_prev is not None and self.pin_aid is not None and not self.busy
+
     def _pin_aim_active(self) -> bool:
+        if self._joint_mode() is not None:
+            return self._joint_active()
         return self.mode == Mode.PIN and self.pin_prev is not None and self.pin_aid is not None and not self.busy
+
+    def _aim_plane(self):
+        """El plano de la cara que lee la mira: el del miembro (PIN) o el del cuello / la cintura (de costado)."""
+        return self.joint_prev.plane if self._joint_mode() else self.pin_prev.plane
+
+    def _aim_uv(self, px: float, py: float, width: float, height: float):
+        """(u, v) del punto de la cara bajo el puntero. De costado el pasador está en x = 0: el rayo se lleva a ese plano."""
+        origin, direction = self.camera.ray(px, py, width, height)
+        if self._joint_mode() is None:
+            return ray_plane_uv(self.pin_prev.plane, origin, direction)
+        if abs(direction[0]) < 1e-6:
+            return None
+        return self.joint_prev.plane.to_uv(origin - origin[0] / direction[0] * direction)[0]
 
     def _update_pin_aim(self, px: float, py: float, width: float, height: float) -> bool:
         """Lee la mira en el punto de la cara bajo el puntero (sin clic) y deja el fantasma y la barra de estado al día."""
-        origin, direction = self.camera.ray(px, py, width, height)
-        uv = ray_plane_uv(self.pin_prev.plane, origin, direction)
+        uv = self._aim_uv(px, py, width, height)
         if uv is None:
             return self._clear_pin_aim()
         r = self.pin_aid.evaluate(uv)
@@ -1384,6 +1409,10 @@ class Controller:
 
     def snap_pin(self) -> None:
         """El «imán»: mueve el pasador a la mejor posición (más piezas del catálogo que lo aceptan) dentro de ±2 mm."""
+        joint = self._joint_mode()
+        if joint is not None and self.joint_prev is not None:
+            self._snap_joint_pin(joint)
+            return
         if self.mode != Mode.PIN or self.pin_prev is None:
             return
         if self.pin_aid is None:
@@ -1446,6 +1475,8 @@ class Controller:
             return
         self.cancel(quiet=True)
         self.mode, self.head_pin_prev = Mode.HEAD_PIN, prev
+        self.pin_aid, self.joint_prev = self._joint_pin_aid("cuello")
+        self.pin_aim = None
         self.camera.look_along((1.0, 0.0, 0.0), self._head_pin_center(), 0.35 * self.session.project.params.ref_height)
         self._changed("Pasador del cuello (vista de costado): " + self._head_pin_status()
                       + " Clic = mover; flechas ←/↓ atrás y →/↑ adelante 0,1 mm (Mayús 1 mm); Esc termina.")
@@ -1469,7 +1500,7 @@ class Controller:
             return txt + f"; el vástago sobresale {-margin:.1f} mm del borde."
         if margin < self.session.project.params.min_wall:
             return txt + f"; margen al borde {margin:.1f} mm (< {self.session.project.params.min_wall:g})."
-        return txt + f"; margen al borde {margin:.1f} mm."
+        return txt + f"; margen al borde {margin:.1f} mm." + self._joint_note(self._head_pin_center())
 
     def _place_head_pin(self, point, what: str = "Pasador del cuello movido") -> bool:
         try:
@@ -1509,6 +1540,138 @@ class Controller:
                           + " Clic = mover; flechas ←/↓ atrás y →/↑ adelante; Esc termina. Hay que generar de nuevo.")
             return
         self._changed("Pasador del cuello restablecido: " + self._head_pin_status() + " Hay que generar de nuevo.")
+
+    # ------------------------------------------------- mira del pasador del cuello y de la cintura (de costado)
+    def _joint_pin_aid(self, lugar: str):
+        """`(LinePinAid, LinePinPreview)` que lee la mira del pasador de `lugar` sobre su plano actual, o `(None, None)` sin catálogo
+        (o si ahí no hay cara). Nunca levanta: la ayuda no debe romper la colocación del pasador."""
+        try:
+            aid = self.session.joint_aid(lugar)
+            r = aid.reading_at(0.0)
+            if r.prev is None:
+                return None, None
+            line = getattr(aid, "_line_pin", None)
+            if line is None or line.prev is not r.prev:
+                line = aid._pin_aid(r.prev)
+                aid._line_pin = line
+            return line, r.prev
+        except (ValueError, KeyError):
+            return None, None
+
+    def _joint_note(self, center) -> str:
+        """« Catálogo: torsos 3/4 · cabezas 1/1.» de la posición `center` (mundo) del pasador, o nada sin mira."""
+        if self.pin_aid is None or self.joint_prev is None or self._joint_mode() is None:
+            return ""
+        c = self.pin_aid.evaluate(self.joint_prev.project(center)).contador()
+        return f" Catálogo: {c}." if c else ""
+
+    def _snap_joint_pin(self, lugar: str) -> None:
+        if self.pin_aid is None:
+            self._changed("El imán necesita un catálogo abierto para saber qué posición acepta más piezas.", scene=False)
+            return
+        c = self._head_pin_center() if lugar == "cuello" else self._waist_pin_center()
+        best = self.pin_aid.best_near(self.joint_prev.project(c))
+        if best is None:
+            self._changed("El imán no encontró ningún punto sobre la cara a menos de 2 mm del pasador.", scene=False)
+            return
+        world = self.joint_prev.plane.to_world(np.asarray(best.uv, float)[None])[0]
+        if lugar == "cuello":
+            self._place_head_pin(world, "Imán")
+        else:
+            self._place_waist_pin(world, "Imán")
+
+    def start_waist_pin(self) -> None:
+        """Elegir dónde va el pasador de la cintura mirando la figura de costado (como el del cuello): siempre en x = 0."""
+        if not self._need_loaded():
+            return
+        if self.session.project.waist is None:
+            self._changed("Primero definí el plano de la cintura (Planos → Cintura).", scene=False)
+            return
+        try:
+            prev = self.session.waist_pin_preview()
+        except ValueError as e:
+            self._changed(f"No se puede colocar el pasador de la cintura: {e}.", scene=False)
+            return
+        self.cancel(quiet=True)
+        self.mode, self.waist_pin_prev = Mode.WAIST_PIN, prev
+        self.pin_aid, self.joint_prev = self._joint_pin_aid("cintura")
+        self.pin_aim = None
+        self.camera.look_along((1.0, 0.0, 0.0), self._waist_pin_center(), 0.35 * self.session.project.params.ref_height)
+        self._changed("Pasador de la cintura (vista de costado): " + self._waist_pin_status()
+                      + " Clic = mover; flechas ←/↓ atrás y →/↑ adelante 0,1 mm (Mayús 1 mm); M imán; Esc termina.")
+
+    def _waist_pin_center(self) -> np.ndarray:
+        spec, prev = self.session.project.waist, self.waist_pin_prev
+        return prev.default_center if spec.pin_center is None else np.asarray(spec.pin_center, float)
+
+    def _waist_pin_status(self) -> str:
+        spec, prev = self.session.project.waist, self.waist_pin_prev
+        c, shaft = self._waist_pin_center(), self.session.project.params.waist_pin.shaft_d
+        inside, margin = prev.fit(prev.project(c), shaft)
+        off = float((c - prev.default_center) @ prev.along)
+        txt = "posición automática" if spec.pin_center is None else (
+            f"posición elegida ({abs(off):.1f} mm {'adelante' if off > 0 else 'atrás'} de la automática)"
+            if abs(off) >= 0.05 else "posición elegida (igual a la automática)")
+        if not inside:
+            return txt + f"; centro fuera de la cara (vástago Ø{shaft:g} apoya {max(margin + shaft / 2, 0):.1f} mm)."
+        if margin < 0:
+            txt += f"; el vástago sobresale {-margin:.1f} mm del borde."
+        elif margin < self.session.project.params.min_wall:
+            txt += f"; margen al borde {margin:.1f} mm (< {self.session.project.params.min_wall:g})."
+        else:
+            txt += f"; margen al borde {margin:.1f} mm."
+        return txt + self._joint_note(c)
+
+    def _place_waist_pin(self, point, what: str = "Pasador de la cintura movido") -> bool:
+        try:
+            self.session.set_waist_pin(point)
+        except ValueError as e:
+            self._changed(f"No se movió: {e}.", scene=False)
+            return False
+        self._changed(f"{what}: " + self._waist_pin_status() + " Hay que generar de nuevo.")
+        return True
+
+    def _click_waist_pin(self, px: float, py: float, width: float, height: float) -> None:
+        origin, direction = self.camera.ray(px, py, width, height)
+        if abs(direction[0]) < 1e-6:
+            self._changed("Esta vista mira de canto el plano de simetría: usá «Derecha» o «Izquierda» (vista de costado).",
+                          scene=False)
+            return
+        self._place_waist_pin(origin - origin[0] / direction[0] * direction)
+
+    def nudge_waist_pin(self, du: float, dv: float, big: bool = False) -> None:
+        if self.mode != Mode.WAIST_PIN or self.waist_pin_prev is None:
+            return
+        step = NUDGE_MM * (10.0 if big else 1.0)
+        self._place_waist_pin(self._waist_pin_center() + self.waist_pin_prev.along * (du + dv) * step,
+                              "Pasador de la cintura ajustado")
+
+    def reset_waist_pin(self) -> None:
+        """Descarta la posición elegida del pasador de la cintura (el puerto «cintura» vuelve al centroide de la cara)."""
+        if self.session.project.waist is None or self.session.project.waist.pin_center is None:
+            self._changed("El pasador de la cintura ya está en la posición automática.", scene=False)
+            return
+        self.session.set_waist_pin(None)
+        if self.mode != Mode.WAIST_PIN:
+            self.start_waist_pin()
+            return
+        self._changed("Pasador de la cintura restablecido: " + self._waist_pin_status() + " Hay que generar de nuevo.")
+
+    def aim_box(self) -> dict | None:
+        """Datos del recuadro de la mira (`pin_aid_view.aim_box_data`) del pasador que se coloca (miembro, cuello o cintura)."""
+        from ..pin_aid_view import aim_box_data
+
+        if not self._pin_aim_active():
+            return None
+        try:
+            if self._joint_mode():
+                c = self._head_pin_center() if self.mode == Mode.HEAD_PIN else self._waist_pin_center()
+                uv = self.joint_prev.project(c)
+            else:
+                uv = self.pin_prev.project(self._pin_center(self.pin_limb))
+            return aim_box_data(self.pin_aid, self.pin_aim or self.pin_aid.evaluate(uv))
+        except Exception:  # noqa: BLE001 — el recuadro nunca debe romper la edición
+            return None
 
     def face_view(self) -> None:
         """Vuelve a mirar de frente la cara de contacto (por si se orbitó la cámara)."""
@@ -2061,6 +2224,9 @@ class Controller:
             return None
         if self.mode == Mode.HEAD_PIN and self.head_pin_prev is not None:
             self._click_head_pin(px, py, width, height)
+            return None
+        if self.mode == Mode.WAIST_PIN and self.waist_pin_prev is not None:
+            self._click_waist_pin(px, py, width, height)
             return None
         if self.mode == Mode.FLAT_PLANE:
             self._click_flat_plane(px, py, width, height)
@@ -3830,7 +3996,10 @@ class Controller:
         self._sync_polygons(scene)
         self._sync_pins(scene)
         self._sync_head_pin(scene)
+        self._sync_waist_pin(scene)
+        self._sync_joint_aim(scene)
         self._sync_cut_aim(scene)
+        self._sync_joint_strip(scene)
         self._sync_joints(scene)
         self._sync_trims(scene)
         self._sync_mirror(scene, drawn, pin_plane)
@@ -4252,6 +4421,193 @@ class Controller:
             scene.set_points(keys[3], prev.default_center[None], (0.6, 0.9, 0.6, 1.0), 7.0, on_top=True)
         else:
             scene.remove(keys[3])
+
+    def _sync_waist_pin(self, scene) -> None:
+        """Pasador de la cintura: un punto si se eligió a mano y, en WAIST_PIN, la cara de canto, el contorno de costado del
+        pasador, el centro y el punto automático (como el del cuello)."""
+        waist = self.session.project.waist
+        keys = ("pasador_cintura:cara", "pasador_cintura:perfil", "pasador_cintura:centro", "pasador_cintura:auto",
+                "pasador_cintura:elegido")
+        prev = self.waist_pin_prev if self.mode == Mode.WAIST_PIN else None
+        if waist is None or prev is None:
+            for k in keys[:4]:
+                scene.remove(k)
+            if waist is not None and waist.pin_center is not None:
+                scene.set_points(keys[4], np.asarray(waist.pin_center, float)[None], (1.0, 0.55, 0.1, 1.0), 10.0)
+                scene.show(keys[4], self.group_visible("pins"))
+            else:
+                scene.remove(keys[4])
+            return
+        scene.remove(keys[4])
+        c = self._waist_pin_center()
+        scene.set_lines(keys[0], prev.trace(), (1.0, 1.0, 1.0, 1.0), closed=False, on_top=True)
+        scene.set_lines(keys[1], prev.profile(c, self.session.project.params.waist_pin), (1.0, 0.55, 0.1, 1.0),
+                        closed=True, on_top=True)
+        scene.set_points(keys[2], c[None], (1.0, 0.25, 0.25, 1.0), 9.0, on_top=True)
+        if waist.pin_center is not None:
+            scene.set_points(keys[3], prev.default_center[None], (0.6, 0.9, 0.6, 1.0), 7.0, on_top=True)
+        else:
+            scene.remove(keys[3])
+
+    JOINT_AIM_KEYS = tuple(f"pasador_union:calor_{n}" for n in ("ok", "aviso", "no")) + ("pasador_union:mira",)
+
+    def _sync_joint_aim(self, scene) -> None:
+        """La mira del pasador del cuello / la cintura: el mapa de calor sobre la recta de la cara (verde / amarillo / rojo, barrida
+        UNA vez) y el fantasma de costado del pasador bajo el puntero con el color de su nivel."""
+        if not self._joint_active():
+            for k in self.JOINT_AIM_KEYS:
+                scene.remove(k)
+            return
+        groups = {}
+        if self.heat_visible:
+            try:
+                groups = self.pin_aid.heat_points()
+            except Exception:                           # la ayuda nunca debe romper la colocación
+                groups = {}
+        for nivel in self.HEAT_KEYS:
+            key = f"pasador_union:calor_{nivel}"
+            pts = groups.get(nivel)
+            if pts is None or len(pts) == 0:
+                scene.remove(key)
+                continue
+            r, g, b, _a = _pin_aid_colors()[nivel]
+            scene.set_points(key, pts, (r, g, b, 0.55), 5.0, on_top=True)
+        aim = self.pin_aim
+        if aim is None:
+            scene.remove("pasador_union:mira")
+            return
+        pin = self.session.project.params.neck_pin if self.mode == Mode.HEAD_PIN else self.session.project.params.waist_pin
+        scene.set_lines("pasador_union:mira", self.joint_prev.profile(self.pin_aid.center_world(aim.uv), pin), aim.color,
+                        closed=True, on_top=True)
+
+    # ------------------------------------------------ mira del plano del cuello / la cintura (cinta de calor y fantasma de la sección)
+    JOINT_STRIP_KEYS = tuple(f"plano_union:cinta_{k}" for k in CUT_KEYS) + ("plano_union:mejor",) + tuple(
+        f"plano_union:mira_{i}" for i in range(6))
+
+    def set_joint_focus(self, lugar: str | None) -> None:
+        """Qué plano muestra su cinta de color («cuello», «cintura» o None): lo fija la ventana según la sección abierta."""
+        if lugar != self.joint_focus:
+            self.joint_focus = lugar
+            self.scene_dirty = True
+
+    def joint_aim(self) -> dict | None:
+        """Lo que muestra la mira del plano del cuello / de la cintura en foco: `{lugar, reading, strip, best, improves}`, o
+        `{lugar, note}` con el motivo si no se puede medir. None sin foco o en un modo de colocación. Nunca levanta."""
+        lugar = self.joint_focus
+        if (lugar is None or not self.session.loaded or self.busy or self.mode in (Mode.PIN, Mode.HEAD_PIN, Mode.WAIST_PIN)):
+            return None
+        try:
+            aid = self.session.joint_aid(lugar)
+        except ValueError as e:
+            return {"lugar": lugar, "note": str(e)}
+        try:
+            last = getattr(self, "_joint_aim_cache", None)
+            if last is not None and last[0] == id(aid):
+                return last[1]
+            cur = aid.reading_at(0.0)
+            strip = aid.strip(0.0)
+            best, improves = aid.best(0.0)
+            out = {"lugar": lugar, "reading": cur, "strip": strip, "best": best, "improves": improves, "aid": aid}
+            self._joint_aim_cache = (id(aid), out)
+            return out
+        except Exception as e:  # noqa: BLE001 — la ayuda nunca debe romper la edición
+            return {"lugar": lugar, "note": f"no se pudo medir ({e})"}
+
+    def joint_aim_text(self) -> str:
+        """Una línea para la sección del cuello / la cintura: el nivel de hoy y la mejor posición de la cinta."""
+        if not self.cut_aim_visible:
+            return ""
+        aim = self.joint_aim()
+        if aim is None:
+            return ""
+        if "note" in aim:
+            return aim["note"]
+        cur, best = aim["reading"], aim["best"]
+        txt = cur.texto()
+        if best is not None and aim["improves"]:
+            txt += f" · mejor: {best.offset_mm:+.1f} mm ({best.contador()})".replace(".", ",")
+        elif best is not None:
+            txt += " · ya está en la mejor posición de la cinta"
+        return txt
+
+    def joint_aim_box(self) -> dict | None:
+        aim = self.joint_aim() if self.cut_aim_visible else None
+        if aim is None or "note" in aim:
+            return None
+        try:
+            return aim["aid"].box_data(0.0)
+        except Exception:  # noqa: BLE001
+            return None
+
+    def shift_joint_plane(self, lugar: str, delta: float) -> bool:
+        """Desliza el plano del cuello / la cintura `delta` mm sobre su normal (se descarta el pasador elegido: era de la cara anterior)."""
+        if self.busy:
+            return False
+        had_pin = self._joint_pin_chosen(lugar)
+        try:
+            self.session.shift_plane(lugar, delta)
+        except ValueError as e:
+            self._changed(f"No se movió el plano: {e}.", scene=False)
+            return False
+        if self.mode in (Mode.HEAD_PIN, Mode.WAIST_PIN):
+            self.cancel(quiet=True)
+        self._changed(f"Plano {'del cuello' if lugar == 'cuello' else 'de la cintura'} corrido {delta:+.2f} mm".replace(".", ",")
+                      + (" (se descartó el pasador elegido)." if had_pin else ".") + " Hay que generar de nuevo.")
+        return True
+
+    def _joint_pin_chosen(self, lugar: str) -> bool:
+        spec = self.session.project.head if lugar == "cuello" else self.session.project.waist
+        return spec is not None and spec.pin_center is not None
+
+    def snap_joint(self, quiet: bool = False) -> bool:
+        """El «imán» del plano en foco: lo desliza a la mejor posición de la cinta (±4 mm). Devuelve si lo movió."""
+        aim = self.joint_aim() if self.cut_aim_visible else None
+        if aim is None or "note" in aim:
+            if not quiet:
+                self._changed("El imán del plano necesita la mira (un plano de cuello o cintura, un catálogo abierto y la casilla encendida).",
+                              scene=False)
+            return False
+        best = aim["best"]
+        if best is None or not aim["improves"]:
+            if not quiet:
+                self._changed("El plano ya está en la mejor posición de la cinta (±4 mm).", scene=False)
+            return False
+        return self.shift_joint_plane(aim["lugar"], float(best.offset_mm) - float(aim["reading"].offset_mm))
+
+    def _sync_joint_strip(self, scene) -> None:
+        """La sección del plano en foco con el color de su nivel y la cinta: un punto por paso a lo largo de la normal del plano
+        (blanco = la mejor posición)."""
+        aim = self.joint_aim() if self.cut_aim_visible else None
+        if aim is None or "note" in aim:
+            for k in self.JOINT_STRIP_KEYS:
+                scene.remove(k)
+            return
+        cur = aim["reading"]
+        rings = cur.rings_world()
+        for i in range(6):
+            if i < len(rings):
+                scene.set_lines(f"plano_union:mira_{i}", rings[i], cur.color, closed=True, on_top=True)
+            else:
+                scene.remove(f"plano_union:mira_{i}")
+        normal = np.asarray(aim["aid"].base.normal, float)
+        base = next((r.prev.face.center for r in [cur] + list(aim["strip"]) if r.prev is not None), None)
+        groups: dict[str, list] = {k: [] for k in self.CUT_KEYS}
+        if base is not None:
+            for r in aim["strip"]:
+                groups.setdefault(r.nivel, []).append(np.asarray(base, float) + normal * (r.offset_mm - cur.offset_mm))
+        for nivel in self.CUT_KEYS:
+            key = f"plano_union:cinta_{nivel}"
+            if not groups.get(nivel):
+                scene.remove(key)
+                continue
+            r_, g_, b_, _a = _pin_aid_colors()[nivel]
+            scene.set_points(key, np.array(groups[nivel]), (r_, g_, b_, 0.85), 8.0, on_top=True)
+        best = aim["best"]
+        if base is not None and best is not None:
+            scene.set_points("plano_union:mejor", (np.asarray(base, float) + normal * (best.offset_mm - cur.offset_mm))[None],
+                             (1.0, 1.0, 1.0, 1.0), 12.0, on_top=True)
+        else:
+            scene.remove("plano_union:mejor")
 
     @staticmethod
     def _face_mesh(prev):

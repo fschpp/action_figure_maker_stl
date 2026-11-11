@@ -114,6 +114,33 @@ def twist_range(spec: WaistSpec | None, p: Params) -> float:
     return float(spec.twist_deg if spec is not None and spec.twist_deg is not None else p.waist_twist)
 
 
+def pin_point_on_plane(pin_center, plane_point, normal) -> np.ndarray:
+    """El centro de pasador `pin_center` (mundo) llevado al plano que pasa por `plane_point` con `normal` y a x = 0 (el pasador de la
+    cintura va siempre sobre el plano de simetría)."""
+    n = np.asarray(normal, float)
+    n = n / np.linalg.norm(n)
+    c = np.asarray(pin_center, float).copy()
+    c = c - ((c - np.asarray(plane_point, float)) @ n) * n
+    c[0] = 0.0
+    return c
+
+
+def waist_pin_center(face: ContactFace, spec: WaistSpec) -> np.ndarray:
+    """Dónde pone `build_waist` el pasador sobre `face` (la cara del huésped, con `outward` y `center` = centroide): el elegido
+    (`spec.pin_center`, llevado a la cara), el propuesto (círculo inscrito mayor) con `auto`, o el centroide."""
+    if spec.pin_center is not None:
+        return pin_point_on_plane(spec.pin_center, face.center, face.outward)
+    return propose_pin_center(face) if spec.auto else np.asarray(face.center, float).copy()
+
+
+def waist_port_center(face: ContactFace, spec: WaistSpec) -> np.ndarray:
+    """Centro del puerto `cintura` que se cataloga: el del pasador SI se eligió uno (`spec.pin_center`), como en el cuello y los
+    miembros; si no, el centroide de la cara, como siempre, para no mover los puertos de las piezas ya catalogadas."""
+    if spec.pin_center is not None:
+        return waist_pin_center(face, spec)
+    return np.asarray(face.center, float).copy()
+
+
 def _face_on(mf: S.Manifold, plane: Plane, outward: np.ndarray) -> ContactFace:
     """Cara de `mf` que yace sobre `plane` (centro = centroide con x = 0, `outward` = normal que sale de `mf`)."""
     tri = _plane_faces(mf, plane)
@@ -175,14 +202,7 @@ def build_waist(torso: S.Manifold, spec: WaistSpec, p: Params, skin: S.Manifold 
     host, host_plane = (lower, plane) if on_lower else (upper, up)
     d = n if on_lower else -n                                           # dirección del pasador: hacia el huésped opuesto
     face = _face_on(host, host_plane, d)          # como en limbs: outward = hacia donde sale el pasador
-    if spec.pin_center is not None:
-        c = np.asarray(spec.pin_center, float)
-        c = c - ((c - host_plane.origin) @ n) * n                       # sobre la cara
-        c[0] = 0.0
-    elif spec.auto:
-        c = propose_pin_center(face)
-    else:
-        c = face.center
+    c = waist_pin_center(face, spec)                                    # el elegido (sobre la cara), el propuesto o el centroide
     face = dataclasses.replace(face, center=c)
     pin_spec = waist_pin_spec(spec, p)
     k = 1.0

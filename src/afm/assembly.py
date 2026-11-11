@@ -176,12 +176,12 @@ def swap_pelvis(body: S.Manifold, limbs: list, waist, choice: PartChoice, params
 
     La pelvis vieja es lo que queda del cuerpo bajo el plano de la cintura una vez sacados los prismas de corte de los
     miembros (brazos que cuelgan y piernas se conservan: `build` los corta después como siempre). La nueva se acopla,
-    rígida y sin escala, a la toma que deja el torso de arriba en ese plano (centro = centroide de su cara de corte).
+    rígida y sin escala, a la toma que deja el torso de arriba en ese plano (centro = el del pasador si se eligió uno; si no, el centroide de su cara de corte).
     Devuelve el cuerpo nuevo y la pieza colocada (`PlacedPart`, `kind="pelvis"`) con la compatibilidad de la cara."""
     from .extract import reference_for as ref_for
     from .limbs import limb_prism
     from .planes import Plane
-    from .waist import _face_on, waist_plane
+    from .waist import _face_on, waist_plane, waist_port_center
 
     if waist is None:
         raise AssemblyError("el modelo no tiene plano de cintura: sin él no se sabe dónde cortar la pelvis (Planos → Cintura)")
@@ -200,7 +200,7 @@ def swap_pelvis(body: S.Manifold, limbs: list, waist, choice: PartChoice, params
         face = _face_on(upper, plane, -n)
     except ValueError as exc:
         raise AssemblyError(str(exc)) from exc
-    frame = PortFrame(np.asarray(face.center, float).copy(), -n, ref_for(-n, (0.0, 1.0, 0.0)))
+    frame = PortFrame(waist_port_center(face, waist), -n, ref_for(-n, (0.0, 1.0, 0.0)))   # el pasador elegido o, si no, el centroide
     T = coupling_transform(port.frame, frame)
     mesh = choice.mesh.copy()
     mesh.apply_transform(T)

@@ -52,7 +52,9 @@ LEVEL_COLORS = {            # RGBA del fantasma en el visor y del recuadro
     "fuera": (0.90, 0.20, 0.20, 1.0),
     "sin_catalogo": (0.65, 0.65, 0.70, 1.0),
 }
-PARTNERS = {"hombro": ("torsos", "brazos"), "cadera": ("torsos", "piernas")}   # (quién recibe la pieza, quién recibiría el torso)
+PARTNERS = {"hombro": ("torsos", "brazos"), "cadera": ("torsos", "piernas"),     # (quién recibe la pieza, quién recibiría el torso)
+            "cuello": ("torsos", "cabezas"), "cintura": ("torsos", "pelvis")}
+JOINTS = ("cuello", "cintura")                     # uniones que no son un miembro: ver `neck_waist_aid.LinePinAid`
 
 
 @dataclass
@@ -60,7 +62,7 @@ class AimReading:
     """Lo que se lee en un punto de la cara: margen del pasador y cobertura de las dos direcciones."""
 
     uv: tuple                       # (u, v) sobre el plano de la cara (el de `PinPreview.plane`)
-    clase: str                      # «hombro» | «cadera»
+    clase: str                      # «hombro» | «cadera» | «cuello» | «cintura»
     dentro: bool                    # el centro cae dentro de la cara
     margen_mm: float                # entre el vástago y el borde de la cara (negativo: sobresale)
     shaft_d: float
@@ -142,12 +144,12 @@ class PinAid:
 
     def __init__(self, prev, kind: str, cat: Catalog, params: Params | None = None, height_mm: float | None = None,
                  exclude_figure: str | None = None, calib: dict | None = None):
-        if kind not in KIND_PORT:
+        if kind not in KIND_PORT and kind not in JOINTS:
             raise ValueError(f"clase de miembro «{kind}» sin puerto de catálogo")
         self.prev = prev
         self.cat = cat
         self.params = params or cat.params
-        self.clase = KIND_PORT[kind]
+        self.clase = KIND_PORT.get(kind, kind)
         self.pin = getattr(self.params, PIN_OF_CLASS[self.clase])
         self.height_mm = height_mm
         self.exclude_figure = exclude_figure or None

@@ -470,6 +470,96 @@ class Session:
         self._cut_aid_cache = ((name, key), aid)
         return aid
 
+    # ------------------------------------------------------- mira del cuello y de la cintura
+    def _joint_aid_blocked(self, lugar: str) -> str | None:
+        """Por qué NO hay mira del plano del cuello («cuello») o de la cintura («cintura») (None = hay)."""
+        if self.work is None:
+            return "Abrí un STL"
+        if not self.catalog_root:
+            return "Abrí un catálogo para medir el plano contra sus piezas"
+        if lugar == "cuello" and self.project.head is None:
+            return "Primero definí el plano del cuello"
+        if lugar == "cintura" and self.project.waist is None:
+            return "Primero definí el plano de la cintura"
+        return None
+
+    def joint_aid(self, lugar: str):
+        """`neck_waist_aid.AxisCutAid` del plano del cuello o de la cintura (en caché mientras no cambien la malla, el plano, los
+        parámetros ni el catálogo; el desplazamiento y el pasador elegido NO son parte de la clave). ValueError si no se puede."""
+        from ..neck_waist_aid import neck_cut_aid, waist_cut_aid, waist_torso
+
+        why = self._joint_aid_blocked(lugar)
+        if why:
+            raise ValueError(why)
+        params = self.project.params
+        stl = os.path.basename(self.stl_path or "") or None
+        spec = self.project.head if lugar == "cuello" else self.project.waist
+        key = (lugar, id(self.work), spec.plane.origin.tobytes(), spec.plane.normal.tobytes(), spec.auto, params.ref_height,
+               self.catalog_root, self._catalog_stamp(), stl,
+               self._head_fit_key(spec) if lugar == "cuello" else None)
+        cache = getattr(self, "_joint_aid_cache", None) or {}
+        hit = cache.get(lugar)
+        if hit is not None and hit[0] == key:
+            return hit[1]
+        body = S.to_manifold(self.work)
+        cat = self._catalog()
+        if lugar == "cuello":
+            aid = neck_cut_aid(body, spec, cat, params, height_mm=params.ref_height, exclude_figure=stl)
+        else:
+            aid = waist_cut_aid(waist_torso(body, self.project), spec, cat, params, height_mm=params.ref_height,
+                                exclude_figure=stl)
+        cache[lugar] = (key, aid)
+        self._joint_aid_cache = cache
+        return aid
+
+    def shift_plane(self, lugar: str, shift: float) -> None:
+        """Desliza el plano del cuello o de la cintura `shift` mm sobre su normal respecto del que tiene (como el desplazamiento del
+        corte de un miembro, descarta el pasador elegido: era de la cara anterior)."""
+        spec = self.project.head if lugar == "cuello" else self.project.waist
+        if spec is None:
+            raise ValueError(f"Primero definí el plano {'del cuello' if lugar == 'cuello' else 'de la cintura'}")
+        pl = neck_plane(spec) if lugar == "cuello" else waist_plane(spec)
+        plane = Plane.from_normal(pl.origin + pl.normal * float(shift), pl.normal, pl.name)
+        if lugar == "cuello":
+            self._apply_head_spec(dataclasses.replace(self.project.head, plane=plane, pin_center=None))
+        else:
+            self.project.waist = dataclasses.replace(self.project.waist, plane=plane, pin_center=None)
+            waist_plane(self.project.waist)
+            self.outcome = None
+
+    def waist_pin_preview(self):
+        """Cara de la cintura (entera) y centro por omisión del pasador (`neck_waist_aid.LinePinPreview`), en caché."""
+        from ..neck_waist_aid import waist_preview, waist_torso
+
+        spec = self.project.waist
+        if spec is None or self.work is None:
+            raise ValueError("Primero definí el plano de la cintura")
+        key = (id(self.work), spec.plane.origin.tobytes(), spec.plane.normal.tobytes(), spec.auto)
+        cache = getattr(self, "_waist_pin_cache", None)
+        if cache is not None and cache[0] == key:
+            return cache[1]
+        prev = waist_preview(waist_torso(S.to_manifold(self.work), self.project), spec)
+        self._waist_pin_cache = (key, prev)
+        return prev
+
+    def set_waist_pin(self, point_world) -> None:
+        """Fija el centro del pasador de la cintura en `point_world` (sobre su plano, x = 0). ValueError si el vástago no toca la
+        cara; `None` vuelve al automático. Con pasador elegido el puerto «cintura» que se cataloga va en él (`waist_port_center`)."""
+        spec = self.project.waist
+        if spec is None:
+            raise ValueError("Primero definí el plano de la cintura")
+        if point_world is None:
+            center = None
+        else:
+            prev = self.waist_pin_preview()
+            c = prev.on_line(point_world)                       # en el mundo: sobre el plano de la cintura y con x = 0
+            shaft = self.project.params.waist_pin.shaft_d
+            if prev.fit(prev.project(c), shaft)[1] <= -shaft:
+                raise ValueError("el vástago no toca la cara de la cintura: el pasador quedaría suelto")
+            center = tuple(float(x) for x in c)
+        self.project.waist = dataclasses.replace(spec, pin_center=center)
+        self.outcome = None
+
     def cut_seated_blocked(self, name: str) -> str | None:
         """Por qué NO se puede medir el choque en pose sentada del corte de `name` (None = se puede). Es barato: no mide nada;
         lo usa la ventana para apagar el botón con el motivo y `cut_seated` para negarse."""

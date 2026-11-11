@@ -37,7 +37,7 @@ from .pipeline import _sweep_range, align_to_symmetry
 from .planes import Plane
 from .ports import Port, PortError, PortFace, PortFrame, centroid_of_face_triangles, face_from_mesh, snap_frame_to_face
 from .project import Project
-from .waist import waist_plane
+from .waist import pin_point_on_plane, waist_plane
 
 KIND_PORT = {"arm": "hombro", "leg": "cadera"}
 PLACES = ("cabeza", "torso", "brazo", "pierna", "mano")
@@ -448,6 +448,8 @@ def _torso_pieces(res: ExtractResult, torso: S.Manifold, project: Project, prefi
         raise ExtractError("«cintura»: el plano de la cintura no deja una cara plana en el torso de arriba", "cintura")
     c = np.asarray(c, float)
     c[0] = 0.0
+    if project.waist.pin_center is not None:         # pasador elegido: el puerto va en él (como en el cuello y los miembros)
+        c = pin_point_on_plane(project.waist.pin_center, c, n)
     up_frame = pre.with_center(c)
     lo_frame = PortFrame(c.copy(), n.copy(), up_frame.ref.copy())
     up_ports = _with_capacity({**common, **{k: v for k, v in sides.items() if k.startswith("hombro")},
