@@ -22,7 +22,7 @@ from . import settings as GUI_SETTINGS
 from ..head import HEAD_NAME, MIN_BASE_IOU, REPLACEMENT_UPS, neck_plane
 from ..pipeline import body_base_z, body_ref
 from ..waist import PELVIS_NAME, WAIST_NAME
-from ..limbs import silhouette_on_plane
+from ..limbs import cut_plane, silhouette_on_plane
 from ..orient import OrientResult, overhang_mask, pose_orientation
 from ..planes import Plane
 from ..trims import Trim
@@ -115,6 +115,7 @@ _PART_PREVIEW_COLORS = {"ok": (0.30, 0.78, 0.45, 1.0), "aviso": (0.95, 0.75, 0.2
                         "no": (0.90, 0.30, 0.30, 1.0)}   # pieza de catálogo todavía sin generar, por nivel de acople
 _PLANE_STATUS_COLORS = {"no": (0.95, 0.12, 0.12, 0.45), "aviso": (1.0, 0.85, 0.1, 0.38),
                         "ok": (0.2, 0.9, 0.35, 0.30)}       # plano que falló / girado respecto de la pieza elegida / coincide
+_CUT_PLANE_COLOR = (1.0, 1.0, 1.0, 0.16)               # plano donde SE CORTA el miembro (el de la silueta, corrido «Corte a» mm): blanco, para no confundirlo
 _REPLACEMENT_HEAD_COLOR = (0.95, 0.62, 0.25, 1.0)      # cabeza de reemplazo en la vista 3D (naranja)
 _EXTRACTED_HAND_COLOR = (0.25, 0.85, 0.55, 1.0)         # mano extraída (aún sin guardar) en la vista 3D (verde)
 _REPLACEMENT_HAND_COLOR = (0.25, 0.75, 0.85, 1.0)       # mano estándar pegada en el modelo (turquesa: no se confunde con la extraída)
@@ -3365,7 +3366,8 @@ class Controller:
         if self.mode == Mode.PIN and self.pin_limb == name:
             self.start_pin(name)             # la cara de contacto se movió: recalcular y volver a mirarla
             return
-        self._changed(f"Corte de «{name}» a {mm:g} mm del plano de simetría. Revisá el pasador.")
+        self._changed(f"Corte de «{name}» a {mm:g} mm del plano de simetría (plano blanco en el visor; el de color es donde se dibuja la silueta). "
+                      "Revisá el pasador.")
 
     def unique_name(self, kind: str) -> str:
         base = _KIND_BASE[kind]
@@ -3446,6 +3448,22 @@ class Controller:
                 else:
                     out[e.id] = ("ok", "coincide con el corte de la pieza elegida")
         return out
+
+    def cut_plane_to_draw(self, e: "PlaneEntry") -> Plane | None:
+        """Plano de corte desplazado de un miembro sobre el plano de simetría (silueta en x ≈ 0, corte a «Corte a» mm), o None si
+        no hay nada que mostrar: no es un brazo / pierna, su plano no está sobre la simetría, la extrusión no usa el
+        desplazamiento o el corte coincide con el plano de la silueta. Solo se dibuja: el plano de la silueta (donde se hacen los
+        clics) no se mueve."""
+        if e.kind not in ("arm", "leg"):
+            return None
+        try:
+            off = self.session.limb_offset(e.id)
+            spec = self.session.limb(e.id)
+            if off is None or spec is None or abs(off) < 0.05:
+                return None
+            return cut_plane(spec, off)
+        except (ValueError, KeyError):
+            return None
 
     def plane_entries(self) -> list[PlaneEntry]:
         out = []
@@ -3780,6 +3798,12 @@ class Controller:
             color = _PLANE_STATUS_COLORS.get((status.get(e.id) or ("",))[0], palette[e.kind])
             scene.set_plane(key, e.plane, hs, center=sess.work.bounds.mean(axis=0), color=color)
             scene.show(key, e.visible and self.group_visible("planes"))
+            cut = self.cut_plane_to_draw(e)                     # feedback de «Corte a»: dónde corta de verdad, aparte del plano de la silueta
+            if cut is not None:
+                ckey = f"plano:{e.id}:corte"
+                wanted.add(ckey)
+                scene.set_plane(ckey, cut, hs, center=sess.work.bounds.mean(axis=0), color=_CUT_PLANE_COLOR)
+                scene.show(ckey, e.visible and self.group_visible("planes"))
         for key in [k for k in scene.items if k.startswith("plano:") and not k.endswith(":borde")]:
             if key not in wanted:
                 scene.remove(key)

@@ -241,15 +241,25 @@ def _leg_cross_spans_body(spec: LimbSpec) -> bool:
             and not plane_is_lateral(c.plane, spec.contact_axis))
 
 
+def cut_plane(spec: LimbSpec, offset: float | None = None) -> Plane | None:
+    """Plano donde SE CORTA el miembro: el de su silueta corrido `offset` mm (por defecto el efectivo, ver
+    `effective_cut_offset`) hacia +X a lo largo de su normal. Es el plano desde el cual `_main_prism` extruye «hacia afuera».
+    None si la extrusión no usa el desplazamiento («symmetric», o pierna con 2.º corte de frente que atraviesa el cuerpo)."""
+    if spec.extrude != "outward" or _leg_cross_spans_body(spec):
+        return None
+    n = np.asarray(spec.plane.normal, float)
+    if n[0] < -1e-6:
+        n = -n
+    n = n / np.linalg.norm(n)
+    off = effective_cut_offset(spec) if offset is None else float(offset)
+    return Plane.from_normal(np.asarray(spec.plane.origin, float) + n * off, n, spec.plane.name)
+
+
 def _main_prism(spec: LimbSpec) -> S.Manifold:
     """Prisma de la silueta principal. En modo «outward» se orienta la normal hacia +X (lado de trabajo), así el
     sentido en que se eligieron los 3 puntos no importa; para un plano sin componente X se usa su normal."""
-    if spec.extrude == "outward" and not _leg_cross_spans_body(spec):
-        n = np.asarray(spec.plane.normal, float)
-        if n[0] < -1e-6:
-            n = -n
-        n = n / np.linalg.norm(n)
-        plane = Plane.from_normal(np.asarray(spec.plane.origin, float) + n * effective_cut_offset(spec), n, spec.plane.name)
+    plane = cut_plane(spec)
+    if plane is not None:
         return S.prism_from_polygon(plane, spec.polygon, spec.thickness, symmetric=False)
     if spec.extrude not in ("symmetric", "outward"):
         raise ValueError(f"extrude debe ser 'symmetric' o 'outward', no {spec.extrude!r}")
