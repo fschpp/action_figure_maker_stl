@@ -24,10 +24,10 @@ COMMANDS: dict[str, tuple[str, bool, bool]] = {
     "usos": (GUI, False, False),               # «Se usa en» de la ficha
     "eliminar": (GUI, False, True),            # va a la papelera
     "restaurar": (GUI, False, True),           # «Recuperar lo eliminado» (el último grupo; `--lote ID` queda en consola)
-    "importar-mano": (CONSOLE, False, True),    # fase 4: pide archivo
-    "importar-arma": (CONSOLE, False, True),    # fase 4: pide 3 puntos sobre el STL
-    "importar-accesorio": (CONSOLE, False, True),
-    "agregar-stl": (CONSOLE, False, True),
+    "importar-mano": (GUI, False, True),       # «Importar ▾ → Mano estándar…» (archivo + id)
+    "importar-arma": (GUI, False, True),       # «Importar ▾ → Arma…» (archivo + largo + 3 puntos sobre el STL)
+    "importar-accesorio": (GUI, False, True),  # «Importar ▾ → Accesorio…» (archivo + datos de la empuñadura)
+    "agregar-stl": (GUI, False, True),         # «Importar ▾ → Pieza suelta…» (archivo + 3 puntos por puerto sobre el STL)
     "agregar": (GUI, True, True),              # «Catalogar esta figura…» de la ventana principal
     "cortar-muneca": (GUI, False, True),
     "compat": (GUI, True, False),
@@ -363,3 +363,108 @@ def save_contract(cat: Catalog, contract) -> str:
 def clear_contract(cat: Catalog) -> bool:
     """Borra el contrato de linea.json; False si la línea no tenía."""
     return bool(cat.clear_contract())
+
+
+# ---------------------------------------------------------------------------------------------------- importar (fase 4)
+@dataclass
+class ImportResult:
+    """Lo que dejó una importación: la pieza guardada, las líneas del informe y los avisos (la consola los imprime igual)."""
+    meta: object = None
+    lines: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+
+    @property
+    def ref(self) -> str:
+        return self.meta.ref if self.meta is not None else ""
+
+
+def slug(text: str) -> str:
+    import re
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-") or "pieza"
+
+
+def _stem(path: str) -> str:
+    import os
+    return os.path.splitext(os.path.basename(path))[0]
+
+
+def import_hand(cat: Catalog, stl: str, piece_id: str | None = None, new_version: bool = False) -> ImportResult:
+    """`afm catalogo importar-mano`: guarda una mano estándar afm-mano-1 como pieza."""
+    meta, warns = cat.import_hand(stl, piece_id or None, new_version)
+    line = f"Mano guardada como {meta.ref} (muñeca Ø{2 * meta.puertos['muneca'].face.radius_eq:.2f} mm, {meta.volumen_mm3:.0f} mm³)"
+    return ImportResult(meta, [line], list(warns))
+
+
+def parse_cut_points(text: str):
+    """«X,Y,Z;X,Y,Z;X,Y,Z» → tres puntos (la forma de `--corte`). `ValueError` si no son tres puntos de tres números."""
+    pts = tuple(tuple(float(x) for x in q.split(",")) for q in text.split(";"))
+    if len(pts) != 3 or any(len(q) != 3 for q in pts):
+        raise ValueError("el corte son tres puntos separados por «;», cada uno con tres números X,Y,Z")
+    return pts
+
+
+def import_weapon(cat: Catalog, stl: str, cut_points, *, scale: float | None = None, length: float | None = None,
+                  flip: bool = False, roll: float | None = None, hand: str | None = None, piece_id: str | None = None,
+                  description: str = "", new_version: bool = False) -> ImportResult:
+    """`afm catalogo importar-arma`. `cut_points`: 3 puntos en coordenadas del STL original. `WeaponError` / `ValueError` si no sirve."""
+    from . import weapon as WP
+
+    pts = tuple(tuple(float(x) for x in q) for q in cut_points)
+    raw = WP.load_weapon_mesh(stl)
+    if scale is None:
+        scale = WP.scale_for_length(raw, length if length else WP.suggest_length(cat.height_mm))
+    mesh = WP.load_weapon_mesh(stl, scale)
+    spec = WP.WeaponSpec(stl, scale, pts, flip=flip, roll=roll)
+    meta, warns = WP.add_weapon_to_catalog(cat, mesh, spec, hand, piece_id, new_version, description)
+    out = [f"Arma guardada como {meta.ref} (×{scale:.4g}; {meta.volumen_mm3:.0f} mm³; para la mano {meta.mecanismo['arma']['mano']})",
+           "  medidas: " + str(meta.mecanismo["arma"]["medidas"]["dimensiones_mm"]) + " mm"]
+    out += [f"  se sujeta en {other.ref}: {c.nivel}" for other, c in cat.compatible_grips(meta.ref)]
+    return ImportResult(meta, out, list(warns))
+
+
+def import_accessory(cat: Catalog, stl: str, canal_len: float, *, bore_d: float = 2.4, shaft_d: float = 2.0, slit_w: float = 0.5,
+                     finger_len: float = 8.0, barb_d: float = 2.9, play: float = 0.4, piece_id: str | None = None,
+                     description: str = "", new_version: bool = False) -> ImportResult:
+    """`afm catalogo importar-accesorio`: STL cerrado en el marco del accesorio + los datos de su empuñadura dentada."""
+    from . import parts as P
+    from .props import GripSpec, accessory_grip
+
+    mesh = P.load_mesh(stl)
+    if not mesh.is_watertight:
+        raise P.PieceError(f"«{stl}» no es estanco: repararlo antes")
+    spec = GripSpec(bore_d=bore_d, shaft_d=shaft_d, slit_w=slit_w, finger_len=finger_len, barb_d=barb_d, play=play)
+    pid = piece_id or f"accesorio-{slug(_stem(stl))}-01"
+    import os
+    meta, warns = cat.add_accessory(mesh, pid, accessory_grip(spec, canal_len), new_version, description, os.path.basename(stl))
+    out = [f"Accesorio guardado como {meta.ref} ({meta.volumen_mm3:.0f} mm³; agarre Ø{bore_d:g} mm, canal {canal_len:g} mm)"]
+    for other, c in cat.compatible_grips(meta.ref):
+        out.append(f"  sirve en {other.ref}: {c.nivel}" + "".join(f"\n    aviso: {x}" for x in c.avisos))
+    return ImportResult(meta, out, list(warns))
+
+
+def add_loose_piece(cat: Catalog, stl: str, tipo: str, ports: dict, *, piece_id: str | None = None, height: float | None = None,
+                    side: str = "izq", mirrorable: bool = True, description: str = "", figure: str = "",
+                    tags: list[str] | None = None, new_version: bool = False) -> ImportResult:
+    """`afm catalogo agregar-stl`. `ports`: {nombre: 3 puntos (xyz) sobre la cara de unión}; el primero fija el giro."""
+    import os
+
+    from . import parts as P
+    from .ports import port_class, port_from_points
+
+    mesh = P.load_mesh(stl)
+    if not mesh.is_watertight:
+        raise P.PieceError(f"«{stl}» no es estanco: repararlo antes (la GUI o `afm build` lo reparan al cargar)")
+    spec = P.PORT_SPEC[tipo]
+    built = {}
+    for name, pts in ports.items():
+        if name not in spec:
+            raise P.PieceError(f"puerto «{name}» no previsto en una pieza «{tipo}» (válidos: {', '.join(spec) or 'ninguno'})")
+        built[name] = port_from_points(mesh, [list(map(float, q)) for q in pts], port_class(name), spec[name][0])
+    if not built:
+        raise P.PieceError("falta al menos un puerto (3 puntos sobre su cara de unión)")
+    meta = P.PieceMeta(id=piece_id or f"{tipo}-{slug(_stem(stl))}-01", version=1, tipo=tipo, puertos=built, descripcion=description,
+                       origen=P.make_origin(figure or os.path.basename(stl)),
+                       altura_figura_mm=height if height is not None else cat.height_mm,
+                       lado=side, espejable=mirrorable, etiquetas=list(tags or []))
+    meta, warns = cat.add_piece(mesh, meta, new_version)
+    return ImportResult(meta, [f"Pieza guardada como {meta.ref} ({meta.volumen_mm3:.0f} mm³; puertos: {', '.join(meta.puertos)})"], list(warns))

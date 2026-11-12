@@ -176,6 +176,21 @@ def _print_coverage(cat: Catalog, ref: str, all_fits: bool = False) -> None:
         print(line)
 
 
+def _print_import(res) -> int:
+    """Imprime lo de una importación como siempre: la primera línea, los avisos y el resto (en el arma y el accesorio, los avisos van
+    antes de «se sujeta / sirve en …»)."""
+    head, rest = res.lines[:1], res.lines[1:]
+    if res.meta is not None and "arma" in (res.meta.mecanismo or {}):    # el arma imprime sus medidas antes de los avisos
+        head, rest = res.lines[:2], res.lines[2:]
+    for ln in head:
+        print(ln)
+    for w in res.warnings:
+        print("AVISO:", w)
+    for ln in rest:
+        print(ln)
+    return 0
+
+
 def _slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-") or "pieza"
 
@@ -333,70 +348,26 @@ def _run(args) -> int:
     if cmd == "importar-arma":
         from . import weapon as WP
         try:
-            pts = tuple(tuple(float(x) for x in q.split(",")) for q in args.corte.split(";"))
-            if len(pts) != 3 or any(len(q) != 3 for q in pts):
-                raise ValueError("el corte son tres puntos separados por «;», cada uno con tres números X,Y,Z")
-            raw = WP.load_weapon_mesh(args.stl)
-            if args.escala is not None:
-                scale = args.escala
-            else:
-                scale = WP.scale_for_length(raw, args.largo if args.largo else WP.suggest_length(cat.height_mm))
-            mesh = WP.load_weapon_mesh(args.stl, scale)
-            spec = WP.WeaponSpec(args.stl, scale, pts, flip=args.invertir, roll=args.giro)
-            meta, warns = WP.add_weapon_to_catalog(cat, mesh, spec, args.mano, args.id, args.nueva_version, args.descripcion)
+            res = OPS.import_weapon(cat, args.stl, OPS.parse_cut_points(args.corte), scale=args.escala, length=args.largo, flip=args.invertir,
+                                    roll=args.giro, hand=args.mano, piece_id=args.id, description=args.descripcion,
+                                    new_version=args.nueva_version)
         except (WP.WeaponError, ValueError) as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
             return 2
-        print(f"Arma guardada como {meta.ref} (×{scale:.4g}; {meta.volumen_mm3:.0f} mm³; para la mano {meta.mecanismo['arma']['mano']})")
-        print("  medidas:", meta.mecanismo["arma"]["medidas"]["dimensiones_mm"], "mm")
-        for w in warns:
-            print("AVISO:", w)
-        for other, c in cat.compatible_grips(meta.ref):
-            print(f"  se sujeta en {other.ref}: {c.nivel}")
-        return 0
+        return _print_import(res)
     if cmd == "importar-accesorio":
-        from .props import GripSpec, accessory_grip
-        mesh = P.load_mesh(args.stl)
-        if not mesh.is_watertight:
-            raise P.PieceError(f"«{args.stl}» no es estanco: repararlo antes")
-        spec = GripSpec(bore_d=args.taladro, shaft_d=args.vastago, slit_w=args.ranura, finger_len=args.largo_lengueta,
-                        barb_d=args.dentado, play=args.juego)
-        pid = args.id or f"accesorio-{_slug(os.path.splitext(os.path.basename(args.stl))[0])}-01"
-        meta, warns = cat.add_accessory(mesh, pid, accessory_grip(spec, args.largo_canal), args.nueva_version, args.descripcion,
-                                        os.path.basename(args.stl))
-        print(f"Accesorio guardado como {meta.ref} ({meta.volumen_mm3:.0f} mm³; agarre Ø{args.taladro:g} mm, canal {args.largo_canal:g} mm)")
-        for w in warns:
-            print("AVISO:", w)
-        for other, c in cat.compatible_grips(meta.ref):
-            print(f"  sirve en {other.ref}: {c.nivel}" + "".join(f"\n    aviso: {x}" for x in c.avisos))
-        return 0
+        res = OPS.import_accessory(cat, args.stl, args.largo_canal, bore_d=args.taladro, shaft_d=args.vastago, slit_w=args.ranura,
+                                   finger_len=args.largo_lengueta, barb_d=args.dentado, play=args.juego, piece_id=args.id,
+                                   description=args.descripcion, new_version=args.nueva_version)
+        return _print_import(res)
     if cmd == "importar-mano":
-        meta, warns = cat.import_hand(args.stl, args.id, args.nueva_version)
-        print(f"Mano guardada como {meta.ref} (muñeca Ø{2 * meta.puertos['muneca'].face.radius_eq:.2f} mm, {meta.volumen_mm3:.0f} mm³)")
-        for w in warns:
-            print("AVISO:", w)
-        return 0
+        return _print_import(OPS.import_hand(cat, args.stl, args.id, args.nueva_version))
     if cmd == "agregar-stl":
-        mesh = P.load_mesh(args.stl)
-        if not mesh.is_watertight:
-            raise P.PieceError(f"«{args.stl}» no es estanco: repararlo antes (la GUI o `afm build` lo reparan al cargar)")
-        spec = P.PORT_SPEC[args.tipo]
-        ports = {}
-        for item in args.puerto:
-            name, nums = item[0], [float(x) for x in item[1:]]
-            if name not in spec:
-                raise P.PieceError(f"puerto «{name}» no previsto en una pieza «{args.tipo}» (válidos: {', '.join(spec) or 'ninguno'})")
-            ports[name] = port_from_points(mesh, [nums[0:3], nums[3:6], nums[6:9]], port_class(name), spec[name][0])
-        meta = P.PieceMeta(id=args.id or f"{args.tipo}-{_slug(os.path.splitext(os.path.basename(args.stl))[0])}-01", version=1,
-                           tipo=args.tipo, puertos=ports, descripcion=args.descripcion,
-                           origen=P.make_origin(args.figura or os.path.basename(args.stl)),
-                           altura_figura_mm=args.altura if args.altura is not None else cat.height_mm,
-                           lado=args.lado, espejable=not args.no_espejable, etiquetas=list(args.etiqueta))
-        meta, warns = cat.add_piece(mesh, meta, args.nueva_version)
-        print(f"Pieza guardada como {meta.ref} ({meta.volumen_mm3:.0f} mm³; puertos: {', '.join(meta.puertos)})")
-        for w in warns:
-            print("AVISO:", w)
-        return 0
+        ports = {item[0]: (item[1:4], item[4:7], item[7:10]) for item in args.puerto}
+        res = OPS.add_loose_piece(cat, args.stl, args.tipo, ports, piece_id=args.id, height=args.altura, side=args.lado,
+                                  mirrorable=not args.no_espejable, description=args.descripcion, figure=args.figura,
+                                  tags=args.etiqueta, new_version=args.nueva_version)
+        return _print_import(res)
     if cmd == "agregar":
         from .extract import ExtractError, extract_all, load_body
         from .project import Project
