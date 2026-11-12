@@ -2008,6 +2008,16 @@ class Session:
         """El `Catalog` abierto (nuevo en cada llamada: no se comparte con un hilo), o None si no hay catálogo."""
         return self._catalog() if self.catalog_root else None
 
+    def catalog_cut_refs(self) -> dict[str, dict]:
+        """Cortes de brazo / pierna de cada figura del catálogo abierto que sirve de referencia: `{figura: {kind: RefCut}}`
+        (`cut_ref.reference_cuts`). Vacío sin catálogo."""
+        from .. import cut_ref as CR
+
+        if not self.catalog_root:
+            return {}
+        cat = self._catalog()
+        return {f: CR.reference_cuts(cat, f) for f in CR.reference_figures(cat)}
+
     def catalog_pieces(self) -> list:
         """Todas las versiones de todas las piezas del catálogo abierto, ordenadas por tipo, id y versión."""
         return sorted(self._catalog().list(all_versions=True), key=lambda m: (m.tipo, m.id, m.version))

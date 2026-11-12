@@ -22,6 +22,7 @@ from . import settings as GUI_SETTINGS
 from ..head import HEAD_NAME, MIN_BASE_IOU, REPLACEMENT_UPS, neck_plane
 from ..pipeline import body_base_z, body_ref
 from ..waist import PELVIS_NAME, WAIST_NAME
+from .. import cut_ref as CR
 from ..limbs import cut_plane, silhouette_on_plane
 from ..orient import OrientResult, overhang_mask, pose_orientation
 from ..planes import Plane
@@ -116,6 +117,7 @@ _PART_PREVIEW_COLORS = {"ok": (0.30, 0.78, 0.45, 1.0), "aviso": (0.95, 0.75, 0.2
                         "no": (0.90, 0.30, 0.30, 1.0)}   # pieza de catálogo todavía sin generar, por nivel de acople
 _PLANE_STATUS_COLORS = {"no": (0.95, 0.12, 0.12, 0.45), "aviso": (1.0, 0.85, 0.1, 0.38),
                         "ok": (0.2, 0.9, 0.35, 0.30)}       # plano que falló / girado respecto de la pieza elegida / coincide
+_CUT_REF_COLOR = (0.15, 0.85, 1.0, 0.18)                # guía: dónde corta la figura de referencia (celeste: no se confunde con el blanco del corte)
 _CUT_PLANE_COLOR = (1.0, 1.0, 1.0, 0.16)               # plano donde SE CORTA el miembro (el de la silueta, corrido «Corte a» mm): blanco, para no confundirlo
 _REPLACEMENT_HEAD_COLOR = (0.95, 0.62, 0.25, 1.0)      # cabeza de reemplazo en la vista 3D (naranja)
 _EXTRACTED_HAND_COLOR = (0.25, 0.85, 0.55, 1.0)         # mano extraída (aún sin guardar) en la vista 3D (verde)
@@ -242,6 +244,8 @@ class Controller:
         self.pin_aid = None                          # PinAid (mira asistida) del modo PIN; None sin catálogo abierto
         self.heat_visible = True                     # mapa de calor de la mira (se puede ocultar)
         self.cut_aim_visible = True                  # mira del corte: cinta de color y fantasma de la sección (se puede apagar)
+        self.cut_ref_name: str | None = None         # figura del catálogo que se toma de referencia para el corte (None = la propuesta)
+        self.cut_ref_visible = True                  # guía de la referencia: línea / plano a la distancia que corta esa figura
         self.cut_seated: dict | None = None          # último choque en pose sentada medido (`cut_aid.seated_summary` + su clave)
         self.pin_aim = None                          # última lectura de la mira bajo el puntero (AimReading)
         self.mirror_live = False                     # con «un solo lado»: mostrar el espejo del lado de trabajo en vivo
@@ -4135,6 +4139,7 @@ class Controller:
         self._sync_waist_pin(scene)
         self._sync_joint_aim(scene)
         self._sync_cut_aim(scene)
+        self._sync_cut_ref(scene)
         self._sync_joint_strip(scene)
         self._sync_joints(scene)
         self._sync_trims(scene)
@@ -4436,6 +4441,112 @@ class Controller:
                              (0.72, 0.35, 0.95, 1.0), 16.0, on_top=True)
         else:
             scene.remove("corte:sentado")
+
+    # ---------------------------------------------------------------- referencia del corte (figura ya cortada)
+    def _cut_refs(self) -> dict[str, dict]:
+        """`{figura: {kind: RefCut}}` del catálogo abierto, con caché mientras no cambie su índice (CATALOGO.md se reescribe en cada
+        cambio): la guía se redibuja en cada cuadro y no debe releer las fichas."""
+        root = self.session.catalog_root
+        if not root:
+            return {}
+        try:
+            stamp = os.stat(os.path.join(root, "CATALOGO.md")).st_mtime_ns
+        except OSError:
+            stamp = 0
+        last = getattr(self, "_cut_ref_cache", None)
+        if last is not None and last[0] == (root, stamp):
+            return last[1]
+        try:
+            refs = self.session.catalog_cut_refs()
+        except Exception:                                      # noqa: BLE001 — la guía es informativa
+            refs = {}
+        self._cut_ref_cache = ((root, stamp), refs)
+        return refs
+
+    def cut_ref_figures(self) -> list[str]:
+        return sorted(self._cut_refs())
+
+    def cut_ref_figure(self) -> str | None:
+        """La figura de referencia en uso: la elegida si sigue en el catálogo, si no la propuesta (Güemes si está)."""
+        figs = self.cut_ref_figures()
+        return self.cut_ref_name if self.cut_ref_name in figs else CR.default_reference(figs)
+
+    def set_cut_ref_figure(self, figura: str | None) -> None:
+        if figura == self.cut_ref_name:
+            return
+        self.cut_ref_name = figura
+        self._changed(f"Referencia del corte: {self.cut_ref_figure() or 'ninguna'}.")
+
+    def toggle_cut_ref(self) -> None:
+        self.cut_ref_visible = not self.cut_ref_visible
+        self._changed("Guía de la referencia " + ("visible." if self.cut_ref_visible else "oculta."))
+
+    def cut_ref_rows(self) -> list[dict]:
+        """Un renglón por brazo / pierna sobre el plano de simetría que tenga corte de referencia: `{id, kind, label, corte_mm, ref,
+        lectura, texto}`. Vacío sin catálogo, sin figura de referencia o con el modelo sin cargar."""
+        if not self.session.loaded:
+            return []
+        figura = self.cut_ref_figure()
+        cuts = self._cut_refs().get(figura or "", {})
+        height = self.session.project.params.ref_height
+        out = []
+        for spec in self.session.project.limbs:
+            if spec.kind not in CR.KINDS or spec.kind not in cuts:
+                continue
+            try:
+                cur = self.session.limb_offset(spec.name)
+            except KeyError:
+                continue
+            if cur is None:
+                continue
+            ref = cuts[spec.kind]
+            out.append({"id": spec.name, "kind": spec.kind, "label": spec.name, "corte_mm": cur, "ref": ref,
+                        "lectura": CR.reading(cur, ref, height), "texto": CR.readout_text(spec.name.capitalize(), cur, ref, height)})
+        return out
+
+    def cut_ref_text(self) -> str:
+        """Texto de la ventana bajo «Corte a»: una línea por brazo / pierna («Brazo: tu corte a 6,20 mm · Güemes corta a 7,70 mm →
+        mové +1,50 mm»). Si falta algo para mostrarlo, dice qué."""
+        if not self.session.loaded or self.offset_limb() is None:
+            return ""
+        if not self.session.catalog_root:
+            return "Referencia del corte: abrí un catálogo para ver a cuántos mm corta una figura ya cortada."
+        if not self.cut_ref_figures():
+            return "Referencia del corte: el catálogo no tiene piezas de brazo o pierna con corte lateral."
+        rows = self.cut_ref_rows()
+        return "\n".join(r["texto"] for r in rows) if rows else "Referencia del corte: la figura elegida no tiene corte de brazo / pierna que aplique."
+
+    def match_cut_to_ref(self, name: str | None = None) -> bool:
+        """«Igualar a la referencia»: lleva el corte de `name` (por defecto el miembro activo) a la distancia que corta la figura de
+        referencia. Es el mismo movimiento que «Corte a», así que el pasador se reinicia."""
+        name = name or self.offset_limb()
+        row = next((r for r in self.cut_ref_rows() if r["id"] == name), None)
+        if row is None:
+            self._changed("No hay una referencia de corte para ese miembro (hace falta un catálogo abierto y un miembro sobre la simetría).",
+                          scene=False)
+            return False
+        self.set_limb_offset(name, row["ref"].mm)
+        return True
+
+    def _sync_cut_ref(self, scene) -> None:
+        """La guía en el visor: un plano celeste a la distancia a la que corta la referencia, aparte del plano blanco del corte actual
+        (el de la silueta no se mueve). Se ve de canto como una línea en la vista de frente."""
+        wanted = set()
+        if self.cut_ref_visible and self.session.loaded and not self.busy:
+            sess = self.session
+            for r in self.cut_ref_rows():
+                try:
+                    plane = cut_plane(sess.limb(r["id"]), r["ref"].mm)
+                except (ValueError, KeyError):
+                    continue
+                if plane is None:
+                    continue
+                key = f"corteref:{r['id']}"
+                wanted.add(key)
+                scene.set_plane(key, plane, self.plane_half_size, center=sess.work.bounds.mean(axis=0), color=_CUT_REF_COLOR)
+                scene.show(key, self.group_visible("planes"))
+        for key in [k for k in scene.items if k.startswith("corteref:") and not k.endswith(":borde") and k not in wanted]:
+            scene.remove(key)
 
     def snap_cut(self, quiet: bool = False) -> bool:
         """El «imán» del corte: lleva el plano del miembro a la mejor posición de la cinta (±3 mm; solo cambia la distancia al plano

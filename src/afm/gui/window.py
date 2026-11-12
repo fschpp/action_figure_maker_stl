@@ -392,6 +392,26 @@ class MainWindow(Gtk.ApplicationWindow):
         self.spin_cut.connect("value-changed", self._on_cut_offset)
         row.append(self.spin_cut)
         sec.append(row)
+        # Referencia del corte: a cuántos mm del plano de simetría corta una figura ya cortada del catálogo (p. ej. Güemes)
+        row = Gtk.Box(spacing=6)
+        row.append(Gtk.Label(label="Referencia (figura ya cortada)", xalign=0))
+        self.dd_cut_ref = Gtk.DropDown.new_from_strings(["(sin catálogo)"])
+        self.dd_cut_ref.set_hexpand(True)
+        self.dd_cut_ref.set_tooltip_text("Figura del catálogo cuyo corte de brazo y pierna se toma de referencia: abajo dice a cuántos mm del plano \n"
+                                         "de simetría corta, y en el visor una guía celeste marca esa distancia.")
+        self.dd_cut_ref.connect("notify::selected", self._on_cut_ref_figure)
+        row.append(self.dd_cut_ref)
+        self.chk_cut_ref = Gtk.CheckButton(label="guía", active=True, tooltip_text="Mostrar / ocultar el plano celeste de la referencia en el visor")
+        self.chk_cut_ref.connect("toggled", lambda b: None if self._updating else self.ctrl.toggle_cut_ref())
+        row.append(self.chk_cut_ref)
+        sec.append(row)
+        self.lbl_cut_ref = Gtk.Label(label="", xalign=0, wrap=True, selectable=True)
+        sec.append(self.lbl_cut_ref)
+        self.btn_cut_match = self._button("Igualar a la referencia", lambda *_: self.ctrl.match_cut_to_ref())
+        self.btn_cut_match.set_tooltip_text("Mueve el corte del brazo o la pierna activos a la distancia a la que corta la figura de referencia. "
+                                            "Es el mismo movimiento que «Corte a»: después hay que revisar el pasador.")
+        sec.append(self.btn_cut_match)
+        self._cut_ref_figs: list[str] = []
         self.chk_cut_aim = Gtk.CheckButton(label="Mira del corte (cinta de color y sección)")
         self.chk_cut_aim.set_tooltip_text("Con un catálogo abierto: pinta la sección del corte con el color de cuánto del catálogo lo acepta "
                                           "(verde = casi todo, amarillo = una parte, rojo = nada) y deja una cinta de puntos del mismo color "
@@ -1076,6 +1096,7 @@ exportar; tarda un poco más.")
             if self.chk_cut_aim.get_active() != ctrl.cut_aim_visible:
                 self.chk_cut_aim.set_active(ctrl.cut_aim_visible)
             self.lbl_cut_aim.set_text(ctrl.cut_aim_text() if off_limb is not None else "")
+            self._sync_cut_ref_widgets(off_limb)
             box = ctrl.cut_aim_box() if off_limb is not None else None
             self.cut_area.set_visible(box is not None)
             self.cut_area.queue_draw()
@@ -1165,6 +1186,30 @@ exportar; tarda un poco más.")
             self.ctrl.start_trim(target, op, length)
         else:
             self.ctrl.start_trim_pick(target, shape, self.spin_trim_size.get_value(), op, length)
+
+    def _on_cut_ref_figure(self, dd, _pspec=None) -> None:
+        if self._updating or not self._cut_ref_figs:
+            return
+        i = dd.get_selected()
+        if 0 <= i < len(self._cut_ref_figs):
+            self.ctrl.set_cut_ref_figure(self._cut_ref_figs[i])
+
+    def _sync_cut_ref_widgets(self, off_limb) -> None:
+        """Desplegable de figuras de referencia, casilla de la guía, lectura «tu corte / el de la referencia» y el botón de igualar."""
+        ctrl = self.ctrl
+        figs = ctrl.cut_ref_figures()
+        if figs != self._cut_ref_figs:
+            self._cut_ref_figs = figs
+            self.dd_cut_ref.set_model(Gtk.StringList.new(figs or ["(sin referencia)"]))
+        cur = ctrl.cut_ref_figure()
+        if cur in figs and self.dd_cut_ref.get_selected() != figs.index(cur):
+            self.dd_cut_ref.set_selected(figs.index(cur))
+        self.dd_cut_ref.set_sensitive(bool(figs))
+        if self.chk_cut_ref.get_active() != ctrl.cut_ref_visible:
+            self.chk_cut_ref.set_active(ctrl.cut_ref_visible)
+        self.chk_cut_ref.set_sensitive(bool(figs))
+        self.lbl_cut_ref.set_text(ctrl.cut_ref_text() if off_limb is not None else "")
+        self.btn_cut_match.set_sensitive(off_limb is not None and bool(ctrl.cut_ref_rows()))
 
     def _on_cut_offset(self, spin) -> None:
         if self._updating:
