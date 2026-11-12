@@ -43,12 +43,15 @@ def add_parsers(sub) -> None:
     root(a)
     a.add_argument("ref", metavar="ID")
     a.add_argument("--buscar", action="append", default=[], metavar="DIR", help="carpeta con .proyecto donde buscar también (repetible)")
-    a = cs.add_parser("eliminar", help="eliminar del catálogo una o más versiones de pieza (<id>@<n>); no se puede deshacer")
+    a = cs.add_parser("eliminar", help="eliminar del catálogo una o más versiones de pieza (<id>@<n>); van a la papelera y `restaurar` las recupera")
     root(a)
     a.add_argument("refs", nargs="+", metavar="ID@N")
     a.add_argument("--buscar", action="append", default=[], metavar="DIR",
                    help="carpeta con .proyecto donde buscar también quién la usa (repetible; no recursiva)")
     a.add_argument("--si", action="store_true", help="no pedir confirmación")
+    a = cs.add_parser("restaurar", help="recuperar de la papelera lo último que se eliminó (o el lote --lote)")
+    root(a)
+    a.add_argument("--lote", default=None, metavar="ID", help="lote de la papelera (por defecto el último)")
     a = cs.add_parser("importar-mano", help="importar una mano estándar afm-mano-1 (la de `afm extraer-mano`) como pieza")
     root(a)
     a.add_argument("stl")
@@ -405,7 +408,7 @@ def _run(args) -> int:
         if not args.si:
             if not sys.stdin.isatty():
                 raise CatalogError("falta confirmar: agregá --si para eliminar sin preguntar")
-            if input(f"¿Eliminar {len(metas)} pieza(s) del catálogo «{cat.name}»? No se puede deshacer [s/N] ").strip().lower() not in ("s", "si", "sí", "y", "yes"):
+            if input(f"¿Eliminar {len(metas)} pieza(s) del catálogo «{cat.name}»? Quedan en la papelera del catálogo y se recuperan con `restaurar` [s/N] ").strip().lower() not in ("s", "si", "sí", "y", "yes"):
                 print("No se eliminó nada.")
                 return 1
         res = cat.delete_pieces(args.refs)
@@ -414,6 +417,13 @@ def _run(args) -> int:
         for e in res.errors:
             print(f"ERROR: {e}", file=sys.stderr)
         return 0 if not res.errors else 2
+    if cmd == "restaurar":
+        restored, errors = cat.restore_deleted(args.lote)
+        for m in restored:
+            print(f"Recuperada {m.ref}")
+        for e in errors:
+            print(f"ERROR: {e}", file=sys.stderr)
+        return 0 if not errors else 2
     if cmd == "importar-arma":
         from . import weapon as WP
         try:

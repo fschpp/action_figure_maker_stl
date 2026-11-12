@@ -142,9 +142,14 @@ def next_row(n: int, key: str, current: int | None, selected: list[int]) -> int 
     return max(0, min(n - 1, current + step))
 
 
+def piece_label(meta: PieceMeta) -> str:
+    """Cómo se nombra una pieza en menús y mensajes: «Nombre (id@n)» si tiene nombre, si no «id@n»."""
+    return f"{meta.nombre} ({meta.ref})" if meta.nombre else meta.ref
+
+
 def row_text(meta: PieceMeta) -> str:
     """Una línea de la lista: «pierna-belgrano-01@2 · pierna · borrador · belgrano_viejo.stl»."""
-    parts = [meta.ref if not meta.nombre else f"{meta.nombre} ({meta.ref})", meta.tipo, meta.estado]
+    parts = [piece_label(meta), meta.tipo, meta.estado]
     if piece_origin(meta):
         parts.append(piece_origin(meta))
     return " · ".join(parts)
@@ -276,13 +281,13 @@ def confirm_texts(metas: list[PieceMeta], uses: dict[str, list[str]]) -> tuple[s
     """(mensaje, detalle) del diálogo de confirmación para eliminar `metas`. `uses` = {ref: dónde se usa}."""
     n = len(metas)
     msg = "¿Eliminar esta pieza del catálogo?" if n == 1 else f"¿Eliminar estas {n} piezas del catálogo?"
-    shown = [m.ref for m in metas[:12]]
+    shown = [piece_label(m) for m in metas[:12]]
     detail = "\n".join(f"• {r}" for r in shown) + (f"\n… y {n - len(shown)} más" if n > len(shown) else "")
     used = {r: u for r, u in uses.items() if u}
     if used:
         detail += "\n\nOjo, se usan en:\n" + "\n".join(f"• {r}: {'; '.join(u)}" for r, u in list(used.items())[:8])
         detail += "\nLas recetas que las nombran van a fallar al armar; en la figura abierta esos lugares vuelven a la pieza del modelo."
-    detail += "\n\nSe borran del disco (el STL y su ficha) y no se puede deshacer."
+    detail += "\n\nSe mueven a la papelera del catálogo (carpeta .papelera): «Recuperar lo eliminado» las devuelve a su lugar."
     return msg, detail
 
 
@@ -429,6 +434,14 @@ class CatalogManager:
         by_ref = {m.ref: m for m in self.ctrl.catalog_pieces()}
         metas = [by_ref[r] for r in refs if r in by_ref]
         return confirm_texts(metas, {m.ref: self.uses(m.ref) for m in metas})
+
+    def undo_delete(self) -> bool:
+        ok = self.ctrl.catalog_undo_delete()
+        self._mesh_cache.clear()
+        return ok
+
+    def set_state(self, refs: list[str], state: str) -> bool:
+        return self.ctrl.catalog_set_state(refs, state)
 
     def delete(self, refs: list[str]) -> bool:
         ok = self.ctrl.catalog_delete(refs)

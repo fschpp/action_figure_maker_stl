@@ -138,3 +138,70 @@ def test_arrow_keys_pick_previous_and_next_row_and_stay_at_the_ends():
     assert n(5, "down", 4, [4]) == 4 and n(5, "up", 0, [0]) == 0               # se queda en los extremos
     assert n(30, "pgdn", 5, []) == 15 and n(30, "pgup", 5, []) == 0
     assert n(30, "home", 7, [7]) == 0 and n(30, "end", 7, [7]) == 29
+
+
+# ------------------------------------------------------------------ papelera, estado en lote y nombres en menús
+def _add(cat, pid, tipo="brazo"):
+    mesh, meta = limb(pid, tipo)
+    return cat.add_piece(mesh, meta)[0]
+
+
+def test_delete_goes_to_trash_and_restore_brings_it_back_identical(cat):
+    saved = _add(cat, "brazo-a-01")
+    _add(cat, "brazo-b-01")
+    stl = os.path.join(cat.root, "piezas", "brazo", "brazo-a-01@1.stl")
+    before = open(stl, "rb").read()
+    res = cat.delete_pieces(["brazo-a-01@1"])
+    assert res.refs == ["brazo-a-01@1"] and os.path.isdir(res.trash) and not os.path.exists(stl)
+    assert [m.ref for m in cat.list(all_versions=True)] == ["brazo-b-01@1"] and cat.verify().ok
+    assert cat.trash_batches()[0]["refs"] == ["brazo-a-01@1"]
+    restored, errors = cat.restore_deleted()
+    assert [m.ref for m in restored] == ["brazo-a-01@1"] and errors == []
+    assert open(stl, "rb").read() == before and cat.meta("brazo-a-01@1").sha256 == saved.sha256
+    assert cat.trash_batches() == [] and cat.verify().ok
+    assert "brazo-a-01@1" in open(os.path.join(cat.root, "CATALOGO.md")).read()
+    with pytest.raises(CatalogError, match="vacía"):
+        cat.restore_deleted()
+
+
+def test_restore_takes_latest_batch_and_refuses_to_overwrite(cat):
+    _add(cat, "brazo-a-01")
+    _add(cat, "brazo-b-01")
+    cat.delete_pieces(["brazo-a-01@1"])
+    cat.delete_pieces(["brazo-b-01@1"])
+    assert [b["refs"] for b in cat.trash_batches()] == [["brazo-b-01@1"], ["brazo-a-01@1"]]
+    restored, _e = cat.restore_deleted()                                   # el último lote: b
+    assert [m.ref for m in restored] == ["brazo-b-01@1"]
+    _add(cat, "brazo-a-01")                                                # la referencia de lo eliminado vuelve a existir
+    restored, errors = cat.restore_deleted()
+    assert restored == [] and "ya existe" in errors[0]
+    assert cat.trash_batches()[0]["refs"] == ["brazo-a-01@1"]              # sigue en la papelera
+    assert cat.empty_trash() == 1 and cat.trash_batches() == []
+
+
+def test_set_states_is_all_or_nothing(cat):
+    _add(cat, "brazo-a-01")
+    _add(cat, "brazo-b-01")
+    metas = cat.set_states(["brazo-a-01@1", "brazo-b-01@1"], "validada")
+    assert {m.estado for m in metas} == {"validada"} and {m.estado for m in cat.list(all_versions=True)} == {"validada"}
+    with pytest.raises(CatalogError, match="no hay ninguna pieza"):
+        cat.set_states(["brazo-a-01@1", "nada-01@1"], "impresa")
+    assert {m.estado for m in cat.list(all_versions=True)} == {"validada"}  # no cambió ninguna
+    with pytest.raises(CatalogError, match="estado desconocido"):
+        cat.set_states(["brazo-a-01@1"], "rara")
+
+
+def test_names_show_in_menus_and_confirmation(cat):
+    meta = _add(cat, "brazo-a-01")
+    cat.rename_piece("brazo-a-01", "Brazo Belgrano")
+    meta = cat.meta("brazo-a-01@1")
+    assert CM.piece_label(meta) == "Brazo Belgrano (brazo-a-01@1)"
+    _m, plain = limb("brazo-z-01")
+    assert CM.piece_label(plain) == "brazo-z-01@1"
+    msg, detail = CM.confirm_texts([meta], {})
+    assert "• Brazo Belgrano (brazo-a-01@1)" in detail and "papelera" in detail
+    from afm.gui.controller import Controller
+
+    row = {"lugar": "brazo", "pieza": "brazo-a-01@1", "compat": None}
+    assert Controller.catalog_row_text(row) == "brazo: brazo-a-01@1"
+    assert Controller.catalog_row_text(row, {"brazo-a-01@1": CM.piece_label(meta)}) == "brazo: Brazo Belgrano (brazo-a-01@1)"

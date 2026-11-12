@@ -17,6 +17,7 @@ from .catalog_manager import (ALL_TYPES, COLUMNS, PIN_LEGEND, CatalogManager, Jo
                               can_cut_wrist, can_retune_joint, detail_text, matches, next_row, row_cells, sort_pieces)
 from .catalog_manager import ZOOM_STEP, zoom_about  # noqa: E402
 from .catalog_manager import view_bounds as CM_view_bounds  # noqa: E402
+from ..parts import STATES  # noqa: E402
 from .window import _no_scroll_change  # noqa: E402
 
 JOINT_DELAY_MS = 250        # espera tras el último cambio de un valor antes de recalcular el hueco (se mueve un spin varias veces seguidas)
@@ -213,7 +214,12 @@ class CatalogManagerWindow(Gtk.Window):
         self.btn_delete.add_css_class("destructive-action")
         self.btn_delete.connect("clicked", self._on_delete)
         bar.append(self.btn_delete)
+        self.btn_undo = Gtk.Button(label="Recuperar lo eliminado")
+        self.btn_undo.set_sensitive(False)
+        self.btn_undo.connect("clicked", self._on_undo_delete)
+        bar.append(self.btn_undo)
         box.append(bar)
+        box.append(self._build_state_row())
         box.append(self._build_flex_row())
         box.append(self._build_wrist_panel())
         box.append(self._build_joint_panel())
@@ -227,6 +233,52 @@ class CatalogManagerWindow(Gtk.Window):
         self.lbl_status.add_css_class("dim-label")
         box.append(self.lbl_status)
         return box
+
+    # ------------------------------------------------------------ estado de las piezas elegidas
+    def _build_state_row(self) -> Gtk.Widget:
+        """«Estado: [borrador ▾] [Aplicar a las elegidas]»: cambia el estado de una o varias versiones a la vez."""
+        row = Gtk.Box(spacing=8)
+        row.append(Gtk.Label(label="Estado:", xalign=0))
+        self.dd_state = Gtk.DropDown.new_from_strings(list(STATES))
+        self.dd_state.set_tooltip_text("borrador → validada → impresa. Es lo único que se puede cambiar de una versión sin crear otra.")
+        row.append(self.dd_state)
+        self.btn_state = Gtk.Button(label="Aplicar a las elegidas")
+        self.btn_state.set_sensitive(False)
+        self.btn_state.connect("clicked", self._on_apply_state)
+        row.append(self.btn_state)
+        return row
+
+    def _sync_state_row(self, refs: list[str]) -> None:
+        ok = bool(refs) and not self.ctrl.busy and self._cutter is None and self._jeditor is None
+        self.btn_state.set_sensitive(ok)
+        self.btn_state.set_label("Aplicar a las elegidas" if len(refs) <= 1 else f"Aplicar a {len(refs)} piezas")
+        if refs:                                                   # muestra el estado actual de la primera elegida
+            meta = next((m for _row, m in self._rows if m.ref == refs[0]), None)
+            if meta is not None and meta.estado in STATES:
+                self.dd_state.set_selected(STATES.index(meta.estado))
+
+    def _on_apply_state(self, *_) -> None:
+        refs = self._selected_refs()
+        if not refs or self.ctrl.busy or self._cutter is not None or self._jeditor is not None:
+            return
+        state = STATES[self.dd_state.get_selected()]
+        if self.mgr.set_state(refs, state):
+            self._reload()
+        self.lbl_status.set_text(self.ctrl.message or "")
+
+    def _sync_undo_button(self) -> None:
+        n = self.ctrl.catalog_trash_count()
+        self.btn_undo.set_sensitive(n > 0 and not self.ctrl.busy and self._cutter is None and self._jeditor is None)
+        self.btn_undo.set_label(f"Recuperar lo eliminado ({n})" if n else "Recuperar lo eliminado")
+        self.btn_undo.set_tooltip_text("Devuelve al catálogo el último grupo de piezas eliminadas (están en la carpeta .papelera)." if n
+                                       else "No hay nada eliminado para recuperar.")
+
+    def _on_undo_delete(self, *_) -> None:
+        if self.ctrl.busy or self._cutter is not None or self._jeditor is not None:
+            return
+        self.mgr.undo_delete()
+        self._reload()
+        self.lbl_status.set_text(self.ctrl.message or "")
 
     # ------------------------------------------------------------ cortar la mano de un brazo
     def _build_wrist_panel(self) -> Gtk.Widget:
@@ -757,6 +809,8 @@ class CatalogManagerWindow(Gtk.Window):
         self.btn_delete.set_label("Eliminar…" if n == 0 else f"Eliminar {n} pieza(s)…")
         self.btn_delete.set_sensitive(bool(n) and not self.ctrl.busy and self._cutter is None and self._jeditor is None)
         self._sync_rename_button(refs)
+        self._sync_state_row(refs)
+        self._sync_undo_button()
         if n == 0:
             self.lbl_detail.set_text("Elegí una pieza de la lista para verla." if self._rows else "El catálogo no tiene piezas (todavía).")
             self._show(None)

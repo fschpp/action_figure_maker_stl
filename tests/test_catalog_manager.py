@@ -163,7 +163,7 @@ def test_detail_text_and_confirm_texts(cat):
     assert "hombro (enchufe)" in txt and "Se usa en: la figura abierta" in txt
     assert "ninguna figura ni receta" in CM.detail_text(meta, [])
     msg, detail = CM.confirm_texts([meta], {meta.ref: ["receta «b.receta.json» (lugar «brazo»)"]})
-    assert "esta pieza" in msg and "brazo-test-01@1" in detail and "b.receta.json" in detail and "no se puede deshacer" in detail
+    assert "esta pieza" in msg and "brazo-test-01@1" in detail and "b.receta.json" in detail and "papelera" in detail
     many = [meta] * 15
     msg, detail = CM.confirm_texts(many, {})
     assert "15 piezas" in msg and "y 3 más" in detail

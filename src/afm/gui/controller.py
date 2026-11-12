@@ -3155,19 +3155,21 @@ class Controller:
         return self.session.part_rows() if self.loaded else []
 
     @staticmethod
-    def catalog_row_text(row: dict) -> str:
-        """Texto de una fila para la lista: «brazo: original» o «pierna: pierna-01@2 — aviso (IoU 0,71, escalón 1,07 mm)»."""
+    def catalog_row_text(row: dict, labels: dict | None = None) -> str:
+        """Texto de una fila para la lista: «brazo: original» o «pierna: pierna-01@2 — aviso (IoU 0,71, escalón 1,07 mm)».
+        `labels` = {ref: nombre para mostrar} (ver `catalog_manager.piece_label`): si la pieza tiene nombre, se muestra."""
         if row["pieza"] is None:
             return f"{row['lugar']}: la del modelo"
+        shown = (labels or {}).get(row["pieza"], row["pieza"])
         c = row.get("compat")
         if not c:
-            return f"{row['lugar']}: {row['pieza']}"
+            return f"{row['lugar']}: {shown}"
         extra = []
         if c.get("iou") is not None:
             extra.append(f"IoU {c['iou']:.2f}".replace(".", ","))
         if c.get("escalon_mm") is not None:
             extra.append(f"escalón {c['escalon_mm']:.2f} mm".replace(".", ","))
-        return f"{row['lugar']}: {row['pieza']} — {c.get('nivel', '?')}" + (f" ({', '.join(extra)})" if extra else "")
+        return f"{row['lugar']}: {shown} — {c.get('nivel', '?')}" + (f" ({', '.join(extra)})" if extra else "")
 
     def catalog_add_done(self, res: dict | None, err: Exception | None) -> bool:
         """Cierra «Catalogar esta figura»: mensaje con las piezas guardadas (o el error)."""
@@ -3369,6 +3371,45 @@ class Controller:
             msg += " ERRORES: " + "; ".join(res["errores"])
         self._changed(msg, scene=bool(res["quitadas"]))
         return not res["errores"]
+
+    def catalog_set_state(self, refs, state: str) -> bool:
+        """Cambia el estado de las versiones `refs` (`id@n`) del catálogo abierto."""
+        refs = list(refs)
+        if self.busy:
+            self._changed("Esperá a que termine la tarea en curso para cambiar el estado.", scene=False)
+            return False
+        try:
+            metas = self.session.catalog_set_state(refs, state)
+        except ValueError as e:
+            self._changed(f"No se cambió el estado: {e}", scene=False)
+            return False
+        self._changed(f"Estado «{state}»: {', '.join(m.ref for m in metas)}.", scene=False)
+        return True
+
+    def catalog_trash_count(self) -> int:
+        """Cuántas piezas hay en el último lote de la papelera (0 = nada que recuperar)."""
+        try:
+            batches = self.session.catalog_trash()
+        except ValueError:
+            return 0
+        return len(batches[0]["refs"]) if batches else 0
+
+    def catalog_undo_delete(self) -> bool:
+        """«Recuperar lo eliminado»: devuelve al catálogo el último lote de piezas eliminadas. Los lugares de la figura que las
+        usaban ya habían vuelto a la pieza del modelo: hay que elegirlas de nuevo."""
+        if self.busy:
+            self._changed("Esperá a que termine la tarea en curso para recuperar piezas.", scene=False)
+            return False
+        try:
+            restored, errors = self.session.catalog_undo_delete()
+        except ValueError as e:
+            self._changed(f"No se recuperó nada: {e}", scene=False)
+            return False
+        msg = f"Recuperadas {len(restored)} pieza(s): {', '.join(m.ref for m in restored) or '—'}."
+        if errors:
+            msg += " NO se recuperaron: " + "; ".join(errors)
+        self._changed(msg, scene=False)
+        return bool(restored) and not errors
 
     def catalog_rename(self, ref: str, nombre: str) -> bool:
         """Renombra (nombre para mostrar) la pieza `ref` del catálogo abierto. El `id` y las referencias no cambian."""

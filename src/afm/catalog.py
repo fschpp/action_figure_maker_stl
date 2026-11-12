@@ -16,10 +16,12 @@ Las piezas son inmutables: cambiar una crea la versión n + 1 (`add_piece(..., n
 """
 from __future__ import annotations
 
+import datetime
 import glob
 import json
 import os
 import re
+import shutil
 from dataclasses import dataclass
 
 from . import __version__
@@ -31,6 +33,10 @@ LINE_FORMAT = "afm-linea-1"
 LINE_PLACES = ("cabeza", "torso", "pelvis", "brazo", "pierna", "mano")
 REF_RE = re.compile(r"^(?P<id>[a-z0-9]+(?:-[a-z0-9]+)*)(?:@(?P<v>\d+))?$")
 LINE_HEIGHT_TOL_MM = 0.5
+
+
+TRASH_DIR = ".papelera"        # dentro del catálogo, fuera de `piezas/`: lo eliminado se mueve acá y se puede recuperar
+TRASH_FILE = "lote.json"
 
 
 class CatalogError(ValueError):
@@ -72,6 +78,7 @@ class DeleteResult:
 
     deleted: list
     errors: list
+    trash: str = ""          # carpeta de la papelera donde quedaron (vacío si no se eliminó nada)
 
     @property
     def refs(self) -> list[str]:
@@ -413,6 +420,16 @@ class Catalog:
         self.write_index()
         return m
 
+    def set_states(self, refs: list[str], state: str) -> list[P.PieceMeta]:
+        """`set_state` para varias versiones `id@n` a la vez: si alguna no existe o el estado no vale, no se cambia ninguna."""
+        if state not in P.STATES:
+            raise CatalogError(f"estado desconocido «{state}» (hay {', '.join(P.STATES)})")
+        if not refs:
+            raise CatalogError("no se indicó ninguna pieza")
+        for r in refs:
+            self.meta(r)
+        return [self.set_state(r, state) for r in refs]
+
     def rename_piece(self, ref: str, nombre: str) -> list[P.PieceMeta]:
         """Cambia el nombre para mostrar de una pieza (TODAS las versiones de su `id`). Es solo un dato de la ficha: el `id`, la
         `ref`, el STL y el hash no cambian, así que las recetas y los proyectos que la nombran siguen armando igual.
@@ -476,7 +493,8 @@ class Catalog:
         return files
 
     def delete_pieces(self, refs: list[str]) -> "DeleteResult":
-        """Elimina del disco las versiones `id@n` indicadas (el `.pieza.json` y el STL) y regenera el índice.
+        """Elimina del catálogo las versiones `id@n` indicadas (el `.pieza.json` y el STL van a la papelera `.papelera/`, de donde
+        `restore_deleted` las recupera) y regenera el índice.
 
         Pide siempre `id@versión`: una `id` sola significa «la última» en el resto del catálogo y borrarla por error es
         irreversible. Primero se comprueba que TODAS existan (si una no existe no se borra nada). Las demás versiones
@@ -491,21 +509,92 @@ class Catalog:
             if ver is None:
                 raise CatalogError(f"«{ref}»: para eliminar hay que indicar la versión (<id>@<n>)")
             metas[f"{pid}@{ver}"] = self.meta(f"{pid}@{ver}")
-        deleted, errors = [], []
+        deleted, errors, moved = [], [], {}
+        stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+        batch = os.path.join(self.root, TRASH_DIR, stamp)
         for meta in metas.values():
             files = self._piece_files(meta)
+            rels = []
             try:
                 for path in files:              # el `.pieza.json` va primero: si algo falla, la pieza ya no figura en el catálogo
-                    os.remove(path)
+                    rel = os.path.relpath(path, self.root)
+                    dest = os.path.join(batch, rel)
+                    os.makedirs(os.path.dirname(dest), exist_ok=True)
+                    os.replace(path, dest)
+                    rels.append(rel)
             except OSError as exc:
                 errors.append(f"{meta.ref}: {exc}")
+                if rels:
+                    moved[meta.ref] = rels
                 continue
             deleted.append(meta)
+            moved[meta.ref] = rels
+        if moved:
+            with open(os.path.join(batch, TRASH_FILE), "w") as f:
+                json.dump({"fecha": datetime.datetime.now().isoformat(timespec="seconds"), "piezas": moved}, f, indent=2, ensure_ascii=False)
         if deleted:
             self.write_index()
             from .compat import CompatCache
             CompatCache(self.root).prune(self)
-        return DeleteResult(deleted, errors)
+        return DeleteResult(deleted, errors, batch if moved else "")
+
+    # ------------------------------------------------------------------ papelera
+    def trash_batches(self) -> list[dict]:
+        """Lotes eliminados que se pueden recuperar, el más nuevo primero: `[{"id", "fecha", "refs"}]`."""
+        out = []
+        for path in sorted(glob.glob(os.path.join(self.root, TRASH_DIR, "*", TRASH_FILE)), reverse=True):
+            try:
+                with open(path) as f:
+                    d = json.load(f)
+            except (OSError, ValueError):
+                continue
+            out.append({"id": os.path.basename(os.path.dirname(path)), "fecha": d.get("fecha", ""), "refs": sorted(d.get("piezas", {}))})
+        return out
+
+    def restore_deleted(self, batch_id: str | None = None) -> tuple[list[P.PieceMeta], list[str]]:
+        """Recupera de la papelera el lote `batch_id` (por defecto, el último eliminado): devuelve (piezas recuperadas, errores).
+
+        Una pieza no se recupera si ya hay otra con la misma `id@n` (por ejemplo una versión nueva que tomó ese número): queda en la
+        papelera y se avisa. Lo que sí se recupera vuelve exactamente a su lugar, con el mismo STL y el mismo hash. Los resultados de
+        compatibilidad que se habían quitado del caché se vuelven a calcular cuando hacen falta."""
+        batches = self.trash_batches()
+        if not batches:
+            raise CatalogError("la papelera está vacía: no hay nada que recuperar")
+        chosen = next((b for b in batches if b["id"] == batch_id), None) if batch_id else batches[0]
+        if chosen is None:
+            raise CatalogError(f"no hay un lote «{batch_id}» en la papelera")
+        folder = os.path.join(self.root, TRASH_DIR, chosen["id"])
+        info_path = os.path.join(folder, TRASH_FILE)
+        with open(info_path) as f:
+            info = json.load(f)
+        left, restored, errors = dict(info["piezas"]), [], []
+        for ref, rels in info["piezas"].items():
+            if any(os.path.exists(os.path.join(self.root, r)) for r in rels):
+                errors.append(f"{ref}: ya existe una pieza con esa referencia; queda en la papelera")
+                continue
+            try:
+                for rel in rels:
+                    os.makedirs(os.path.dirname(os.path.join(self.root, rel)), exist_ok=True)
+                    os.replace(os.path.join(folder, rel), os.path.join(self.root, rel))
+            except OSError as exc:
+                errors.append(f"{ref}: {exc}")
+                continue
+            del left[ref]
+            restored.append(self.meta(ref))
+        if left:
+            with open(info_path, "w") as f:
+                json.dump({**info, "piezas": left}, f, indent=2, ensure_ascii=False)
+        else:
+            shutil.rmtree(folder, ignore_errors=True)
+        if restored:
+            self.write_index()
+        return restored, errors
+
+    def empty_trash(self) -> int:
+        """Borra de verdad todo lo que hay en la papelera (irreversible). Devuelve cuántos lotes quitó."""
+        n = len(self.trash_batches())
+        shutil.rmtree(os.path.join(self.root, TRASH_DIR), ignore_errors=True)
+        return n
 
     # ------------------------------------------------------------------ compatibilidad barata
     def compatible_with(self, ref: str, params: Params | None = None) -> list[tuple[P.PieceMeta, str, str, Compat]]:

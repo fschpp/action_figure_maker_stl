@@ -16,7 +16,7 @@ gi.require_version("Gdk", "4.0")
 from gi.repository import Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 
 from ..head import MIN_BASE_IOU, REPLACEMENT_SCALE_RANGE, REPLACEMENT_UPS  # noqa: E402
-from .catalog_manager import can_retune_joint, find_piece  # noqa: E402
+from .catalog_manager import can_retune_joint, find_piece, piece_label  # noqa: E402
 from .controller import GRIP_FIELDS, JOINT_PREFIX, PARAM_FIELDS, TRIM_OP_LABELS, TRIM_SHAPE_LABELS, TRIM_SHAPES, Controller, Mode  # noqa: E402
 from .progress_panel import ProgressPanel  # noqa: E402
 from .render import SceneRenderer  # noqa: E402
@@ -1614,21 +1614,23 @@ exportar; tarda un poco más.")
                                      f"Escalar la figura a la altura de la línea (×{scale:.3f})".replace(".", ","))
         rows = ctrl.catalog_rows() if loaded else []
         choices = {r["lugar"]: [m.ref for m in ctrl.catalog_choices(r["lugar"])] if root else [] for r in rows}
-        sig = (root, ctrl.busy, tuple(sorted(ctrl.session.project.part_scales.items())),
-               tuple(ctrl.session.scale_places()), tuple((r["lugar"], r["pieza"], ctrl.catalog_row_text(r), tuple(choices[r["lugar"]]), r.get("nivel"),
+        pieces = ctrl.catalog_pieces() if root else []
+        shown = {m.ref: piece_label(m) for m in pieces}                    # «Nombre (id@n)» si la pieza tiene nombre
+        row_labels = {r["pieza"]: piece_label(pc) for r in rows if r["pieza"] and (pc := find_piece(pieces, r["pieza"])) is not None}
+        sig = (root, ctrl.busy, tuple(sorted(shown.items())), tuple(sorted(ctrl.session.project.part_scales.items())),
+               tuple(ctrl.session.scale_places()), tuple((r["lugar"], r["pieza"], ctrl.catalog_row_text(r, row_labels), tuple(choices[r["lugar"]]), r.get("nivel"),
                            tuple(r.get("conflictos") or ()), tuple(r.get("avisos") or ())) for r in rows))
         if sig == self._parts_sig:
             return
         self._parts_sig = sig
         while (child := self.parts_box.get_first_child()) is not None:
             self.parts_box.remove(child)
-        pieces = ctrl.catalog_pieces() if root else []
         for r in rows:
             lugar, refs = r["lugar"], choices[r["lugar"]]
             box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
             line = Gtk.Box(spacing=6)
             line.append(Gtk.Label(label=lugar.capitalize(), xalign=0, hexpand=True))
-            dd = Gtk.DropDown.new_from_strings(["(la del modelo)"] + refs)
+            dd = Gtk.DropDown.new_from_strings(["(la del modelo)"] + [shown.get(ref, ref) for ref in refs])
             cur = r["pieza"]
             # la pieza guardada puede traer versión fija («id@2»): se muestra la fila de esa pieza si está en la lista
             idx = 0 if cur is None else next((i + 1 for i, ref in enumerate(refs) if ref == cur or ref.split("@")[0] == cur.split("@")[0]), 0)
@@ -1641,7 +1643,7 @@ exportar; tarda un poco más.")
             if lugar in ctrl.session.scale_places():
                 box.append(self._scale_line(lugar))
             if r["pieza"] is not None:
-                lbl = Gtk.Label(label=ctrl.catalog_row_text(r), xalign=0, wrap=True)
+                lbl = Gtk.Label(label=ctrl.catalog_row_text(r, row_labels), xalign=0, wrap=True)
                 lbl.add_css_class("dim-label")
                 box.append(lbl)
                 if r.get("previa"):

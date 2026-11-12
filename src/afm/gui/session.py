@@ -2064,6 +2064,28 @@ class Session:
             self._part_preview = None
         return {"eliminadas": res.refs, "quitadas": cleared, "errores": res.errors}
 
+    def catalog_set_state(self, refs, state: str) -> list:
+        """Pone el estado (borrador / validada / impresa) a las versiones `id@n` (`Catalog.set_states`)."""
+        from ..catalog import CatalogError
+
+        try:
+            return self._catalog().set_states(list(refs), state)
+        except CatalogError as exc:
+            raise ValueError(str(exc)) from exc
+
+    def catalog_trash(self) -> list[dict]:
+        """Lotes recuperables de la papelera del catálogo abierto (el más nuevo primero)."""
+        return self._catalog().trash_batches() if self.catalog_root else []
+
+    def catalog_undo_delete(self) -> tuple[list, list]:
+        """Recupera el último lote eliminado: (metas recuperadas, errores)."""
+        from ..catalog import CatalogError
+
+        try:
+            return self._catalog().restore_deleted()
+        except CatalogError as exc:
+            raise ValueError(str(exc)) from exc
+
     def catalog_rename(self, ref: str, nombre: str) -> list:
         """Cambia el nombre para mostrar de la pieza `ref` (todas sus versiones; `Catalog.rename_piece`). Devuelve las metas."""
         from ..catalog import CatalogError
