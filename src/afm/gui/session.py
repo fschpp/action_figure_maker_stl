@@ -1671,6 +1671,32 @@ class Session:
         self.outcome = None
         self._part_preview = None
 
+    def proportions_snapshot(self, figura: str, progress=None) -> dict:
+        """Lo que necesita el comparador de proporciones (`afm.proportions`): las piezas de la figura abierta, ya divididas y escaladas
+        (`model`), el cuerpo de la figura patrón `figura` del catálogo (`ref`) y la escala actual de cada pieza (`scales`, con los
+        miembros como «brazo» / «pierna»). Si la figura todavía no está dividida en piezas la divide (escalas ×1)."""
+        from .. import proportions as PR
+
+        if self.work is None:
+            raise ValueError("Primero abrí una figura.")
+        if self.catalog_only():
+            raise ValueError("Con un torso de catálogo la figura sale entera del catálogo: no hay piezas del modelo para comparar")
+        ref = PR.reference_meshes(self._catalog(), figura)
+        items = self.part_preview_items() if self.project.part_scales else {}
+        if not items:
+            items = self.divide_model() if not self.project.part_scales else self.preview_parts(progress)
+        model = PR.model_meshes(items, self.project)
+        if not model:
+            raise ValueError("No se pudieron armar las piezas del modelo (revisá planos y siluetas).")
+        kind_place = {"arm": "brazo", "leg": "pierna"}
+        scales = {kind_place.get(self._limb_kind(p), p): self.part_scale(p) for p in self.scale_places()}
+        model, ref, note = PR.harmonize(model, ref)
+        return {"figura": figura, "model": model, "ref": ref, "scales": scales, "nota": note}
+
+    def _limb_kind(self, place: str):
+        spec = self.limb(place)
+        return None if spec is None else spec.kind
+
     def divide_model(self) -> dict:
         probs = self.problems()
         if probs:
