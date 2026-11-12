@@ -126,6 +126,22 @@ def sort_pieces(metas, key: str = "tipo", descending: bool = False) -> list[Piec
     return sorted(metas, key=lambda m: (row_cells(m)[key].lower(), m.display_name.lower(), m.version), reverse=descending)
 
 
+def next_row(n: int, key: str, current: int | None, selected: list[int]) -> int | None:
+    """Fila a la que lleva una tecla de navegación en una lista de `n` filas: `key` = «up», «down», «home», «end», «pgup» o «pgdn».
+    Parte de la fila actual (`current`, la de la última selección) o, sin ella, de lo elegido: hacia arriba desde la primera
+    elegida, hacia abajo desde la última; sin nada elegido, ↓ va a la primera y ↑ a la última. Se queda en los extremos."""
+    if n <= 0:
+        return None
+    if key == "home":
+        return 0
+    if key == "end":
+        return n - 1
+    step = {"up": -1, "down": 1, "pgup": -10, "pgdn": 10}[key]
+    if current is None or not 0 <= current < n:
+        current = (min(selected) if step < 0 else max(selected)) if selected else (n if step < 0 else -1)
+    return max(0, min(n - 1, current + step))
+
+
 def row_text(meta: PieceMeta) -> str:
     """Una línea de la lista: «pierna-belgrano-01@2 · pierna · borrador · belgrano_viejo.stl»."""
     parts = [meta.ref if not meta.nombre else f"{meta.nombre} ({meta.ref})", meta.tipo, meta.estado]

@@ -10,6 +10,8 @@ _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic
 - [x] Tabla con columnas ordenables, columna «Articulación», búsqueda por nombre.
 - [x] Pasadores y eje de articulación como sólidos en la vista previa + leyenda.
 - [/] **Correr la suite** (`pytest tests/test_catalog_rename_columns.py tests/test_catalog_manager.py tests/test_catalog.py`) y probar la ventana real con GTK + GL: este parche se armó sin GTK ni GL, ventana y vista previa sin probar.
+- [x] Arreglo (2026-11-11): la ventana «Administrar catálogo» no se podía achicar ni maximizar porque la cabecera de columnas (79 caracteres fijos) y el texto largo de la barra fijaban el ancho mínimo; ahora la cabecera va en un `ScrolledWindow` EXTERNAL sincronizado con la lista, el texto se acorta con «…» y el `Paned` deja encoger los dos lados.
+- [x] Flechas ↑ / ↓ (y Inicio / Fin / Re Pág / Av Pág; Mayús suma a lo elegido) eligen la fila anterior / siguiente: la lógica está en `catalog_manager.next_row` (con test); desde el buscador, ↑ / ↓ también mueven la lista. Sin probar en GTK real.
 - [ ] Usar el nombre también en «Armar desde catálogo» (hoy esos menús muestran el `id`).
 
 ### Latest Blockers/Discoveries

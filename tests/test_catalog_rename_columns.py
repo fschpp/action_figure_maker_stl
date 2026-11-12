@@ -127,3 +127,14 @@ def test_controller_rename_and_old_piece_files_load(cat, tmp_path):
     assert P.PieceMeta.from_dict(d).nombre == ""                         # fichas viejas sin «nombre»
     d["nombre"] = "Otro"
     assert P.PieceMeta.from_dict(d).display_name == "Otro"
+
+
+def test_arrow_keys_pick_previous_and_next_row_and_stay_at_the_ends():
+    n = CM.next_row
+    assert n(0, "down", None, []) is None
+    assert n(5, "down", None, []) == 0 and n(5, "up", None, []) == 4           # sin nada elegido: ↓ la primera, ↑ la última
+    assert n(5, "down", None, [1, 3]) == 4 and n(5, "up", None, [1, 3]) == 0   # desde lo elegido: ↓ la última, ↑ la primera
+    assert n(5, "down", 2, [2]) == 3 and n(5, "up", 2, [2]) == 1
+    assert n(5, "down", 4, [4]) == 4 and n(5, "up", 0, [0]) == 0               # se queda en los extremos
+    assert n(30, "pgdn", 5, []) == 15 and n(30, "pgup", 5, []) == 0
+    assert n(30, "home", 7, [7]) == 0 and n(30, "end", 7, [7]) == 29

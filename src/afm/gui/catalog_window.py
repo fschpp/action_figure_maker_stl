@@ -14,7 +14,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gdk, GLib, Gtk, Pango  # noqa: E402
 
 from .catalog_manager import (ALL_TYPES, COLUMNS, PIN_LEGEND, CatalogManager, JointEditor, PreviewRenderer, WristCutter,  # noqa: E402
-                              can_cut_wrist, can_retune_joint, detail_text, matches, row_cells, sort_pieces)
+                              can_cut_wrist, can_retune_joint, detail_text, matches, next_row, row_cells, sort_pieces)
 from .catalog_manager import ZOOM_STEP, zoom_about  # noqa: E402
 from .catalog_manager import view_bounds as CM_view_bounds  # noqa: E402
 from .window import _no_scroll_change  # noqa: E402
@@ -32,6 +32,7 @@ class CatalogManagerWindow(Gtk.Window):
         self._rows: list = []                 # [(Gtk.ListBoxRow, PieceMeta)] de lo que muestra la lista
         self._updating = False
         self._signature = None
+        self._kb_index: int | None = None      # fila de la última selección con el teclado o el ratón (de ahí siguen las flechas)
         self._sort = ("tipo", False)           # (columna, descendente): ordenar por «tipo» agrupa cabezas, torsos, piernas…
         self._head_labels: dict[str, Gtk.Label] = {}
         self._shown = None                    # (meta, malla) de la pieza que se está viendo
@@ -55,8 +56,8 @@ class CatalogManagerWindow(Gtk.Window):
         paned.set_end_child(self._build_detail())
         paned.set_position(640)
         paned.set_resize_start_child(False)
-        paned.set_shrink_start_child(False)
-        paned.set_shrink_end_child(False)
+        paned.set_shrink_start_child(True)           # ninguno de los dos lados fija el tamaño mínimo de la ventana: se puede achicar y maximizar
+        paned.set_shrink_end_child(True)
         self.set_child(paned)
         self.connect("destroy", lambda *_: self.preview.close())
         win_keys = Gtk.EventControllerKey()
@@ -83,7 +84,9 @@ class CatalogManagerWindow(Gtk.Window):
         row.append(btn_all)
         box.append(row)
 
-        box.append(self._build_header())
+        head_sw = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.EXTERNAL, vscrollbar_policy=Gtk.PolicyType.NEVER)
+        head_sw.set_child(self._build_header())        # EXTERNAL: no pide su ancho completo como mínimo (si no, la ventana no se podría achicar)
+        box.append(head_sw)
         self.listbox = Gtk.ListBox(selection_mode=Gtk.SelectionMode.MULTIPLE)
         self.listbox.add_css_class("boxed-list")
         self.listbox.connect("selected-rows-changed", self._on_selection)
@@ -93,10 +96,16 @@ class CatalogManagerWindow(Gtk.Window):
         click.connect("pressed", self._on_list_click)
         self.listbox.add_controller(click)
         keys = Gtk.EventControllerKey()
+        keys.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)   # antes que GTK: en una lista de selección múltiple sus flechas solo mueven el foco
         keys.connect("key-pressed", self._on_key)
         self.listbox.add_controller(keys)
-        sw = Gtk.ScrolledWindow(vexpand=True, hexpand=True, min_content_width=380)
+        search_keys = Gtk.EventControllerKey()                     # desde el buscador, ↓ / ↑ ya mueven la selección de la lista
+        search_keys.connect("key-pressed", lambda _c, kv, _kc, st: self._on_arrow(kv, st, focus=False) if kv in (Gdk.KEY_Up, Gdk.KEY_Down) else False)
+        self.search.add_controller(search_keys)
+        sw = Gtk.ScrolledWindow(vexpand=True, hexpand=True, min_content_width=240)
         sw.set_child(self.listbox)
+        self.listbox.set_adjustment(sw.get_vadjustment())          # enfocar una fila la trae a la vista (flechas, Inicio / Fin)
+        sw.get_hadjustment().connect("value-changed", lambda a: head_sw.get_hadjustment().set_value(a.get_value()))   # la cabecera acompaña
         box.append(sw)
         hint = Gtk.Label(label="Clic elige una sola pieza; Mayús + clic (o Ctrl + clic) agrega o quita otra. Filtrá por texto y usá «Elegir todas las que se ven» "
                                "para borrar de una vez, por ejemplo, todo lo catalogado desde un proyecto equivocado. Clic en el título de una columna "
@@ -173,7 +182,7 @@ class CatalogManagerWindow(Gtk.Window):
         legend.add_css_class("dim-label")
         box.append(legend)
 
-        bar = Gtk.Box(spacing=6)
+        bar = Gtk.Box(spacing=6)                                   # (los botones se recortan si la ventana es muy angosta; el texto largo se acorta)
         reset = Gtk.Button(label="Vista 3/4")
         reset.set_tooltip_text("Vuelve a la vista 3/4 y sin zoom. Arrastrar con el ratón gira la pieza, la rueda acerca o aleja y el botón derecho la mueve; los puntos naranjas son los puertos. "
                                "Con «Cortar la mano…» activo, un clic marca un punto de la muñeca.")
@@ -184,7 +193,8 @@ class CatalogManagerWindow(Gtk.Window):
             b.set_tooltip_text(tip)
             b.connect("clicked", lambda _b, f=fac: self._zoom_by(f))
             bar.append(b)
-        bar.append(Gtk.Label(label="Arrastrá para girar · rueda o pellizco = zoom · botón derecho = mover · naranja = puertos", xalign=0, hexpand=True))
+        bar.append(Gtk.Label(label="Arrastrá para girar · rueda o pellizco = zoom · botón derecho = mover · naranja = puertos", xalign=0, hexpand=True,
+                             ellipsize=Pango.EllipsizeMode.END, width_chars=8))
         self.btn_wrist = Gtk.Button(label="Cortar la mano…")
         self.btn_wrist.set_sensitive(False)
         self.btn_wrist.connect("clicked", self._on_wrist_start)
@@ -682,6 +692,7 @@ class CatalogManagerWindow(Gtk.Window):
         finally:
             self._updating = False
         self.listbox.grab_focus()
+        self._kb_index = next((i for i, (r, _m) in enumerate(self._rows) if r is row), None)
         self._on_selection()
 
     def _selected_refs(self) -> list[str]:
@@ -706,6 +717,7 @@ class CatalogManagerWindow(Gtk.Window):
 
     def _reload(self) -> None:
         keep = set(self._selected_refs())
+        self._kb_index = None                                # las filas se rehacen: las flechas siguen desde lo elegido
         self._signature = self._disk_signature()
         everything = self.ctrl.catalog_pieces()              # una sola lectura del catálogo por recarga
         if sorted({m.tipo for m in everything}) != self._type_names():
@@ -883,7 +895,34 @@ class CatalogManagerWindow(Gtk.Window):
         self._zoom, self._pan = 1.0, (0.0, 0.0)
         self._redraw()
 
-    def _on_key(self, _ctl, keyval, _code, _state) -> bool:
+    ARROW_KEYS = (Gdk.KEY_Up, Gdk.KEY_KP_Up, Gdk.KEY_Down, Gdk.KEY_KP_Down, Gdk.KEY_Home, Gdk.KEY_End, Gdk.KEY_Page_Up, Gdk.KEY_Page_Down)
+
+    def _on_arrow(self, keyval, state, focus: bool = True) -> bool:
+        """↑ / ↓ eligen la pieza anterior / siguiente (Mayús las suma a lo elegido); Inicio / Fin van a la primera / última y
+        Re Pág / Av Pág saltan 10. Elige solo esa pieza, como un clic."""
+        rows = [row for row, _m in self._rows]
+        if not rows:
+            return True
+        key = {Gdk.KEY_Up: "up", Gdk.KEY_KP_Up: "up", Gdk.KEY_Down: "down", Gdk.KEY_KP_Down: "down", Gdk.KEY_Home: "home",
+               Gdk.KEY_End: "end", Gdk.KEY_Page_Up: "pgup", Gdk.KEY_Page_Down: "pgdn"}[keyval]
+        new = next_row(len(rows), key, self._kb_index, [i for i, r in enumerate(rows) if r.is_selected()])
+        extend = bool(state & Gdk.ModifierType.SHIFT_MASK)
+        self._updating = True                                      # un solo redibujado al final
+        try:
+            if not extend:
+                self.listbox.unselect_all()
+            self.listbox.select_row(rows[new])
+        finally:
+            self._updating = False
+        self._kb_index = new
+        if focus:
+            rows[new].grab_focus()                                 # también la trae a la vista
+        self._on_selection()
+        return True
+
+    def _on_key(self, _ctl, keyval, _code, state) -> bool:
+        if keyval in self.ARROW_KEYS:
+            return self._on_arrow(keyval, state)
         if keyval == Gdk.KEY_F2:
             self._on_rename()
             return True
