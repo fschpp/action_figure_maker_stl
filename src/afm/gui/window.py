@@ -1208,7 +1208,7 @@ exportar; tarda un poco más.")
         if self.chk_cut_ref.get_active() != ctrl.cut_ref_visible:
             self.chk_cut_ref.set_active(ctrl.cut_ref_visible)
         self.chk_cut_ref.set_sensitive(bool(figs))
-        self.lbl_cut_ref.set_text(ctrl.cut_ref_text() if off_limb is not None else "")
+        self.lbl_cut_ref.set_text(ctrl.cut_ref_text())
         self.btn_cut_match.set_sensitive(off_limb is not None and bool(ctrl.cut_ref_rows()))
 
     def _on_cut_offset(self, spin) -> None:

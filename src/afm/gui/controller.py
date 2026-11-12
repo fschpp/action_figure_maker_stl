@@ -4505,16 +4505,25 @@ class Controller:
         return out
 
     def cut_ref_text(self) -> str:
-        """Texto de la ventana bajo «Corte a»: una línea por brazo / pierna («Brazo: tu corte a 6,20 mm · Güemes corta a 7,70 mm →
-        mové +1,50 mm»). Si falta algo para mostrarlo, dice qué."""
-        if not self.session.loaded or self.offset_limb() is None:
+        """Texto de la ventana bajo «Corte a»: una línea por brazo / pierna sobre la simetría («Brazo: tu corte a 6,20 mm · Güemes corta
+        a 7,70 mm → mové +1,50 mm»); con varios, el que se está editando lleva «▶». Se ve aunque no haya un miembro activo (sirve para
+        planear los cortes); si falta algo para mostrarlo, dice qué."""
+        if not self.session.loaded:
+            return ""
+        try:
+            if not any(self.session.limb_offset(l.name) is not None for l in self.session.project.limbs if l.kind in CR.KINDS):
+                return ""
+        except KeyError:
             return ""
         if not self.session.catalog_root:
             return "Referencia del corte: abrí un catálogo para ver a cuántos mm corta una figura ya cortada."
         if not self.cut_ref_figures():
             return "Referencia del corte: el catálogo no tiene piezas de brazo o pierna con corte lateral."
         rows = self.cut_ref_rows()
-        return "\n".join(r["texto"] for r in rows) if rows else "Referencia del corte: la figura elegida no tiene corte de brazo / pierna que aplique."
+        if not rows:
+            return "Referencia del corte: la figura elegida no tiene corte de brazo / pierna que aplique."
+        active = self.offset_limb()
+        return "\n".join((("▶ " if r["id"] == active else "") if len(rows) > 1 else "") + r["texto"] for r in rows)
 
     def match_cut_to_ref(self, name: str | None = None) -> bool:
         """«Igualar a la referencia»: lleva el corte de `name` (por defecto el miembro activo) a la distancia que corta la figura de
@@ -4530,11 +4539,17 @@ class Controller:
 
     def _sync_cut_ref(self, scene) -> None:
         """La guía en el visor: un plano celeste a la distancia a la que corta la referencia, aparte del plano blanco del corte actual
-        (el de la silueta no se mueve). Se ve de canto como una línea en la vista de frente."""
+        (el de la silueta no se mueve). Se ve de canto como una línea en la vista de frente. Es solo la del miembro que se está
+        editando (el mismo que mueve «Corte a»): al pasar de brazo a pierna la guía del brazo se retira. Sigue la casilla de
+        visibilidad de ese plano en la lista, como el plano blanco del corte."""
         wanted = set()
-        if self.cut_ref_visible and self.session.loaded and not self.busy:
+        active = self.offset_limb() if (self.cut_ref_visible and self.session.loaded and not self.busy) else None
+        if active is not None:
             sess = self.session
+            visible = next((e.visible for e in self.plane_entries() if e.id == active), True)
             for r in self.cut_ref_rows():
+                if r["id"] != active:
+                    continue
                 try:
                     plane = cut_plane(sess.limb(r["id"]), r["ref"].mm)
                 except (ValueError, KeyError):
@@ -4544,7 +4559,7 @@ class Controller:
                 key = f"corteref:{r['id']}"
                 wanted.add(key)
                 scene.set_plane(key, plane, self.plane_half_size, center=sess.work.bounds.mean(axis=0), color=_CUT_REF_COLOR)
-                scene.show(key, self.group_visible("planes"))
+                scene.show(key, visible and self.group_visible("planes"))
         for key in [k for k in scene.items if k.startswith("corteref:") and not k.endswith(":borde") and k not in wanted]:
             scene.remove(key)
 

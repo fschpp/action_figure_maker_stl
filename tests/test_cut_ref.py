@@ -45,6 +45,9 @@ def _ctrl(stl_path, root=None):
     s.add_limb("brazo 2", "arm", Plane.from_normal(sym.origin, sym.normal, "brazo 2"), auto=True, extrude="outward")
     s.set_limb_polygon("brazo 2", sym.to_world(np.array([[-40, z0], [40, z0], [40, z1], [-40, z1]], float)))
     s.set_limb_offset("brazo 2", 15.0)
+    s.add_limb("pierna 2", "leg", Plane.from_normal(sym.origin, sym.normal, "pierna 2"), auto=True, extrude="outward")
+    s.set_limb_polygon("pierna 2", sym.to_world(np.array([[-40, z0 - 30], [40, z0 - 30], [40, z0], [-40, z0]], float)))
+    s.set_limb_offset("pierna 2", 7.0)
     if root:
         s.open_catalog(root)
     return c
@@ -63,7 +66,8 @@ class Scene:
         self.items[key] = plane
 
     def show(self, key, visible):
-        pass
+        self.shown = getattr(self, "shown", {})
+        self.shown[key] = visible
 
     def remove(self, key):
         self.items.pop(key, None)
@@ -107,14 +111,22 @@ def test_reading_and_text():
 
 # ------------------------------------------------------------------ controlador
 def test_rows_text_and_match(ctrl):
+    ctrl.edit_limb = "brazo 2"                                              # con dos miembros sobre la simetría hace falta uno activo
     rows = ctrl.cut_ref_rows()
-    assert [r["id"] for r in rows] == ["brazo 2"]                          # solo los miembros sobre la simetría
+    assert [r["id"] for r in rows] == ["brazo 2", "pierna 2"]              # solo los miembros sobre la simetría
+    rows = [r for r in rows if r["id"] == "brazo 2"]
     ref = rows[0]["ref"]
     assert rows[0]["corte_mm"] == pytest.approx(15.0) and rows[0]["lectura"]["dif_mm"] == pytest.approx(ref.mm - 15.0)
-    assert f"{ref.figura} corta a" in ctrl.cut_ref_text() and "mové +" in ctrl.cut_ref_text()
+    txt = ctrl.cut_ref_text()
+    assert f"{ref.figura} corta a" in txt and "mové +" in txt
+    lines = txt.split("\n")
+    assert len(lines) == 2 and lines[0].startswith("▶ Brazo 2") and lines[1].startswith("Pierna 2")   # el activo lleva ▶
+    ctrl.edit_limb = None                                                   # sin miembro activo la lectura se ve igual
+    assert ctrl.cut_ref_text().count("corta a") == 2                        # (el «▶» sigue en el último editado)
+    ctrl.edit_limb = "brazo 2"
     assert ctrl.match_cut_to_ref("brazo 2")
     assert ctrl.session.limb_offset("brazo 2") == pytest.approx(ref.mm)
-    assert ctrl.cut_ref_rows()[0]["lectura"]["igual"] and ctrl.cut_ref_text().endswith("→ igual")
+    assert next(r for r in ctrl.cut_ref_rows() if r["id"] == "brazo 2")["lectura"]["igual"]
 
 
 def test_unknown_reference_falls_back_to_default(ctrl):
@@ -127,9 +139,10 @@ def test_unknown_reference_falls_back_to_default(ctrl):
 
 
 def test_guide_plane_is_drawn_at_the_reference_distance(ctrl):
+    ctrl.edit_limb = "brazo 2"
     sc = Scene()
     ctrl._sync_cut_ref(sc)
-    ref = ctrl.cut_ref_rows()[0]["ref"]
+    ref = next(r["ref"] for r in ctrl.cut_ref_rows() if r["id"] == "brazo 2")
     assert list(sc.items) == ["corteref:brazo 2"]
     assert abs(float(sc.items["corteref:brazo 2"].origin[0])) == pytest.approx(ref.mm, abs=1e-6)   # simetría en x = 0
     ctrl.toggle_cut_ref()                                                   # apagada: se retira
@@ -140,8 +153,37 @@ def test_guide_plane_is_drawn_at_the_reference_distance(ctrl):
     assert "corteref:brazo 2" in sc.items
 
 
+def test_guide_follows_only_the_limb_being_edited(ctrl):
+    """Al pasar de editar el brazo a la pierna, la guía del brazo se retira (no quedan las dos a la vez)."""
+    sc = Scene()
+    ctrl.edit_limb = "brazo 2"
+    ctrl._sync_cut_ref(sc)
+    assert list(sc.items) == ["corteref:brazo 2"]
+    ctrl.edit_limb = "pierna 2"
+    ctrl._sync_cut_ref(sc)
+    assert list(sc.items) == ["corteref:pierna 2"]
+    leg_ref = next(r["ref"] for r in ctrl.cut_ref_rows() if r["id"] == "pierna 2")
+    assert abs(float(sc.items["corteref:pierna 2"].origin[0])) == pytest.approx(leg_ref.mm, abs=1e-6)
+
+
+def test_guide_respects_the_plane_visibility_checkbox(ctrl):
+    ctrl.set_group_visible("planes", True)                                  # «Mostrar todos los planos»
+    ctrl.edit_limb = "pierna 2"
+    sc = Scene()
+    ctrl._sync_cut_ref(sc)
+    assert sc.shown["corteref:pierna 2"] is True
+    ctrl.toggle_plane("pierna 2")                                           # la casilla de la lista de planos
+    ctrl._sync_cut_ref(sc)
+    assert sc.shown["corteref:pierna 2"] is False
+    ctrl.toggle_plane("pierna 2")
+    ctrl.set_group_visible("planes", False)                                 # el interruptor general también la oculta
+    ctrl._sync_cut_ref(sc)
+    assert sc.shown["corteref:pierna 2"] is False
+
+
 def test_without_catalog_says_what_is_missing(stl_path):
     c = _ctrl(stl_path)
+    c.edit_limb = "brazo 2"
     assert c.cut_ref_rows() == [] and c.cut_ref_figures() == []
     assert "abrí un catálogo" in c.cut_ref_text()
     sc = Scene()
