@@ -129,6 +129,7 @@ def _help(parent: Gtk.Box, text: str) -> None:
 
 class MainWindow(Gtk.ApplicationWindow):
     _catalog_win = None                                # ventana «Administrar catálogo» abierta (una sola)
+    _prop_win = None                                   # ventana «Comparar proporciones con un patrón» abierta (una sola)
     _build_win = None                                  # ventana «Armar figura desde catálogo» abierta (una sola)
 
     def __init__(self, app: Gtk.Application, ctrl: Controller):
@@ -643,8 +644,12 @@ En naranja se ve el contorno del pasador (vástago y cabeza); en verde, la posic
         for w in (self.btn_cat_forget, self.btn_cat_review, self.btn_cat_scale, self.btn_cat_align, self.chk_part_preview):
             sec.append(w)
         self.btn_divide_model = self._button("Dividir figura actual y ajustar piezas…", self._on_divide_model)
+        self.btn_proportions = self._button("Comparar proporciones con un patrón…", self._on_proportions)
+        self.btn_proportions.set_tooltip_text("Tu figura en piezas al lado del cuerpo de una figura patrón del catálogo (p. ej. Güemes), en tres "
+                                              "vistas, para ir igualando la escala de cada pieza viendo el resultado.")
         self.btn_reset_piece_scales = self._button("Restablecer escalas por pieza", lambda *_: self.ctrl.reset_part_scales())
         sec.append(self.btn_divide_model)
+        sec.append(self.btn_proportions)
         sec.append(self.btn_reset_piece_scales)
         sec.append(Gtk.Label(label="Pieza de cada lugar (escala ×1 = original, X/Y/Z por separado; al cambiar hay que generar)", xalign=0, margin_top=8))
         self.parts_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -1597,6 +1602,7 @@ exportar; tarda un poco más.")
         self.btn_cat_add.set_sensitive(bool(loaded and root and not ctrl.busy))
         self.btn_cat_guide.set_sensitive(bool(loaded and not ctrl.busy))
         self.btn_cat_fitcm.set_sensitive(bool(loaded and root and not ctrl.busy))
+        self.btn_proportions.set_sensitive(bool(loaded and root and not ctrl.busy))
         self.btn_cat_manage.set_sensitive(not ctrl.busy)       # sin proyecto ni catálogo abierto: al apretar abre el recordado o pide la carpeta
         self.btn_cat_build.set_sensitive(not ctrl.busy)
         self.btn_build_cat.set_sensitive(not ctrl.busy)
@@ -1809,6 +1815,26 @@ exportar; tarda un poco más.")
         self.ctrl._changed("Dividiendo la figura en piezas crudas…", scene=False)
         self._run_task("Dividiendo la figura…", lambda progress: self.ctrl.session.divide_model(),
                        lambda res, err: self.ctrl.finish_preview_parts(res, err), "Figura dividida")
+
+    def _on_proportions(self, *_):
+        """«Comparar proporciones con un patrón…»: ventana (no modal) con tu figura y el patrón del catálogo, en tres vistas."""
+        if self._prop_win is not None:
+            self._prop_win.present()
+            return
+        if not self.ctrl.proportion_figures():
+            self.ctrl._changed("Abrí un catálogo con una figura patrón completa (cabeza, torso, brazo y pierna del mismo origen).", scene=False)
+            return
+        from .proportions_window import ProportionsWindow
+
+        win = ProportionsWindow(self, self.ctrl)
+        self._prop_win = win
+        win.connect("close-request", self._on_proportions_closed)
+        win.present()
+        win.reload()
+
+    def _on_proportions_closed(self, *_) -> bool:
+        self._prop_win = None
+        return False
 
     def _on_cut_guide(self, *_):
         """«Guía de cortes»: ventana (no modal) con la medición de cada corte y su cobertura del catálogo."""

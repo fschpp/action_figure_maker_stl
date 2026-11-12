@@ -3035,6 +3035,36 @@ class Controller:
             return False
         return self.set_ref_height(h)
 
+    def proportion_figures(self) -> list[str]:
+        """Figuras patrón que ofrece el comparador de proporciones: las del catálogo abierto con cuerpo (cabeza, torso, miembros)."""
+        if not self.session.catalog_root:
+            return []
+        from .. import proportions as PR
+
+        try:
+            figs = PR.catalog_figures(self.session._catalog())
+        except ValueError:
+            return []
+        return sorted(f for f, parts in figs.items() if {"torso", "brazo", "pierna"} <= set(parts))
+
+    def proportions_job(self, figura: str):
+        """Trabajo `job(progress) -> dict` del comparador (apto para un hilo): ver `Session.proportions_snapshot`. None si no se puede."""
+        if self.busy or not self._need_loaded():
+            return None
+        if not self.session.catalog_root:
+            self._changed("Primero abrí el catálogo de la línea: de ahí sale la figura patrón.", scene=False)
+            return None
+        self.busy = True
+        self._changed("Armando la comparación de proporciones…", scene=False)
+        return lambda progress=None: self.session.proportions_snapshot(figura, progress)
+
+    def finish_proportions(self, error: Exception | None = None) -> None:
+        self.busy = False
+        if error is not None:
+            self._changed(f"No se pudo armar la comparación: {error}", scene=False)
+        else:
+            self._changed("Comparación de proporciones lista.", scene=False)
+
     def divide_model(self) -> bool:
         if self.busy or not self._need_loaded():
             return False
