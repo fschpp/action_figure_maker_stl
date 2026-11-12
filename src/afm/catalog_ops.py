@@ -34,8 +34,8 @@ COMMANDS: dict[str, tuple[str, bool, bool]] = {
     "certificar": (GUI, True, False),
     "matriz": (GUI, True, True),
     "cobertura": (GUI, False, False),
-    "contrato": (GUI, False, True),            # ver / validar en la ventana; calibrar y guardar quedan en consola (fase 3)
-    "capacidad": (CONSOLE, True, True),        # fase 3
+    "contrato": (GUI, False, True),            # ver, calibrar (tolerancia 0,4 mm; otra tolerancia, en consola), guardar la propuesta y borrar
+    "capacidad": (GUI, True, True),            # «Capacidad» de la pieza y «Medir y guardar capacidad…» del menú (sin rayo de selección de tolerancia)
     "estado": (GUI, False, True),             # «Estado: … Aplicar a las elegidas» (en lote)
 }
 
@@ -265,3 +265,101 @@ def write_matrix(root: str, out: str | None = None, complete: bool = False, prog
 
         results = compat.check_all(cat, False, tick)
     return compat.write_matrix(cat, out, results)
+
+
+# ---------------------------------------------------------------------------------------------------- capacidad de las tomas
+def measurable(cat: Catalog, meta) -> list[str]:
+    """Nombres de las tomas de `meta` con pasador de la línea (las que `capacidad` sabe medir)."""
+    from .capacity import pin_of
+
+    return [n for n, p in meta.puertos.items() if p.rol == "toma" and pin_of(p.clase, cat.params) is not None]
+
+
+@dataclass
+class CapacityReport:
+    lines: list[str] = field(default_factory=list)
+    done: int = 0                      # tomas medidas
+    skipped: int = 0                   # tomas sin medida (ningún rayo atraviesa el cuerpo)
+    wrote: bool = False
+    cancelled: bool = False
+
+
+def measure_capacity(root: str, refs: list[str] | None = None, write: bool = False, cancel=None, emit=None) -> CapacityReport:
+    """`afm catalogo capacidad`: mide (y con `write` guarda en los .pieza.json) la capacidad de las tomas con pasador.
+    Abre su propio `Catalog` (se puede llamar desde un hilo); `cancel()` → True corta entre piezas (lo ya guardado queda)."""
+    from .capacity import demand, head_gap, pin_of, pin_shift
+
+    cat = Catalog.open(root)
+    params = cat.params
+    metas = [cat.meta(r) for r in refs] if refs else cat.list()
+    rep = CapacityReport()
+
+    def add(line: str) -> None:
+        rep.lines.append(line)
+        if emit is not None:
+            emit(line)
+
+    for m in metas:
+        if cancel is not None and cancel():
+            rep.cancelled = True
+            break
+        sockets = measurable(cat, m)
+        if not sockets:
+            continue
+        caps = cat.measure_capacity(m.ref, write=write)
+        for name in sockets:
+            cap, port = caps.get(name), m.puertos[name]
+            dem = demand(port.clase, params)
+            if cap is None:
+                add(f"  {m.ref:<28} {name:<12} sin medida (ningún rayo atraviesa el cuerpo desde la cara)")
+                rep.skipped += 1
+                continue
+            need = dem["profundidad_mm"] + dem["pared_min_mm"]
+            line = f"  {m.ref:<28} {name:<12} profundidad {cap['profundidad_mm']:.2f} mm (pide {need:.2f}, margen {cap['profundidad_mm'] - need:+.2f})"
+            gap = None
+            if cap.get("x_mm") is not None:
+                gap = head_gap(pin_of(port.clase, params), cap["x_mm"], cap["dir_x"], pin_shift(port.clase, params))
+                line += f" · cabezas a {gap:.2f} mm (mínimo {dem['separacion_min_mm']:.2f})"
+            if cap["profundidad_mm"] < need or (gap is not None and gap < dem["separacion_min_mm"]):
+                line += "  ← el pasador de la línea no cabe"
+            add(line)
+            rep.done += 1
+    rep.wrote = bool(write and rep.done)
+    add(f"{rep.done} toma(s) medida(s)" + (f", {rep.skipped} sin medida" if rep.skipped else "")
+        + (" · guardado en los .pieza.json" if rep.wrote else " · no se guardó nada (usar --escribir)" if rep.done else "")
+        + (" · cancelado" if rep.cancelled else ""))
+    return rep
+
+
+# ---------------------------------------------------------------------------------------------------- contrato: calibrar / guardar / borrar
+@dataclass
+class ContractProposal:
+    lines: list[str] = field(default_factory=list)
+    problems: list[str] = field(default_factory=list)
+    contract: object = None            # `interface.Contract` listo para `save_contract` (None si no hubo propuesta)
+
+
+def propose_contract(cat: Catalog, tolerance: float = 0.4, metric: str = "equivalente") -> ContractProposal:
+    """`afm catalogo contrato --calibrar`: propone un contrato a partir de las piezas del catálogo (no guarda nada)."""
+    from .interface import format_contract, propose
+
+    prop = propose(cat, tolerance, metric)
+    out = ["Propuesta (a confirmar):", *format_contract(prop.contract)]
+    for clase, rows in sorted(prop.muestras.items()):
+        out.append(f"  muestras de {clase}: " + ", ".join(f"{ref}:{name} r eq {req:.2f} / inscrito {rins:.2f} x {x:.2f}"
+                                                         for ref, name, r, x, req, rins in rows))
+    out += [f"AVISO: {n}" for n in prop.notas]
+    probs = prop.contract.problems(cat.params)
+    out += [f"PROBLEMA: {p}" for p in probs]
+    return ContractProposal(out, probs, prop.contract)
+
+
+def save_contract(cat: Catalog, contract) -> str:
+    """Guarda `contract` en linea.json (reemplaza el que hubiera) y devuelve su huella."""
+    cat.set_contract(contract)
+    return contract.hash()
+
+
+def clear_contract(cat: Catalog) -> bool:
+    """Borra el contrato de linea.json; False si la línea no tenía."""
+    return bool(cat.clear_contract())

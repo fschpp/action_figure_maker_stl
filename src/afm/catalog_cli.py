@@ -181,66 +181,28 @@ def _slug(text: str) -> str:
 
 
 def _run_capacity(cat, args) -> int:
-    """`afm catalogo capacidad RUTA [ID …] [--escribir]`: mide (y opcionalmente guarda) la capacidad de las tomas con pasador."""
-    from .capacity import check, demand, head_gap, pin_of, pin_shift
-
-    params = cat.params
-    metas = [cat.meta(r) for r in args.refs] if args.refs else cat.list()
-    done = skipped = 0
-    for m in metas:
-        sockets = [n for n, p in m.puertos.items() if p.rol == "toma" and pin_of(p.clase, params) is not None]
-        if not sockets:
-            continue
-        caps = cat.measure_capacity(m.ref, write=args.escribir)
-        for name in sockets:
-            cap, port = caps.get(name), m.puertos[name]
-            dem = demand(port.clase, params)
-            if cap is None:
-                print(f"  {m.ref:<28} {name:<12} sin medida (ningún rayo atraviesa el cuerpo desde la cara)")
-                skipped += 1
-                continue
-            need = dem["profundidad_mm"] + dem["pared_min_mm"]
-            line = f"  {m.ref:<28} {name:<12} profundidad {cap['profundidad_mm']:.2f} mm (pide {need:.2f}, margen {cap['profundidad_mm'] - need:+.2f})"
-            if cap.get("x_mm") is not None:
-                gap = head_gap(pin_of(port.clase, params), cap["x_mm"], cap["dir_x"], pin_shift(port.clase, params))
-                line += f" · cabezas a {gap:.2f} mm (mínimo {dem['separacion_min_mm']:.2f})"
-            if cap["profundidad_mm"] < need or (cap.get("x_mm") is not None and gap < dem["separacion_min_mm"]):
-                line += "  ← el pasador de la línea no cabe"
-            print(line)
-            done += 1
-    print(f"{done} toma(s) medida(s)" + (f", {skipped} sin medida" if skipped else "")
-          + (" · guardado en los .pieza.json" if args.escribir and done else " · no se guardó nada (usar --escribir)" if done else ""))
+    """`afm catalogo capacidad RUTA [ID …] [--escribir]`: ver `catalog_ops.measure_capacity`."""
+    OPS.measure_capacity(cat.root, args.refs or None, args.escribir, emit=print)
     return 0
 
 
 def _run_contract(cat, args) -> int:
-    from .interface import ContractError, format_contract, propose
-
     if args.calibrar:
         tol = args.tolerancia if args.tolerancia is not None else 0.4
-        prop = propose(cat, tol, args.metrica)
-        print("Propuesta (a confirmar):")
-        for line in format_contract(prop.contract):
+        prop = OPS.propose_contract(cat, tol, args.metrica)
+        for line in prop.lines:
             print(line)
-        for clase, rows in sorted(prop.muestras.items()):
-            print(f"  muestras de {clase}: " + ", ".join(f"{ref}:{name} r eq {req:.2f} / inscrito {rins:.2f} x {x:.2f}"
-                                                         for ref, name, r, x, req, rins in rows))
-        for n in prop.notas:
-            print("AVISO:", n)
-        probs = prop.contract.problems(cat.params)
-        for p in probs:
-            print("PROBLEMA:", p)
         if not args.guardar:
             print("(no se guardó nada; repetir con --guardar para escribirla en linea.json)")
-            return 1 if probs else 0
-        if probs:
+            return 1 if prop.problems else 0
+        if prop.problems:
             print("No se guarda: la propuesta tiene problemas.", file=sys.stderr)
             return 1
-        cat.set_contract(prop.contract)
-        print(f"Contrato guardado en {cat.root}/linea.json (huella {prop.contract.hash()})")
+        digest = OPS.save_contract(cat, prop.contract)
+        print(f"Contrato guardado en {cat.root}/linea.json (huella {digest})")
         return 0
     if args.quitar:
-        print("Contrato borrado de linea.json" if cat.clear_contract() else "La línea no tenía contrato")
+        print("Contrato borrado de linea.json" if OPS.clear_contract(cat) else "La línea no tenía contrato")
         return 0
     try:
         contract = cat.contract()

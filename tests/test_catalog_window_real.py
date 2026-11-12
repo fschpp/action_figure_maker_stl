@@ -161,3 +161,31 @@ def test_filter_dropdowns_do_not_clash_with_the_apply_state_row(win):
     win._on_apply_state()
     assert next(cells_of(row)["estado"] for row, m in win._rows if m.ref == "brazo-muneco-01@1") == "validada"
     assert "validada" in [win.dd_fstate.get_model().get_string(i) for i in range(win.dd_fstate.get_model().get_n_items())]
+
+
+def test_capacity_runs_from_the_window_and_saves_only_when_asked(win):
+    select(win, "torso-muneco-01@1")
+    assert win.btn_capacity.get_sensitive()
+    win._start_capacity(win._selected_refs(), False)
+    pump(lambda: not win._task_label)
+    assert "5 toma(s) medida(s)" in win._report_text() and "no se guardó nada" in win._report_text() and not win.ctrl.busy
+    from afm.catalog import Catalog
+
+    assert not Catalog.open(win.ctrl.session.catalog_root).meta("torso-muneco-01@1").puertos["cuello"].capacity
+    win._start_capacity(None, True)
+    pump(lambda: not win._task_label)
+    assert "guardado en los .pieza.json" in win._report_text()
+    assert Catalog.open(win.ctrl.session.catalog_root).meta("torso-muneco-01@1").puertos["cuello"].capacity
+    select(win, "brazo-muneco-01@1")
+    assert not win.btn_capacity.get_sensitive()                                           # el brazo no tiene tomas con pasador
+
+
+def test_contract_proposal_enables_the_save_item(win):
+    assert not win._btn_save_proposal.get_sensitive()
+    win._op_contract_propose()
+    assert "Propuesta (a confirmar)" in win._report_text() and win._btn_save_proposal.get_sensitive()
+    digest = win.mgr.save_proposal()                                                      # (el diálogo de confirmación no se maneja desde el test)
+    win._sync_ops_buttons()
+    assert not win._btn_save_proposal.get_sensitive() and win.ctrl.catalog_handle().contract().hash() == digest
+    win._op_contract()
+    assert "afm-interfaz-1" in win._report_text()

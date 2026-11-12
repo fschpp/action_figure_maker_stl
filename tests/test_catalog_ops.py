@@ -184,3 +184,58 @@ def test_certification_is_a_sortable_column_of_the_table(mgr):
     assert [cert[m.ref] for m in ordered] == sorted(cert.values())
     desc = CM.sort_pieces(metas, "certificacion", True, lambda m: cert[m.ref])
     assert [cert[m.ref] for m in desc] == sorted(cert.values(), reverse=True)
+
+
+# ---------------------------------------------------------------------------------------------------- fase 3: capacidad y contrato
+def test_capacity_report_and_cli_print_the_same_lines(cat_dir, capsys):
+    rep = OPS.measure_capacity(cat_dir)
+    assert rep.done == 5 and rep.skipped == 0 and not rep.wrote
+    assert rep.lines[0].startswith("  torso-muneco-01@1") and "pide 5.85" in rep.lines[0]
+    assert rep.lines[-1].endswith("no se guardó nada (usar --escribir)")
+    assert main(["catalogo", "capacidad", cat_dir]) == 0
+    assert capsys.readouterr().out.splitlines() == rep.lines
+
+
+def test_capacity_write_saves_into_the_piece_and_cancel_stops_between_pieces(cat_dir):
+    assert OPS.measure_capacity(cat_dir, cancel=lambda: True).cancelled
+    assert OPS.measure_capacity(cat_dir, ["torso-muneco-01@1"], cancel=lambda: True).done == 0
+    rep = OPS.measure_capacity(cat_dir, ["torso-muneco-01@1"], write=True)
+    assert rep.wrote and rep.lines[-1].endswith("guardado en los .pieza.json")
+    caps = Catalog.open(cat_dir).meta("torso-muneco-01@1").puertos["cuello"].capacity
+    assert caps and caps["profundidad_mm"] == pytest.approx(38.0, abs=0.01)
+    assert OPS.measurable(Catalog.open(cat_dir), Catalog.open(cat_dir).meta("brazo-muneco-01@1")) == []     # el brazo no tiene tomas con pasador
+
+
+def test_contract_propose_save_clear_and_cli_agree(cat_dir, capsys):
+    cat = Catalog.open(cat_dir)
+    assert cat.contract() is None
+    prop = OPS.propose_contract(cat)
+    assert prop.lines[0] == "Propuesta (a confirmar):" and prop.problems == [] and prop.contract is not None
+    assert cat.contract() is None                                                    # proponer no escribe nada
+    assert main(["catalogo", "contrato", cat_dir, "--calibrar"]) == 0
+    assert capsys.readouterr().out.splitlines()[:len(prop.lines)] == prop.lines
+    digest = OPS.save_contract(cat, prop.contract)
+    assert Catalog.open(cat_dir).contract().hash() == digest
+    assert OPS.clear_contract(Catalog.open(cat_dir)) and not OPS.clear_contract(Catalog.open(cat_dir))
+    assert main(["catalogo", "contrato", cat_dir, "--calibrar", "--guardar"]) == 0
+    assert Catalog.open(cat_dir).contract() is not None
+    assert main(["catalogo", "contrato", cat_dir, "--quitar"]) == 0
+
+
+def test_manager_capacity_job_and_contract_flow(mgr):
+    assert mgr.capacity_refs(["brazo-muneco-01@1", "torso-muneco-01@1"]) == ["torso-muneco-01@1"]
+    assert mgr.capacity_job(["brazo-muneco-01@1"]) is None and "Ninguna de las piezas" in mgr.ctrl.message and not mgr.ctrl.busy
+    lines = []
+    job = mgr.capacity_job(None, write=True, emit=lines.append)
+    assert callable(job) and mgr.ctrl.busy
+    res = job(None)
+    assert res.wrote and res.done == 5 and lines == res.lines
+    mgr.finish_task("Midiendo y guardando la capacidad", None)
+    assert not mgr.ctrl.busy
+
+    assert not mgr.can_save_proposal() and pytest.raises(ValueError, mgr.save_proposal)
+    prop = mgr.propose_contract()
+    assert mgr.can_save_proposal() and mgr.proposal is prop
+    digest = mgr.save_proposal()
+    assert mgr.proposal is None and mgr.ctrl.catalog_handle().contract().hash() == digest
+    assert mgr.clear_contract() and mgr.ctrl.catalog_handle().contract() is None

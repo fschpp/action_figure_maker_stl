@@ -323,6 +323,13 @@ class CatalogManagerWindow(Gtk.Window):
             ("Compatibilidad de las recetas (forzar)", lambda: self._op_compat(True), "afm catalogo compat --forzar."),
             ("Escribir COMPATIBILIDAD.md", lambda: self._op_matrix(False), "afm catalogo matriz: matriz barata del catálogo y los resultados completos guardados."),
             ("Escribir COMPATIBILIDAD.md validando antes las recetas", lambda: self._op_matrix(True), "afm catalogo matriz --completa."),
+            None,
+            ("Medir la capacidad de las tomas (todas)", lambda: self._op_capacity(None), "afm catalogo capacidad: hasta dónde llega el hueco de cada toma con pasador. No guarda nada."),
+            ("Medir y guardar la capacidad…", lambda: self._op_capacity(None, write=True), "afm catalogo capacidad --escribir: además escribe la medida en los .pieza.json (pide confirmación)."),
+            None,
+            ("Calibrar el contrato (propuesta)", self._op_contract_propose, "afm catalogo contrato --calibrar (tolerancia 0,4 mm, radio equivalente; otra tolerancia o métrica, en consola). No guarda nada."),
+            ("Guardar la propuesta del contrato…", self._op_contract_save, "afm catalogo contrato --calibrar --guardar: escribe la última propuesta en linea.json (pide confirmación). Solo si no tiene problemas."),
+            ("Borrar el contrato de la línea…", self._op_contract_clear, "afm catalogo contrato --quitar (pide confirmación)."),
         ]
         for it in items:
             if it is None:
@@ -333,6 +340,8 @@ class CatalogManagerWindow(Gtk.Window):
             b.connect("clicked", lambda _b, cb=cb: (pop.popdown(), cb()))
             box.append(b)
             self._menu_buttons.append(b)
+            if label.startswith("Guardar la propuesta"):
+                self._btn_save_proposal = b
         pop.set_child(box)
         self.menu_cat.set_popover(pop)
         return self.menu_cat
@@ -348,8 +357,11 @@ class CatalogManagerWindow(Gtk.Window):
         self.btn_cover.connect("clicked", lambda *_: self._op_piece_report("cobertura"))
         self.btn_explain = Gtk.Button(label="Explicar acoples")
         self.btn_explain.connect("clicked", lambda *_: self._op_piece_report("explicar"))
+        self.btn_capacity = Gtk.Button(label="Capacidad")
+        self.btn_capacity.connect("clicked", lambda *_: self._op_capacity(self._selected_refs()))
         for w, tip in ((self.btn_certify, "afm catalogo certificar ID: arma la pieza elegida en un panel de torsos del catálogo (la propia figura y los de menor, mediana y mayor capacidad)."),
                        (self.btn_cover, "afm catalogo cobertura ID: cuántas piezas del catálogo aceptan cada puerto de esta pieza (por metadatos, instantáneo)."),
+                       (self.btn_capacity, "afm catalogo capacidad ID: hasta dónde llega el hueco de las tomas con pasador de la pieza (no guarda; para guardar, Catálogo ▾ → Medir y guardar la capacidad…)."),
                        (self.btn_explain, "afm catalogo explicar ID: por qué se acopla (o no) con cada otra pieza: radios, IoU, escalón y motivos.")):
             w.set_tooltip_text(tip)
             row.append(w)
@@ -432,6 +444,8 @@ class CatalogManagerWindow(Gtk.Window):
         self.menu_cat.set_sensitive(bool(self.ctrl.session.catalog_root))
         self.btn_certify.set_sensitive(free and bool(self.mgr.certify_refs(refs)))
         self.chk_force.set_sensitive(free)
+        self.btn_capacity.set_sensitive(free and bool(self.mgr.capacity_refs(refs)))
+        self._btn_save_proposal.set_sensitive(free and self.mgr.can_save_proposal())
         self.btn_cover.set_sensitive(free and len(refs) == 1)
         self.btn_explain.set_sensitive(free and len(refs) == 1)
         self.btn_certify.set_label("Certificar" if len(refs) <= 1 else f"Certificar {len(self.mgr.certify_refs(refs))}")
@@ -522,6 +536,93 @@ class CatalogManagerWindow(Gtk.Window):
                 self._report_append(f"ERROR: {err}")
             return
         self._report_append(f"Escrito {res}")
+
+    def _confirm(self, message: str, detail: str, action: str, on_yes) -> None:
+        """Pregunta antes de escribir en el catálogo; `on_yes()` corre solo si se elige `action`."""
+        dlg = Gtk.AlertDialog(message=message, detail=detail, buttons=["Cancelar", action], cancel_button=0, default_button=0)
+
+        def answered(d, res) -> None:
+            try:
+                i = d.choose_finish(res)
+            except GLib.Error:
+                return
+            if i == 1:
+                on_yes()
+
+        dlg.choose(self, None, answered)
+
+    def _op_capacity(self, refs: list[str] | None, write: bool = False) -> None:
+        if not self._ops_free():
+            return
+        if write:
+            n = len(self.mgr.capacity_refs([m.ref for m in self.mgr.pieces(latest_only=True)] if refs is None else refs))
+            if n == 0:
+                self.lbl_status.set_text("Ninguna de las piezas tiene tomas de pasador para medir.")
+                return
+            self._confirm(f"¿Guardar la capacidad medida de {n} pieza(s)?",
+                          "Se escribe en el .pieza.json de cada pieza (el campo de capacidad de sus tomas). Es lo que `afm catalogo capacidad --escribir` hace.",
+                          "Medir y guardar", lambda: self._start_capacity(refs, True))
+        else:
+            self._start_capacity(refs, False)
+
+    def _start_capacity(self, refs: list[str] | None, write: bool) -> None:
+        if not self._ops_free():
+            return
+        job = self.mgr.capacity_job(refs, write, emit=lambda line: GLib.idle_add(self._report_append, line))
+        if job is None:
+            self.lbl_status.set_text(self.ctrl.message or "")
+            return
+        self._report_set("Capacidad de las tomas" + (" (se guarda)" if write else " (sin guardar)"), [])
+        self._run_ops_task("Midiendo y guardando la capacidad" if write else "Midiendo la capacidad", job, self._after_capacity)
+
+    def _after_capacity(self, res, err) -> None:
+        if err is not None and not isinstance(err, OPS.Cancelled):
+            self._report_append(f"ERROR: {err}")
+
+    def _op_contract_propose(self) -> None:
+        try:
+            prop = self.mgr.propose_contract()
+        except (ValueError, KeyError) as exc:
+            self._op_error("Calibrar el contrato", exc)
+            return
+        self._report_set("Contrato de la línea: propuesta", prop.lines)
+        self.lbl_status.set_text("La propuesta tiene problemas: no se puede guardar." if prop.problems else
+                                 "Propuesta lista. Si te sirve: Catálogo ▾ → Guardar la propuesta del contrato…")
+        self._sync_ops_buttons()
+
+    def _op_contract_save(self) -> None:
+        if not self._ops_free() or not self.mgr.can_save_proposal():
+            return
+
+        def save() -> None:
+            try:
+                digest = self.mgr.save_proposal()
+            except (ValueError, OSError) as exc:
+                self._op_error("Guardar el contrato", exc)
+                return
+            self._report_append(f"Contrato guardado en linea.json (huella {digest}). La certificación se revisa con el contrato nuevo.")
+            self.lbl_status.set_text("Contrato guardado.")
+            self._reload()
+            self._sync_ops_buttons()
+
+        self._confirm("¿Guardar la propuesta como contrato de la línea?", "Reemplaza el contrato actual de linea.json, si lo hay. Las certificaciones guardadas pueden quedar vencidas.",
+                      "Guardar contrato", save)
+
+    def _op_contract_clear(self) -> None:
+        if not self._ops_free():
+            return
+
+        def clear() -> None:
+            try:
+                had = self.mgr.clear_contract()
+            except (ValueError, OSError) as exc:
+                self._op_error("Borrar el contrato", exc)
+                return
+            self._report_set("Contrato de la línea", ["Contrato borrado de linea.json" if had else "La línea no tenía contrato"])
+            self._reload()
+            self._sync_ops_buttons()
+
+        self._confirm("¿Borrar el contrato de la línea?", "Se quita el contrato de linea.json; las piezas dejan de tener talle. Se puede volver a calibrar.", "Borrar contrato", clear)
 
     def _run_ops_task(self, label: str, job, done) -> None:
         """Corre `job(progress)` en un hilo (la ventana sigue viva) y llama `done(resultado, error)` en el hilo principal."""

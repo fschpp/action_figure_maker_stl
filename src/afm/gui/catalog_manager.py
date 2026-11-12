@@ -11,6 +11,7 @@ import threading
 
 import numpy as np
 
+from .. import catalog_ops as OPS
 from ..parts import PieceMeta
 from .camera import OrbitCamera
 from .picking import Picker
@@ -420,6 +421,7 @@ class CatalogManager:
         self._mesh_cache: dict[str, tuple[str, object]] = {}      # ref -> (hash, malla): solo las últimas
         self._badges: tuple[tuple, dict[str, str]] = ((), {})     # (clave de lo que hay en disco, {ref: texto de certificación})
         self.cancel_event = threading.Event()
+        self.proposal: OPS.ContractProposal | None = None            # última propuesta de contrato calibrada (aún sin guardar)
 
     # ---- lista
     def pieces(self, text: str = "", tipo: str | None = None, estado: str | None = None, etiqueta: str | None = None,
@@ -553,6 +555,48 @@ class CatalogManager:
 
         self.cancel_event.clear()
         return self.ctrl.begin_catalog_task("Informe de compatibilidad", lambda root, progress: OPS.write_matrix(root, None, complete, progress, self.cancelled))
+
+    def capacity_refs(self, refs: list[str]) -> list[str]:
+        """De `refs`, las piezas con alguna toma de pasador (las que `capacidad` mide)."""
+        cat = self.ctrl.catalog_handle()
+        if cat is None:
+            return []
+        by = {m.ref: m for m in self.ctrl.catalog_pieces()}
+        return [r for r in refs if r in by and OPS.measurable(cat, by[r])]
+
+    def capacity_job(self, refs: list[str] | None, write: bool = False, emit=None):
+        """Mide la capacidad de las tomas de `refs` (sin `refs`, de todo el catálogo); con `write` la guarda en los .pieza.json."""
+        todo = self.capacity_refs([m.ref for m in self.pieces(latest_only=True)] if refs is None else refs)
+        if not todo:
+            self.ctrl._changed("Ninguna de las piezas tiene tomas de pasador para medir.", scene=False)
+            return None
+        self.cancel_event.clear()
+        label = "Midiendo y guardando la capacidad" if write else "Midiendo la capacidad"
+        return self.ctrl.begin_catalog_task(label, lambda root, progress: OPS.measure_capacity(root, todo, write, self.cancelled, emit))
+
+    # ---- contrato de la línea (escribe linea.json: la ventana pide confirmación antes de guardar o borrar)
+    def propose_contract(self, tolerance: float = 0.4, metric: str = "equivalente") -> OPS.ContractProposal:
+        """Calibra una propuesta y la recuerda en `proposal` para guardarla después; no escribe nada."""
+        self.proposal = OPS.propose_contract(self.ctrl.catalog_handle(required=True), tolerance, metric)
+        return self.proposal
+
+    def can_save_proposal(self) -> bool:
+        return self.proposal is not None and self.proposal.contract is not None and not self.proposal.problems
+
+    def save_proposal(self) -> str:
+        """Guarda la propuesta vigente en linea.json y devuelve su huella (`ValueError` si no hay una sin problemas)."""
+        if not self.can_save_proposal():
+            raise ValueError("No hay una propuesta de contrato sin problemas para guardar (calibrarla primero).")
+        digest = OPS.save_contract(self.ctrl.catalog_handle(required=True), self.proposal.contract)
+        self.proposal = None
+        self._badges = ((), {})                              # el contrato cambia los talles: la certificación puede quedar vencida
+        return digest
+
+    def clear_contract(self) -> bool:
+        ok = OPS.clear_contract(self.ctrl.catalog_handle(required=True))
+        self.proposal = None
+        self._badges = ((), {})
+        return ok
 
     def finish_task(self, label: str, error) -> None:
         """Cierra una tarea larga: suelta `busy` y deja el mensaje (cancelada / falló / terminó). Los cachés de la insignia se invalidan solos."""
