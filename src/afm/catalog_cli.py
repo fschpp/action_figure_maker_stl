@@ -5,8 +5,10 @@ import os
 import re
 import sys
 
+from . import catalog_ops as OPS
 from . import parts as P
 from .catalog import Catalog, CatalogError, default_root
+from .certify import PLACE_OF_TIPO
 from .interface import ContractError
 from .ports import PortError, port_class, port_from_points
 from .recipe import RecipeError
@@ -170,37 +172,12 @@ def _open(args) -> Catalog:
 
 def _print_coverage(cat: Catalog, ref: str, all_fits: bool = False) -> None:
     """Cobertura de cada puerto de `ref` contra el resto del catálogo (plan de compatibilidad, N0)."""
-    from .guide import format_coverage, piece_coverage
-
-    from .interface import label_piece
-
-    from .guide import contract_of
-
-    contract = contract_of(cat)
-    labels = {} if contract is None else label_piece(contract, cat.meta(ref))
-    for name, cov in piece_coverage(cat, ref).items():
-        print(f"  {name} ({cov.rol}): {cov.summary()}")
-        if name in labels:
-            print(f"    contrato: {labels[name].resumen()}")
-        if cov.universo:
-            for line in format_coverage(cov, "    ", all_fits)[1:]:
-                print(line)
+    for line in OPS.coverage_lines(cat, ref, all_fits):
+        print(line)
 
 
 def _slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-") or "pieza"
-
-
-def _label_lines(cat, contract) -> list[str]:
-    """Una línea por pieza y puerto de clase dura: el talle que le toca (o «fuera de contrato»)."""
-    from .interface import label_piece
-
-    out = []
-    for m in cat.list():
-        for name, lab in label_piece(contract, m).items():
-            out.append(f"  {m.ref:<28} {name:<12} {m.puertos[name].rol:<8} {lab.resumen()}")
-            out += [f"      aviso: {x}" for x in lab.avisos if "no cae en ningún talle" not in x]
-    return out
 
 
 def _run_capacity(cat, args) -> int:
@@ -273,52 +250,23 @@ def _run_contract(cat, args) -> int:
     if contract is None:
         print("La línea no tiene contrato de interfaz (usar `afm catalogo contrato --calibrar --guardar`)")
         return 1 if args.validar else 0
-    for line in format_contract(contract):
+    lines, probs = OPS.contract_view(cat)
+    for line in lines:
         print(line)
-    probs = contract.problems(cat.params)
-    for p in probs:
-        print("PROBLEMA:", p)
-    lines = _label_lines(cat, contract)
-    if lines:
-        print("Piezas:")
-        print("\n".join(lines))
     if args.validar:
         print("Contrato " + ("coherente" if not probs else f"con {len(probs)} problema(s)"))
     return 1 if probs else 0
 
 
 def _explicar(cat, ref: str, tipo: str | None = None) -> int:
-    """`afm catalogo explicar REF`: los puertos de la pieza y, contra cada otra pieza con un puerto de la misma clase, el resultado de la
-    compatibilidad barata (también los «no», que `listar --compatible-con` esconde) con sus motivos."""
-    from .ports import port_compat
-
+    """`afm catalogo explicar REF`: ver `catalog_ops.explain_lines`."""
     try:
-        me = cat.meta(ref)
-    except (KeyError, ValueError, CatalogError) as exc:
+        lines = OPS.explain_lines(cat, ref, tipo)
+    except CatalogError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
-    def rad(p):
-        if p.face is None:
-            return "—"
-        n, holes = len(p.face.polygons), sum(len(q["interiors"]) for q in p.face.polygons)
-        extra = (f" ({n} trozos" if n > 1 else "") + ((", " if n > 1 else " (") + f"{holes} agujero(s)" if holes else "") + (")" if n > 1 or holes else "")
-        return f"{float(p.face.radius_eq):.2f}".replace(".", ",") + " mm" + extra
-    print(f"{me.ref} ({me.tipo}, altura de figura {me.altura_figura_mm}): " + ", ".join(f"{n} [{p.clase}/{p.rol}] r={rad(p)}" for n, p in me.puertos.items()))
-    for other in cat.list(tipo):
-        if other.id == me.id:
-            continue
-        rows = []
-        for na, pa in me.puertos.items():
-            for nb, pb in other.puertos.items():
-                if pa.clase != pb.clase or (nb.endswith("_der") and me.espejable) or (na.endswith("_der") and other.espejable):
-                    continue
-                c = port_compat(pa, pb, me.altura_figura_mm, other.altura_figura_mm, cat.params)
-                extra = "; ".join([*c.motivos, *c.avisos])
-                rows.append(f"    {na} ~ {nb} (r={rad(pb)}): {c.nivel.upper()}  IoU {c.iou:.2f}  escalón {c.escalon_mm:.2f} mm"
-                            + (f"  capacidad: {c.margenes_mm}" if c.margenes_mm else "") + (f"  → {extra}" if extra else ""))
-        if rows:
-            print(f"{other.ref} ({other.tipo}, altura {other.altura_figura_mm}):")
-            print("\n".join(rows))
+    for line in lines:
+        print(line)
     return 0
 
 
@@ -365,7 +313,7 @@ def _run(args) -> int:
                     print("    talle: " + ", ".join(f"{n} {lab.talle or 'fuera'}" + ("" if lab.x_ok is not False and lab.eje_ok is not False else "*")
                                                   for n, lab in labs.items()) + ("   (* fuera de la posición o del eje del contrato)" if any(
                                                       l.x_ok is False or l.eje_ok is False for l in labs.values()) else ""))
-            if m.tipo in ("brazo", "pierna", "cabeza"):
+            if m.tipo in PLACE_OF_TIPO:             # brazo, pierna, cabeza, pelvis y mano (antes faltaban las dos últimas)
                 from .certify import status
                 print("    " + status(cat, m.ref)["texto"])
             if args.compatible_con:
@@ -376,14 +324,10 @@ def _run(args) -> int:
                     print(f"    {args.compatible_con}:{na} ↔ {nb}: {c.nivel} ({det})" + "".join(f"\n      aviso: {x}" for x in c.avisos))
         return 0
     if cmd == "verificar":
-        rep = cat.verify()
-        for w in rep.warnings:
-            print("AVISO:", w)
-        for p in rep.problems:
-            print("PROBLEMA:", p)
-        print(f"Catálogo «{cat.name}»: {len(cat.list(all_versions=True))} pieza(s); "
-              + ("limpio" if rep.ok else f"{len(rep.problems)} problema(s)"))
-        return 0 if rep.ok else 1
+        res = OPS.verify(cat)
+        for line in res.lines:
+            print(line)
+        return 0 if res.ok else 1
     if cmd == "contrato":
         return _run_contract(cat, args)
     if cmd == "capacidad":
@@ -541,15 +485,8 @@ def _run(args) -> int:
             results = compat.check_all(cat, args.forzar, print)
         if not results:
             print("(no hay recetas: pasá --receta ARCHIVO o guardalas en <catálogo>/figuras)")
-        for r in results:
-            origen = "caché" if r.get("cache") else f"armada en {r.get('segundos')} s"
-            hm = r.get("holgura_min_mm")
-            print(f"{r.get('personaje')}: {'OK' if r.get('ok') else 'CON PROBLEMAS'} (acople {r.get('nivel') or '—'}, "
-                  f"holgura mín. {'—' if hm is None else f'{hm:.2f} mm'}; {origen})")
-            for t in r.get("problemas", []):
-                print(f"  PROBLEMA: {t}")
-            for t in r.get("avisos", []):
-                print(f"  aviso: {t}")
+        for line in OPS.format_compat(results):
+            print(line)
         return 0 if all(r.get("ok") for r in results) else 1
     if cmd == "certificar":
         return _run_certify(args, cat)
@@ -647,29 +584,8 @@ def _run_estandar(args, project, body, cat) -> int:
 
 def _run_certify(args, cat) -> int:
     """`afm catalogo certificar RUTA [ID…] [--estado] [--forzar]`: certificación de piezas (plan de compatibilidad, Fase 6)."""
-    from .certify import PLACE_OF_TIPO, CertifyError, certify, status
-
-    refs = args.refs or [m.ref for m in cat.list() if m.tipo in PLACE_OF_TIPO]
-    if not refs:
-        print("(no hay piezas certificables: brazo, pierna, cabeza, pelvis o mano)")
-        return 0
-    bad = 0
-    for ref in refs:
-        try:
-            if not args.estado:
-                entry = certify(cat, ref, args.forzar, print)
-                for h in entry["anfitriones"]:
-                    print(f"  {h['torso']}: {'OK' if h['ok'] else 'CON PROBLEMAS'}")
-                    for t in h["problemas"]:
-                        print(f"    PROBLEMA: {t}")
-            st = status(cat, ref)
-        except (CertifyError, ValueError) as exc:
-            print(f"{ref}: {exc}")
-            bad += 1
-            continue
-        print(f"{ref}: {st['texto']}")
-        bad += st["estado"] != "certificada" and not args.estado
-    return 1 if bad else 0
+    rep = OPS.certify_pieces(cat.root, args.refs or None, args.forzar, args.estado, progress=print, emit=print)
+    return 1 if rep.bad else 0
 
 
 def _run_ajuste(args, project, body, cat, fig) -> int:

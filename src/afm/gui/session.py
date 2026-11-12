@@ -1978,6 +1978,10 @@ class Session:
         return {"prefijo": prefix, "lugares": rows, "cabeza_reemplazo": rep}
 
     # ------------------------------------------------------------- gestor del catálogo (ver y eliminar piezas)
+    def catalog_open(self):
+        """El `Catalog` abierto (nuevo en cada llamada: no se comparte con un hilo), o None si no hay catálogo."""
+        return self._catalog() if self.catalog_root else None
+
     def catalog_pieces(self) -> list:
         """Todas las versiones de todas las piezas del catálogo abierto, ordenadas por tipo, id y versión."""
         return sorted(self._catalog().list(all_versions=True), key=lambda m: (m.tipo, m.id, m.version))

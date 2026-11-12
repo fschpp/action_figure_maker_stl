@@ -573,6 +573,22 @@ Una **línea** de figuras comparte un catálogo: una carpeta con las piezas ya c
 4. **Elegir las piezas.** En «Pieza de cada lugar» elegís «la del modelo» o una pieza del catálogo. «Generar figura» la pone en el puerto del modelo, sin escalarla, y la fila dice cómo acopla: **ok**, **aviso** o **no**, con el IoU y el escalón entre las caras. «Revisar las piezas elegidas» lo mide sin generar y las dibuja ya colocadas (verde = ok, ámbar = aviso, rojo = no); «Ver por qué» superpone las dos caras. «Armar figura desde catálogo (sin STL)…» arma una figura nueva solo con piezas del catálogo.
 5. **Administrar catálogo…** lista todas las versiones de pieza con vista previa y permite eliminar una o varias; los lugares que usaban una pieza borrada vuelven a la del modelo. Con un brazo o una pierna elegidos también permite **«Cortar la mano…»** y **«Reajustar articulación…»** (ver «Vista previa de la articulación»).
 
+   **Los comandos de `afm catalogo` también están en esta ventana** (hacen lo mismo que en la consola; el resultado sale en el panel **«Informe»**, con «Copiar» y «Guardar…»):
+
+   | Consola | En la ventana |
+   |---|---|
+   | `listar [--estado] [--etiqueta] [--todas-las-versiones]` | la lista, con los filtros de tipo, estado y etiqueta y la casilla «solo la última versión»; cada fila de una pieza certificable dice su certificación |
+   | `verificar` | **Catálogo ▾ → Verificar el catálogo** |
+   | `contrato --ver` | **Catálogo ▾ → Ver el contrato de la línea** |
+   | `certificar ID…` / `--forzar` | **Certificar** (y la casilla «forzar») sobre las piezas elegidas; con varias elegidas certifica todas |
+   | `certificar` / `--estado` / `--forzar` | **Catálogo ▾ → Certificar todas las piezas**, **Estado de la certificación (todas)** (no arma nada) y **… de nuevo (forzar)** |
+   | `cobertura ID`, `explicar ID` | **Cobertura** y **Explicar acoples** de la pieza elegida |
+   | `compat [--forzar]` | **Catálogo ▾ → Compatibilidad de las recetas** |
+   | `matriz [--completa]` | **Catálogo ▾ → Escribir COMPATIBILIDAD.md** |
+   | `eliminar`, `restaurar`, `cortar-muneca`, `usos`, `estado` | **Eliminar…**, **Recuperar lo eliminado** (el último grupo), **Cortar la mano…**, «Se usa en» de la ficha y **Estado → Aplicar a las elegidas** |
+
+   Certificar y la compatibilidad **arman de verdad** y tardan (minutos por anfitrión; lo ya armado y sin cambios sale del caché): corren en segundo plano, con barra de progreso y **Cancelar**. Cancelar corta en cuanto el motor informa progreso; lo que ya se certificó queda guardado. Mientras corre no se puede eliminar ni cortar nada (una sola tarea a la vez). Al terminar, la certificación de cada fila se actualiza («certificada 1/1», «vencida», «sin certificar»). Siguen solo en consola: `crear`, `importar-mano`, `importar-arma`, `importar-accesorio`, `agregar-stl`, `capacidad`, `restaurar --lote ID` y `contrato --calibrar/--guardar/--quitar`.
+
 **Qué significa cada resultado.** «No» = esa pieza no se acopla (la cara no alcanza para el pasador con pared, no hay cuerpo suficiente detrás de la toma, las cabezas de la cadera se cruzan, o en la pose sentada el brazo choca con la pierna). «Aviso» = acopla, pero con poco margen o con un escalón visible entre las caras; si el aviso es solo de aspecto, la guía lo marca «(solo aspecto)». Si la guía dice **«N piezas sin la capacidad del anfitrión medida»**, esas tomas se catalogaron antes de que se midiera cuánto cuerpo hay detrás de la cara y esa parte no se juzgó: se arregla con `afm catalogo capacidad RUTA --escribir`.
 
 **Contrato de la línea (talles).** Para que las piezas de distintas figuras sean intercambiables conviene que sus cortes caigan en pocos **talles** (radios de cara) y a la misma posición. Eso se define con la consola (la ventana lo muestra en la Guía, en la línea «contrato de la línea», y marca «← AJUSTAR el corte» si el corte queda fuera):

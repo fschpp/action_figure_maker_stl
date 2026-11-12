@@ -626,7 +626,7 @@ En naranja se ve el contorno del pasador (vástago y cabeza); en verde, la posic
         self.btn_cat_fitcm = self._button("Ajustar cintura y muñeca al patrón…", self._on_fit_waist_wrist)
         self.btn_cat_fitcm.set_tooltip_text("Mueve el plano de la cintura y el de la muñeca de esta figura hasta que sus caras tengan el tamaño de la "
                                             "pelvis y de la mano del patrón (p. ej. Güemes) del catálogo abierto. Muestra qué cambiaría antes de aplicarlo.")
-        self.btn_cat_manage = self._button("Administrar catálogo (ver y eliminar piezas)…", self._on_catalog_manage)
+        self.btn_cat_manage = self._button("Administrar catálogo (piezas, certificación, compatibilidad)…", self._on_catalog_manage)
         self.btn_cat_build = self._button("Armar figura desde catálogo (sin STL)…", self._on_catalog_build)
         for w in (self.btn_cat_new, self.btn_cat_open, self.btn_cat_hero, self.lbl_catalog, self.btn_cat_add, self.btn_cat_guide, self.btn_cat_fitcm,
                   self.btn_cat_manage, self.btn_cat_build):

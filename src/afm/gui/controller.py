@@ -3349,6 +3349,45 @@ class Controller:
         except ValueError:
             return []
 
+    def catalog_handle(self, required: bool = False):
+        """`Catalog` del catálogo abierto para los informes de `catalog_ops`. None si no hay (con `required`, levanta `ValueError`)."""
+        try:
+            cat = self.session.catalog_open()
+        except ValueError:
+            if required:
+                raise
+            return None
+        if cat is None and required:
+            raise ValueError("No hay un catálogo abierto.")
+        return cat
+
+    def begin_catalog_task(self, label: str, run):
+        """Tarea larga de catálogo (certificar, compatibilidad, informe): marca `busy` y devuelve `job(progress=None)` para un hilo,
+        o None si no se puede (hay otra tarea, o no hay catálogo). `run(root, progress)` abre su propio `Catalog` desde `root`.
+        Después hay que llamar `finish_catalog_task`."""
+        if self.busy:
+            self._changed("Esperá a que termine la tarea en curso.", scene=False)
+            return None
+        root = self.session.catalog_root
+        if not root:
+            self._changed("No hay un catálogo abierto.", scene=False)
+            return None
+        self.busy = True
+        self.progress_prefix = label
+        self.progress_stages = None
+        self._changed(f"{label}… puede tardar (minutos por pieza al armar).", scene=False)
+        return lambda progress=None: run(root, progress)
+
+    def finish_catalog_task(self, label: str, error: Exception | None = None, cancelled: bool = False) -> None:
+        self.busy = False
+        self.progress_prefix = "Generando"
+        if cancelled:
+            self._changed(f"{label}: cancelado. Lo ya terminado quedó guardado.", scene=False)
+        elif error is not None:
+            self._changed(f"{label}: falló — {error}", scene=False)
+        else:
+            self._changed(f"{label}: terminado.", scene=False)
+
     def catalog_delete(self, refs) -> bool:
         """Elimina del catálogo abierto esas versiones (`id@n`). Los lugares de la figura que las usaban vuelven a la pieza
         del modelo. No se puede deshacer: la ventana pide confirmación antes."""

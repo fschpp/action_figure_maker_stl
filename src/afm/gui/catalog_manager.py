@@ -5,6 +5,10 @@ Sirve para ver qué hay en el catálogo (con una vista previa 3/4 de cada pieza)
 las que se catalogaron por error desde un proyecto viejo."""
 from __future__ import annotations
 
+import glob
+import os
+import threading
+
 import numpy as np
 
 from ..parts import PieceMeta
@@ -14,6 +18,8 @@ from .picking import Picker
 PREVIEW_YAW = 55.0          # 3/4: desde el frente (+Y) corrido hacia la derecha de la figura (+X), mirando un poco desde arriba
 PREVIEW_PITCH = 22.0
 ALL_TYPES = "(todos los tipos)"
+ALL_STATES = "(todos los estados)"
+ALL_TAGS = "(todas las etiquetas)"
 
 
 def three_quarter_camera(bounds, aspect: float = 1.0) -> OrbitCamera:
@@ -76,10 +82,14 @@ def piece_origin(meta: PieceMeta) -> str:
     return str(meta.origen.get("figura") or meta.origen.get("nota") or "")
 
 
-def matches(meta: PieceMeta, text: str = "", tipo: str | None = None) -> bool:
+def matches(meta: PieceMeta, text: str = "", tipo: str | None = None, estado: str | None = None, etiqueta: str | None = None) -> bool:
     """¿Pasa el filtro? `text` busca (sin mayúsculas) en la referencia, el tipo, el estado, las etiquetas, la figura de
     origen, el proyecto de origen y la fecha: «belgrano» muestra todo lo catalogado desde Belgrano."""
     if tipo and meta.tipo != tipo:
+        return False
+    if estado and meta.estado != estado:
+        return False
+    if etiqueta and etiqueta not in meta.etiquetas:
         return False
     words = (text or "").lower().split()
     if not words:
@@ -110,20 +120,21 @@ def has_joint_pin(meta: PieceMeta) -> bool:
 
 # Columnas de la lista: (clave, título, ancho en caracteres)
 COLUMNS = (("nombre", "Nombre", 24), ("tipo", "Tipo", 10), ("version", "Ver.", 4), ("articulacion", "Articulación", 14),
-           ("estado", "Estado", 9), ("origen", "Origen", 18))
+           ("estado", "Estado", 9), ("certificacion", "Certificación", 18), ("origen", "Origen", 18))
 
 
-def row_cells(meta: PieceMeta) -> dict[str, str]:
-    """Texto de cada columna de la lista para `meta`."""
+def row_cells(meta: PieceMeta, cert: str = "") -> dict[str, str]:
+    """Texto de cada columna de la lista para `meta` (`cert`: su certificación, «» si no se certifica o no es la última versión)."""
     return {"nombre": meta.display_name, "tipo": meta.tipo, "version": f"@{meta.version}", "articulacion": joint_label(meta),
-            "estado": meta.estado, "origen": piece_origin(meta)}
+            "estado": meta.estado, "certificacion": cert, "origen": piece_origin(meta)}
 
 
-def sort_pieces(metas, key: str = "tipo", descending: bool = False) -> list[PieceMeta]:
+def sort_pieces(metas, key: str = "tipo", descending: bool = False, cert_of=None) -> list[PieceMeta]:
     """Ordena por la columna `key` (desempata por nombre y versión): ordenar por «tipo» agrupa cabezas, torsos, piernas…"""
     if key not in {k for k, _t, _w in COLUMNS}:
         raise ValueError(f"columna desconocida «{key}»")
-    return sorted(metas, key=lambda m: (row_cells(m)[key].lower(), m.display_name.lower(), m.version), reverse=descending)
+    return sorted(metas, key=lambda m: (row_cells(m, cert_of(m) if cert_of else "")[key].lower(), m.display_name.lower(), m.version),
+                  reverse=descending)
 
 
 def next_row(n: int, key: str, current: int | None, selected: list[int]) -> int | None:
@@ -147,15 +158,17 @@ def piece_label(meta: PieceMeta) -> str:
     return f"{meta.nombre} ({meta.ref})" if meta.nombre else meta.ref
 
 
-def row_text(meta: PieceMeta) -> str:
-    """Una línea de la lista: «pierna-belgrano-01@2 · pierna · borrador · belgrano_viejo.stl»."""
+def row_text(meta: PieceMeta, badge: str = "") -> str:
+    """Una línea de la lista: «pierna-belgrano-01@2 · pierna · borrador · belgrano_viejo.stl» (+ «· certificada 3/3» si hay)."""
     parts = [piece_label(meta), meta.tipo, meta.estado]
+    if badge:
+        parts.append(badge)
     if piece_origin(meta):
         parts.append(piece_origin(meta))
     return " · ".join(parts)
 
 
-def detail_text(meta: PieceMeta, uses: list[str] | None = None) -> str:
+def detail_text(meta: PieceMeta, uses: list[str] | None = None, cert: str = "") -> str:
     """Ficha de una pieza para el panel de la derecha."""
     size = np.asarray(meta.bbox[1], float) - np.asarray(meta.bbox[0], float)
     lines = [f"{meta.ref}" + (f" — «{meta.nombre}»" if meta.nombre else ""), f"Tipo: {meta.tipo} · estado: {meta.estado} · etiquetas: {', '.join(meta.etiquetas) or '—'}",
@@ -178,6 +191,8 @@ def detail_text(meta: PieceMeta, uses: list[str] | None = None) -> str:
                      f"lengüeta {ag.get('largo_lengueta_mm', 0):g} mm · canal {ag.get('largo_canal_mm', 0):g} mm".replace(".", ","))
     if meta.descripcion:
         lines.append(meta.descripcion)
+    if cert:
+        lines.append(f"Certificación: {cert}")
     if uses is not None:
         lines.append("Se usa en: " + ("; ".join(uses) if uses else "ninguna figura ni receta que se conozca"))
     return "\n".join(lines)
@@ -395,23 +410,155 @@ class PreviewRenderer:
 
 
 class CatalogManager:
-    """Estado del gestor sobre un `Controller`: lista filtrada, selección, malla de la vista previa y borrado."""
+    """Estado del gestor sobre un `Controller`: lista filtrada, selección, malla de la vista previa y borrado.
+
+    También reparte los comandos de `afm catalogo` que la ventana ofrece (`catalog_ops`): los informes rápidos devuelven
+    líneas de texto y las tareas largas (`certify_job`, `compat_job`, `matrix_job`) devuelven el trabajo para un hilo."""
 
     def __init__(self, ctrl):
         self.ctrl = ctrl
         self._mesh_cache: dict[str, tuple[str, object]] = {}      # ref -> (hash, malla): solo las últimas
+        self._badges: tuple[tuple, dict[str, str]] = ((), {})     # (clave de lo que hay en disco, {ref: texto de certificación})
+        self.cancel_event = threading.Event()
 
     # ---- lista
-    def pieces(self, text: str = "", tipo: str | None = None) -> list[PieceMeta]:
-        """Todas las versiones del catálogo abierto que pasan el filtro."""
+    def pieces(self, text: str = "", tipo: str | None = None, estado: str | None = None, etiqueta: str | None = None,
+               latest_only: bool = False) -> list[PieceMeta]:
+        """Las versiones del catálogo abierto que pasan el filtro (`latest_only`: solo la última de cada id)."""
         tipo = None if tipo in (None, "", ALL_TYPES) else tipo
-        return [m for m in self.ctrl.catalog_pieces() if matches(m, text, tipo)]
+        estado = None if estado in (None, "", ALL_STATES) else estado
+        etiqueta = None if etiqueta in (None, "", ALL_TAGS) else etiqueta
+        every = self.ctrl.catalog_pieces()
+        last = {}
+        for m in every:
+            last[m.id] = max(last.get(m.id, 0), m.version)
+        return [m for m in every if matches(m, text, tipo, estado, etiqueta) and (not latest_only or m.version == last[m.id])]
 
     def types(self) -> list[str]:
         return sorted({m.tipo for m in self.ctrl.catalog_pieces()})
 
+    def tags(self) -> list[str]:
+        return sorted({t for m in self.ctrl.catalog_pieces() for t in m.etiquetas})
+
+    def states(self) -> list[str]:
+        return sorted({m.estado for m in self.ctrl.catalog_pieces()})
+
     def uses(self, ref: str) -> list[str]:
         return self.ctrl.catalog_usages(ref)
+
+    # ---- certificación (semáforo: no arma nada)
+    def _disk_key(self) -> tuple:
+        root = self.ctrl.session.catalog_root
+        if not root:
+            return ()
+        stamps = []
+        for path in [os.path.join(root, "compat.json"), os.path.join(root, "linea.json")] + glob.glob(os.path.join(root, "piezas", "*", "*.pieza.json")):
+            try:
+                stamps.append((path, os.stat(path).st_mtime_ns))
+            except OSError:
+                stamps.append((path, None))
+        return (root, tuple(sorted(stamps, key=lambda x: x[0])))
+
+    def cert_text(self, ref: str) -> str:
+        """«certificada 3/3», «vencida…», «sin certificar» o «» si la pieza no se certifica. Se recuerda hasta que cambia el disco."""
+        key = self._disk_key()
+        if self._badges[0] != key:
+            self._badges = (key, {})
+        cache = self._badges[1]
+        if ref not in cache:
+            from .. import catalog_ops as OPS
+
+            try:
+                meta = next(m for m in self.ctrl.catalog_pieces() if m.ref == ref)
+                cat = self.ctrl.catalog_handle()
+                cache[ref] = OPS.cert_badge(cat, meta) if cat is not None else ""
+            except (StopIteration, ValueError):
+                cache[ref] = ""
+        return cache[ref]
+
+    def cert_summary(self) -> str:
+        """Resumen del catálogo: «certificadas 3 · parciales 1 · vencidas 1 · sin certificar 2» (la última versión de cada pieza certificable)."""
+        from collections import Counter
+
+        from ..certify import PLACE_OF_TIPO
+
+        c: Counter = Counter()
+        for m in self.pieces(latest_only=True):
+            if m.tipo in PLACE_OF_TIPO:
+                txt = self.cert_text(m.ref)
+                c["certificadas" if txt.startswith("certificada") and "falla" not in txt else
+                  "parciales" if txt.startswith("certificada") else "vencidas" if txt.startswith("certificación vencida") else
+                  "sin certificar"] += 1
+        return " · ".join(f"{k} {v}" for k, v in c.items())
+
+    # ---- informes rápidos (líneas de texto; no escriben nada)
+    def report_verify(self) -> tuple[list[str], bool]:
+        from .. import catalog_ops as OPS
+
+        res = OPS.verify(self.ctrl.catalog_handle(required=True))
+        return res.lines, res.ok
+
+    def report_contract(self) -> list[str]:
+        from .. import catalog_ops as OPS
+
+        lines, _probs = OPS.contract_view(self.ctrl.catalog_handle(required=True))
+        return lines
+
+    def report_coverage(self, ref: str, all_fits: bool = False) -> list[str]:
+        from .. import catalog_ops as OPS
+
+        return OPS.coverage_lines(self.ctrl.catalog_handle(required=True), ref, all_fits)
+
+    def report_explain(self, ref: str, tipo: str | None = None) -> list[str]:
+        from .. import catalog_ops as OPS
+
+        return OPS.explain_lines(self.ctrl.catalog_handle(required=True), ref, tipo)
+
+    # ---- tareas largas (para un hilo): devuelven `job(progress) -> resultado` o None si no se pudo empezar (motivo en `ctrl.message`)
+    def cancelled(self) -> bool:
+        return self.cancel_event.is_set()
+
+    def request_cancel(self) -> None:
+        self.cancel_event.set()
+
+    def certify_refs(self, refs: list[str] | None = None) -> list[str]:
+        """`refs` pedidas que se certifican (brazo, pierna, cabeza, pelvis, mano); sin `refs`, todas las certificables (últimas versiones)."""
+        from ..certify import PLACE_OF_TIPO
+
+        if refs is None:
+            return [m.ref for m in self.pieces(latest_only=True) if m.tipo in PLACE_OF_TIPO]
+        by = {m.ref: m for m in self.ctrl.catalog_pieces()}
+        return [r for r in refs if r in by and by[r].tipo in PLACE_OF_TIPO]
+
+    def certify_job(self, refs: list[str] | None, force: bool = False, status_only: bool = False, emit=None):
+        from .. import catalog_ops as OPS
+
+        todo = self.certify_refs(refs)
+        if not todo:
+            self.ctrl._changed("No hay piezas para certificar (se certifican brazo, pierna, cabeza, pelvis y mano).", scene=False)
+            return None
+        self.cancel_event.clear()
+        label = "Revisando la certificación" if status_only else "Certificando"
+        return self.ctrl.begin_catalog_task(
+            label, lambda root, progress: OPS.certify_pieces(root, todo, force, status_only, progress, self.cancelled, emit))
+
+    def compat_job(self, force: bool = False):
+        from .. import catalog_ops as OPS
+
+        self.cancel_event.clear()
+        return self.ctrl.begin_catalog_task("Compatibilidad de las recetas", lambda root, progress: OPS.compat_all(root, force, progress, self.cancelled))
+
+    def matrix_job(self, complete: bool = False):
+        from .. import catalog_ops as OPS
+
+        self.cancel_event.clear()
+        return self.ctrl.begin_catalog_task("Informe de compatibilidad", lambda root, progress: OPS.write_matrix(root, None, complete, progress, self.cancelled))
+
+    def finish_task(self, label: str, error) -> None:
+        """Cierra una tarea larga: suelta `busy` y deja el mensaje (cancelada / falló / terminó). Los cachés de la insignia se invalidan solos."""
+        from .. import catalog_ops as OPS
+
+        self.ctrl.finish_catalog_task(label, error, cancelled=isinstance(error, OPS.Cancelled))
 
     # ---- vista previa
     def mesh(self, ref: str):

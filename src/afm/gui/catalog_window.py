@@ -7,16 +7,19 @@ from __future__ import annotations
 
 import glob
 import os
+import threading
 
 import gi
 
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gdk, GLib, Gtk, Pango  # noqa: E402
 
-from .catalog_manager import (ALL_TYPES, COLUMNS, PIN_LEGEND, CatalogManager, JointEditor, PreviewRenderer, WristCutter,  # noqa: E402
-                              can_cut_wrist, can_retune_joint, detail_text, matches, next_row, row_cells, sort_pieces)
+from .. import catalog_ops as OPS  # noqa: E402
+from .catalog_manager import (ALL_STATES, ALL_TAGS, ALL_TYPES, COLUMNS, PIN_LEGEND, CatalogManager, JointEditor, PreviewRenderer,  # noqa: E402
+                              WristCutter, can_cut_wrist, can_retune_joint, detail_text, matches, next_row, row_cells, sort_pieces)
 from .catalog_manager import ZOOM_STEP, zoom_about  # noqa: E402
 from .catalog_manager import view_bounds as CM_view_bounds  # noqa: E402
+from .progress_panel import ProgressPanel  # noqa: E402
 from ..parts import STATES  # noqa: E402
 from .window import _no_scroll_change  # noqa: E402
 
@@ -26,7 +29,7 @@ CLICK_MAX_PX = 4.0          # un arrastre más corto que esto es un clic (marca 
 
 class CatalogManagerWindow(Gtk.Window):
     def __init__(self, parent: Gtk.Window, ctrl):
-        super().__init__(title="Administrar catálogo de piezas", transient_for=parent, default_width=1240, default_height=680)
+        super().__init__(title="Administrar catálogo de piezas", transient_for=parent, default_width=1240, default_height=780)
         self.ctrl = ctrl
         self.mgr = CatalogManager(ctrl)
         self.preview = PreviewRenderer()
@@ -51,6 +54,7 @@ class CatalogManagerWindow(Gtk.Window):
         self._jeditor: JointEditor | None = None     # modo «Reajustar articulación…» (None = no está activo)
         self._jupdating = False                      # se están poniendo valores en los spins: no recalcular
         self._jtimer = 0                             # GLib source del recálculo pendiente
+        self._task_label = ""                        # tarea larga de catálogo en curso (certificar, compatibilidad…); "" = ninguna
 
         paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL, wide_handle=True)
         paned.set_start_child(self._build_list())
@@ -83,7 +87,21 @@ class CatalogManagerWindow(Gtk.Window):
         btn_all = Gtk.Button(label="Elegir todas las que se ven")
         btn_all.connect("clicked", lambda *_: self.listbox.select_all())
         row.append(btn_all)
+        row.append(self._build_catalog_menu())
         box.append(row)
+        row2 = Gtk.Box(spacing=6)
+        self.dd_fstate = Gtk.DropDown.new_from_strings([ALL_STATES])
+        self.dd_fstate.set_hexpand(True)
+        self.dd_tag = Gtk.DropDown.new_from_strings([ALL_TAGS])
+        self.dd_tag.set_hexpand(True)
+        for dd in (self.dd_fstate, self.dd_tag):
+            dd.connect("notify::selected", lambda *_: None if self._updating else self._reload())
+            row2.append(dd)
+        self.chk_latest = Gtk.CheckButton(label="solo la última versión")
+        self.chk_latest.set_tooltip_text("Como `afm catalogo listar`: una fila por pieza (su última versión). Sin tildar se ven todas las versiones.")
+        self.chk_latest.connect("toggled", lambda *_: None if self._updating else self._reload())
+        row2.append(self.chk_latest)
+        box.append(row2)
 
         head_sw = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.EXTERNAL, vscrollbar_policy=Gtk.PolicyType.NEVER)
         head_sw.set_child(self._build_header())        # EXTERNAL: no pide su ancho completo como mínimo (si no, la ventana no se podría achicar)
@@ -141,15 +159,18 @@ class CatalogManagerWindow(Gtk.Window):
         self._sync_header()
         self._reload()
 
-    def _row_widget(self, meta) -> Gtk.Widget:
-        """Una fila de la tabla: una etiqueta por columna; la articulación va en verde si trae pin y atenuada si no."""
+    def _row_widget(self, meta, cert: str = "") -> Gtk.Widget:
+        """Una fila de la tabla: una etiqueta por columna; la articulación va en verde si trae pin y atenuada si no
+        (la certificación, en verde si está certificada y en naranja si venció o quedó parcial)."""
         box = Gtk.Box(spacing=8, margin_top=4, margin_bottom=4, margin_start=8, margin_end=8)
-        cells = row_cells(meta)
+        cells = row_cells(meta, cert)
         for key, _title, width in COLUMNS:
             lab = Gtk.Label(label=cells[key], xalign=0, width_chars=width, max_width_chars=width, ellipsize=Pango.EllipsizeMode.END,
                             tooltip_text=cells[key])
             if key == "articulacion":
                 lab.add_css_class("success" if cells[key].startswith("●") else "dim-label")
+            elif key == "certificacion" and cert:
+                lab.add_css_class("success" if cert.startswith("certificada") and "falla" not in cert else "warning")
             box.append(lab)
         return box
 
@@ -220,9 +241,12 @@ class CatalogManagerWindow(Gtk.Window):
         bar.append(self.btn_undo)
         box.append(bar)
         box.append(self._build_state_row())
+        box.append(self._build_ops_row())
         box.append(self._build_flex_row())
         box.append(self._build_wrist_panel())
         box.append(self._build_joint_panel())
+        box.append(self._build_task_row())
+        box.append(self._build_report())
 
         self.lbl_detail = Gtk.Label(xalign=0, yalign=0, wrap=True, selectable=True)
         self.lbl_detail.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
@@ -279,6 +303,266 @@ class CatalogManagerWindow(Gtk.Window):
         self.mgr.undo_delete()
         self._reload()
         self.lbl_status.set_text(self.ctrl.message or "")
+
+    # ------------------------------------------------------------ comandos de `afm catalogo` (catalog_ops)
+    def _build_catalog_menu(self) -> Gtk.Widget:
+        """Menú «Catálogo ▾»: los comandos que valen para todo el catálogo (verificar, contrato, certificar todo, compatibilidad, matriz)."""
+        self.menu_cat = Gtk.MenuButton(label="Catálogo ▾")
+        pop = Gtk.Popover()
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, margin_top=6, margin_bottom=6, margin_start=6, margin_end=6)
+        self._menu_buttons: list[Gtk.Button] = []
+        items = [
+            ("Verificar el catálogo", self._op_verify, "afm catalogo verificar: formato, hash, mallas cerradas, puertos, caras y altura de cada pieza."),
+            ("Ver el contrato de la línea", self._op_contract, "afm catalogo contrato --ver: talles de cara y posición por clase de puerto, y el talle de cada pieza."),
+            None,
+            ("Estado de la certificación (todas)", lambda: self._op_certify(None, status_only=True), "afm catalogo certificar --estado: no arma nada."),
+            ("Certificar todas las piezas", lambda: self._op_certify(None), "afm catalogo certificar: arma de verdad cada pieza en su panel de torsos. Reutiliza lo ya armado si no cambió nada; tarda minutos por anfitrión."),
+            ("Certificar todas de nuevo (forzar)", lambda: self._op_certify(None, force=True), "afm catalogo certificar --forzar: vuelve a armar aunque compat.json ya tenga el resultado."),
+            None,
+            ("Compatibilidad de las recetas", lambda: self._op_compat(False), "afm catalogo compat: build + validate de las recetas de figuras/ y recetas/ (con caché)."),
+            ("Compatibilidad de las recetas (forzar)", lambda: self._op_compat(True), "afm catalogo compat --forzar."),
+            ("Escribir COMPATIBILIDAD.md", lambda: self._op_matrix(False), "afm catalogo matriz: matriz barata del catálogo y los resultados completos guardados."),
+            ("Escribir COMPATIBILIDAD.md validando antes las recetas", lambda: self._op_matrix(True), "afm catalogo matriz --completa."),
+        ]
+        for it in items:
+            if it is None:
+                box.append(Gtk.Separator())
+                continue
+            label, cb, tip = it
+            b = Gtk.Button(label=label, has_frame=False, halign=Gtk.Align.START, tooltip_text=tip)
+            b.connect("clicked", lambda _b, cb=cb: (pop.popdown(), cb()))
+            box.append(b)
+            self._menu_buttons.append(b)
+        pop.set_child(box)
+        self.menu_cat.set_popover(pop)
+        return self.menu_cat
+
+    def _build_ops_row(self) -> Gtk.Widget:
+        """Comandos de la pieza elegida: certificar, cobertura, explicar."""
+        row = Gtk.Box(spacing=6)
+        self.btn_certify = Gtk.Button(label="Certificar")
+        self.btn_certify.connect("clicked", lambda *_: self._op_certify(self._selected_refs()))
+        self.chk_force = Gtk.CheckButton(label="forzar")
+        self.chk_force.set_tooltip_text("Volver a armar aunque el resultado guardado siga valiendo (certificar --forzar).")
+        self.btn_cover = Gtk.Button(label="Cobertura")
+        self.btn_cover.connect("clicked", lambda *_: self._op_piece_report("cobertura"))
+        self.btn_explain = Gtk.Button(label="Explicar acoples")
+        self.btn_explain.connect("clicked", lambda *_: self._op_piece_report("explicar"))
+        for w, tip in ((self.btn_certify, "afm catalogo certificar ID: arma la pieza elegida en un panel de torsos del catálogo (la propia figura y los de menor, mediana y mayor capacidad)."),
+                       (self.btn_cover, "afm catalogo cobertura ID: cuántas piezas del catálogo aceptan cada puerto de esta pieza (por metadatos, instantáneo)."),
+                       (self.btn_explain, "afm catalogo explicar ID: por qué se acopla (o no) con cada otra pieza: radios, IoU, escalón y motivos.")):
+            w.set_tooltip_text(tip)
+            row.append(w)
+            if w is self.btn_certify:
+                row.append(self.chk_force)
+        return row
+
+    def _build_task_row(self) -> Gtk.Widget:
+        """Progreso de una tarea larga de catálogo (oculto hasta que corre una) y su botón para cancelarla."""
+        self.task_row = Gtk.Box(spacing=6, visible=False)
+        self.progress = ProgressPanel()
+        self.progress.set_hexpand(True)
+        self.task_row.append(self.progress)
+        self.btn_task_cancel = Gtk.Button(label="Cancelar", valign=Gtk.Align.CENTER)
+        self.btn_task_cancel.set_tooltip_text("Corta en cuanto el motor informa progreso. Lo ya certificado queda guardado.")
+        self.btn_task_cancel.connect("clicked", self._on_task_cancel)
+        self.task_row.append(self.btn_task_cancel)
+        return self.task_row
+
+    def _build_report(self) -> Gtk.Widget:
+        """Panel «Informe»: el texto de cualquier comando (lo mismo que imprimiría la consola), con copiar y guardar."""
+        self.report_exp = Gtk.Expander(label="Informe")
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.report_buf = Gtk.TextBuffer()
+        view = Gtk.TextView(buffer=self.report_buf, editable=False, cursor_visible=False, monospace=True)
+        view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        sw = Gtk.ScrolledWindow(min_content_height=140, vexpand=False)
+        sw.set_child(view)
+        box.append(sw)
+        bar = Gtk.Box(spacing=6)
+        for label, cb in (("Copiar", self._on_report_copy), ("Guardar…", self._on_report_save), ("Limpiar", lambda *_: self.report_buf.set_text(""))):
+            b = Gtk.Button(label=label)
+            b.connect("clicked", cb)
+            bar.append(b)
+        box.append(bar)
+        self.report_exp.set_child(box)
+        return self.report_exp
+
+    def _report_set(self, title: str, lines: list[str]) -> None:
+        self.report_buf.set_text(f"== {title} ==\n" + "\n".join(lines) + "\n")
+        self.report_exp.set_expanded(True)
+
+    def _report_append(self, line: str) -> bool:
+        self.report_buf.insert(self.report_buf.get_end_iter(), line + "\n")
+        self.report_exp.set_expanded(True)
+        return False
+
+    def _report_text(self) -> str:
+        return self.report_buf.get_text(self.report_buf.get_start_iter(), self.report_buf.get_end_iter(), False)
+
+    def _on_report_copy(self, *_) -> None:
+        self.get_clipboard().set(self._report_text())
+
+    def _on_report_save(self, *_) -> None:
+        dlg = Gtk.FileDialog(title="Guardar el informe", initial_name="informe_catalogo.txt")
+
+        def finished(d, res) -> None:
+            try:
+                f = d.save_finish(res)
+            except GLib.Error:
+                return
+            try:
+                with open(f.get_path(), "w", encoding="utf-8") as fh:
+                    fh.write(self._report_text())
+                self.lbl_status.set_text(f"Informe guardado en {f.get_path()}")
+            except OSError as exc:
+                self.lbl_status.set_text(f"No se pudo guardar el informe: {exc}")
+
+        dlg.save(self, None, finished)
+
+    def _ops_free(self) -> bool:
+        """¿Se pueden lanzar comandos de catálogo? (hay catálogo, ninguna tarea en curso, ningún modo de edición abierto)."""
+        return bool(self.ctrl.session.catalog_root) and not self.ctrl.busy and self._cutter is None and self._jeditor is None
+
+    def _sync_ops_buttons(self, refs: list[str] | None = None) -> None:
+        refs = self._selected_refs() if refs is None else refs
+        free = self._ops_free()
+        for b in self._menu_buttons:
+            b.set_sensitive(free)
+        self.menu_cat.set_sensitive(bool(self.ctrl.session.catalog_root))
+        self.btn_certify.set_sensitive(free and bool(self.mgr.certify_refs(refs)))
+        self.chk_force.set_sensitive(free)
+        self.btn_cover.set_sensitive(free and len(refs) == 1)
+        self.btn_explain.set_sensitive(free and len(refs) == 1)
+        self.btn_certify.set_label("Certificar" if len(refs) <= 1 else f"Certificar {len(self.mgr.certify_refs(refs))}")
+
+    def _op_error(self, title: str, exc: Exception) -> None:
+        self._report_set(title, [f"ERROR: {exc}"])
+        self.lbl_status.set_text(f"{title}: {exc}")
+
+    def _op_verify(self) -> None:
+        try:
+            lines, ok = self.mgr.report_verify()
+        except ValueError as exc:
+            self._op_error("Verificar", exc)
+            return
+        self._report_set("Verificar el catálogo", lines)
+        self.lbl_status.set_text(lines[-1] if lines else "")
+
+    def _op_contract(self) -> None:
+        try:
+            lines = self.mgr.report_contract()
+        except ValueError as exc:
+            self._op_error("Contrato", exc)
+            return
+        self._report_set("Contrato de la línea", lines)
+
+    def _op_piece_report(self, which: str) -> None:
+        refs = self._selected_refs()
+        if len(refs) != 1:
+            return
+        try:
+            lines = self.mgr.report_coverage(refs[0]) if which == "cobertura" else self.mgr.report_explain(refs[0])
+        except (ValueError, KeyError) as exc:
+            self._op_error(which.capitalize(), exc)
+            return
+        self._report_set(f"{which.capitalize()} de {refs[0]}", lines or ["(sin datos)"])
+
+    def _op_certify(self, refs: list[str] | None, force: bool = False, status_only: bool = False) -> None:
+        if not self._ops_free():
+            return
+        force = force or self.chk_force.get_active()
+        job = self.mgr.certify_job(refs, force, status_only, emit=lambda line: GLib.idle_add(self._report_append, line))
+        if job is None:
+            self.lbl_status.set_text(self.ctrl.message or "")
+            return
+        todo = self.mgr.certify_refs(refs)
+        self._report_set(("Estado de la certificación" if status_only else "Certificar" + (" (forzado)" if force else "")) + f" · {len(todo)} pieza(s)", [])
+        label = "Revisando la certificación" if status_only else "Certificando"
+        self._run_ops_task(label, job, lambda res, err: self._after_certify(res, err))
+
+    def _after_certify(self, res, err) -> None:
+        if err is not None and not isinstance(err, OPS.Cancelled):
+            self._report_append(f"ERROR: {err}")
+        elif res is not None:
+            self._report_append(("Cancelado. " if res.cancelled else "") + f"{res.done} pieza(s) procesada(s); "
+                                + (f"{res.bad} sin certificar o con problemas." if res.bad else "todas certificadas."))
+
+    def _op_compat(self, force: bool) -> None:
+        if not self._ops_free():
+            return
+        job = self.mgr.compat_job(force)
+        if job is None:
+            self.lbl_status.set_text(self.ctrl.message or "")
+            return
+        self._report_set("Compatibilidad de las recetas" + (" (forzada)" if force else ""), [])
+        self._run_ops_task("Compatibilidad de las recetas", job, self._after_compat)
+
+    def _after_compat(self, res, err) -> None:
+        if err is not None:
+            if not isinstance(err, OPS.Cancelled):
+                self._report_append(f"ERROR: {err}")
+            return
+        for line in res.lines:
+            self._report_append(line)
+
+    def _op_matrix(self, complete: bool) -> None:
+        if not self._ops_free():
+            return
+        job = self.mgr.matrix_job(complete)
+        if job is None:
+            self.lbl_status.set_text(self.ctrl.message or "")
+            return
+        self._report_set("Informe COMPATIBILIDAD.md", [])
+        self._run_ops_task("Informe de compatibilidad", job, self._after_matrix)
+
+    def _after_matrix(self, res, err) -> None:
+        if err is not None:
+            if not isinstance(err, OPS.Cancelled):
+                self._report_append(f"ERROR: {err}")
+            return
+        self._report_append(f"Escrito {res}")
+
+    def _run_ops_task(self, label: str, job, done) -> None:
+        """Corre `job(progress)` en un hilo (la ventana sigue viva) y llama `done(resultado, error)` en el hilo principal."""
+        self._task_label = label
+        self.progress.start(None, label)
+        self.task_row.set_visible(True)
+        self.btn_task_cancel.set_sensitive(True)
+        self._sync_ops_buttons()
+        self._sync_wrist_button(self._selected_refs())
+        self._sync_joint_button(self._selected_refs())
+        self.btn_delete.set_sensitive(False)
+
+        def work() -> None:
+            try:
+                res = job(lambda text: GLib.idle_add(self._ops_progress, text))
+            except Exception as exc:        # noqa: BLE001 — se informa en el panel
+                GLib.idle_add(self._ops_done, label, done, None, exc)
+            else:
+                GLib.idle_add(self._ops_done, label, done, res, None)
+
+        threading.Thread(target=work, daemon=True, name="afm-catalog-task").start()
+
+    def _ops_progress(self, text: str) -> bool:
+        self.progress.feed(text)
+        return False
+
+    def _ops_done(self, label: str, done, res, err) -> bool:
+        cancelled = isinstance(err, OPS.Cancelled) or bool(getattr(res, "cancelled", False))
+        self._task_label = ""
+        self.progress.finish(err is None or cancelled, "Cancelado" if cancelled else label)
+        self.task_row.set_visible(False)
+        self.mgr.finish_task(label, OPS.Cancelled() if cancelled else err)
+        done(res, err)
+        self._reload()                                  # las insignias (certificada / vencida) cambian
+        self.lbl_status.set_text(self.ctrl.message or "")
+        return False
+
+    def _on_task_cancel(self, *_) -> None:
+        self.mgr.request_cancel()
+        self.btn_task_cancel.set_sensitive(False)
+        self.lbl_status.set_text("Cancelando… se corta en cuanto el motor informa progreso.")
 
     # ------------------------------------------------------------ cortar la mano de un brazo
     def _build_wrist_panel(self) -> Gtk.Widget:
@@ -346,6 +630,7 @@ class CatalogManagerWindow(Gtk.Window):
         self.wrist_panel.set_visible(True)
         self.btn_wrist.set_sensitive(False)
         self.btn_delete.set_sensitive(False)
+        self._sync_ops_buttons()
         self._wrist_refresh()
 
     def _wrist_cancel(self, redraw: bool = True) -> None:
@@ -354,6 +639,7 @@ class CatalogManagerWindow(Gtk.Window):
         self._cutter = None
         self.wrist_panel.set_visible(False)
         self._sync_wrist_button(self._selected_refs())
+        self._sync_ops_buttons()
         self.btn_delete.set_sensitive(bool(self._selected_refs()) and not self.ctrl.busy)
         if redraw:
             self._redraw()
@@ -538,6 +824,7 @@ class CatalogManagerWindow(Gtk.Window):
         self.btn_joint.set_sensitive(False)
         self.btn_wrist.set_sensitive(False)
         self.btn_delete.set_sensitive(False)
+        self._sync_ops_buttons()
         self._joint_fill()
         self._joint_schedule(0)
 
@@ -556,6 +843,7 @@ class CatalogManagerWindow(Gtk.Window):
             self._jupdating = False
         self._sync_joint_button(self._selected_refs())
         self._sync_wrist_button(self._selected_refs())
+        self._sync_ops_buttons()
         self.btn_delete.set_sensitive(bool(self._selected_refs()) and not self.ctrl.busy)
         if redraw:
             self._redraw()
@@ -728,6 +1016,27 @@ class CatalogManagerWindow(Gtk.Window):
         finally:
             self._updating = False
 
+    @staticmethod
+    def _dd_value(dd: Gtk.DropDown, all_label: str) -> str | None:
+        item = dd.get_selected_item()
+        txt = item.get_string() if item is not None else all_label
+        return None if txt == all_label else txt
+
+    def _fill_dd(self, dd: Gtk.DropDown, all_label: str, present: list[str]) -> None:
+        """Lista del filtro con lo que hay en el catálogo (conserva la elección si sigue existiendo)."""
+        model = dd.get_model()
+        have = [model.get_string(i) for i in range(model.get_n_items())] if model is not None else []
+        names = [all_label] + sorted(set(present))
+        if have == names:
+            return
+        current = self._dd_value(dd, all_label)
+        self._updating = True
+        try:
+            dd.set_model(Gtk.StringList.new(names))
+            dd.set_selected(names.index(current) if current in names else 0)
+        finally:
+            self._updating = False
+
     def _on_list_click(self, gesture: Gtk.GestureClick, _n: int, _x: float, y: float) -> None:
         row = self.listbox.get_row_at_y(int(y))
         if row is None:
@@ -774,12 +1083,27 @@ class CatalogManagerWindow(Gtk.Window):
         everything = self.ctrl.catalog_pieces()              # una sola lectura del catálogo por recarga
         if sorted({m.tipo for m in everything}) != self._type_names():
             self._fill_types([m.tipo for m in everything])
+        for dd, label, vals in ((self.dd_fstate, ALL_STATES, [m.estado for m in everything]),
+                                (self.dd_tag, ALL_TAGS, [t for m in everything for t in m.etiquetas])):
+            self._fill_dd(dd, label, vals)
         text, tipo = self.search.get_text(), self._type_filter()
-        metas = sort_pieces([m for m in everything if matches(m, text, tipo)], *self._sort)
+        estado, etiqueta = self._dd_value(self.dd_fstate, ALL_STATES), self._dd_value(self.dd_tag, ALL_TAGS)
+        last: dict[str, int] = {}
+        for m in everything:
+            last[m.id] = max(last.get(m.id, 0), m.version)
+        latest = self.chk_latest.get_active()
+
+        def cert_of(m) -> str:                                  # la certificación se muestra solo en la última versión de cada pieza
+            return self.mgr.cert_text(m.ref) if m.version == last[m.id] else ""
+
+        metas = sort_pieces([m for m in everything if matches(m, text, tipo, estado, etiqueta) and (not latest or m.version == last[m.id])],
+                            *self._sort, cert_of=cert_of)
         root = self.ctrl.session.catalog_root
         total = len(everything)
+        summary = self.mgr.cert_summary() if root else ""
         self.lbl_title.set_text("No hay un catálogo abierto." if not root else
-                                f"Catálogo: {root}\n{total} versión(es) de pieza" + ("" if len(metas) == total else f" · se ven {len(metas)}"))
+                                f"Catálogo: {root}\n{total} versión(es) de pieza" + ("" if len(metas) == total else f" · se ven {len(metas)}")
+                                + (f"\nCertificación: {summary}" if summary else ""))
         self._updating = True
         try:
             while (child := self.listbox.get_first_child()) is not None:
@@ -787,7 +1111,7 @@ class CatalogManagerWindow(Gtk.Window):
             self._rows = []
             for m in metas:
                 row = Gtk.ListBoxRow()
-                row.set_child(self._row_widget(m))
+                row.set_child(self._row_widget(m, cert_of(m)))
                 self.listbox.append(row)
                 self._rows.append((row, m))
                 if m.ref in keep:
@@ -816,9 +1140,10 @@ class CatalogManagerWindow(Gtk.Window):
             self._show(None)
             self._sync_wrist_button(refs)
             self._sync_joint_button(refs)
+            self._sync_ops_buttons(refs)
             return
         meta = next(m for _row, m in self._rows if m.ref == refs[0])
-        text = detail_text(meta, self.mgr.uses(meta.ref))
+        text = detail_text(meta, self.mgr.uses(meta.ref), self.mgr.cert_text(meta.ref))
         if n > 1:
             text = f"{n} piezas elegidas (se muestra la primera).\n\n" + text
         self.lbl_detail.set_text(text)
@@ -826,6 +1151,7 @@ class CatalogManagerWindow(Gtk.Window):
             self._show(meta)
         self._sync_wrist_button(refs)
         self._sync_joint_button(refs)
+        self._sync_ops_buttons(refs)
 
     def _show(self, meta) -> None:
         """Pone `meta` (o nada) en la vista previa, en vista 3/4."""
