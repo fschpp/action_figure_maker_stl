@@ -598,6 +598,16 @@ class CatalogManager:
         self._badges = ((), {})
         return ok
 
+    # ---- importar (escribe el catálogo: agrega una pieza; el formulario de la ventana valida y esto lo lanza en un hilo)
+    def import_job(self, kind: str, values: dict):
+        """Valida el formulario `kind` («mano», «accesorio», «arma», «pieza») y devuelve `job(progress)` para un hilo, o None si no se pudo empezar
+        (motivo en `ctrl.message`). Un formulario mal llenado levanta `ValueError` con el mensaje para mostrar; no se toma `busy` hasta que está bien."""
+        from . import catalog_import as CI
+
+        parsed = CI.parse(kind, values)
+        self.cancel_event.clear()
+        return self.ctrl.begin_catalog_task(f"Importando · {CI.FORMS[kind]['titulo']}", lambda root, progress: CI.run(kind, root, parsed))
+
     def finish_task(self, label: str, error) -> None:
         """Cierra una tarea larga: suelta `busy` y deja el mensaje (cancelada / falló / terminó). Los cachés de la insignia se invalidan solos."""
         from .. import catalog_ops as OPS

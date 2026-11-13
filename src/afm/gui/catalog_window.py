@@ -12,11 +12,12 @@ import threading
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gdk, GLib, Gtk, Pango  # noqa: E402
+from gi.repository import Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 
 from .. import catalog_ops as OPS  # noqa: E402
 from .catalog_manager import (ALL_STATES, ALL_TAGS, ALL_TYPES, COLUMNS, PIN_LEGEND, CatalogManager, JointEditor, PreviewRenderer,  # noqa: E402
                               WristCutter, can_cut_wrist, can_retune_joint, detail_text, matches, next_row, row_cells, sort_pieces)
+from . import catalog_import as CI  # noqa: E402
 from .catalog_manager import ZOOM_STEP, zoom_about  # noqa: E402
 from .catalog_manager import view_bounds as CM_view_bounds  # noqa: E402
 from .progress_panel import ProgressPanel  # noqa: E402
@@ -54,6 +55,7 @@ class CatalogManagerWindow(Gtk.Window):
         self._jeditor: JointEditor | None = None     # modo «Reajustar articulación…» (None = no está activo)
         self._jupdating = False                      # se están poniendo valores en los spins: no recalcular
         self._jtimer = 0                             # GLib source del recálculo pendiente
+        self._pending_select = ""                    # pieza recién importada que hay que dejar elegida
         self._task_label = ""                        # tarea larga de catálogo en curso (certificar, compatibilidad…); "" = ninguna
 
         paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL, wide_handle=True)
@@ -88,6 +90,7 @@ class CatalogManagerWindow(Gtk.Window):
         btn_all.connect("clicked", lambda *_: self.listbox.select_all())
         row.append(btn_all)
         row.append(self._build_catalog_menu())
+        row.append(self._build_import_menu())
         box.append(row)
         row2 = Gtk.Box(spacing=6)
         self.dd_fstate = Gtk.DropDown.new_from_strings([ALL_STATES])
@@ -346,6 +349,53 @@ class CatalogManagerWindow(Gtk.Window):
         self.menu_cat.set_popover(pop)
         return self.menu_cat
 
+    def _build_import_menu(self) -> Gtk.Widget:
+        """Menú «Importar ▾»: agregar al catálogo una mano, un accesorio, un arma o una pieza suelta desde un STL."""
+        self.menu_import = Gtk.MenuButton(label="Importar ▾")
+        pop = Gtk.Popover()
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, margin_top=6, margin_bottom=6, margin_start=6, margin_end=6)
+        self._import_buttons: list[Gtk.Button] = []
+        for kind, label in CI.LABELS.items():
+            b = Gtk.Button(label=label, has_frame=False, halign=Gtk.Align.START,
+                           tooltip_text=f"afm catalogo {CI.FORMS[kind]['comando']}: {CI.FORMS[kind]['ayuda']}")
+            b.connect("clicked", lambda _b, k=kind: (pop.popdown(), self._open_import(k)))
+            box.append(b)
+            self._import_buttons.append(b)
+        pop.set_child(box)
+        self.menu_import.set_popover(pop)
+        return self.menu_import
+
+    def _open_import(self, kind: str) -> None:
+        if self._ops_free():
+            ImportDialog(self, kind, self._start_import).present()
+
+    def _start_import(self, kind: str, values: dict) -> str:
+        """Lanza la importación del formulario. Devuelve "" si empezó, o el motivo por el que el formulario no sirve (el diálogo lo muestra)."""
+        try:
+            job = self.mgr.import_job(kind, values)
+        except ValueError as exc:
+            return str(exc)
+        if job is None:
+            return self.ctrl.message or "No se pudo empezar la importación."
+        self._report_set(f"Importar: {CI.FORMS[kind]['titulo']}", [])
+        self._run_ops_task(f"Importando · {CI.FORMS[kind]['titulo']}", job, self._after_import, cancellable=False)
+        return ""
+
+    def _after_import(self, res, err) -> None:
+        if err is not None:
+            self._report_append(f"ERROR: {err}")
+            return
+        for line in CI.result_lines(res):
+            self._report_append(line)
+        self._pending_select = res.ref
+
+    def _select_ref(self, ref: str) -> None:
+        for row, m in self._rows:
+            if m.ref == ref:
+                self.listbox.unselect_all()
+                self.listbox.select_row(row)
+                return
+
     def _build_ops_row(self) -> Gtk.Widget:
         """Comandos de la pieza elegida: certificar, cobertura, explicar."""
         row = Gtk.Box(spacing=6)
@@ -442,6 +492,9 @@ class CatalogManagerWindow(Gtk.Window):
         for b in self._menu_buttons:
             b.set_sensitive(free)
         self.menu_cat.set_sensitive(bool(self.ctrl.session.catalog_root))
+        for b in self._import_buttons:
+            b.set_sensitive(free)
+        self.menu_import.set_sensitive(bool(self.ctrl.session.catalog_root))
         self.btn_certify.set_sensitive(free and bool(self.mgr.certify_refs(refs)))
         self.chk_force.set_sensitive(free)
         self.btn_capacity.set_sensitive(free and bool(self.mgr.capacity_refs(refs)))
@@ -624,12 +677,12 @@ class CatalogManagerWindow(Gtk.Window):
 
         self._confirm("¿Borrar el contrato de la línea?", "Se quita el contrato de linea.json; las piezas dejan de tener talle. Se puede volver a calibrar.", "Borrar contrato", clear)
 
-    def _run_ops_task(self, label: str, job, done) -> None:
+    def _run_ops_task(self, label: str, job, done, cancellable: bool = True) -> None:
         """Corre `job(progress)` en un hilo (la ventana sigue viva) y llama `done(resultado, error)` en el hilo principal."""
         self._task_label = label
         self.progress.start(None, label)
         self.task_row.set_visible(True)
-        self.btn_task_cancel.set_sensitive(True)
+        self.btn_task_cancel.set_sensitive(cancellable)
         self._sync_ops_buttons()
         self._sync_wrist_button(self._selected_refs())
         self._sync_joint_button(self._selected_refs())
@@ -655,8 +708,11 @@ class CatalogManagerWindow(Gtk.Window):
         self.progress.finish(err is None or cancelled, "Cancelado" if cancelled else label)
         self.task_row.set_visible(False)
         self.mgr.finish_task(label, OPS.Cancelled() if cancelled else err)
+        self._pending_select = ""
         done(res, err)
         self._reload()                                  # las insignias (certificada / vencida) cambian
+        if self._pending_select:                        # una importación deja elegida la pieza nueva
+            self._select_ref(self._pending_select)
         self.lbl_status.set_text(self.ctrl.message or "")
         return False
 
@@ -1473,3 +1529,109 @@ class CatalogManagerWindow(Gtk.Window):
             self._reload()
 
         dlg.choose(self, None, answered)
+
+
+class ImportDialog(Gtk.Window):
+    """Formulario de una importación (`catalog_import.FORMS[kind]`): archivo + parámetros. «Importar» valida y lanza la tarea."""
+
+    def __init__(self, parent: Gtk.Window, kind: str, start):
+        form = CI.FORMS[kind]
+        super().__init__(title=form["titulo"], transient_for=parent, modal=True, default_width=620)
+        self.kind, self._start, self._form = kind, start, form
+        self._w: dict[str, Gtk.Widget] = {}
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_top=12, margin_bottom=12, margin_start=14, margin_end=14)
+        hint = Gtk.Label(label=form["ayuda"], xalign=0, wrap=True)
+        hint.add_css_class("dim-label")
+        outer.append(hint)
+        grid = Gtk.Grid(row_spacing=6, column_spacing=10)
+        for r, f in enumerate(form["campos"]):
+            lab = Gtk.Label(label=f.label + (" *" if f.required else ""), xalign=0, wrap=True, valign=Gtk.Align.START)
+            grid.attach(lab, 0, r, 1, 1)
+            w = self._make_field(f)
+            if f.help:
+                w.set_tooltip_text(f.help)
+                lab.set_tooltip_text(f.help)
+            grid.attach(w, 1, r, 1, 1)
+        outer.append(grid)
+        self.lbl_error = Gtk.Label(label="", xalign=0, wrap=True)
+        self.lbl_error.add_css_class("error")
+        outer.append(self.lbl_error)
+        bar = Gtk.Box(spacing=8, halign=Gtk.Align.END)
+        cancel = Gtk.Button(label="Cancelar")
+        cancel.connect("clicked", lambda *_: self.close())
+        go = Gtk.Button(label="Importar")
+        go.add_css_class("suggested-action")
+        go.connect("clicked", self._on_go)
+        bar.append(cancel)
+        bar.append(go)
+        outer.append(bar)
+        sw = Gtk.ScrolledWindow(propagate_natural_height=True, max_content_height=640)
+        sw.set_child(outer)
+        self.set_child(sw)
+
+    def _make_field(self, f: CI.Field) -> Gtk.Widget:
+        if f.kind == CI.FILE:
+            box = Gtk.Box(spacing=6)
+            ent = Gtk.Entry(hexpand=True, placeholder_text="ruta del archivo .stl")
+            btn = Gtk.Button(label="Elegir…")
+            btn.connect("clicked", lambda *_: self._choose_file(ent))
+            box.append(ent)
+            box.append(btn)
+            self._w[f.key] = ent
+            return box
+        if f.kind == CI.BOOL:
+            w = Gtk.CheckButton(active=bool(f.default))
+        elif f.kind == CI.CHOICE:
+            w = Gtk.DropDown.new_from_strings(list(f.choices))
+            w.set_selected(max(0, list(f.choices).index(f.default)) if f.default in f.choices else 0)
+        elif f.kind == CI.MULTILINE:
+            tv = Gtk.TextView(monospace=True, wrap_mode=Gtk.WrapMode.NONE)
+            tv.get_buffer().set_text(str(f.default))
+            w = Gtk.ScrolledWindow(min_content_height=90, hexpand=True)
+            w.set_child(tv)
+            self._w[f.key] = tv
+            return w
+        else:
+            w = Gtk.Entry(hexpand=True, text=str(f.default))
+        self._w[f.key] = w
+        return w
+
+    def _choose_file(self, entry: Gtk.Entry) -> None:
+        dlg = Gtk.FileDialog(title="Elegir el STL")
+        flt = Gtk.FileFilter(name="STL")
+        flt.add_pattern("*.stl")
+        flt.add_pattern("*.STL")
+        store = Gio.ListStore.new(Gtk.FileFilter)
+        store.append(flt)
+        dlg.set_filters(store)
+
+        def done(d, res) -> None:
+            try:
+                f = d.open_finish(res)
+            except GLib.Error:
+                return
+            entry.set_text(f.get_path() or "")
+
+        dlg.open(self, None, done)
+
+    def values(self) -> dict:
+        out: dict = {}
+        for f in self._form["campos"]:
+            w = self._w[f.key]
+            if f.kind == CI.BOOL:
+                out[f.key] = w.get_active()
+            elif f.kind == CI.CHOICE:
+                out[f.key] = w.get_selected_item().get_string()
+            elif f.kind == CI.MULTILINE:
+                b = w.get_buffer()
+                out[f.key] = b.get_text(b.get_start_iter(), b.get_end_iter(), False)
+            else:
+                out[f.key] = w.get_text()
+        return out
+
+    def _on_go(self, *_) -> None:
+        err = self._start(self.kind, self.values())
+        if err:
+            self.lbl_error.set_text(err)
+        else:
+            self.close()

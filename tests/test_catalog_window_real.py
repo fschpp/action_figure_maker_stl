@@ -189,3 +189,81 @@ def test_contract_proposal_enables_the_save_item(win):
     assert not win._btn_save_proposal.get_sensitive() and win.ctrl.catalog_handle().contract().hash() == digest
     win._op_contract()
     assert "afm-interfaz-1" in win._report_text()
+
+
+# ---------------------------------------------------------------------------------------------------- Importar ▾
+def _fill(dlg, **vals):
+    """Llena el formulario como lo haría la persona: texto en los campos, casillas, lista de tipos y cuadro de puertos."""
+    from afm.gui import catalog_import as CI
+
+    for f in dlg._form["campos"]:
+        if f.key not in vals:
+            continue
+        w, v = dlg._w[f.key], vals[f.key]
+        if f.kind == CI.BOOL:
+            w.set_active(v)
+        elif f.kind == CI.CHOICE:
+            w.set_selected(list(f.choices).index(v))
+        elif f.kind == CI.MULTILINE:
+            w.get_buffer().set_text(v)
+        else:
+            w.set_text(str(v))
+
+
+def test_import_menu_lists_the_four_forms_and_follows_the_busy_state(win):
+    from afm.gui import catalog_import as CI
+
+    assert [b.get_label() for b in win._import_buttons] == list(CI.LABELS.values())
+    assert all(b.get_sensitive() for b in win._import_buttons)
+    select(win, "brazo-muneco-01@1")
+    win._op_certify(win._selected_refs())
+    assert win._task_label and not any(b.get_sensitive() for b in win._import_buttons)         # una sola tarea a la vez
+    win._open_import("mano")                                                                    # y no abre formularios en medio de una tarea
+    pump(lambda: not win._task_label)
+    assert all(b.get_sensitive() for b in win._import_buttons)
+
+
+def test_import_dialog_shows_the_validation_error_and_stays_open(win):
+    from afm.gui.catalog_window import ImportDialog
+
+    dlg = ImportDialog(win, "accesorio", win._start_import)
+    dlg.present()
+    dlg._on_go()
+    assert "Falta «STL del accesorio»" in dlg.lbl_error.get_text() and dlg.get_visible() and not win.ctrl.busy
+    _fill(dlg, stl="x.stl", largo_canal="abc")
+    dlg._on_go()
+    assert "no es un número" in dlg.lbl_error.get_text() and not win.ctrl.busy
+    dlg.close()
+
+
+def test_import_loose_piece_from_the_dialog_adds_and_selects_it(win, tmp_path):
+    from afm.catalog import Catalog
+    from afm.gui.catalog_window import ImportDialog
+    from test_catalog import BASE, cyl
+
+    stl = str(tmp_path / "brazo_nuevo.stl")
+    cyl(5, 30).export(stl)
+    top = " ".join(str(v) for a, b, _ in BASE for v in (a, b, 30.0))
+    n = len(win._rows)
+    dlg = ImportDialog(win, "pieza", win._start_import)
+    dlg.present()
+    _fill(dlg, stl=stl, tipo="brazo", id="brazo-dialogo-01", etiquetas="propia",
+          puertos="hombro " + " ".join(str(v) for p in BASE for v in p) + f"\nmuneca {top}")
+    dlg._on_go()
+    assert win.ctrl.busy and win._task_label.startswith("Importando") and not win.btn_task_cancel.get_sensitive()     # no se cancela una importación
+    pump(lambda: not win._task_label)
+    assert not win.ctrl.busy and not dlg.get_visible()
+    assert "Pieza guardada como brazo-dialogo-01@1" in win._report_text()
+    assert len(win._rows) == n + 1 and win._selected_refs() == ["brazo-dialogo-01@1"]
+    assert Catalog.open(win.ctrl.session.catalog_root).meta("brazo-dialogo-01@1").etiquetas == ["propia"]
+
+
+def test_import_that_fails_reports_the_error_and_releases_busy(win, tmp_path):
+    from afm.gui.catalog_window import ImportDialog
+
+    dlg = ImportDialog(win, "mano", win._start_import)
+    dlg.present()
+    _fill(dlg, stl=str(tmp_path / "no_existe.stl"))
+    dlg._on_go()
+    pump(lambda: not win._task_label)
+    assert not win.ctrl.busy and "ERROR:" in win._report_text() and "falló" in win.ctrl.message

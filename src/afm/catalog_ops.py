@@ -25,9 +25,9 @@ COMMANDS: dict[str, tuple[str, bool, bool]] = {
     "eliminar": (GUI, False, True),            # va a la papelera
     "restaurar": (GUI, False, True),           # «Recuperar lo eliminado» (el último grupo; `--lote ID` queda en consola)
     "importar-mano": (GUI, False, True),       # «Importar ▾ → Mano estándar…» (archivo + id)
-    "importar-arma": (GUI, False, True),       # «Importar ▾ → Arma…» (archivo + largo + 3 puntos sobre el STL)
+    "importar-arma": (GUI, False, True),       # «Importar ▾ → Arma…» (archivo + largo + los 3 puntos del corte, escritos X,Y,Z)
     "importar-accesorio": (GUI, False, True),  # «Importar ▾ → Accesorio…» (archivo + datos de la empuñadura)
-    "agregar-stl": (GUI, False, True),         # «Importar ▾ → Pieza suelta…» (archivo + 3 puntos por puerto sobre el STL)
+    "agregar-stl": (GUI, False, True),         # «Importar ▾ → Pieza suelta…» (archivo + 3 puntos por puerto, escritos; elegirlos con clics queda pendiente)
     "agregar": (GUI, True, True),              # «Catalogar esta figura…» de la ventana principal
     "cortar-muneca": (GUI, False, True),
     "compat": (GUI, True, False),
