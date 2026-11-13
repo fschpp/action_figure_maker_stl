@@ -30,7 +30,8 @@ from ..trims import Trim
 from .camera import OrbitCamera
 from .picking import Picker, PickResult
 from .polygon_editor import EDGE_PX, VERTEX_PX, PolygonDraft, ray_plane_uv
-from .session import Session
+from .history import History
+from .session import Session, json_sig
 
 SYMMETRY_ID = "simetria"
 _KIND_BASE = {"arm": "brazo", "leg": "pierna"}
@@ -226,6 +227,8 @@ class Controller:
         self.hidden: set[str] = set()                # ids de planos ocultos
         self.show_groups: dict[str, bool] = {g: False for g in SHOW_GROUPS}   # interruptores generales (planos / pines / contornos)
         self.busy = False                            # generando la figura (la ventana bloquea la edición)
+        self.history = History()                     # deshacer / rehacer global por instantáneas del proyecto (ver history.py)
+        self.defer_history = False                   # la ventana lo activa y registra con `record_history` tras una pausa; sin ventana se registra en cada cambio
         self.plane_faults: dict[str, tuple[str, bytes]] = {}   # id de plano -> (por qué su corte falló, firma del plano): se pinta de rojo hasta que el plano cambie
         self.progress_stages: list | None = None      # pasos esperados de la tarea en curso (`progress.Stage`); None = sin plan
         self.progress_prefix = "Generando"           # encabezado de los mensajes de progreso de la tarea en curso
@@ -292,13 +295,99 @@ class Controller:
             self.message = message
         if scene:
             self.scene_dirty = True
+        if scene and not self.defer_history:
+            self.record_history()
         if self.on_change:
             self.on_change()
+
+    # ------------------------------------------------------ deshacer / rehacer
+    def _project_text(self) -> str:
+        return json_sig(self.session.project.to_dict())
+
+    def record_history(self) -> None:
+        """Registra el estado del proyecto como un paso de deshacer si cambió desde el último registrado."""
+        if not self.loaded or self.busy:
+            return
+        self.history.observe(self._project_text(), (self.message or "").strip()[:90])
+
+    @property
+    def can_undo(self) -> bool:
+        return self.loaded and not self.busy and self.history.can_undo
+
+    @property
+    def can_redo(self) -> bool:
+        return self.loaded and not self.busy and self.history.can_redo
+
+    def undo_blocked(self) -> str | None:
+        """Por qué no se puede deshacer / rehacer ahora (None = se puede)."""
+        if not self.loaded:
+            return "Primero abrí un STL (pestaña Figura)."
+        if self.busy:
+            return self._WAIT
+        if self.session.catalog_origin is not None and not self.session.stl_path:
+            return "En una figura armada solo con piezas de catálogo todavía no se puede deshacer."
+        return None
+
+    def undo(self) -> bool:
+        """Ctrl+Z. Mientras se dibuja, deshace el último punto; si no, el último cambio del proyecto."""
+        if (self.mode == Mode.POLYGON and self.draft is not None) or self.pending:
+            self.undo_point()
+            return True
+        return self._step("undo")
+
+    def redo(self) -> bool:
+        return self._step("redo")
+
+    def _step(self, which: str) -> bool:
+        why = self.undo_blocked()
+        if why is not None:
+            self._changed(why, scene=False)
+            return False
+        snap = getattr(self.history, which)(self._project_text())
+        if snap is None:
+            self._changed("No hay nada para " + ("deshacer." if which == "undo" else "rehacer."), scene=False)
+            return False
+        label = snap.label
+        self._restore_project(snap.text)
+        self.history.settle(self._project_text())
+        verb = "Deshecho" if which == "undo" else "Rehecho"
+        # al deshacer se vuelve al estado anterior: el cartel nombra lo que se quitó; al rehacer, lo que se volvió a poner
+        shown = self.history.redo_label if which == "undo" else label
+        self._changed(f"{verb}: {shown}" if shown else f"{verb}.")
+        return True
+
+    def _restore_project(self, text: str) -> None:
+        import dataclasses
+        import json
+
+        from ..project import Project
+
+        sess = self.session
+        cur = sess.project
+        new = Project.from_dict(json.loads(text))
+        reload = sess.stl_path is not None and (new.crown_z != cur.crown_z
+                                                or abs(new.params.ref_height - cur.params.ref_height) > 1e-9)
+        self.cancel(quiet=True)
+        for f in dataclasses.fields(Project):               # en el mismo objeto: nadie queda con una referencia vieja
+            setattr(cur, f.name, getattr(new, f.name))
+        for name in [k for k in vars(sess) if k.endswith("_cache")]:
+            if name == "_catalog_joint_cache":               # se declara en __init__ y se lee directo
+                sess._catalog_joint_cache = None
+            else:                                           # el resto se crea al usarse: borrarlo es lo seguro
+                del sess.__dict__[name]
+        sess.outcome = None
+        if reload:                                           # cambió la escala de la malla: se relee con la altura y la coronilla del paso
+            sess.load(sess.stl_path, cur.crown_z)
+        else:
+            sess._rebuild_frames()
+        self._rebuild_picker()
+        self.cut_seated = None
 
     def _rebuild_picker(self) -> None:
         self.picker = Picker(self.session.work) if self.session.work is not None else None
 
     def _after_load(self) -> None:
+        self.history.reset(self._project_text())
         self.weapon_active = False                  # se abrió una figura: el visor vuelve a ella
         self._rebuild_picker()
         self.camera.frame(self.session.work.bounds)

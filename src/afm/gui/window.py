@@ -136,6 +136,8 @@ class MainWindow(Gtk.ApplicationWindow):
         super().__init__(application=app, title="Action Figure Maker", default_width=1240, default_height=780)
         self.ctrl = ctrl
         self.ctrl.on_change = self._refresh
+        self.ctrl.defer_history = True                   # el historial de deshacer se registra tras una pausa (agrupa arrastres y giros de spin)
+        self._hist_timer = 0
         # los cálculos largos del controlador (vista previa de la articulación) corren en un hilo y vuelven por acá
         self.ctrl.call_in_main = lambda f, *a: GLib.idle_add(lambda: (f(*a), False)[1])
         self._joint_names: list[str] = []
@@ -183,6 +185,12 @@ class MainWindow(Gtk.ApplicationWindow):
             b.connect("clicked", cb)
             bar.pack_start(b)
             self.btn_open.append(b)
+        self.btn_undo = Gtk.Button(icon_name="edit-undo-symbolic")
+        self.btn_undo.connect("clicked", lambda *_: self.ctrl.undo())
+        self.btn_redo = Gtk.Button(icon_name="edit-redo-symbolic")
+        self.btn_redo.connect("clicked", lambda *_: self.ctrl.redo())
+        for b in (self.btn_undo, self.btn_redo):
+            bar.pack_start(b)
         self.btn_build_cat = Gtk.Button(label="Armar desde catálogo…")
         self.btn_build_cat.set_tooltip_text("Figura nueva solo con piezas del catálogo, sin abrir un STL ni un proyecto.")
         self.btn_build_cat.connect("clicked", self._on_catalog_build)
@@ -978,6 +986,21 @@ exportar; tarda un poco más.")
         b.connect("clicked", cb)
         return b
 
+    def _record_history(self) -> bool:
+        self._hist_timer = 0
+        self.ctrl.record_history()
+        self._sync_undo_buttons()
+        return False
+
+    def _sync_undo_buttons(self) -> None:
+        ctrl, h = self.ctrl, self.ctrl.history
+        why = ctrl.undo_blocked() or (None if h.can_undo else "No hay nada para deshacer.")
+        self.btn_undo.set_sensitive(why is None)
+        self.btn_undo.set_tooltip_text(why or ("Deshacer: " + h.undo_label if h.undo_label else "Deshacer (Ctrl+Z)"))
+        why = ctrl.undo_blocked() or (None if h.can_redo else "No hay nada para rehacer.")
+        self.btn_redo.set_sensitive(why is None)
+        self.btn_redo.set_tooltip_text(why or ("Rehacer: " + h.redo_label if h.redo_label else "Rehacer (Ctrl+Mayús+Z)"))
+
     def _gate(self, widgets, why: str | None) -> None:
         """Habilita los controles si `why` es None; si no, los apaga y deja el motivo en el tooltip.
 
@@ -1018,6 +1041,9 @@ exportar; tarda un poco más.")
             self.set_title(title + mode_title)
             loaded = ctrl.loaded
             gate = self._gate
+            self._sync_undo_buttons()
+            if not self._hist_timer:                       # registra el estado una vez que pasó la ráfaga de cambios
+                self._hist_timer = GLib.timeout_add(300, self._record_history)
             gate((self.btn_crown, self.btn_sym, self.btn_sym_auto, self.dd_front, self.chk_side,
                   self.chk_over, self.spin_over), ctrl.blocked("stl"))
             gate(self.btn_save, ctrl.blocked("save"))
@@ -1476,6 +1502,14 @@ exportar; tarda un poco más.")
         return True
 
     def _on_key(self, _c, keyval: int, _code: int, state) -> bool:
+        if state & Gdk.ModifierType.CONTROL_MASK:        # Ctrl+Z deshace; Ctrl+Mayús+Z o Ctrl+Y rehacen
+            shift = bool(state & Gdk.ModifierType.SHIFT_MASK)
+            if keyval in (Gdk.KEY_z, Gdk.KEY_Z) and not shift:
+                self.ctrl.undo()
+                return True
+            if keyval in (Gdk.KEY_y, Gdk.KEY_Y) or (keyval in (Gdk.KEY_z, Gdk.KEY_Z) and shift):
+                self.ctrl.redo()
+                return True
         if keyval == Gdk.KEY_Escape:
             self.ctrl.cancel()
             return True
