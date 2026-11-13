@@ -49,6 +49,18 @@ _Resumen de lo que sigue abierto, armado leyendo las casillas sin tildar de todo
 - [ ] Fantasma: deslizador de transparencia (hoy fijo en `_CUT_GHOST_MODEL_ALPHA`) y alinear por el torso en vez de por pies y centro.
 
 ## Current Focus
+**Mejora UX/UI de la GUI — rama `mejora_uiux` (2026-11-13, sobre main e2ffaa8):** se implementa `INFORME_UX_GUI.md` por etapas: primero las 1–3 (sin tocar el visor GL), después 4–7. Se parte `5a` antes de `5b` y se cuida que `tests/test_gui_*` sigan en verde.
+
+- [x] 1a: «Frente hacia» pide confirmación antes de borrar simetría / miembros / recortes / cabeza / cintura (`Controller.front_change_loss`, diálogo en `window._on_front`, vuelve el desplegable si se cancela). Test nuevo en `test_gui_controller.py`. Sin probar en GTK real.
+- [/] 1b: motivo en todo botón apagado (tooltips)
+- [ ] 1c: deshacer/rehacer global por instantáneas
+- [ ] 2a: barra de estado compacta · 2b: banner «desactualizado» y Exportar condicionado · 2c: Cancelar con puntos de control en el motor
+- [ ] 3: parámetros desde metadatos (grupos, interruptores, restaurar, buscador)
+- [ ] 4a barra contextual sobre el visor · 4b lista de planos fija · 5a partir `_build_sidebar` · 5b riel de pasos · 6 tabla de lugares del catálogo · 7 cabecera y glosario
+
+**Descubrimiento:** el commit real de main es `e2ffaa8` (el informe revisó `5dffa84`). Para correr tests hace falta `pip install numpy scipy trimesh manifold3d shapely mapbox_earcut networkx scikit-image fast-simplification pymeshfix pytest rtree` y `PYTHONPATH=src`.
+
+## Current Focus (anterior)
 **Fantasma: el STL original un poco translúcido (2026-11-13, sobre main 9d3e371):** mientras el fantasma de la referencia está visible, la figura abierta (`figura` y su espejo) se pinta con alfa 0,65 para que el torso / miembro de la referencia que queda dentro de ella no lo tape. `Scene.set_translucent(nombre, alfa|None, cull=True)` cambia el alfa sin volver a subir la malla (guarda el color anterior y `None` la restaura); translúcida no escribe profundidad y solo dibuja el frente (cull) para que se vea limpia. Se reaplica en cada sync (la figura se sube opaca cada vez). Tests en `tests/test_cut_ref.py` y `tests/test_gui_render.py` (OpenGL fuera de pantalla). Sin probar en GTK real.
 
 **Catalogar la pelvis de Bolívar «no es estanca» (2026-11-13, sobre main 8e0f6d1):** con el proyecto y el STL de Bolívar la pelvis seguía saliendo no estanca tras el parche de pellizcos. Causa: el corte por la cintura (pasa por el fajín) deja ~30 fragmentos sueltos sin volumen (triángulos de área 0, caras abiertas, mini-láminas de 8/12 caras) que dejan vértices con 3–8 abanicos; `separate_pinches` los rechaza y pymeshfix cambia el volumen de más. Además, por eso el torso espejado nunca cerraba y se usaba siempre el respaldo «figura entera» (que deja el resto dentado de la manga −X). Arreglo: `meshio.drop_debris` (descarta componentes de menos de 1e-4 del volumen del mayor) y `extract._heal` (escombros → pellizcos → pymeshfix) compartido por `_clean` y `_closable`. Resultado con el proyecto de Bolívar: las 5 piezas estancas, con `torso_mirror` activo o no; el torso sale ahora de la mitad espejada (lo que pide `torso_mirror`), no de la figura entera (pelvis 6808 mm³ en vez de 7285: se pierde la asimetría del lado −X; con `torso_mirror` desactivado se conserva). Tests: +4 en `tests/test_separate_pinches.py`. Pendiente: `tests/test_catalog_import.py::test_parse_builds_the_arguments_of_catalog_ops` falla también en main limpio (`bore_d`), no relacionado; suite completa en curso.

@@ -2358,7 +2358,30 @@ exportar; tarda un poco más.")
         front = "+Y" if dd.get_selected() == 0 else "-Y"
         if front == self.ctrl.session.project.front:
             return
-        self.ctrl.set_front(front)
+        loss = self.ctrl.front_change_loss()
+        if not loss:
+            self.ctrl.set_front(front)
+            return
+        dlg = Gtk.AlertDialog(
+            message="Cambiar hacia dónde mira la figura",
+            detail="Esto borra " + ", ".join(loss) + " y no se puede deshacer. ¿Cambiar igual?",
+            buttons=["Cancelar", "Cambiar y borrar"], cancel_button=0, default_button=0)
+
+        def answered(d, res) -> None:
+            try:
+                ok = d.choose_finish(res) == 1
+            except GLib.Error:
+                ok = False
+            if ok:
+                self.ctrl.set_front(front)
+            else:                                   # vuelve el desplegable al valor vigente
+                self._updating = True
+                try:
+                    self.dd_front.set_selected(0 if self.ctrl.session.project.front == "+Y" else 1)
+                finally:
+                    self._updating = False
+
+        dlg.choose(self, None, answered)
 
     # --------------------------------------------------------------- diálogos
     def _error(self, e: Exception) -> None:
