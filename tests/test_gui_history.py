@@ -155,3 +155,10 @@ def test_opening_a_figure_resets_history(ctrl, tmp_path):
     m.export(path)
     ctrl.open_stl(path)
     assert not ctrl.history.can_undo and not ctrl.can_redo
+
+
+def test_param_change_without_scene_repaint_is_undoable(ctrl):
+    ctrl.set_param("clearance", 0.8)             # set_param avisa con scene=False
+    assert ctrl.history.can_undo
+    ctrl.undo()
+    assert ctrl.get_param("clearance") != 0.8

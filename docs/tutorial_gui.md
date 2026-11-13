@@ -262,7 +262,14 @@ caras a ±5,28 mm, pasadores de 6,6 mm). Al entrar al modo, el Estado agrega «A
 (`shaft_len` / `head_h` de `hip_pin`: 2,2 + 1,65 mm alcanzan) o eligiendo un plano más hacia afuera.
 
 ### 7.2b Parámetros, perfil de línea y probetas
-En la barra lateral, antes de «Generar», está la sección **Parámetros**: holgura miembro–cavidad, rebaba, ángulo de pose sentada y margen del límite de cadera, y las medidas de los pasadores de hombro y de cadera (Ø y largo del vástago, Ø y alto de la cabeza). Cualquier cambio invalida la figura generada: hay que **Generar** de nuevo.
+En la barra lateral, antes de «Generar», está la sección **Parámetros**: holgura miembro–cavidad, rebaba, ángulo de pose sentada y margen del límite de cadera, y las medidas de los pasadores de hombro y de cadera (Ø y largo del vástago, Ø y alto de la cabeza). Cualquier cambio invalida la figura generada: hay que **Generar** de nuevo (aparece el aviso «desactualizada» con el botón «Generar de nuevo»).
+
+Cómo se usa la lista (son unos 45 parámetros, en grupos plegables: Generales, hombro, cadera, clic, rodilla / codo, cintura y mano articulada):
+
+- **Buscador** arriba: escribí una o más palabras (sin importar mayúsculas ni acentos, p. ej. «vastago cadera»); los grupos con resultados se abren solos.
+- **En negrita** los valores que cambiaste respecto del por defecto; al lado aparece **↺** para volver al valor por defecto (el tooltip lo dice) y **«Restaurar todos»** vuelve todos juntos (se puede deshacer con Ctrl+Z).
+- Lo que es sí / no («Torso espejado», «mecanismo de clic», bulón con cuello, bastago pasante) es un **interruptor**, no un número.
+- Pasá el puntero sobre la etiqueta para ver la explicación del parámetro.
 
 - **Perfil de línea:** escribí un nombre y **Guardar** para dejar estos parámetros en `~/.config/afm/perfiles/`; en la próxima figura elegí el perfil y **Cargar**. Las siluetas y los planos no se tocan.
 - **Probetas:** elegí el pasador (cadera u hombro) y **Generar probetas de articulación…**; se escribe `probetas.stl` (una placa con varias articulaciones, cada una con otra holgura y otro Ø de vástago) y `probetas.txt` con la tabla en el orden de la grilla. Imprimilas con tu impresora, elegí la de menor fricción que sostenga la pose, cargá esos valores en Parámetros y guardalos en el perfil.
@@ -384,7 +391,7 @@ tests en `tests/test_joint_retune.py`.)*
 Además del hongo, el hombro y la cadera pueden llevar un **clic print-in-place**: un disco con 4 muescas en el miembro y
 dos lengüetas impresas en el torso (arriba y abajo) cuya punta cae en las muescas. Plan: `docs/PLAN_mecanismo_clic_hombro_cadera.md`.
 
-* **Activarlo:** en «Parámetros», «Hombro: mecanismo de clic» y/o «Cadera: mecanismo de clic» = 1 (CLI: perfil `clic_0.4` /
+* **Activarlo:** en «Parámetros», «Hombro: mecanismo de clic» y/o «Cadera: mecanismo de clic» encendidos (CLI: perfil `clic_0.4` /
   `clic_0.8`, ver `afm.profile.detent_profile`; o `mechanism: "detent"` en el miembro del `.proyecto`). Con 0 todo sigue como antes.
 * **Hombro:** gira libre 360° y hace clic cada 90°, desde el ángulo de la pose impresa («Clic: ángulo del brazo al imprimir»,
   10° por defecto → clics a 10°, 100°, 190°, 280°). **Cadera:** clics a 0° y 90° (la pose sentada); el tope sigue siendo el del barrido.
@@ -521,8 +528,8 @@ Con la simetría definida y cada miembro con su silueta, el Estado deja de lista
    en la cama** todas se exportan **tal como se ven en «Ver la figura generada en la pose de cadera»** (sentada, cabeza
    arriba, sin darla vuelta), solo bajadas hasta z = 0 y con la misma transformación, para que sigan ensambladas en el
    laminador. Con **«Modificar para imprimir sin soportes»** (debajo de esa casilla), antes de exportar se corta con un
-   plano horizontal a **1 mm sobre el punto más bajo de la cola** (valor en «Parámetros»: «Sin soportes: corte plano sobre
-   la cola») para que **piernas y cola queden chatas**, y los **brazos giran hacia adelante** sobre el pasador del hombro
+   plano horizontal a **1 mm sobre el punto más bajo de la cola** (valor en la fila «Sin soportes: corte plano sobre
+   la cola» de **Generar › Impresión sin soportes**) para que **piernas y cola queden chatas**, y los **brazos giran hacia adelante** sobre el pasador del hombro
    lo justo para que su punto más bajo apoye en ese plano (un brazo que cuelga sube al girar). El torso se talla con el
    barrido del brazo para que gire libre. No se tocan los brazos; la cabeza tampoco. El Estado informa el corte, el giro
    (por ejemplo, 23°) y los avisos (choques, piezas partidas, aristas no variedad). Cuanto más corte, más base plana pero
@@ -530,7 +537,7 @@ Con la simetría definida y cada miembro con su silueta, el Estado deja de lista
    altura del corte**, con la figura generada, el botón **«Ajustar la altura del corte»** muestra la figura **sentada y de
    costado (vista Derecha)**, como en «Ver la figura generada en la pose de cadera», con el plano horizontal dibujado:
    un **clic** a la altura que querés (se toma solo la altura), o **↑ ↓** (Mayús = 1 mm), fijan los mm sobre la cola; Esc
-   termina. El rango es el de «Parámetros» (0,2–6 mm) y ajustarlo no obliga a generar de nuevo. La vista de la pose
+   termina. El rango es el de esa fila (0,2–6 mm) y ajustarlo no obliga a generar de nuevo. La vista de la pose
    y el marcado de voladizos todavía no muestran el resultado del corte (piernas aplanadas, brazos girados). Los **voladizos** (casilla de la barra lateral) usan esa misma orientación: con la figura generada se pintan
    en rojo sobre la vista de la pose de cadera (si estaba apagada, se enciende sola; una pieza que interfiere se
    marca en magenta mientras estén los voladizos); sin generar, sobre la figura de frente, cabeza arriba. En la línea de

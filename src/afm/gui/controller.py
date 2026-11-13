@@ -297,7 +297,7 @@ class Controller:
             self.message = message
         if scene:
             self.scene_dirty = True
-        if scene and not self.defer_history:
+        if not self.defer_history:                  # también con scene=False: set_param y otros cambian el proyecto sin repintar
             self.record_history()
         if self.on_change:
             self.on_change()
@@ -1055,6 +1055,50 @@ class Controller:
         for k in path:
             obj = getattr(obj, k)
         return float(getattr(obj, last))
+
+    def param_default(self, key: str) -> float:
+        """Valor por defecto del parámetro (el de `Params()`)."""
+        cache = self.__dict__.get("_param_defaults")
+        if cache is None:                          # una sola vez: se consulta en cada refresco de la ventana
+            from ..params import Params
+
+            cache = {}
+            for k, *_ in PARAM_FIELDS:
+                obj = Params()
+                *path, last = k.split(".")
+                for p in path:
+                    obj = getattr(obj, p)
+                cache[k] = float(getattr(obj, last))
+            self._param_defaults = cache
+        return cache[key]
+
+    def param_modified(self, key: str) -> bool:
+        return abs(self.get_param(key) - self.param_default(key)) > 1e-9
+
+    def modified_params(self) -> list[str]:
+        return [f[0] for f in PARAM_FIELDS if self.param_modified(f[0])]
+
+    def reset_param(self, key: str) -> bool:
+        """Vuelve un parámetro a su valor por defecto."""
+        return self.set_param(key, self.param_default(key))
+
+    def reset_params(self) -> int:
+        """Vuelve todos los parámetros de `PARAM_FIELDS` a su valor por defecto (la altura no está entre ellos). Un solo paso de deshacer."""
+        keys = self.modified_params()
+        if not keys:
+            self._changed("Todos los parámetros ya tienen su valor por defecto.", scene=False)
+            return 0
+        was = self.defer_history
+        self.defer_history = True                 # un solo paso de deshacer para todo el lote
+        try:
+            for k in keys:
+                self.reset_param(k)
+        finally:
+            self.defer_history = was
+        self._changed(f"Se restauraron {len(keys)} parámetro(s) a su valor por defecto. Hay que generar de nuevo.", scene=False)
+        if not was:
+            self.record_history()
+        return len(keys)
 
     def set_param(self, key: str, value: float) -> bool:
         """Cambia un parámetro de `PARAM_FIELDS` (p. ej. «hip_pin.shaft_len»). Cualquier cambio invalida la figura

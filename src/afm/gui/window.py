@@ -17,8 +17,9 @@ from gi.repository import Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 
 from ..head import MIN_BASE_IOU, REPLACEMENT_SCALE_RANGE, REPLACEMENT_UPS  # noqa: E402
 from .catalog_manager import can_retune_joint, find_piece, piece_label  # noqa: E402
-from .controller import GRIP_FIELDS, JOINT_PREFIX, PARAM_FIELDS, TRIM_OP_LABELS, TRIM_SHAPE_LABELS, TRIM_SHAPES, Controller, Mode  # noqa: E402
+from .controller import EXPORT_ONLY_PARAMS, GRIP_FIELDS, JOINT_PREFIX, PARAM_FIELDS, TRIM_OP_LABELS, TRIM_SHAPE_LABELS, TRIM_SHAPES, Controller, Mode  # noqa: E402
 from ..progress import CancelToken, TaskCancelled
+from . import param_meta as PM
 from .progress_panel import ProgressPanel  # noqa: E402
 from .render import SceneRenderer  # noqa: E402
 from .session import CatalogNeeded, Session  # noqa: E402
@@ -51,13 +52,13 @@ HEAD_ADJUST_FIELDS = (
 HEAD_ADJUST_ATTR = {"rx": "replacement_rx", "ry": "replacement_ry", "yaw": "replacement_yaw",
                     "scale": "replacement_scale"}
 HEAD_ADJUST_DEFAULTS = {"rx": 0.0, "ry": 0.0, "yaw": 0.0, "scale": 1.0}
-PARAM_GROUPS = ("Generales", "Pasador de hombro", "Pasador de cadera", "Mecanismo de clic", "Rodilla / codo", "Cintura")
 _CSS = b"""
 .afm-section-title { font-weight: 700; padding: 4px 0; border-bottom: 1px solid alpha(currentColor, 0.2); }
 .afm-sub-title { font-weight: 600; opacity: 0.85; padding: 2px 0; }
 .afm-help { background: alpha(currentColor, 0.06); border-left: 3px solid alpha(currentColor, 0.30);
             border-radius: 4px; padding: 6px 8px; }
 .afm-banner { background: alpha(#f5c211, 0.30); padding: 6px 10px; border-bottom: 1px solid alpha(currentColor, 0.2); }
+.afm-modified { font-weight: 700; }
 .afm-help-icon { opacity: 0.55; }
 .afm-help-text { font-size: 0.9em; font-style: italic; opacity: 0.75; }
 .afm-task { font-weight: 600; }
@@ -66,19 +67,17 @@ _CSS = b"""
 """
 
 
-def _param_group(key: str) -> str:
-    """Subsección de la pestaña Parámetros a la que pertenece un campo de `PARAM_FIELDS`."""
-    if key.startswith("shoulder_pin."):
-        return PARAM_GROUPS[1]
-    if key.startswith("hip_pin."):
-        return PARAM_GROUPS[2]
-    if key.startswith("detent.") or key.endswith("_detent"):
-        return PARAM_GROUPS[3]
-    if key.startswith("hinge_pin."):
-        return PARAM_GROUPS[4]
-    if key.startswith("waist_"):
-        return PARAM_GROUPS[5]
-    return PARAM_GROUPS[0]
+class _SwitchValue:
+    """Hace que un `Gtk.Switch` se lea como un spin (`get_value` / `set_value` en 0 o 1): el resto de la ventana sincroniza ambos igual."""
+
+    def __init__(self, switch: Gtk.Switch):
+        self.switch = switch
+
+    def get_value(self) -> float:
+        return 1.0 if self.switch.get_active() else 0.0
+
+    def set_value(self, v: float) -> None:
+        self.switch.set_active(v >= 0.5)
 
 
 def _collapsible(parent: Gtk.Box, title: str, expanded: bool = True, sub: bool = False) -> Gtk.Box:
@@ -819,18 +818,29 @@ En naranja se ve el contorno del pasador (vástago y cabeza); en verde, la posic
         sec.append(row)
 
         sec = _collapsible(box, "Parámetros de articulación")
-        groups = {name: _collapsible(sec, name, expanded=(name == PARAM_GROUPS[0]), sub=True) for name in PARAM_GROUPS}
-        self.param_spins: dict[str, Gtk.SpinButton] = {}
+        bar = Gtk.Box(spacing=6)
+        self.ent_param_search = Gtk.SearchEntry(placeholder_text="Buscar parámetro…", hexpand=True)
+        self.ent_param_search.connect("search-changed", lambda e: self._on_param_search(e.get_text()))
+        bar.append(self.ent_param_search)
+        self.btn_param_reset_all = self._button("Restaurar todos", lambda *_: self.ctrl.reset_params())
+        bar.append(self.btn_param_reset_all)
+        sec.append(bar)
+        self.lbl_param_modified = Gtk.Label(label="", xalign=0)
+        self.lbl_param_modified.add_css_class("dim-label")
+        sec.append(self.lbl_param_modified)
+        self.param_group_exp: dict[str, tuple[Gtk.Expander, bool]] = {}
+        groups = {}
+        for name in PM.PARAM_GROUPS:
+            expanded = name == PM.PARAM_GROUPS[0]
+            groups[name] = _collapsible(sec, name, expanded=expanded, sub=True)
+            self.param_group_exp[name] = (groups[name].get_parent(), expanded)
+        self.param_spins: dict[str, object] = {}
+        self.param_rows: dict[str, dict] = {}
         for key, label, lo, hi, step, digits in PARAM_FIELDS:
-            row = Gtk.Box(spacing=6)
-            row.append(Gtk.Label(label=label, xalign=0, hexpand=True, wrap=True))
-            spin = Gtk.SpinButton.new_with_range(lo, hi, step)
-            spin.set_digits(digits)
-            spin.set_value(self.ctrl.get_param(key))
-            spin.connect("value-changed", lambda b, k=key: None if self._updating else self.ctrl.set_param(k, b.get_value()))
-            row.append(spin)
-            groups[_param_group(key)].append(row)
-            self.param_spins[key] = spin
+            if PM.group_of(key) in groups:                  # «Sin soportes» vive en la pestaña Generar
+                groups[PM.group_of(key)].append(self._param_row(key, label, lo, hi, step, digits))
+        self.lbl_param_none = Gtk.Label(label="Ningún parámetro coincide con la búsqueda.", xalign=0, visible=False)
+        sec.append(self.lbl_param_none)
 
         sec = _collapsible(box, "Vista previa de la articulación", expanded=False)
         _help(sec, "Arma SOLO la rodilla, el codo o la cadera (recortada alrededor del eje) para ver cuánto material se lleva el hueco "
@@ -900,11 +910,13 @@ En naranja se ve el contorno del pasador (vástago y cabeza); en verde, la posic
         sec.append(self.chk_orient)
         sub = _collapsible(sec, "Impresión sin soportes", sub=True)
         self.chk_flat = Gtk.CheckButton(label="Modificar para imprimir sin soportes (aplana piernas y cola; los brazos giran hacia adelante)")
-        self.chk_flat.set_tooltip_text("Corta con un plano horizontal sobre la cola (altura en Parámetros: «Sin soportes: corte plano») y "
+        self.chk_flat.set_tooltip_text("Corta con un plano horizontal sobre la cola (altura en la fila de abajo) y "
                                        "gira los brazos hacia adelante lo justo para que apoyen en ese plano. Las piernas quedan estiradas (rodilla a 0°): muslo y "
                                        "pantorrilla horizontales sobre el plano. Los brazos no se modifican.")
         self.chk_flat.connect("toggled", lambda b: None if self._updating else self._on_flat_toggled(b.get_active()))
         sub.append(self.chk_flat)
+        spec = next(f for f in PARAM_FIELDS if f[0] == "flat_depth")
+        sub.append(self._param_row(*spec))               # la altura del corte vive acá, junto a la casilla que la usa
         self.chk_fill_hip = Gtk.CheckButton(label="Rellenar los muslos hasta la pelvis recortada")
         self.chk_fill_hip.set_tooltip_text("El corte plano le saca a la pelvis una loncha y de pie queda un hueco contra el muslo. Con esto el muslo se \
 queda con esa loncha y la pelvis se talla de nuevo alrededor (el muslo gira libre hasta el límite de cadera). Se nota al \
@@ -1024,6 +1036,70 @@ exportar; tarda un poco más.")
         self.btn_redo.set_sensitive(why is None)
         self.btn_redo.set_tooltip_text(why or ("Rehacer: " + h.redo_label if h.redo_label else "Rehacer (Ctrl+Mayús+Z)"))
 
+    def _param_row(self, key: str, label: str, lo: float, hi: float, step: float, digits: int) -> Gtk.Box:
+        """Fila de un parámetro: etiqueta corta (la explicación va al tooltip), spin o interruptor y «restaurar» si se modificó."""
+        short, hint = PM.split_label(label)
+        if key in EXPORT_ONLY_PARAMS:
+            hint = (hint + " " if hint else "") + "Se aplica al exportar: no obliga a generar de nuevo."
+        row = Gtk.Box(spacing=6)
+        lbl = Gtk.Label(label=short, xalign=0, hexpand=True, wrap=True)
+        if hint:
+            lbl.set_tooltip_text(hint)
+        row.append(lbl)
+        reset = Gtk.Button(icon_name="document-revert-symbolic", visible=False, valign=Gtk.Align.CENTER)
+        reset.add_css_class("flat")
+        reset.connect("clicked", lambda *_, k=key: self.ctrl.reset_param(k))
+        row.append(reset)
+        if PM.is_boolean(key):
+            sw = Gtk.Switch(valign=Gtk.Align.CENTER)
+            sw.set_active(self.ctrl.get_param(key) >= 0.5)
+            sw.connect("notify::active", lambda w, _p, k=key: None if self._updating else self.ctrl.set_param(k, 1.0 if w.get_active() else 0.0))
+            row.append(sw)
+            self.param_spins[key] = _SwitchValue(sw)
+        else:
+            spin = Gtk.SpinButton.new_with_range(lo, hi, step)
+            spin.set_digits(digits)
+            spin.set_value(self.ctrl.get_param(key))
+            spin.connect("value-changed", lambda b, k=key: None if self._updating else self.ctrl.set_param(k, b.get_value()))
+            row.append(spin)
+            self.param_spins[key] = spin
+        self.param_rows[key] = {"row": row, "label": lbl, "reset": reset, "text": label}
+        return row
+
+    def _sync_param_marks(self) -> None:
+        """Marca en negrita los parámetros modificados, muestra su «restaurar» (con el valor por defecto) y el resumen."""
+        ctrl = self.ctrl
+        mods = 0
+        for key, info in self.param_rows.items():
+            mod = ctrl.param_modified(key)
+            mods += mod
+            info["reset"].set_visible(mod)
+            if mod:
+                d = ctrl.param_default(key)
+                info["reset"].set_tooltip_text("Restaurar el valor por defecto (" + ("sí" if d >= 0.5 else "no") + ")" if PM.is_boolean(key)
+                                               else f"Restaurar el valor por defecto ({d:g})")
+                info["label"].add_css_class("afm-modified")
+            else:
+                info["label"].remove_css_class("afm-modified")
+        self.lbl_param_modified.set_text(f"{mods} modificado(s) respecto de los valores por defecto." if mods else "Todos con su valor por defecto.")
+        self.btn_param_reset_all.set_sensitive(bool(mods) and not ctrl.busy)
+
+    def _on_param_search(self, text: str) -> None:
+        """Filtra las filas por palabras (sin mayúsculas ni acentos); mientras se busca, los grupos con resultados se abren."""
+        any_shown = False
+        for key, info in self.param_rows.items():
+            if PM.group_of(key) not in self.param_group_exp:       # la fila de «Sin soportes» (en Generar) no se filtra
+                continue
+            vis = PM.matches(text, key, info["text"])
+            info["row"].set_visible(vis)
+            any_shown = any_shown or vis
+        searching = bool(text.strip())
+        for name, (exp, default) in self.param_group_exp.items():
+            has = any(PM.group_of(k) == name and i["row"].get_visible() for k, i in self.param_rows.items())
+            exp.set_visible(has)
+            exp.set_expanded(has if searching else default)
+        self.lbl_param_none.set_visible(searching and not any_shown)
+
     def _gate(self, widgets, why: str | None) -> None:
         """Habilita los controles si `why` es None; si no, los apaga y deja el motivo en el tooltip.
 
@@ -1045,6 +1121,7 @@ exportar; tarda un poco más.")
             for key, spin in self.param_spins.items():
                 if abs(spin.get_value() - ctrl.get_param(key)) > 1e-9:
                     spin.set_value(ctrl.get_param(key))
+            self._sync_param_marks()
             # la altura se sincroniza solo cuando cambia en el proyecto (abrir proyecto, aplicar): lo tipeado no se pisa
             ref = ctrl.session.project.params.ref_height
             if abs(ref - self._shown_height) > 1e-9:
