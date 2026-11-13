@@ -123,6 +123,17 @@ def test_set_front_resets_planes(ctrl):
     assert ctrl.plane_entries() == [] and ctrl.session.project.front == "-Y"
 
 
+def test_front_change_loss_lists_work_to_discard(ctrl):
+    assert ctrl.front_change_loss() == []
+    ctrl.auto_symmetry()
+    ctrl.start_limb_plane("leg")
+    feed(ctrl, [(0, 0, 10), (10, 0, 10), (0, 0, 50)])
+    loss = ctrl.front_change_loss()
+    assert "el plano de simetría" in loss and any("miembro" in t for t in loss)
+    ctrl.set_front("-Y")
+    assert ctrl.front_change_loss() == []
+
+
 def test_project_roundtrip(ctrl, tmp_path):
     ctrl.auto_symmetry()
     ctrl.start_limb_plane("leg")

@@ -923,6 +923,24 @@ class Controller:
         self._rebuild_picker()
         self._changed("Simetría automática en x = 0 (la figura ya viene centrada).")
 
+    def front_change_loss(self) -> list[str]:
+        """Qué trabajo se borraría al cambiar «Frente hacia» (lista vacía = nada que perder, no hace falta confirmar)."""
+        if self.session.base is None:
+            return []
+        pr = self.session.project
+        loss = []
+        if pr.symmetry is not None:
+            loss.append("el plano de simetría")
+        if pr.limbs:
+            loss.append(f"{len(pr.limbs)} miembro(s)")
+        if pr.trims:
+            loss.append(f"{len(pr.trims)} recorte(s)")
+        if pr.head is not None:
+            loss.append("la cabeza")
+        if pr.waist is not None:
+            loss.append("la cintura")
+        return loss
+
     def set_front(self, front: str) -> None:
         if not self._need_loaded() or front == self.session.project.front:
             return
