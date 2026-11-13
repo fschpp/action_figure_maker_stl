@@ -2,6 +2,52 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Pendientes vigentes (consolidado 2026-11-13)
+
+_Resumen de lo que sigue abierto, armado leyendo las casillas sin tildar de todo el archivo. Las secciones de abajo son historia: sus casillas viejas no se tildaron al cerrarse y sobreestiman lo pendiente. Al cerrar algo, tildarlo acá._
+
+### 1. Probar en la máquina real (GTK + GL, figuras reales)
+- [ ] Gestor del catálogo: tabla y orden por columna, flechas ↑/↓, ventana redimensionable y maximizable, renombrar (F2), estado en lote, papelera y «Recuperar lo eliminado».
+- [ ] Referencia del corte: lectura bajo «Corte a», guía celeste, «Igualar a la referencia», fantasma y figura translúcida (alfa 0,65) con Güemes sobre Bolívar; mirar si la alineación por pies y centro del cuerpo alcanza.
+- [ ] Mira del corte (cinta de puntos, fantasma de la sección, mapa de calor, tecla M y recuadro): aspecto y costo con un catálogo grande (la primera cinta con ~100 000 triángulos; `measure_cuts`).
+- [ ] Editor de articulación (codo / rodilla), barra de progreso (`Stage.weight` con tiempos medidos), cabeza de reemplazo, cintura, mano articulada, Abrir STL en hilo.
+- [ ] Todo lo anterior con las figuras reales (Belgrano, Güemes, Azurduy) y no solo con el muñeco: codo de Belgrano, «torsos 0/4» del muñeco, 70 MB del proyecto real.
+
+### 2. Decisiones del cliente o tuyas
+- [ ] Plan de piezas intercambiables, D1–D9 (sobre todo D1: intercambio en el diseño o físico; D3/D4: cortes estándar de cintura y cadera).
+- [ ] Contrato: métrica «inscrito» frente a la equivalente (bloquea `guide.fit_cut`, el auto-ajuste del corte).
+- [ ] ¿El clic reemplaza al hongo o es opción? Brazo a 10° o colgando.
+- [ ] Cintura: giro por defecto (45° a cada lado) y si el pasador sale de la pelvis o del pecho.
+- [ ] Imán que también toque la inclinación del plano: falta definir eje de giro, rango y paso.
+- [ ] Verde de la cinta: ¿solo «ok» o también «aviso»? Pasador que sobresale: ¿«bloqueante» o no? Qué hacer con `assembly.swap_pelvis`.
+
+### 3. Impresión y calibración física
+- [ ] Probetas del clic (`afm probe --tipo clic`, 0,4 y 0,8) y de la cintura; placa dentada; mano articulada (holgura 0,3–0,5 mm); banco de 5 000 ciclos; par de retención del hombro (~9 N·mm).
+- [ ] Capacidad con las 4 figuras reales: `afm catalogo capacidad RUTA --escribir` y `tools/calibrar_compat.py` (con los márgenes de capacidad incluidos).
+
+### 4. Mira y guía de cortes
+- [ ] La guía de cortes (`guide.measure_cuts`) mide solo el primer brazo / pierna; con dos brazos o dos piernas no se puede elegir cuál mide.
+- [ ] Choque en pose sentada solo sobre el candidato elegido (tercer color) o bajo demanda; pose sentada sin generar antes.
+- [ ] `exclude_figure` al catalogar el muñeco mismo.
+- [ ] Guía / fantasma de referencia: no hay lectura con el plano de 3 puntos de costado ni con una pierna cuyo 2.º corte cruza el cuerpo; el fantasma no se escala (avisa si las alturas difieren más de 3 %).
+
+### 5. Articulaciones y piezas
+- [ ] Guardar el ajuste de articulación por pieza en el `.proyecto` sin crear versión nueva; ofrecer pasar el lugar a la versión nueva al guardar.
+- [ ] Figura con torso del MODELO + brazo / pierna de catálogo con articulación propia: no se lista.
+- [ ] Codo de Belgrano: pared ≥ 1,2 mm sin comerse el brazo (altura del eje, plano recto, barrido); aristas de 4 caras en piezas proximales; validar topes simulados (rodilla ≈ 0→90°, codo ≈ +10→−90°).
+- [ ] Mover la cabeza a mano y escala / alineamiento de la base; mano de reemplazo distinta de la del catálogo.
+
+### 6. Sin empezar
+- [ ] `guide.fit_cut` (auto-ajuste del corte) y Fase 4 restante; botones «Nuevo héroe desde el patrón…» y «Ajustar cintura y muñeca».
+- [ ] Capacidad en pelvis y cabeza; certificar torso, pelvis y mano; pieza adaptadora.
+- [ ] «Definir puerto (3 puntos)» para importar una pieza suelta (revisar contra el menú Importar ya hecho).
+- [ ] `docs/tutorial_gui.md`: sección «Piezas de catálogo».
+- [ ] `./packaging/instalar.sh` en una Debian / Ubuntu con GTK4 real.
+
+### 7. Mejoras del gestor y del corte propuestas (no pedidas todavía)
+- [ ] Gestor: menú de clic derecho (renombrar, copiar referencia, eliminar), botón «Vaciar papelera» (hoy solo `Catalog.empty_trash()`), datos de la articulación en el detalle (rango, Ø del pin, altura del eje), comparar versiones, miniaturas, renombrar el `id` de verdad actualizando recetas y `.proyecto`.
+- [ ] Fantasma: deslizador de transparencia (hoy fijo en `_CUT_GHOST_MODEL_ALPHA`) y alinear por el torso en vez de por pies y centro.
+
 ## Current Focus
 **Fantasma: el STL original un poco translúcido (2026-11-13, sobre main 9d3e371):** mientras el fantasma de la referencia está visible, la figura abierta (`figura` y su espejo) se pinta con alfa 0,65 para que el torso / miembro de la referencia que queda dentro de ella no lo tape. `Scene.set_translucent(nombre, alfa|None, cull=True)` cambia el alfa sin volver a subir la malla (guarda el color anterior y `None` la restaura); translúcida no escribe profundidad y solo dibuja el frente (cull) para que se vea limpia. Se reaplica en cada sync (la figura se sube opaca cada vez). Tests en `tests/test_cut_ref.py` y `tests/test_gui_render.py` (OpenGL fuera de pantalla). Sin probar en GTK real.
 
@@ -41,7 +87,7 @@ Catalogar a Bolívar: el torso/pelvis/cabeza salían «no estancos y no se pudo 
 - [/] **Correr la suite** (`pytest tests/test_catalog_rename_columns.py tests/test_catalog_manager.py tests/test_catalog.py`) y probar la ventana real con GTK + GL: este parche se armó sin GTK ni GL, ventana y vista previa sin probar.
 - [x] Arreglo (2026-11-11): la ventana «Administrar catálogo» no se podía achicar ni maximizar porque la cabecera de columnas (79 caracteres fijos) y el texto largo de la barra fijaban el ancho mínimo; ahora la cabecera va en un `ScrolledWindow` EXTERNAL sincronizado con la lista, el texto se acorta con «…» y el `Paned` deja encoger los dos lados.
 - [x] Flechas ↑ / ↓ (y Inicio / Fin / Re Pág / Av Pág; Mayús suma a lo elegido) eligen la fila anterior / siguiente: la lógica está en `catalog_manager.next_row` (con test); desde el buscador, ↑ / ↓ también mueven la lista. Sin probar en GTK real.
-- [ ] Usar el nombre también en «Armar desde catálogo» (hoy esos menús muestran el `id`).
+- [x] Usar el nombre también en «Armar desde catálogo» (hecho 2026-11-12: «Nombre (id@n)» en los menús, en cada lugar y en la confirmación de eliminar).
 
 ### Latest Blockers/Discoveries
 - Renombrar NO cambia el `id`: las piezas son inmutables y las recetas las fijan por `id@n`; cambiar el `id` rompería recetas. Si se quiere renombrar el `id` de verdad hay que reescribir recetas / `.proyecto` (no hecho).
