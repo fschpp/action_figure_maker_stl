@@ -132,6 +132,31 @@ def _fill_small_loops(mesh: trimesh.Trimesh, max_len: int = PINCH_MAX_LOOP) -> t
     return out
 
 
+DEBRIS_VOLUME_RATIO = 1e-4       # un fragmento suelto de menos de esta fracción del volumen del mayor es escombro, no figura
+
+
+def drop_debris(mesh: trimesh.Trimesh, ratio: float = DEBRIS_VOLUME_RATIO) -> trimesh.Trimesh | None:
+    """Quita los fragmentos sueltos despreciables de una malla (None si no hay ninguno que quitar).
+
+    Cortar una figura con planos que pasan justo por una arista o un pliegue (la cintura de Bolívar pasa por el fajín) deja,
+    además del cuerpo, restos sin volumen: triángulos sueltos de área cero, láminas de 8 o 12 caras pegadas al plano de corte,
+    caras abiertas. Esos restos comparten vértices con el cuerpo o entre sí y dejan vértices con 3 a 8 abanicos, que
+    `separate_pinches` no sabe separar y que `_meshfix` «cura» cambiando el volumen de más. Se descartan los componentes
+    (por conectividad de vértices) cuyo volumen es menor que `ratio` veces el del mayor; las láminas finas pero reales (el
+    pelo, un faldón: décimas de por ciento del volumen) se conservan."""
+    parts = mesh.split(only_watertight=False)
+    if len(parts) < 2:
+        return None
+    with np.errstate(all="ignore"):
+        vols = np.array([abs(float(np.nan_to_num(p.volume))) for p in parts])
+    keep = [p for p, v in zip(parts, vols) if v >= ratio * vols.max()]
+    if len(keep) == len(parts) or not keep:
+        return None
+    out = trimesh.util.concatenate(keep)
+    out.merge_vertices()
+    return out
+
+
 def separate_pinches(mesh: trimesh.Trimesh, eps: float = PINCH_SEPARATION_MM, max_edges: int = PINCH_MAX_EDGES) -> trimesh.Trimesh | None:
     """Arregla las aristas de 4 caras («pellizcos»): dos láminas de la superficie que se tocan en una arista.
 

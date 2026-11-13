@@ -127,26 +127,47 @@ def mirror_port(port: Port) -> Port:
 HEAL_VOLUME_TOL = 5e-4          # fracción: lo que puede cambiar el volumen al curar una arista no-variedad
 
 
+def _heal(tm):
+    """Malla estanca a partir de `tm` (que no lo es) sin cambiar el volumen más de `HEAL_VOLUME_TOL`: (malla, aviso) o (None, None).
+
+    Orden: (1) quitar los fragmentos sueltos sin volumen que deja el corte (`meshio.drop_debris`) y, con lo que queda,
+    (2) separar las láminas que se tocan (`meshio.separate_pinches`); si no, (3) pymeshfix sobre la malla sin escombros."""
+    ref = abs(float(tm.volume))
+    swept = meshio.drop_debris(tm)
+    base = tm if swept is None else swept
+    note = "" if swept is None else (f"se descartaron {len(tm.split(only_watertight=False)) - len(base.split(only_watertight=False))} "
+                                     "fragmento(s) sueltos sin volumen que dejó el corte; ")
+
+    def ok(m) -> bool:
+        return m is not None and ref > 0 and abs(abs(float(m.volume)) - ref) / ref <= HEAL_VOLUME_TOL
+
+    if swept is not None and base.is_watertight and ok(base):
+        return base, note.rstrip("; ") + f" (el volumen cambió {abs(abs(float(base.volume)) - ref) / ref:.4%})"
+    apart = meshio.separate_pinches(base)              # láminas que casi se tocan (pelo, pliegues): se separan una fracción de micra
+    if ok(apart):
+        return apart, (f"{note}había láminas de la malla que se tocaban en una arista (4 caras): se separaron {meshio.PINCH_SEPARATION_MM:g} mm "
+                       f"(el volumen cambió {abs(abs(float(apart.volume)) - ref) / ref:.4%})")
+    fixed = meshio._meshfix(base)
+    if ok(fixed):
+        return fixed, f"{note}se curó una arista no-variedad (pymeshfix; el volumen cambió {abs(abs(float(fixed.volume)) - ref) / ref:.4%})"
+    return None, None
+
+
 def _clean(mf, label: str, warnings: list):
     """Malla estanca de una pieza cruda (lo que se guarda en el STL).
 
     El motor deja a veces una arista con 4 caras donde el miembro roza su propio corte (pasa en la pierna de Güemes aun en
     `pipeline.build`, que solo lo avisa) y lo mismo pasa cuando la malla de origen trae láminas que casi se tocan (rulos de pelo
-    de una figura reparada en línea): el catálogo exige mallas cerradas, así que primero se separan esas láminas
-    (`meshio.separate_pinches`) y, si no era eso, se cura con pymeshfix; se acepta solo si el volumen cambia menos de `HEAL_VOLUME_TOL`. Si no se puede, se devuelve la malla tal cual y `write_piece` lo rechaza."""
+    de una figura reparada en línea) o cuando el plano de corte (la cintura) deja fragmentos sueltos sin volumen: el catálogo exige
+    mallas cerradas, así que se cura con `_heal` (escombros, láminas que se tocan, pymeshfix); se acepta solo si el volumen cambia
+    menos de `HEAL_VOLUME_TOL`. Si no se puede, se devuelve la malla tal cual y `write_piece` lo rechaza."""
     tm = S.to_printable_trimesh(mf)
     if tm.is_watertight:
         return tm
-    ref = abs(float(tm.volume))
-    apart = meshio.separate_pinches(tm)              # láminas que casi se tocan (pelo, pliegues): se separan una fracción de micra
-    if apart is not None and ref > 0 and abs(abs(float(apart.volume)) - ref) / ref <= HEAL_VOLUME_TOL:
-        warnings.append(f"{label}: había láminas de la malla que se tocaban en una arista (4 caras): se separaron {meshio.PINCH_SEPARATION_MM:g} mm "
-                        f"(el volumen cambió {abs(abs(float(apart.volume)) - ref) / ref:.4%})")
-        return apart
-    fixed = meshio._meshfix(tm)
-    if fixed is not None and ref > 0 and abs(abs(float(fixed.volume)) - ref) / ref <= HEAL_VOLUME_TOL:
-        warnings.append(f"{label}: se curó una arista no-variedad (pymeshfix; el volumen cambió {abs(abs(float(fixed.volume)) - ref) / ref:.4%})")
-        return fixed
+    healed, note = _heal(tm)
+    if healed is not None:
+        warnings.append(f"{label}: {note}")
+        return healed
     warnings.append(f"{label}: la malla no es estanca (aristas no-variedad) y no se pudo curar")
     return tm
 
@@ -343,14 +364,7 @@ def _replacement_head(spec: HeadSpec, neck: Plane, model_face, prefix: str, orig
 def _closable(mf) -> bool:
     """¿La malla soldada es estanca, o `_clean` la cura sin cambiar el volumen?"""
     tm = S.to_printable_trimesh(mf)
-    if tm.is_watertight:
-        return True
-    ref = abs(float(tm.volume))
-    apart = meshio.separate_pinches(tm)
-    if apart is not None and ref > 0 and abs(abs(float(apart.volume)) - ref) / ref <= HEAL_VOLUME_TOL:
-        return True
-    fixed = meshio._meshfix(tm)
-    return fixed is not None and ref > 0 and abs(abs(float(fixed.volume)) - ref) / ref <= HEAL_VOLUME_TOL
+    return tm.is_watertight or _heal(tm)[0] is not None
 
 
 TORSO_GAPS_MM = (0.0, 0.002, 0.03, 0.1)    # separación extra torso-miembro que se prueba si el corte deja aristas de 4 caras
