@@ -90,6 +90,48 @@ PINCH_SEPARATION_MM = 0.01       # cuánto se corre cada lámina hacia su propio
 PINCH_MAX_EDGES = 500
 
 
+PINCH_MAX_LOOP = 16              # lazos de borde más largos no se cierran con un abanico: los cura `_meshfix`
+
+
+def _fill_small_loops(mesh: trimesh.Trimesh, max_len: int = PINCH_MAX_LOOP) -> trimesh.Trimesh:
+    """Cierra con un abanico de triángulos los lazos de borde chicos (de hasta `max_len` aristas) que quedan al separar un
+    pellizco cuyos abanicos de los dos extremos no se corresponden (`trimesh.repair.fill_holes` solo cierra 3 o 4 aristas).
+    Devuelve la malla (la misma si ya estaba cerrada o si algún lazo no se puede cerrar)."""
+    faces = np.asarray(mesh.faces)
+    directed = {}
+    for f in faces:
+        for a, b in ((f[0], f[1]), (f[1], f[2]), (f[2], f[0])):
+            directed[(int(a), int(b))] = True
+    nxt: dict[int, list[int]] = {}
+    for (a, b) in directed:
+        if (b, a) not in directed:                       # arista de borde: la cara nueva debe recorrerla al revés
+            nxt.setdefault(a, []).append(b)
+    if not nxt or any(len(v) != 1 for v in nxt.values()):
+        return mesh                                      # un vértice con dos salidas: lazo no simple
+    new, seen = [], set()
+    for start in list(nxt):
+        if start in seen:
+            continue
+        loop, v = [], start
+        while v not in seen:
+            seen.add(v)
+            loop.append(v)
+            v = nxt[v][0]
+            if v not in nxt:
+                return mesh
+        if v != start or not 3 <= len(loop) <= max_len:
+            return mesh
+        for r in range(len(loop)):                       # un abanico cuyas diagonales ya sean aristas de la malla crearía otra arista de 4 caras
+            lp = loop[r:] + loop[:r]
+            if len(lp) == 3 or not any((lp[0], lp[k]) in directed or (lp[k], lp[0]) in directed for k in range(2, len(lp) - 1)):
+                break
+        else:
+            return mesh
+        new += [(lp[0], lp[k + 1], lp[k]) for k in range(1, len(lp) - 1)]
+    out = trimesh.Trimesh(np.asarray(mesh.vertices), np.vstack([faces, np.asarray(new, dtype=faces.dtype)]), process=False)
+    return out
+
+
 def separate_pinches(mesh: trimesh.Trimesh, eps: float = PINCH_SEPARATION_MM, max_edges: int = PINCH_MAX_EDGES) -> trimesh.Trimesh | None:
     """Arregla las aristas de 4 caras («pellizcos»): dos láminas de la superficie que se tocan en una arista.
 
@@ -157,6 +199,8 @@ def separate_pinches(mesh: trimesh.Trimesh, eps: float = PINCH_SEPARATION_MM, ma
         # si los abanicos de los dos extremos de la arista no se corresponden (la lámina se retuerce), tras separarlos queda un
         # lazo de 4 aristas de ~2·eps: se cierra con un cuadrilátero mínimo (no inventa volumen)
         trimesh.repair.fill_holes(fixed)
+    if not fixed.is_watertight:
+        fixed = _fill_small_loops(fixed)
     return fixed if fixed.is_watertight and fixed.is_winding_consistent else None
 
 

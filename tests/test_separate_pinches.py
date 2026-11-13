@@ -62,3 +62,20 @@ def test_clean_still_reports_what_it_cannot_heal(monkeypatch):
     warnings = []
     tm = X._clean(object(), "brazo", warnings)
     assert not tm.is_watertight and any("no se pudo curar" in w for w in warnings)
+
+
+def test_fill_small_loops_closes_a_polygonal_hole_without_new_nonmanifold_edges():
+    """Tras separar un pellizco pueden quedar lazos de borde de más de 4 aristas (`fill_holes` no los cierra): se cierran con un
+    abanico que no repite aristas de la malla."""
+    import numpy as np
+    import trimesh
+    from afm import meshio
+
+    ball = trimesh.creation.icosphere(subdivisions=2)
+    vol = float(ball.volume)
+    keep = ~np.isin(np.arange(len(ball.faces)), np.where((ball.faces == 7).any(axis=1))[0])   # se quitan las caras que rodean al vértice 7
+    holed = trimesh.Trimesh(ball.vertices, ball.faces[keep], process=False)
+    assert not holed.is_watertight
+    out = meshio._fill_small_loops(holed)
+    assert out.is_watertight and out.is_winding_consistent
+    assert abs(float(out.volume) - vol) / vol < 0.02
