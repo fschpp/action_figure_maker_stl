@@ -142,6 +142,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self.mgl = None
         self.scene: SceneRenderer | None = None
         self._updating = False
+        self._base_tips: dict = {}              # tooltip original de cada control que `_gate` apaga con un motivo
         self._trim_names: list[str] = []
         self._drag = {"button": 0, "last": (0.0, 0.0), "moved": False, "start": (0.0, 0.0), "pan": False}
 
@@ -977,6 +978,19 @@ exportar; tarda un poco más.")
         b.connect("clicked", cb)
         return b
 
+    def _gate(self, widgets, why: str | None) -> None:
+        """Habilita los controles si `why` es None; si no, los apaga y deja el motivo en el tooltip.
+
+        Al habilitarse vuelven a su tooltip original (el primero que tuvieron), así el motivo no queda pegado.
+        """
+        if not isinstance(widgets, (list, tuple)):
+            widgets = (widgets,)
+        for w in widgets:
+            if w not in self._base_tips:
+                self._base_tips[w] = w.get_tooltip_text()
+            w.set_sensitive(why is None)
+            w.set_tooltip_text(why if why is not None else self._base_tips[w])
+
     # --------------------------------------------------------------- refresco
     def _refresh(self) -> None:
         ctrl = self.ctrl
@@ -1003,23 +1017,21 @@ exportar; tarda un poco más.")
             mode_title = "  ·  dibujando recorte" if ctrl.mode == Mode.POLYGON and ctrl.trim_cfg else _MODE_TITLES[ctrl.mode]
             self.set_title(title + mode_title)
             loaded = ctrl.loaded
-            for b in (self.btn_crown, self.btn_sym, self.btn_sym_auto, self.dd_front, self.chk_side,
-                      self.chk_over, self.spin_over):
-                b.set_sensitive(loaded)
-            self.btn_save.set_sensitive(loaded and not ctrl.busy)
-            has_grip = ctrl.grip is not None
-            self.btn_grip.set_sensitive(not ctrl.busy)
-            self.btn_grip_hand.set_sensitive(has_grip and not ctrl.grip_stale)
-            self.btn_grip_plate.set_sensitive(has_grip)
+            gate = self._gate
+            gate((self.btn_crown, self.btn_sym, self.btn_sym_auto, self.dd_front, self.chk_side,
+                  self.chk_over, self.spin_over), ctrl.blocked("stl"))
+            gate(self.btn_save, ctrl.blocked("save"))
+            gate(self.btn_grip, ctrl.blocked("grip"))
+            gate(self.btn_grip_hand, ctrl.blocked("grip_hand"))
+            gate(self.btn_grip_plate, ctrl.blocked("grip_plate"))
             txt = ctrl.grip_summary()
             if self.lbl_grip.get_text() != txt:           # no pisar la selección del texto en cada refresco
                 self.lbl_grip.set_text(txt)
             ws = ctrl.weapon
             has_w = ws is not None and ws.loaded
             free = has_w and not ctrl.busy
-            for wdg in (self.spin_weapon_len, self.spin_weapon_scale, self.btn_weapon_cut, self.chk_weapon_roll, self.ent_weapon_id,
-                        self.chk_weapon_ver):
-                wdg.set_sensitive(bool(free))
+            gate((self.spin_weapon_len, self.spin_weapon_scale, self.btn_weapon_cut, self.chk_weapon_roll, self.ent_weapon_id,
+                  self.chk_weapon_ver), ctrl.blocked("weapon"))
             self.btn_weapon_open.set_sensitive(not ctrl.busy)
             self.btn_weapon_flip.set_sensitive(bool(free and ws.spec.cut_points))
             self.spin_weapon_roll.set_sensitive(bool(free and not self.chk_weapon_roll.get_active()))
@@ -1039,21 +1051,13 @@ exportar; tarda un poco más.")
             for key, spin in self.grip_spins.items():
                 if abs(spin.get_value() - getattr(ctrl.grip_spec, key)) > 1e-9:
                     spin.set_value(getattr(ctrl.grip_spec, key))
-            for b in self.btn_open:
-                b.set_sensitive(not ctrl.busy)          # no se cambia de archivo en medio de una tarea
+            gate(self.btn_open, ctrl.blocked("open"))      # no se cambia de archivo en medio de una tarea
             has_sym = ctrl.session.project.symmetry is not None
-            self.btn_arm.set_sensitive(loaded and has_sym)
-            self.btn_leg.set_sensitive(loaded and has_sym)
-            self.btn_neck.set_sensitive(loaded and has_sym)
-            self.btn_waist.set_sensitive(loaded and has_sym)
-            self.btn_hand.set_sensitive(loaded and has_sym)
-            has_hand = loaded and ctrl.hand_extract is not None
-            for b in (self.btn_hand_invert, self.btn_hand_save, self.btn_hand_drop):
-                b.set_sensitive(has_hand)
-            self.btn_hand_stl.set_sensitive(loaded and has_sym)
+            gate((self.btn_arm, self.btn_leg, self.btn_neck, self.btn_waist, self.btn_hand, self.btn_hand_stl),
+                 ctrl.blocked("sym"))
+            gate((self.btn_hand_invert, self.btn_hand_save, self.btn_hand_drop), ctrl.blocked("hand_extract"))
             placed = ctrl.session.project.hand if loaded else None
-            for b in (self.btn_hand_flip, self.btn_hand_orig, self.spin_hand_yaw, self.chk_hand_swivel):
-                b.set_sensitive(placed is not None)
+            gate((self.btn_hand_flip, self.btn_hand_orig, self.spin_hand_yaw, self.chk_hand_swivel), ctrl.blocked("hand_placed"))
             self.chk_hand_swivel.set_active(placed is not None and placed.join == "giro")
             if placed is not None and abs(self.spin_hand_yaw.get_value() - placed.yaw) > 1e-9:
                 self.spin_hand_yaw.set_value(placed.yaw)
@@ -1062,25 +1066,20 @@ exportar; tarda un poco más.")
                                        f"Muñeca del modelo Ø{2 * fit['info']['radio_brazo_mm']:.1f} mm · de la mano "
                                        f"Ø{2 * fit['info']['radio_mano_mm']:.1f} mm (escalón {fit['info']['escalon_mm']:.1f} mm)")
             self._sync_catalog(loaded)
-            self.btn_knee.set_sensitive(loaded and has_sym and bool(ctrl.session.project.limbs))
-            self.btn_elbow.set_sensitive(loaded and has_sym and bool(ctrl.session.project.limbs))
-            self.btn_elbow_lines.set_sensitive(loaded and has_sym and bool(ctrl.session.project.limbs))
+            gate((self.btn_knee, self.btn_elbow, self.btn_elbow_lines), ctrl.blocked("limbs"))
             head = ctrl.session.project.head
-            self.btn_head_stl.set_sensitive(loaded and head is not None)
-            self.btn_head_pin.set_sensitive(loaded and head is not None)
-            self.btn_head_pin_reset.set_sensitive(loaded and head is not None and head.pin_center is not None)
+            gate((self.btn_head_stl, self.btn_head_pin), ctrl.blocked("head"))
+            gate(self.btn_head_pin_reset, ctrl.blocked("head_pin_reset"))
             waist = ctrl.session.project.waist if loaded else None
-            self.btn_waist_pin.set_sensitive(loaded and waist is not None)
-            self.btn_waist_pin_reset.set_sensitive(loaded and waist is not None and waist.pin_center is not None)
+            gate(self.btn_waist_pin, ctrl.blocked("waist"))
+            gate(self.btn_waist_pin_reset, ctrl.blocked("waist_pin_reset"))
             joint_pin = ctrl.mode in (Mode.HEAD_PIN, Mode.WAIST_PIN)
-            for b in (self.btn_head_snap, self.btn_head_heat, self.btn_waist_snap, self.btn_waist_heat):
-                b.set_sensitive(joint_pin)
+            gate((self.btn_head_snap, self.btn_head_heat, self.btn_waist_snap, self.btn_waist_heat),
+                 None if joint_pin else "Se activa mientras colocás el pasador del cuello o de la cintura.")
             self._sync_joint_aim_ui(loaded)
-            self.btn_head_orig.set_sensitive(loaded and head is not None and head.replacement_path is not None)
             rep = loaded and head is not None and head.replacement_path is not None
-            for b in (self.dd_head_up, self.btn_head_cut, *self.head_spins.values()):
-                b.set_sensitive(bool(rep))
-            self.btn_head_uncut.set_sensitive(bool(rep) and head.replacement_cut_points is not None)
+            gate((self.btn_head_orig, self.dd_head_up, self.btn_head_cut, *self.head_spins.values()), ctrl.blocked("head_replacement"))
+            gate(self.btn_head_uncut, ctrl.blocked("head_replacement_cut"))
             if rep:
                 self.dd_head_up.set_selected(REPLACEMENT_UPS.index(head.replacement_up))
                 for key, spin in self.head_spins.items():
@@ -1120,21 +1119,15 @@ exportar; tarda un poco más.")
             self.chk_pose.set_active(ctrl.pose_active())
             self.spin_pose.set_sensitive(ctrl.pose_active())
             self.spin_pose.set_value(ctrl._pose_angle())
-            self.btn_trim_add.set_sensitive(loaded and has_sym)
+            gate(self.btn_trim_add, ctrl.blocked("sym"))
             self.sidebar_box.set_sensitive(not ctrl.busy)
-            self.btn_generate.set_sensitive(loaded and not ctrl.busy)
-            self.btn_export.set_sensitive(ctrl.session.outcome is not None and not ctrl.busy)
-            self.btn_flat_plane.set_sensitive(ctrl.session.outcome is not None and not ctrl.busy)
-            self.btn_flat_click.set_sensitive(ctrl.session.outcome is not None and not ctrl.busy)
-            editing = ctrl.mode == Mode.POLYGON
-            for b in (self.btn_close_poly, self.btn_propose, self.btn_outline, self.btn_clear_poly, self.btn_end_poly):
-                b.set_sensitive(editing)
-            self.btn_raise.set_sensitive(editing and ctrl.edit_cross)
-            placing = ctrl.mode == Mode.PIN
-            for b in (self.btn_pin_snap, self.btn_pin_heat, self.btn_pin_reset, self.btn_pin_face, self.btn_pin_end):
-                b.set_sensitive(placing)
-            for b in (self.btn_pin_snap, self.btn_pin_heat, self.btn_pin_end):      # también en el pasador del cuello / la cintura
-                b.set_sensitive(placing or joint_pin)
+            gate(self.btn_generate, ctrl.blocked("generate"))
+            gate((self.btn_export, self.btn_flat_plane, self.btn_flat_click), ctrl.blocked("outcome"))
+            gate((self.btn_close_poly, self.btn_propose, self.btn_outline, self.btn_clear_poly, self.btn_end_poly),
+                 ctrl.blocked("drawing"))
+            gate(self.btn_raise, ctrl.blocked("raise"))
+            gate((self.btn_pin_reset, self.btn_pin_face), ctrl.blocked("pin"))
+            gate((self.btn_pin_snap, self.btn_pin_heat, self.btn_pin_end), ctrl.blocked("pin_any"))     # también en el cuello / la cintura
             self.aim_area.set_visible(ctrl.aim_active())
             self.aim_area.queue_draw()
             self.spin_over.set_value(ctrl.overhang_angle)

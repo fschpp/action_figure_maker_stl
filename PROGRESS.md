@@ -52,7 +52,8 @@ _Resumen de lo que sigue abierto, armado leyendo las casillas sin tildar de todo
 **Mejora UX/UI de la GUI — rama `mejora_uiux` (2026-11-13, sobre main e2ffaa8):** se implementa `INFORME_UX_GUI.md` por etapas: primero las 1–3 (sin tocar el visor GL), después 4–7. Se parte `5a` antes de `5b` y se cuida que `tests/test_gui_*` sigan en verde.
 
 - [x] 1a: «Frente hacia» pide confirmación antes de borrar simetría / miembros / recortes / cabeza / cintura (`Controller.front_change_loss`, diálogo en `window._on_front`, vuelve el desplegable si se cancela). Test nuevo en `test_gui_controller.py`. Sin probar en GTK real.
-- [/] 1b: motivo en todo botón apagado (tooltips)
+- [x] 1b: motivo en el tooltip de todo botón apagado. `Controller.blocked(clave)` es la fuente única (apaga y explica); `window._gate(widgets, motivo)` lo aplica y restituye el tooltip original al habilitarse. Tests: `tests/test_gui_blocked.py` (incluye que la ventana solo pida claves conocidas). Quedan fuera los controles del arma con condición propia (voltear, rodar, guardar). Sin probar en GTK real.
+- [/] 1c: deshacer/rehacer global. Diseño: instantánea `project.to_dict()` tomada en `Controller._changed` cuando cambia la firma (`json_sig`); restaurar = `Project.from_dict` + `Session._rebuild_frames` si cambió `front`/`ref_height`/`crown_z`, invalidar `outcome`, cancelar el modo activo. Coalescer cambios seguidos del mismo parámetro.
 - [ ] 1c: deshacer/rehacer global por instantáneas
 - [ ] 2a: barra de estado compacta · 2b: banner «desactualizado» y Exportar condicionado · 2c: Cancelar con puntos de control en el motor
 - [ ] 3: parámetros desde metadatos (grupos, interruptores, restaurar, buscador)

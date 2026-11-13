@@ -3948,6 +3948,79 @@ class Controller:
     def problems(self) -> list[str]:
         return self.session.problems()
 
+    # ------------------------------------------------- motivos de botón apagado
+    _WAIT = "Esperá a que termine la tarea en curso."
+
+    def blocked(self, what: str) -> str | None:
+        """Por qué está apagado el control `what` (None = se puede usar); lo muestran los tooltips de la ventana.
+
+        Es la única fuente de verdad: la ventana usa el mismo valor para apagar el botón y para explicarlo, así que el
+        motivo nunca se desvía de la condición real. Las claves son grupos de controles con la misma condición.
+        """
+        proj = self.session.project
+        loaded = self.loaded
+        if what == "open":
+            return self._WAIT if self.busy else None
+        if what in ("save", "generate"):
+            return self._why_stl() or (self._WAIT if self.busy else None)
+        if what == "stl":
+            return self._why_stl()
+        if what == "sym":
+            return self._why_sym()
+        if what == "limbs":
+            return self._why_sym() or (None if proj.limbs else "Agregá primero un brazo o una pierna (pestaña Planos).")
+        if what == "head":
+            return self._why_stl() or (None if proj.head is not None else "Agregá primero el plano del cuello / cabeza (pestaña Planos).")
+        if what == "head_pin_reset":
+            return self.blocked("head") or (None if proj.head.pin_center is not None else "El pasador del cuello ya está en su lugar por defecto.")
+        if what == "head_replacement":
+            return self.blocked("head") or (None if proj.head.replacement_path is not None else "Primero elegí una cabeza de reemplazo (STL).")
+        if what == "head_replacement_cut":
+            return self.blocked("head_replacement") or (None if proj.head.replacement_cut_points is not None else "La cabeza de reemplazo no tiene un corte propio.")
+        if what == "waist":
+            return self._why_stl() or (None if proj.waist is not None else "Agregá primero la cintura (pestaña Planos).")
+        if what == "waist_pin_reset":
+            return self.blocked("waist") or (None if proj.waist.pin_center is not None else "El pasador de la cintura ya está en su lugar por defecto.")
+        if what == "hand_extract":
+            return self._why_stl() or (None if self.hand_extract is not None else "Primero extraé la mano estándar (3 puntos en la muñeca).")
+        if what == "hand_placed":
+            return self._why_stl() or (None if proj.hand is not None else "Primero elegí una mano de reemplazo (STL).")
+        if what == "outcome":
+            if self.busy:
+                return self._WAIT
+            return None if self.session.outcome is not None else "Generá la figura primero (pestaña Generar)."
+        if what == "grip":
+            return self._WAIT if self.busy else None
+        if what == "grip_plate":
+            return None if self.grip is not None else "Primero taladrá una mano estándar (STL)."
+        if what == "grip_hand":
+            if self.grip is None:
+                return "Primero taladrá una mano estándar (STL)."
+            return "El agarre quedó desactualizado: volvé a taladrar la mano." if self.grip_stale else None
+        if what == "drawing":
+            return None if self.mode == Mode.POLYGON else "Se activa mientras dibujás una silueta (lápiz en la lista de planos)."
+        if what == "raise":
+            return self.blocked("drawing") or (None if self.edit_cross else "Solo vale para el 2.º corte de un miembro.")
+        if what == "pin":
+            return None if self.mode == Mode.PIN else "Se activa mientras colocás un pasador (ícono de pasador en la lista de planos)."
+        if what == "pin_any":
+            ok = self.mode in (Mode.PIN, Mode.HEAD_PIN, Mode.WAIST_PIN)
+            return None if ok else "Se activa mientras colocás un pasador (hombro, cadera, cuello o cintura)."
+        if what == "weapon":
+            ws = self.weapon
+            if ws is None or not ws.loaded:
+                return "Primero abrí un arma (STL)."
+            return self._WAIT if self.busy else None
+        raise KeyError(what)
+
+    def _why_stl(self) -> str | None:
+        return None if self.loaded else "Primero abrí un STL (pestaña Figura)."
+
+    def _why_sym(self) -> str | None:
+        if not self.loaded:
+            return self._why_stl()
+        return None if self.session.project.symmetry is not None else "Primero definí el plano de simetría (pestaña Figura)."
+
     # ---------------------------------------------------------------- generar
     def begin_generate(self):
         """Valida que se pueda generar y devuelve el trabajo pesado: ``job(progress=None) -> BuildOutcome``.
