@@ -230,3 +230,36 @@ def catalog_plan(choices: dict, p, hand=None, *, epilogue: list[Stage] | None = 
                       hand=hand if hand is not None else (object() if "mano" in choices else None),
                       host_faces={"x": 1} if "torso_sup" in choices or "torso" in choices else None,
                       prologue=[BASE_BODY], epilogue=epilogue)
+
+
+class TaskCancelled(Exception):
+    """El usuario canceló la tarea; se lanza desde el aviso de progreso, en el siguiente paso que anuncia el motor."""
+
+    def __init__(self, message: str = "Cancelado por el usuario"):
+        super().__init__(message)
+
+
+class CancelToken:
+    """Cancelación cooperativa de una tarea en un hilo: el hilo no se mata, se corta en el próximo aviso de progreso.
+
+    Lo que dura un paso entero (un booleano pesado) no se interrumpe: se cancela cuando ese paso termina y el motor
+    anuncia el siguiente. Por eso la ventana avisa «termina el paso en curso».
+    """
+
+    def __init__(self):
+        self._event = threading.Event()
+
+    def cancel(self) -> None:
+        self._event.set()
+
+    @property
+    def cancelled(self) -> bool:
+        return self._event.is_set()
+
+    def wrap(self, progress):
+        """Devuelve un `progress(texto)` que lanza `TaskCancelled` si ya se pidió cancelar, y si no, reenvía el aviso."""
+        def inner(text):
+            if self._event.is_set():
+                raise TaskCancelled()
+            return progress(text) if progress is not None else None
+        return inner

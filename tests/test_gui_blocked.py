@@ -79,3 +79,38 @@ def test_mode_dependent_buttons_explain_how_to_enable(ctrl):
     assert ctrl.blocked("pin") is not None and ctrl.blocked("pin_any") is None
     ctrl.mode = Mode.POLYGON
     assert ctrl.blocked("drawing") is None
+
+
+def test_stale_outcome_flag_and_export_reason(ctrl):
+    assert not ctrl.outcome_stale and "Generá la figura primero" in ctrl.blocked("outcome")
+    ctrl.generated_once, ctrl.session.outcome = True, object()          # como tras una generación lograda
+    assert not ctrl.outcome_stale and ctrl.blocked("outcome") is None
+    ctrl.set_param("hip_pin.shaft_len", 5.5)                            # invalida la figura
+    assert ctrl.outcome_stale
+    assert "desactualizada" in ctrl.blocked("outcome")
+    ctrl.busy = True
+    assert not ctrl.outcome_stale                                       # mientras genera no se muestra el aviso
+    ctrl.busy = False
+
+
+def test_export_only_param_keeps_outcome_valid(ctrl):
+    from afm.gui.controller import EXPORT_ONLY_PARAMS
+
+    if not EXPORT_ONLY_PARAMS:
+        pytest.skip("no hay parámetros solo de exportación")
+    key = sorted(EXPORT_ONLY_PARAMS)[0]
+    ctrl.generated_once, ctrl.session.outcome = True, object()
+    lo_hi = next(f for f in __import__("afm.gui.controller", fromlist=["PARAM_FIELDS"]).PARAM_FIELDS if f[0] == key)
+    new = lo_hi[2] if abs(ctrl.get_param(key) - lo_hi[2]) > 1e-9 else lo_hi[3]
+    ctrl.set_param(key, new)
+    assert not ctrl.outcome_stale
+
+
+def test_opening_a_figure_clears_stale(ctrl, tmp_path):
+    ctrl.generated_once = True
+    path = str(tmp_path / "otra.stl")
+    m = make_doll()
+    m.apply_scale(0.05)
+    m.export(path)
+    ctrl.open_stl(path)
+    assert not ctrl.generated_once and not ctrl.outcome_stale

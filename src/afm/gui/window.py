@@ -18,6 +18,7 @@ from gi.repository import Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 from ..head import MIN_BASE_IOU, REPLACEMENT_SCALE_RANGE, REPLACEMENT_UPS  # noqa: E402
 from .catalog_manager import can_retune_joint, find_piece, piece_label  # noqa: E402
 from .controller import GRIP_FIELDS, JOINT_PREFIX, PARAM_FIELDS, TRIM_OP_LABELS, TRIM_SHAPE_LABELS, TRIM_SHAPES, Controller, Mode  # noqa: E402
+from ..progress import CancelToken, TaskCancelled
 from .progress_panel import ProgressPanel  # noqa: E402
 from .render import SceneRenderer  # noqa: E402
 from .session import CatalogNeeded, Session  # noqa: E402
@@ -56,6 +57,7 @@ _CSS = b"""
 .afm-sub-title { font-weight: 600; opacity: 0.85; padding: 2px 0; }
 .afm-help { background: alpha(currentColor, 0.06); border-left: 3px solid alpha(currentColor, 0.30);
             border-radius: 4px; padding: 6px 8px; }
+.afm-banner { background: alpha(#f5c211, 0.30); padding: 6px 10px; border-bottom: 1px solid alpha(currentColor, 0.2); }
 .afm-help-icon { opacity: 0.55; }
 .afm-help-text { font-size: 0.9em; font-style: italic; opacity: 0.75; }
 .afm-task { font-weight: 600; }
@@ -138,6 +140,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self.ctrl.on_change = self._refresh
         self.ctrl.defer_history = True                   # el historial de deshacer se registra tras una pausa (agrupa arrastres y giros de spin)
         self._hist_timer = 0
+        self._task_serial = 0                            # cuenta de tareas: el plegado del progreso no pisa una tarea nueva
         # los cálculos largos del controlador (vista previa de la articulación) corren en un hilo y vuelven por acá
         self.ctrl.call_in_main = lambda f, *a: GLib.idle_add(lambda: (f(*a), False)[1])
         self._joint_names: list[str] = []
@@ -160,6 +163,7 @@ class MainWindow(Gtk.ApplicationWindow):
         paned.set_shrink_end_child(False)
         paned.set_vexpand(True)
         root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        root.append(self._build_stale_banner())
         root.append(paned)
         root.append(Gtk.Separator())
         root.append(self._build_status())
@@ -269,15 +273,29 @@ class MainWindow(Gtk.ApplicationWindow):
         box.append(self.btn_frame)
         return box
 
+    def _build_stale_banner(self) -> Gtk.Widget:
+        """Franja superior: la figura generada ya no vale porque cambió el proyecto (aparece sola, sin abrir otra pestaña)."""
+        row = Gtk.Box(spacing=8)
+        row.add_css_class("afm-banner")
+        lbl = Gtk.Label(label="La figura generada quedó desactualizada: cambiaste el proyecto desde la última generación.",
+                        xalign=0, hexpand=True, wrap=True)
+        self.btn_stale_gen = Gtk.Button(label="Generar de nuevo")
+        self.btn_stale_gen.add_css_class("suggested-action")
+        self.btn_stale_gen.connect("clicked", lambda *_: self._on_generate())
+        row.append(lbl)
+        row.append(self.btn_stale_gen)
+        self.stale_banner = Gtk.Revealer(child=row, reveal_child=False, transition_type=Gtk.RevealerTransitionType.SLIDE_DOWN)
+        return self.stale_banner
+
     def _build_status(self) -> Gtk.Widget:
-        """Panel «Estado» al pie de la ventana: alto fijo de 3 líneas de texto (con scroll si el mensaje es más largo)."""
+        """Panel «Estado» al pie de la ventana: alto fijo de 2 líneas de texto (con scroll y tooltip si el mensaje es más largo)."""
         self.status_view = Gtk.TextView(editable=False, cursor_visible=False, wrap_mode=Gtk.WrapMode.WORD_CHAR,
                                         left_margin=8, right_margin=8, top_margin=4, bottom_margin=4)
         self._status_buf = self.status_view.get_buffer()
         self._status_buf.create_tag("dim", foreground="gray", style=Pango.Style.ITALIC)
         self._status_text: tuple[str, str] | None = None
         line_h = self.status_view.create_pango_layout("Ag").get_pixel_size()[1]
-        height = 3 * line_h + 8 + 2
+        height = 2 * line_h + 8 + 2                              # 2 líneas: el mensaje y los pendientes (el texto completo va en el tooltip)
         scroller = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, vscrollbar_policy=Gtk.PolicyType.AUTOMATIC,
                                       vexpand=False, propagate_natural_height=False)
         scroller.set_min_content_height(height)
@@ -296,6 +314,10 @@ class MainWindow(Gtk.ApplicationWindow):
         head.append(Gtk.Label(label="Estado"))
         head.append(self.spinner)
         head.append(self.lbl_task)
+        self.btn_task_cancel = Gtk.Button(label="Cancelar", visible=False)
+        self.btn_task_cancel.set_tooltip_text("Corta la tarea cuando termine el paso en curso (un paso largo no se puede interrumpir a medias).")
+        self.btn_task_cancel.connect("clicked", lambda *_: self._on_task_cancel())
+        head.append(self.btn_task_cancel)
         frame = Gtk.Frame()
         frame.set_label_widget(head)
         for side in ("start", "end", "bottom"):
@@ -307,6 +329,7 @@ class MainWindow(Gtk.ApplicationWindow):
         if self._status_text == (message, problems):          # no se pisa el scroll si no cambió nada
             return
         self._status_text = (message, problems)
+        self.status_view.set_tooltip_text(message + ("\n" + problems if problems else ""))
         buf = self._status_buf
         buf.set_text(message)
         if problems:
@@ -1041,6 +1064,8 @@ exportar; tarda un poco más.")
             self.set_title(title + mode_title)
             loaded = ctrl.loaded
             gate = self._gate
+            self.stale_banner.set_reveal_child(ctrl.outcome_stale)
+            self.btn_stale_gen.set_sensitive(ctrl.blocked("generate") is None)
             self._sync_undo_buttons()
             if not self._hist_timer:                       # registra el estado una vez que pasó la ráfaga de cambios
                 self._hist_timer = GLib.timeout_add(300, self._record_history)
@@ -2453,17 +2478,22 @@ exportar; tarda un poco más.")
 
         Mientras tanto el panel Estado muestra un spinner y un cronómetro con el tiempo transcurrido, para que se vea
         que el programa trabaja y no está colgado."""
-        self._task = {"label": label, "done": done_label, "t0": time.monotonic()}
+        token = CancelToken()
+        self._task = {"label": label, "done": done_label, "t0": time.monotonic(), "token": token}
+        self._task_serial += 1
         stages, self.ctrl.progress_stages = self.ctrl.progress_stages, None      # el plan lo deja `begin_*` del controlador
         self.progress_panel.start(stages, label)
         self.spinner.set_visible(True)
         self.spinner.start()
+        self.btn_task_cancel.set_label("Cancelar")
+        self.btn_task_cancel.set_sensitive(True)
+        self.btn_task_cancel.set_visible(True)
         self._task_tick()
         GLib.timeout_add(200, self._task_tick)
 
         def work() -> None:
             try:
-                result = job(lambda text: GLib.idle_add(self._progress_idle, text))
+                result = job(token.wrap(lambda text: GLib.idle_add(self._progress_idle, text)))
             except Exception as e:          # noqa: BLE001 — se informa en el estado
                 GLib.idle_add(self._task_done_idle, done, None, e)
             else:
@@ -2471,20 +2501,41 @@ exportar; tarda un poco más.")
 
         threading.Thread(target=work, daemon=True, name="afm-task").start()
 
+    def _on_task_cancel(self) -> None:
+        t = self._task
+        if t is None:
+            return
+        t["token"].cancel()
+        self.btn_task_cancel.set_sensitive(False)
+        self.btn_task_cancel.set_label("Cancelando…")
+
+    def _collapse_progress(self, serial: int) -> bool:
+        if serial == self._task_serial and self._task is None:      # no si arrancó otra tarea en el medio
+            self.progress_panel.hide_panel()
+        return False
+
     def _task_tick(self) -> bool:
         t = self._task
         if t is None:
             return False                    # terminó: se corta el temporizador
-        self.lbl_task.set_text(f"{t['label']} · {self._fmt_elapsed(time.monotonic() - t['t0'])}")
+        extra = " · cancelando: termina el paso en curso" if t["token"].cancelled else ""
+        self.lbl_task.set_text(f"{t['label']} · {self._fmt_elapsed(time.monotonic() - t['t0'])}{extra}")
         return True
 
     def _task_done_idle(self, done, result, error) -> bool:
         t, self._task = self._task, None
         self.spinner.stop()
         self.spinner.set_visible(False)
+        self.btn_task_cancel.set_visible(False)
+        cancelled = isinstance(error, TaskCancelled)
         took = self._fmt_elapsed(time.monotonic() - t["t0"]) if t else ""
         self.progress_panel.finish(error is None, (t or {}).get("done", ""))
-        self.lbl_task.set_text((f"✗ Falló a los {took}" if error else f"✓ {t['done']} en {took}") if t else "")
+        if cancelled and self.progress_panel.get_visible():
+            self.progress_panel.bar.set_text("Cancelado")
+        self._task_serial += 1
+        if error is None or cancelled:          # si salió bien (o se canceló) se pliega solo; si falló queda visible
+            GLib.timeout_add_seconds(4, self._collapse_progress, self._task_serial)
+        self.lbl_task.set_text(("Cancelado" if cancelled else f"✗ Falló a los {took}" if error else f"✓ {t['done']} en {took}") if t else "")
         done(result, error)
         return False
 

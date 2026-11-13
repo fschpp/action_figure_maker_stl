@@ -30,6 +30,7 @@ from ..trims import Trim
 from .camera import OrbitCamera
 from .picking import Picker, PickResult
 from .polygon_editor import EDGE_PX, VERTEX_PX, PolygonDraft, ray_plane_uv
+from ..progress import TaskCancelled
 from .history import History
 from .session import Session, json_sig
 
@@ -227,6 +228,7 @@ class Controller:
         self.hidden: set[str] = set()                # ids de planos ocultos
         self.show_groups: dict[str, bool] = {g: False for g in SHOW_GROUPS}   # interruptores generales (planos / pines / contornos)
         self.busy = False                            # generando la figura (la ventana bloquea la edición)
+        self.generated_once = False                  # ya se generó una figura en esta sesión (para avisar cuando deja de valer)
         self.history = History()                     # deshacer / rehacer global por instantáneas del proyecto (ver history.py)
         self.defer_history = False                   # la ventana lo activa y registra con `record_history` tras una pausa; sin ventana se registra en cada cambio
         self.plane_faults: dict[str, tuple[str, bytes]] = {}   # id de plano -> (por qué su corte falló, firma del plano): se pinta de rojo hasta que el plano cambie
@@ -387,6 +389,7 @@ class Controller:
         self.picker = Picker(self.session.work) if self.session.work is not None else None
 
     def _after_load(self) -> None:
+        self.generated_once = False
         self.history.reset(self._project_text())
         self.weapon_active = False                  # se abrió una figura: el visor vuelve a ella
         self._rebuild_picker()
@@ -4077,7 +4080,10 @@ class Controller:
         if what == "outcome":
             if self.busy:
                 return self._WAIT
-            return None if self.session.outcome is not None else "Generá la figura primero (pestaña Generar)."
+            if self.session.outcome is not None:
+                return None
+            return ("La figura generada quedó desactualizada: generala de nuevo (botón «Generar figura»)."
+                    if self.generated_once else "Generá la figura primero (pestaña Generar).")
         if what == "grip":
             return self._WAIT if self.busy else None
         if what == "grip_plate":
@@ -4101,6 +4107,11 @@ class Controller:
                 return "Primero abrí un arma (STL)."
             return self._WAIT if self.busy else None
         raise KeyError(what)
+
+    @property
+    def outcome_stale(self) -> bool:
+        """Había una figura generada y un cambio posterior la invalidó (parámetros, planos, deshacer…)."""
+        return self.generated_once and self.loaded and not self.busy and self.session.outcome is None
 
     def _why_stl(self) -> str | None:
         return None if self.loaded else "Primero abrí un STL (pestaña Figura)."
@@ -4136,11 +4147,15 @@ class Controller:
     def finish_generate(self, outcome=None, error: Exception | None = None) -> None:
         self.busy = False
         self.pose_view, self.pose_report = False, None      # la figura nueva reemplaza a la de la vista previa
+        if isinstance(error, TaskCancelled):                 # no es una falla de la figura: no se marca ningún plano
+            self._changed("Generación cancelada. La figura anterior quedó como estaba.")
+            return
         if error is not None:
             self._register_plane_fault(error)
             self._changed(f"Falló la generación: {error}{self._fault_hint()}")
         else:
             self.plane_faults = {}
+            self.generated_once = True
             self._changed(validation_summary(outcome.validation, self.session.project.params.clearance),
                           scene=False)
 
