@@ -79,3 +79,60 @@ def test_fill_small_loops_closes_a_polygonal_hole_without_new_nonmanifold_edges(
     out = meshio._fill_small_loops(holed)
     assert out.is_watertight and out.is_winding_consistent
     assert abs(float(out.volume) - vol) / vol < 0.02
+
+
+# ---------------------------------------------------------------- escombros del corte (pelvis de Bolívar)
+def body_with_cut_debris() -> trimesh.Trimesh:
+    """Un cuerpo de 8000 mm³ con lo que deja un plano de corte que pasa por un pliegue: un triángulo suelto de área cero, una
+    lámina abierta de una cara y una mini-lámina cerrada pegada al cuerpo en una arista (vértices con 3+ abanicos)."""
+    body = trimesh.creation.box(extents=(20, 20, 20))
+    sliver = trimesh.creation.box(extents=(0.5, 0.5, 0.02))
+    sliver.apply_translation((10.25, 10.25, 0))                  # toca el borde x=10, y=10 del cuerpo
+    loose = trimesh.Trimesh([[30, 0, 0], [30.001, 0, 0], [30.002, 0, 0]], [[0, 1, 2]], process=False)       # área cero, abierta
+    open_tri = trimesh.Trimesh([[40, 0, 0], [41, 0, 0], [40, 1, 0]], [[0, 1, 2]], process=False)
+    m = trimesh.util.concatenate([body, sliver, loose, open_tri])
+    m.merge_vertices()
+    return m
+
+
+def test_drop_debris_removes_only_negligible_fragments():
+    m = body_with_cut_debris()
+    out = meshio.drop_debris(m)
+    assert out is not None
+    assert len(out.split(only_watertight=False)) == 1 and out.volume == pytest.approx(8000.0, rel=1e-3)
+    assert meshio.drop_debris(trimesh.creation.box(extents=(1, 1, 1))) is None             # una sola pieza: nada que quitar
+    small = trimesh.creation.box(extents=(5, 5, 5))
+    small.apply_translation((30, 0, 0))
+    two = trimesh.util.concatenate([trimesh.creation.box(extents=(10, 10, 10)), small])
+    assert meshio.drop_debris(two) is None                                                  # dos sólidos de tamaño real se conservan
+
+
+def test_drop_debris_keeps_thin_but_real_sheets():
+    body = trimesh.creation.box(extents=(20, 20, 20))                                       # 8000 mm³
+    sheet = trimesh.creation.box(extents=(10, 10, 0.1))                                     # 10 mm³ = 0,125 %: un faldón fino, real
+    sheet.apply_translation((40, 0, 0))
+    m = trimesh.util.concatenate([body, sheet])
+    assert meshio.drop_debris(m) is None
+
+
+def test_clean_heals_a_cut_with_loose_debris_and_says_so(monkeypatch):
+    dirty = body_with_cut_debris()
+    assert not dirty.is_watertight
+    monkeypatch.setattr(X.S, "to_printable_trimesh", lambda mf: dirty)
+    warnings = []
+    tm = X._clean(object(), "pelvis", warnings)
+    assert tm.is_watertight and abs(tm.volume) == pytest.approx(8000.0, rel=1e-3)
+    assert any("pelvis" in w and "fragmento" in w for w in warnings)
+    assert X._closable(object())
+
+
+def test_clean_does_not_hide_a_real_hole_even_with_debris(monkeypatch):
+    holed = trimesh.creation.box(extents=(20, 20, 20))
+    holed.update_faces(np.arange(len(holed.faces)) != 0)
+    holed = trimesh.util.concatenate([holed, trimesh.Trimesh([[40, 0, 0], [41, 0, 0], [40, 1, 0]], [[0, 1, 2]], process=False)])
+    monkeypatch.setattr(X.S, "to_printable_trimesh", lambda mf: holed)
+    monkeypatch.setattr(X.meshio, "_meshfix", lambda tm: None)
+    warnings = []
+    tm = X._clean(object(), "pelvis", warnings)
+    assert not tm.is_watertight and any("pelvis" in w and "no se pudo curar" in w for w in warnings)
+    assert not X._closable(object())
