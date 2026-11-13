@@ -86,6 +86,80 @@ def _meshfix(mesh: trimesh.Trimesh) -> trimesh.Trimesh | None:
     return fixed
 
 
+PINCH_SEPARATION_MM = 0.01       # cuánto se corre cada lámina hacia su propio interior (muy por debajo de la resolución de impresión)
+PINCH_MAX_EDGES = 500
+
+
+def separate_pinches(mesh: trimesh.Trimesh, eps: float = PINCH_SEPARATION_MM, max_edges: int = PINCH_MAX_EDGES) -> trimesh.Trimesh | None:
+    """Arregla las aristas de 4 caras («pellizcos»): dos láminas de la superficie que se tocan en una arista.
+
+    Pasa con mallas sin huecos que casi se tocan (rulos de pelo, pliegues, dedos pegados; también lo que dejan los servicios
+    de reparación en línea): cada lámina es una superficie sana, pero al soldar los vértices coincidentes —lo que hace el
+    laminador, y `write_piece`— quedan 4 caras en una arista y la malla ya no es estanca. Acá cada abanico de caras que
+    rodea un vértice pellizcado se separa del otro (el vértice se duplica) y se corre `eps` mm contra su normal, es decir
+    hacia el interior del sólido: las dos láminas quedan a `2·eps` y dejan de soldarse. El volumen cambia en el orden de
+    `eps × el largo del pellizco`.
+
+    Devuelve la malla nueva, o None si el defecto no es solo de aristas con exactamente 4 caras (huecos, aristas de 3 o de
+    más de 4 caras: eso lo cura `_meshfix`), si hay más de `max_edges` aristas o si el resultado no queda estanco."""
+    from collections import defaultdict
+
+    edges = mesh.edges_sorted
+    uniq, cnt = np.unique(edges, axis=0, return_counts=True)
+    bad = uniq[cnt != 2]
+    if len(bad) == 0 or len(bad) > max_edges or (cnt[cnt != 2] != 4).any():
+        return None
+    orig = np.asarray(mesh.faces)                        # los abanicos se miden siempre sobre la malla original
+    faces, verts, normals = orig.copy(), [v for v in mesh.vertices], mesh.face_normals
+    around: dict[int, list[int]] = defaultdict(list)
+    for fi, f in enumerate(orig):
+        for v in f:
+            around[int(v)].append(fi)
+    bad_edges = {(int(a), int(b)) for a, b in bad}
+    plan: list[tuple[int, list[list[int]]]] = []         # (vértice, abanicos de caras)
+    for v in sorted({int(x) for e in bad for x in e}):
+        fan = {f: f for f in around[v]}                  # abanicos: caras unidas por una arista sana (2 caras) que contiene v
+
+        def root(f: int) -> int:
+            while fan[f] != f:
+                fan[f] = fan[fan[f]]
+                f = fan[f]
+            return f
+
+        by_edge: dict[tuple, list[int]] = defaultdict(list)
+        for f in around[v]:
+            for a, b in ((0, 1), (1, 2), (2, 0)):
+                e = tuple(sorted((int(orig[f][a]), int(orig[f][b]))))
+                if v in e and e not in bad_edges:
+                    by_edge[e].append(f)
+        for fl in by_edge.values():
+            for f in fl[1:]:
+                fan[root(f)] = root(fl[0])
+        groups: dict[int, list[int]] = defaultdict(list)
+        for f in around[v]:
+            groups[root(f)].append(f)
+        if len(groups) < 2:
+            return None                                  # el pellizco no pasa por un vértice de dos abanicos: no es el caso que se sabe curar
+        plan.append((v, list(groups.values())))
+    for v, groups in plan:
+        pos = np.asarray(mesh.vertices[v], float)
+        for k, group in enumerate(groups):
+            n = normals[group].sum(axis=0)
+            n /= np.linalg.norm(n) or 1.0
+            if k == 0:
+                verts[v] = pos - n * eps
+            else:
+                verts.append(pos - n * eps)
+                for f in group:
+                    faces[f][orig[f] == v] = len(verts) - 1
+    fixed = trimesh.Trimesh(np.asarray(verts), faces, process=False)
+    if not fixed.is_watertight:
+        # si los abanicos de los dos extremos de la arista no se corresponden (la lámina se retuerce), tras separarlos queda un
+        # lazo de 4 aristas de ~2·eps: se cierra con un cuadrilátero mínimo (no inventa volumen)
+        trimesh.repair.fill_holes(fixed)
+    return fixed if fixed.is_watertight and fixed.is_winding_consistent else None
+
+
 def repair(mesh: trimesh.Trimesh, report: LoadReport | None = None, voxel_res: int = VOXEL_FALLBACK_RES,
            progress=None) -> trimesh.Trimesh:
     """Repara lo básico; si sigue sin ser variedad, prueba pymeshfix y, como último recurso, remalla por voxelización.

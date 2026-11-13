@@ -131,13 +131,19 @@ def _clean(mf, label: str, warnings: list):
     """Malla estanca de una pieza cruda (lo que se guarda en el STL).
 
     El motor deja a veces una arista con 4 caras donde el miembro roza su propio corte (pasa en la pierna de Güemes aun en
-    `pipeline.build`, que solo lo avisa): el catálogo exige mallas cerradas, así que se cura con pymeshfix y se acepta solo
-    si el volumen cambia menos de `HEAL_VOLUME_TOL`. Si no se puede, se devuelve la malla tal cual y `write_piece` lo rechaza."""
+    `pipeline.build`, que solo lo avisa) y lo mismo pasa cuando la malla de origen trae láminas que casi se tocan (rulos de pelo
+    de una figura reparada en línea): el catálogo exige mallas cerradas, así que primero se separan esas láminas
+    (`meshio.separate_pinches`) y, si no era eso, se cura con pymeshfix; se acepta solo si el volumen cambia menos de `HEAL_VOLUME_TOL`. Si no se puede, se devuelve la malla tal cual y `write_piece` lo rechaza."""
     tm = S.to_printable_trimesh(mf)
     if tm.is_watertight:
         return tm
-    fixed = meshio._meshfix(tm)
     ref = abs(float(tm.volume))
+    apart = meshio.separate_pinches(tm)              # láminas que casi se tocan (pelo, pliegues): se separan una fracción de micra
+    if apart is not None and ref > 0 and abs(abs(float(apart.volume)) - ref) / ref <= HEAL_VOLUME_TOL:
+        warnings.append(f"{label}: había láminas de la malla que se tocaban en una arista (4 caras): se separaron {meshio.PINCH_SEPARATION_MM:g} mm "
+                        f"(el volumen cambió {abs(abs(float(apart.volume)) - ref) / ref:.4%})")
+        return apart
+    fixed = meshio._meshfix(tm)
     if fixed is not None and ref > 0 and abs(abs(float(fixed.volume)) - ref) / ref <= HEAL_VOLUME_TOL:
         warnings.append(f"{label}: se curó una arista no-variedad (pymeshfix; el volumen cambió {abs(abs(float(fixed.volume)) - ref) / ref:.4%})")
         return fixed
@@ -339,8 +345,11 @@ def _closable(mf) -> bool:
     tm = S.to_printable_trimesh(mf)
     if tm.is_watertight:
         return True
-    fixed = meshio._meshfix(tm)
     ref = abs(float(tm.volume))
+    apart = meshio.separate_pinches(tm)
+    if apart is not None and ref > 0 and abs(abs(float(apart.volume)) - ref) / ref <= HEAL_VOLUME_TOL:
+        return True
+    fixed = meshio._meshfix(tm)
     return fixed is not None and ref > 0 and abs(abs(float(fixed.volume)) - ref) / ref <= HEAL_VOLUME_TOL
 
 
