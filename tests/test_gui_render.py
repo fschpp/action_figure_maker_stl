@@ -106,3 +106,27 @@ def test_ghost_mesh_is_translucent_and_does_not_hide_what_is_behind(off, doll):
     assert np.abs(both - opaque).max() < 120                           # la figura opaca sigue siendo lo que se ve (con un tinte)
     assert both[2] >= opaque[2] - 5                                    # y el fantasma celeste la tiñe hacia el azul
     off.scene.clear()
+
+
+def test_translucent_figure_lets_an_inside_ghost_show_and_restores(off, doll):
+    """Un fantasma metido dentro de una figura opaca no se ve; con la figura translúcida (`set_translucent`) sí; y `None` la vuelve opaca."""
+    cam = _cam(doll)
+    px, py, _ = cam.project(np.array([0.0, 0.0, 55.0]), off.width, off.height)[0]
+    px, py = int(px), int(py)
+    inside = doll.copy()
+    inside.apply_scale((0.5, 0.5, 1.0))                               # más angosto: queda dentro del torso, tapado por su frente
+
+    def shot(alpha):
+        off.scene.clear()
+        off.scene.set_mesh("figura", doll, color=(0.8, 0.8, 0.8, 1.0))
+        off.scene.set_mesh("fantasma", inside, color=(0.0, 0.9, 1.0, 0.5), ghost=True)
+        if alpha is not None:
+            off.scene.set_translucent("figura", alpha)
+        return off.render(cam)[py, px, :3].astype(int)
+
+    opaque, translucent = shot(None), shot(0.5)
+    assert np.abs(opaque - translucent).max() > 25                     # la figura translúcida deja ver / cambia lo que hay adentro
+    off.scene.set_translucent("figura", None)
+    assert np.abs(off.render(cam)[py, px, :3].astype(int) - opaque).max() < 4        # vuelve a opaca: el fantasma interior otra vez tapado
+    off.scene.set_translucent("no-existe", 0.5)                        # un nombre que no está no rompe
+    off.scene.clear()

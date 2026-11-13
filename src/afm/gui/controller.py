@@ -117,6 +117,7 @@ _PART_PREVIEW_COLORS = {"ok": (0.30, 0.78, 0.45, 1.0), "aviso": (0.95, 0.75, 0.2
                         "no": (0.90, 0.30, 0.30, 1.0)}   # pieza de catálogo todavía sin generar, por nivel de acople
 _PLANE_STATUS_COLORS = {"no": (0.95, 0.12, 0.12, 0.45), "aviso": (1.0, 0.85, 0.1, 0.38),
                         "ok": (0.2, 0.9, 0.35, 0.30)}       # plano que falló / girado respecto de la pieza elegida / coincide
+_CUT_GHOST_MODEL_ALPHA = 0.65                           # con el fantasma, el STL original se pinta un poco translúcido para no taparlo
 _CUT_GHOST_COLOR = (0.15, 0.85, 1.0, 0.30)              # fantasma de la referencia: el mismo celeste que su guía, translúcido
 _CUT_REF_COLOR = (0.15, 0.85, 1.0, 0.18)                # guía: dónde corta la figura de referencia (celeste: no se confunde con el blanco del corte)
 _CUT_PLANE_COLOR = (1.0, 1.0, 1.0, 0.16)               # plano donde SE CORTA el miembro (el de la silueta, corrido «Corte a» mm): blanco, para no confundirlo
@@ -4621,6 +4622,9 @@ class Controller:
                 kind = None
             if kind in CR.KINDS:
                 wanted = [(f"corteghost:{p}", placed[p]) for p in CR.ghost_places(kind, placed)]
+        if wanted:                                          # el STL original un poco translúcido: así el fantasma que queda adentro se ve
+            for key in ("figura", "espejo:figura"):         # (sin fantasma no hace falta restaurar: la figura se sube opaca en cada sync)
+                scene.set_translucent(key, _CUT_GHOST_MODEL_ALPHA)
         sig = tuple((k, id(m)) for k, m in wanted)
         if sig and sig == getattr(self, "_cut_ghost_sig", None) and all(k in scene.items for k, _m in wanted):
             return

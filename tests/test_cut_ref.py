@@ -72,6 +72,10 @@ class Scene:
     def remove(self, key):
         self.items.pop(key, None)
 
+    def set_translucent(self, key, alpha, cull=True):
+        self.translucent = getattr(self, "translucent", {})
+        self.translucent[key] = alpha
+
     def set_mesh(self, key, mesh, color=None, clip_x=-1e9, clip_plane=None, ghost=False):
         self.items[key] = mesh
         self.ghost = getattr(self, "ghost", {})
@@ -267,3 +271,19 @@ def test_ghost_without_catalog_draws_nothing_and_says_so(stl_path):
     sc = Scene()
     c._sync_cut_ghost(sc)
     assert not [k for k in sc.items if k.startswith("corteghost:")]
+
+
+def test_original_figure_is_translucent_only_while_the_ghost_shows(ctrl):
+    from afm.gui.controller import _CUT_GHOST_MODEL_ALPHA
+
+    sc = Scene()
+    ctrl.edit_limb = "brazo 2"
+    ctrl._sync_cut_ghost(sc)                                                # sin fantasma no toca la figura (sigue opaca)
+    assert not hasattr(sc, "translucent")
+    ctrl.toggle_cut_ghost()
+    ctrl._sync_cut_ghost(sc)
+    assert sc.translucent == {"figura": _CUT_GHOST_MODEL_ALPHA, "espejo:figura": _CUT_GHOST_MODEL_ALPHA}
+    assert 0.3 < _CUT_GHOST_MODEL_ALPHA < 1.0
+    sc.translucent.clear()
+    ctrl._sync_cut_ghost(sc)                                                # sin cambios en el fantasma igual la reaplica (la sync sube la figura opaca)
+    assert sc.translucent["figura"] == _CUT_GHOST_MODEL_ALPHA

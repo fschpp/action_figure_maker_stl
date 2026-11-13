@@ -88,6 +88,8 @@ class Item:
     bias: float = 0.0
     on_top: bool = False              # se dibuja sin prueba de profundidad (marcadores que no deben quedar tapados)
     ghost: bool = False               # malla translúcida (usa el alfa del color): se pinta después de las opacas, sin escribir profundidad
+    cull: bool = False                # descarta las caras de atrás (una malla translúcida se ve limpia: solo su frente)
+    restore: tuple | None = None      # (color, ghost, cull) de antes de `set_translucent`, para volver a pintarla opaca
 
 
 def _flat_vertices(mesh: trimesh.Trimesh) -> np.ndarray:
@@ -139,6 +141,22 @@ class SceneRenderer:
         vbo = self.ctx.buffer(data.tobytes())
         vao = self.ctx.vertex_array(self.mesh_prog, [(vbo, "3f 3f", "in_pos", "in_nrm")])
         return self._put(name, Item("mesh", vao, vbo, len(data), color, clip_x=clip_x, clip_plane=clip_plane, ghost=ghost))
+
+    def set_translucent(self, name: str, alpha: float | None, cull: bool = True) -> None:
+        """Pinta la malla `name` translúcida con ese alfa (o la vuelve a opaca con `alpha=None`), sin volver a subirla. Translúcida no escribe
+        profundidad, así que lo que queda detrás o adentro (un fantasma) se ve; con `cull` solo dibuja su frente, sin las caras de atrás."""
+        it = self.items.get(name)
+        if it is None or it.kind != "mesh":
+            return
+        if alpha is None:
+            if it.restore is not None:
+                it.color, it.ghost, it.cull = it.restore
+                it.restore = None
+            return
+        if it.restore is None:
+            it.restore = (it.color, it.ghost, it.cull)
+        it.color = (*it.color[:3], float(alpha))
+        it.ghost, it.cull = True, cull
 
     def set_lines(self, name: str, polylines, color=(1.0, 0.8, 0.2, 1.0), closed: bool = False,
                   on_top: bool = False):
@@ -228,7 +246,11 @@ class SceneRenderer:
         ctx.depth_mask = False
         for it in self.items.values():                      # fantasmas: translúcidos, con prueba de profundidad pero sin escribirla
             if it.kind == "mesh" and it.visible and it.ghost:
+                if it.cull:
+                    ctx.enable(mgl.CULL_FACE)
                 draw_mesh(it)
+                if it.cull:
+                    ctx.disable(mgl.CULL_FACE)
         for it in self.items.values():
             if it.kind == "quad" and it.visible:
                 self._flat(it, mvp, mgl.TRIANGLES)
