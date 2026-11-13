@@ -80,3 +80,29 @@ def test_plane_and_lines_render_without_error(off, doll, tmp_path):
     off.save_png(_cam(doll), str(tmp_path / "escena.png"))
     off.scene.remove("plano")
     assert "plano" not in off.scene.items and "plano:borde" not in off.scene.items
+
+
+def test_ghost_mesh_is_translucent_and_does_not_hide_what_is_behind(off, doll):
+    """Un fantasma (ghost=True, alfa < 1) se mezcla con lo que tiene detrás y no tapa una malla opaca que queda atrás."""
+    cam = _cam(doll)
+    px, py, _ = cam.project(np.array([0.0, 0.0, 55.0]), off.width, off.height)[0]
+    px, py = int(px), int(py)
+    bg = _bg(off)
+
+    off.scene.clear()
+    off.scene.set_mesh("figura", doll, color=(0.8, 0.8, 0.8, 1.0))
+    opaque = off.render(cam)[py, px, :3].astype(int)
+
+    off.scene.clear()
+    off.scene.set_mesh("fantasma", doll, color=(0.15, 0.85, 1.0, 0.30), ghost=True)
+    only_ghost = off.render(cam)[py, px, :3].astype(int)
+    assert np.abs(only_ghost - bg[:3]).max() > 8                       # se ve...
+    assert np.abs(only_ghost - bg[:3]).max() < np.abs(opaque - bg[:3]).max()   # ...pero más tenue que la misma malla opaca
+
+    off.scene.clear()
+    off.scene.set_mesh("figura", doll, color=(0.8, 0.8, 0.8, 1.0))
+    off.scene.set_mesh("fantasma", doll, color=(0.15, 0.85, 1.0, 0.30), ghost=True)
+    both = off.render(cam)[py, px, :3].astype(int)
+    assert np.abs(both - opaque).max() < 120                           # la figura opaca sigue siendo lo que se ve (con un tinte)
+    assert both[2] >= opaque[2] - 5                                    # y el fantasma celeste la tiñe hacia el azul
+    off.scene.clear()

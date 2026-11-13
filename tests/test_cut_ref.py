@@ -72,6 +72,11 @@ class Scene:
     def remove(self, key):
         self.items.pop(key, None)
 
+    def set_mesh(self, key, mesh, color=None, clip_x=-1e9, clip_plane=None, ghost=False):
+        self.items[key] = mesh
+        self.ghost = getattr(self, "ghost", {})
+        self.ghost[key] = (ghost, color)
+
 
 # ------------------------------------------------------------------ núcleo
 def test_reference_cuts_read_the_lateral_port_x(root):
@@ -190,3 +195,75 @@ def test_without_catalog_says_what_is_missing(stl_path):
     c._sync_cut_ref(sc)
     assert sc.items == {}
     assert not c.match_cut_to_ref("brazo 2")
+
+
+# ------------------------------------------------------------------ fantasma
+def _ref_meshes(root):
+    from afm.proportions import reference_meshes
+
+    cat = Catalog.open(root)
+    return reference_meshes(cat, CR.reference_figures(cat)[0])
+
+
+def test_ghost_places_pick_body_and_limb():
+    m = {"torso": 1, "pelvis": 2, "brazo": 3, "pierna": 4, "cabeza": 5}
+    assert CR.ghost_places("arm", m) == ["torso", "brazo"] and CR.ghost_places("leg", m) == ["pelvis", "pierna"]
+    assert CR.ghost_places("leg", {"torso": 1, "pierna": 4}) == ["torso", "pierna"]      # sin pelvis aparte: el torso entero
+    assert CR.ghost_places("arm", {"brazo": 3}) == ["brazo"] and CR.ghost_places("arm", {}) == []
+
+
+def test_place_ghost_aligns_feet_and_center_without_touching_x(root):
+    meshes = _ref_meshes(root)
+    wb = np.array([[-30.0, -8.0, 5.0], [30.0, 12.0, 105.0]])
+    placed = CR.place_ghost(meshes, wb)
+    assert set(placed) == set(meshes)
+    assert min(m.bounds[0][2] for m in placed.values()) == pytest.approx(5.0)                       # los pies a la altura de la figura
+    ylo = min(m.bounds[0][1] for m in placed.values())
+    yhi = max(m.bounds[1][1] for m in placed.values())
+    assert 0.5 * (ylo + yhi) == pytest.approx(2.0)                                                   # centro en y de la figura
+    for place, m in placed.items():                                                                   # x y tamaño intactos
+        assert m.bounds[:, 0] == pytest.approx(meshes[place].bounds[:, 0])
+        assert m.extents == pytest.approx(meshes[place].extents)
+    assert CR.place_ghost({}, wb) == {} and CR.body_height(meshes) == pytest.approx(max(m.bounds[1][2] for m in meshes.values()) - min(m.bounds[0][2] for m in meshes.values()))
+
+
+def test_ghost_is_drawn_translucent_for_the_active_limb_only(ctrl):
+    sc = Scene()
+    ctrl.cut_ghost_visible = False
+    ctrl.edit_limb = "brazo 2"
+    ctrl._sync_cut_ghost(sc)
+    assert not [k for k in sc.items if k.startswith("corteghost:")]                                  # apagado
+    ctrl.toggle_cut_ghost()
+    assert ctrl.cut_ghost_visible
+    ctrl._sync_cut_ghost(sc)
+    arm_keys = sorted(k for k in sc.items if k.startswith("corteghost:"))
+    assert arm_keys and "corteghost:brazo" in arm_keys and "corteghost:pierna" not in arm_keys
+    assert all(sc.ghost[k][0] is True and sc.ghost[k][1][3] < 1.0 for k in arm_keys)                 # translúcido
+    ctrl.edit_limb = "pierna 2"                                                                      # al pasar a la pierna, cambia el fantasma
+    ctrl._sync_cut_ghost(sc)
+    leg_keys = sorted(k for k in sc.items if k.startswith("corteghost:"))
+    assert "corteghost:pierna" in leg_keys and "corteghost:brazo" not in leg_keys
+    ctrl.toggle_cut_ghost()
+    ctrl._sync_cut_ghost(sc)
+    assert not [k for k in sc.items if k.startswith("corteghost:")]
+
+
+def test_ghost_sits_where_the_reference_cuts(ctrl):
+    """El contacto del brazo fantasma queda a la distancia de la guía: su puerto de hombro está en x = distancia de la referencia."""
+    ctrl.edit_limb = "brazo 2"
+    ctrl.cut_ghost_visible = True
+    sc = Scene()
+    ctrl._sync_cut_ghost(sc)
+    ref = next(r["ref"] for r in ctrl.cut_ref_rows() if r["id"] == "brazo 2")
+    arm = sc.items["corteghost:brazo"]
+    assert arm.bounds[0][0] <= ref.mm + 1e-6 <= arm.bounds[1][0] + 1e-6                              # la pieza abarca el plano de la guía
+
+
+def test_ghost_without_catalog_draws_nothing_and_says_so(stl_path):
+    c = _ctrl(stl_path)
+    c.edit_limb = "brazo 2"
+    c.toggle_cut_ghost()
+    assert "hace falta un catálogo" in c.message
+    sc = Scene()
+    c._sync_cut_ghost(sc)
+    assert not [k for k in sc.items if k.startswith("corteghost:")]

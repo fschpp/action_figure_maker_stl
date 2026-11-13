@@ -117,6 +117,7 @@ _PART_PREVIEW_COLORS = {"ok": (0.30, 0.78, 0.45, 1.0), "aviso": (0.95, 0.75, 0.2
                         "no": (0.90, 0.30, 0.30, 1.0)}   # pieza de catálogo todavía sin generar, por nivel de acople
 _PLANE_STATUS_COLORS = {"no": (0.95, 0.12, 0.12, 0.45), "aviso": (1.0, 0.85, 0.1, 0.38),
                         "ok": (0.2, 0.9, 0.35, 0.30)}       # plano que falló / girado respecto de la pieza elegida / coincide
+_CUT_GHOST_COLOR = (0.15, 0.85, 1.0, 0.30)              # fantasma de la referencia: el mismo celeste que su guía, translúcido
 _CUT_REF_COLOR = (0.15, 0.85, 1.0, 0.18)                # guía: dónde corta la figura de referencia (celeste: no se confunde con el blanco del corte)
 _CUT_PLANE_COLOR = (1.0, 1.0, 1.0, 0.16)               # plano donde SE CORTA el miembro (el de la silueta, corrido «Corte a» mm): blanco, para no confundirlo
 _REPLACEMENT_HEAD_COLOR = (0.95, 0.62, 0.25, 1.0)      # cabeza de reemplazo en la vista 3D (naranja)
@@ -245,6 +246,7 @@ class Controller:
         self.heat_visible = True                     # mapa de calor de la mira (se puede ocultar)
         self.cut_aim_visible = True                  # mira del corte: cinta de color y fantasma de la sección (se puede apagar)
         self.cut_ref_name: str | None = None         # figura del catálogo que se toma de referencia para el corte (None = la propuesta)
+        self.cut_ghost_visible = False               # fantasma: el torso / pelvis y el miembro cortados de la referencia, translúcidos sobre la figura
         self.cut_ref_visible = True                  # guía de la referencia: línea / plano a la distancia que corta esa figura
         self.cut_seated: dict | None = None          # último choque en pose sentada medido (`cut_aid.seated_summary` + su clave)
         self.pin_aim = None                          # última lectura de la mira bajo el puntero (AimReading)
@@ -4140,6 +4142,7 @@ class Controller:
         self._sync_joint_aim(scene)
         self._sync_cut_aim(scene)
         self._sync_cut_ref(scene)
+        self._sync_cut_ghost(scene)
         self._sync_joint_strip(scene)
         self._sync_joints(scene)
         self._sync_trims(scene)
@@ -4562,6 +4565,71 @@ class Controller:
                 scene.show(key, visible and self.group_visible("planes"))
         for key in [k for k in scene.items if k.startswith("corteref:") and not k.endswith(":borde") and k not in wanted]:
             scene.remove(key)
+
+    def _cut_ghost_meshes(self) -> dict:
+        """Las mallas de la figura de referencia ya llevadas a la figura abierta (`cut_ref.place_ghost`), con caché mientras no cambien el
+        catálogo, la referencia ni las medidas del modelo: cargarlas del disco y moverlas es lo caro."""
+        figura = self.cut_ref_figure()
+        sess = self.session
+        if not (figura and sess.loaded and sess.catalog_root):
+            return {}
+        try:
+            stamp = os.stat(os.path.join(sess.catalog_root, "CATALOGO.md")).st_mtime_ns
+        except OSError:
+            stamp = 0
+        bounds = np.asarray(sess.work.bounds, float)
+        key = (sess.catalog_root, stamp, figura, tuple(np.round(bounds.ravel(), 3)))
+        last = getattr(self, "_cut_ghost_cache", None)
+        if last is not None and last[0] == key:
+            return last[1]
+        try:
+            raw = sess.catalog_reference_meshes(figura)
+            self._cut_ghost_raw = raw
+            placed = CR.place_ghost(raw, bounds)
+        except Exception:                                      # noqa: BLE001 — el fantasma es informativo
+            placed = {}
+        self._cut_ghost_cache = (key, placed)
+        return placed
+
+    def toggle_cut_ghost(self) -> None:
+        """Muestra / oculta el fantasma. Al mostrarlo avisa si la altura de la referencia y la de la figura difieren (el fantasma no
+        se escala: usa los mm de la referencia, igual que la guía)."""
+        self.cut_ghost_visible = not self.cut_ghost_visible
+        if not self.cut_ghost_visible:
+            self._changed("Fantasma de la referencia oculto.")
+            return
+        msg = f"Fantasma de la referencia ({self.cut_ref_figure() or 'ninguna'}) visible."
+        placed = self._cut_ghost_meshes()
+        if not placed:
+            msg += " No hay piezas de esa figura que mostrar (hace falta un catálogo abierto)."
+        else:
+            ref_h, my_h = CR.body_height(placed), float(self.session.work.bounds[1][2] - self.session.work.bounds[0][2])
+            if my_h > 0 and abs(ref_h - my_h) / my_h > 0.03:
+                msg += f" Ojo: la referencia mide {ref_h:.0f} mm y tu figura {my_h:.0f} mm; el fantasma no se escala."
+        self._changed(msg)
+
+    def _sync_cut_ghost(self, scene) -> None:
+        """El fantasma en el visor: las piezas de la referencia que rodean al miembro que se edita (torso + brazo, o pelvis + pierna),
+        translúcidas y en su lugar. El corte de la referencia queda a la distancia de la guía celeste."""
+        wanted = []
+        active = self.offset_limb() if (self.cut_ghost_visible and self.session.loaded and not self.busy) else None
+        if active is not None:
+            placed = self._cut_ghost_meshes()
+            try:
+                kind = self.session.limb(active).kind
+            except KeyError:
+                kind = None
+            if kind in CR.KINDS:
+                wanted = [(f"corteghost:{p}", placed[p]) for p in CR.ghost_places(kind, placed)]
+        sig = tuple((k, id(m)) for k, m in wanted)
+        if sig and sig == getattr(self, "_cut_ghost_sig", None) and all(k in scene.items for k, _m in wanted):
+            return
+        keep = {k for k, _m in wanted}
+        for key in [k for k in scene.items if k.startswith("corteghost:") and k not in keep]:
+            scene.remove(key)
+        for key, mesh in wanted:
+            scene.set_mesh(key, mesh, color=_CUT_GHOST_COLOR, ghost=True)
+        self._cut_ghost_sig = sig
 
     def snap_cut(self, quiet: bool = False) -> bool:
         """El «imán» del corte: lleva el plano del miembro a la mejor posición de la cinta (±3 mm; solo cambia la distancia al plano

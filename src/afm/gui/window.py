@@ -404,6 +404,11 @@ class MainWindow(Gtk.ApplicationWindow):
         self.chk_cut_ref = Gtk.CheckButton(label="guía", active=True, tooltip_text="Mostrar / ocultar el plano celeste de la referencia en el visor")
         self.chk_cut_ref.connect("toggled", lambda b: None if self._updating else self.ctrl.toggle_cut_ref())
         row.append(self.chk_cut_ref)
+        self.chk_cut_ghost = Gtk.CheckButton(label="fantasma", active=False,
+                                             tooltip_text="Dibuja translúcidas las piezas de la figura de referencia (torso o pelvis y el miembro) sobre la tuya, "
+                                                          "con el corte en su lugar. No se escala: usa los mm de la referencia.")
+        self.chk_cut_ghost.connect("toggled", lambda b: None if self._updating else self.ctrl.toggle_cut_ghost())
+        row.append(self.chk_cut_ghost)
         sec.append(row)
         self.lbl_cut_ref = Gtk.Label(label="", xalign=0, wrap=True, selectable=True)
         sec.append(self.lbl_cut_ref)
@@ -1208,6 +1213,9 @@ exportar; tarda un poco más.")
         if self.chk_cut_ref.get_active() != ctrl.cut_ref_visible:
             self.chk_cut_ref.set_active(ctrl.cut_ref_visible)
         self.chk_cut_ref.set_sensitive(bool(figs))
+        if self.chk_cut_ghost.get_active() != ctrl.cut_ghost_visible:
+            self.chk_cut_ghost.set_active(ctrl.cut_ghost_visible)
+        self.chk_cut_ghost.set_sensitive(bool(figs))
         self.lbl_cut_ref.set_text(ctrl.cut_ref_text())
         self.btn_cut_match.set_sensitive(off_limb is not None and bool(ctrl.cut_ref_rows()))
 

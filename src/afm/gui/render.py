@@ -87,6 +87,7 @@ class Item:
     clip_plane: tuple | None = None   # (nx, ny, nz, d): se descarta lo que cumple dot(n, p) > d
     bias: float = 0.0
     on_top: bool = False              # se dibuja sin prueba de profundidad (marcadores que no deben quedar tapados)
+    ghost: bool = False               # malla translúcida (usa el alfa del color): se pinta después de las opacas, sin escribir profundidad
 
 
 def _flat_vertices(mesh: trimesh.Trimesh) -> np.ndarray:
@@ -131,13 +132,13 @@ class SceneRenderer:
                 o.release()
 
     def set_mesh(self, name: str, mesh: trimesh.Trimesh | None, color=(0.78, 0.80, 0.84, 1.0), clip_x: float = -1e9,
-                 clip_plane=None):
+                 clip_plane=None, ghost: bool = False):
         if mesh is None or len(mesh.faces) == 0:
             return self.remove(name)
         data = _flat_vertices(mesh)
         vbo = self.ctx.buffer(data.tobytes())
         vao = self.ctx.vertex_array(self.mesh_prog, [(vbo, "3f 3f", "in_pos", "in_nrm")])
-        return self._put(name, Item("mesh", vao, vbo, len(data), color, clip_x=clip_x, clip_plane=clip_plane))
+        return self._put(name, Item("mesh", vao, vbo, len(data), color, clip_x=clip_x, clip_plane=clip_plane, ghost=ghost))
 
     def set_lines(self, name: str, polylines, color=(1.0, 0.8, 0.2, 1.0), closed: bool = False,
                   on_top: bool = False):
@@ -209,9 +210,7 @@ class SceneRenderer:
         view_rot = camera.view()[:3, :3].astype("f4")
         ctx.enable(mgl.DEPTH_TEST | mgl.PROGRAM_POINT_SIZE)
         ctx.disable(mgl.BLEND)
-        for it in self.items.values():
-            if it.kind != "mesh" or not it.visible:
-                continue
+        def draw_mesh(it: Item) -> None:
             self.mesh_prog["u_mvp"].write(mvp.T.tobytes())
             self.mesh_prog["u_view_rot"].write(view_rot.T.tobytes())
             self.mesh_prog["u_color"].value = it.color
@@ -220,9 +219,16 @@ class SceneRenderer:
             self.mesh_prog["u_clip_n"].value = tuple(float(x) for x in cp[:3])
             self.mesh_prog["u_clip_d"].value = float(cp[3])
             it.vao.render(mgl.TRIANGLES, vertices=it.count)
+
+        for it in self.items.values():
+            if it.kind == "mesh" and it.visible and not it.ghost:
+                draw_mesh(it)
         ctx.enable(mgl.BLEND)
         ctx.blend_func = mgl.SRC_ALPHA, mgl.ONE_MINUS_SRC_ALPHA
         ctx.depth_mask = False
+        for it in self.items.values():                      # fantasmas: translúcidos, con prueba de profundidad pero sin escribirla
+            if it.kind == "mesh" and it.visible and it.ghost:
+                draw_mesh(it)
         for it in self.items.values():
             if it.kind == "quad" and it.visible:
                 self._flat(it, mvp, mgl.TRIANGLES)

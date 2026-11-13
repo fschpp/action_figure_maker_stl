@@ -16,6 +16,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import numpy as np
+
 from .assembly import LIMB_PART
 from .proportions import catalog_figures
 
@@ -89,3 +91,41 @@ def readout_text(label: str, current_mm: float, ref: RefCut, height_mm: float | 
     if r["prop_mm"] is not None:
         txt += f" (a tu altura, proporcional: {_fmt(r['prop_mm'])} mm)"
     return txt
+
+
+# ------------------------------------------------------------------------------------------------ fantasma de la referencia
+GHOST_PLACES = {"arm": ("torso", "brazo"), "leg": ("pelvis", "pierna")}     # el cuerpo cortado y la pieza que se le une
+
+
+def ghost_places(kind: str, meshes: dict) -> list[str]:
+    """Qué piezas de la referencia se dibujan para un miembro: el cuerpo que queda cortado (torso para el brazo, pelvis para la
+    pierna; si la referencia trae el torso entero, ese) y el miembro. Solo las que existen en `meshes`."""
+    body, limb = GHOST_PLACES[kind]
+    if body not in meshes and "torso" in meshes:
+        body = "torso"
+    return [p for p in (body, limb) if p in meshes]
+
+
+def place_ghost(meshes: dict, work_bounds) -> dict:
+    """Copias de las mallas de la referencia llevadas a la figura abierta: los pies a la misma altura (z mínimo del cuerpo entero) y el
+    centro del cuerpo a la misma y. La x no se toca (la simetría es x = 0 en las dos) ni se escala: lo que importa es la distancia
+    absoluta en mm, la misma que marca la guía. Si las alturas difieren, el fantasma no calza con la figura y la ventana lo avisa."""
+    if not meshes:
+        return {}
+    zmin = min(float(m.bounds[0][2]) for m in meshes.values())
+    ylo = min(float(m.bounds[0][1]) for m in meshes.values())
+    yhi = max(float(m.bounds[1][1]) for m in meshes.values())
+    wb = np.asarray(work_bounds, float)
+    dy = 0.5 * (wb[0][1] + wb[1][1]) - 0.5 * (ylo + yhi)
+    dz = float(wb[0][2]) - zmin
+    out = {}
+    for place, mesh in meshes.items():
+        m = mesh.copy()
+        m.apply_translation((0.0, dy, dz))
+        out[place] = m
+    return out
+
+
+def body_height(meshes: dict) -> float:
+    """Alto del cuerpo armado de la referencia (de los pies a lo más alto), en mm."""
+    return max(float(m.bounds[1][2]) for m in meshes.values()) - min(float(m.bounds[0][2]) for m in meshes.values()) if meshes else 0.0

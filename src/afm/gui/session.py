@@ -2018,6 +2018,14 @@ class Session:
         cat = self._catalog()
         return {f: CR.reference_cuts(cat, f) for f in CR.reference_figures(cat)}
 
+    def catalog_reference_meshes(self, figura: str) -> dict:
+        """Las mallas de la figura `figura` del catálogo abierto, cada una en el marco de su figura de origen (`proportions.reference_meshes`)."""
+        from ..proportions import reference_meshes
+
+        if not self.catalog_root:
+            raise ValueError("no hay un catálogo abierto")
+        return reference_meshes(self._catalog(), figura)
+
     def catalog_pieces(self) -> list:
         """Todas las versiones de todas las piezas del catálogo abierto, ordenadas por tipo, id y versión."""
         return sorted(self._catalog().list(all_versions=True), key=lambda m: (m.tipo, m.id, m.version))
