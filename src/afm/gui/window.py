@@ -175,6 +175,9 @@ class MainWindow(Gtk.ApplicationWindow):
         self.menu_open.set_child(self._menu_content("document-open-symbolic", "Abrir"))
         self.menu_open.set_tooltip_text("Abrir un STL, un proyecto o armar una figura desde el catálogo")
         bar.pack_start(self.menu_open)
+        self.btn_new = self._icon_button("document-new-symbolic", "Nuevo", "Descarta la figura cargada y vuelve a los valores de inicio.",\
+                                         lambda *_: self._on_new())
+        bar.pack_start(self.btn_new)
         self.btn_undo = Gtk.Button(icon_name="edit-undo-symbolic")
         self.btn_undo.connect("clicked", lambda *_: self.ctrl.undo())
         self.btn_redo = Gtk.Button(icon_name="edit-redo-symbolic")
@@ -569,6 +572,7 @@ class MainWindow(Gtk.ApplicationWindow):
                 self._hist_timer = GLib.timeout_add(300, self._record_history)
             gate((self.btn_crown, self.btn_sym, self.btn_sym_auto, self.dd_front, self.chk_side,
                   self.chk_over, self.spin_over), ctrl.blocked("stl"))
+            gate(self.btn_new, ctrl.blocked("open"))
             gate((self.btn_save, self.btn_save_as), ctrl.blocked("save"))
             gate(self.btn_grip, ctrl.blocked("grip"))
             gate(self.btn_grip_hand, ctrl.blocked("grip_hand"))
@@ -2224,6 +2228,32 @@ class MainWindow(Gtk.ApplicationWindow):
                 self._error(e)
 
         dlg.save(self, None, finished)
+
+    def _on_new(self) -> None:
+        """«Nuevo»: avisa que se pierden los cambios y, si se acepta, borra la figura y vuelve a los valores de inicio."""
+        ctrl = self.ctrl
+        if not ctrl.loaded:
+            ctrl.new_project()                       # nada que perder: solo deja todo en el estado de inicio
+            return
+        detail = ("Se va a descartar la figura cargada y todo lo hecho con ella (planos, siluetas, articulaciones, "
+                  "parámetros) y se vuelve a los valores de inicio.")
+        if ctrl.dirty:
+            detail += " Hay cambios sin guardar: se van a perder."
+        else:
+            detail += " Lo que no esté guardado se va a perder."
+        dlg = Gtk.AlertDialog(message="¿Empezar un proyecto nuevo?", detail=detail,
+                              buttons=["Cancelar", "Descartar y empezar de nuevo"], cancel_button=0, default_button=0)
+
+        def answered(d, res):
+            try:
+                choice = d.choose_finish(res)
+            except GLib.Error:
+                return
+            if choice == 1:
+                ctrl.new_project()
+                self.gl.queue_render()
+
+        dlg.choose(self, None, answered)
 
     def _on_save_project(self, *_):
         """«Guardar»: si el proyecto ya tiene archivo (abierto o guardado antes) lo sobrescribe sin preguntar; si no, pide dónde."""

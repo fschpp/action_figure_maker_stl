@@ -471,6 +471,22 @@ class Controller:
             msg += " — " + " ".join(session.report.warnings)
         self._changed(msg)
 
+    def new_project(self) -> bool:
+        """«Nuevo»: descarta la figura cargada y el proyecto (se pierden los cambios sin guardar) y vuelve a los valores de
+        inicio: sin STL, parámetros por defecto, cámara de frente, historial vacío. Conserva lo que la ventana engancha
+        (refresco, hilos, historial diferido). Devuelve False si hay una tarea en curso."""
+        if self.busy:
+            self._changed("Hay una tarea en curso: esperá a que termine para empezar de nuevo.", scene=False)
+            return False
+        keep = {k: getattr(self, k) for k in ("on_change", "call_in_main", "defer_history")
+                if hasattr(self, k)}
+        self.__init__()
+        for k, v in keep.items():
+            setattr(self, k, v)
+        self.scene_dirty = True
+        self._changed(self.message)
+        return True
+
     def open_project(self, path: str, stl_path: str | None = None, catalog_root: str | None = None) -> None:
         """Abre un `.proyecto`. El de una figura toda de catálogo («Armar y exportar») se abre sin STL: el cuerpo base sale
         del catálogo de su línea (`catalog_root`, el recordado para esa línea o donde se armó); si no está, levanta
