@@ -77,3 +77,59 @@ def test_plane_list_is_fixed_above_tabs_and_follows_planes(tmp_path):
     assert res["fuera_del_notebook"]
     assert res["vacia"] == (True, False)
     assert res["filas"] >= 1 and res["llena"] == (False, True)
+
+
+def test_step_rail_is_synced_with_the_pages_and_shows_each_step_state(tmp_path):
+    """El riel de pasos reemplaza a las pestañas visibles: elegir un paso muestra su página, cambiar de página (por un modo activo)
+    marca el paso, el ícono / detalle sigue al estado del proyecto y «Siguiente pendiente» salta al primer paso que pide algo."""
+    from afm.gui.steps import rail
+    from afm.testfigure import make_doll
+
+    m = make_doll()
+    m.apply_scale(0.05)
+    stl = str(tmp_path / "muneco.stl")
+    m.export(stl)
+    res = {}
+    app = Gtk.Application(application_id="ar.afm.test3")
+
+    def act(a):
+        try:
+            c = Controller()
+            win = MainWindow(a, c)
+            res["tabs_shown"] = win.tabs.get_show_tabs()
+            res["rows"] = list(win._rail_rows)
+            res["sel0"] = rail.current_key(win)
+            win.rail.select_row(win._rail_rows["generar"])                 # riel -> página
+            res["page_generar"] = win.tabs.get_current_page()
+            win.tabs.set_current_page(1)                                   # página -> riel
+            res["sel_planos"] = rail.current_key(win)
+            res["glyph_empty"] = win._rail_labels["figura"][0].get_text()
+            c.open_stl(stl)
+            win._refresh()
+            res["glyph_loaded"] = win._rail_labels["figura"][0].get_text()
+            res["detail_loaded"] = win._rail_labels["figura"][1].get_text()
+            win.rail.select_row(win._rail_rows["generar"])
+            c.start_crown()                                                # un modo que vive en «Figura»: el riel lo sigue
+            win._refresh()
+            res["mode_key"] = rail.current_key(win)
+            c.cancel(quiet=True)
+            win._refresh()
+            c.auto_symmetry()
+            win._refresh()
+            res["planos_glyph"] = win._rail_labels["planos"][0].get_text()
+            win.rail.select_row(win._rail_rows["figura"])
+            win.btn_next_step.emit("clicked")                              # primer paso pendiente después de «Figura»
+            res["next_key"] = rail.current_key(win)
+        except Exception as e:      # noqa: BLE001
+            res["error"] = e
+        GLib.idle_add(a.quit)
+
+    app.connect("activate", act)
+    app.run([])
+    assert "error" not in res, res.get("error")
+    assert res["tabs_shown"] is False
+    assert res["rows"] == ["figura", "planos", "miembros", "parametros", "recortes", "generar", "catalogo"]
+    assert res["sel0"] == "figura" and res["page_generar"] == 6 and res["sel_planos"] == "planos"
+    assert res["glyph_empty"] == "○" and res["glyph_loaded"] == "✓" and res["detail_loaded"] == "Frente +Y"
+    assert res["planos_glyph"] == "⚠"                                       # hay simetría pero ningún miembro
+    assert res["next_key"] == "planos" and res["mode_key"] == "figura"

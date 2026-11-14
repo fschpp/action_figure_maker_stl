@@ -2,6 +2,21 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — UX etapa 5b: riel de pasos con estado (2026-11-13, sobre main fd6d3e5)
+Las pestañas visibles del `Gtk.Notebook` se reemplazan por un riel vertical de pasos (`gui/steps/rail.py`) con un ícono de estado y una línea de detalle por paso: ○ pendiente · ✓ listo · ⚠ falta algo · ⟳ desactualizado · ▶ listo para generar · · opcional. El orden es el del flujo (Figura → Planos → Miembros → Parámetros → Recortes → Generar) y **Catálogo** queda aparte, bajo «Opcional» (provisorio: el modo «Desde STL / Desde catálogo» en la cabecera, R1 del informe, queda para después). El Notebook sigue siendo el contenedor (con las pestañas ocultas): `tabs.set_current_page`, `_tab_for_mode` y los tests no cambian, y riel y páginas se sincronizan en los dos sentidos (un modo activo —p. ej. marcar la coronilla— marca su paso). El estado de cada paso sale de lo que ya sabe el controlador (`problems()`, `outcome_stale`, proyecto, parámetros) en `gui/step_state.py`, sin GTK. Botón «Siguiente pendiente ▸» salta al primer paso que pide algo; el riel se apaga mientras se genera. Tests: `tests/test_gui_step_state.py` (lógica) y `tests/test_gui_window_build.py` (ventana real).
+
+### Todo List
+- [x] `step_state.py`: estado por paso y `next_pending`.
+- [x] Riel en la ventana (sincronizado con el Notebook, se apaga al generar) y estilos `afm-step-*`.
+- [x] Tests de lógica y de ventana con GTK real.
+- [ ] Hacer clicable el panel «Pendiente» del Estado para saltar al paso (R1).
+- [ ] Modo «Desde STL / Desde catálogo» en la cabecera (saca Catálogo del riel).
+- [ ] Probar el riel con las figuras reales y con ventanas angostas (el riel suma 160 px a la barra lateral).
+
+### Latest Blockers/Discoveries
+- **Ya se puede probar la ventana con GTK real en este entorno de desarrollo:** `apt-get install gir1.2-gtk-4.0 python3-gi xvfb` y `xvfb-run -a python3 -m pytest tests/test_gui_window_build.py tests/test_catalog_window_real.py`. Los 16 tests de ventana pasan (con GL por software). Captura de la ventana sin pantalla: `Gtk.WidgetPaintable` + `GSK_RENDERER=cairo` + `render_texture(...).save_to_png`.
+- `Controller.outcome_stale` es una propiedad (no se llama).
+
 ## Pendientes vigentes (consolidado 2026-11-13)
 
 _Resumen de lo que sigue abierto, armado leyendo las casillas sin tildar de todo el archivo. Las secciones de abajo son historia: sus casillas viejas no se tildaron al cerrarse y sobreestiman lo pendiente. Al cerrar algo, tildarlo acá._

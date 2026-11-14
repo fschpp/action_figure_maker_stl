@@ -23,7 +23,7 @@ from . import param_meta as PM
 from .progress_panel import ProgressPanel  # noqa: E402
 from .render import SceneRenderer  # noqa: E402
 from .session import CatalogNeeded  # noqa: E402
-from .steps import STEPS, plane_panel  # noqa: E402
+from .steps import STEPS, plane_panel, rail  # noqa: E402
 from .ui_consts import HEAD_ADJUST_ATTR, TRIM_OPS as _TRIM_OPS  # noqa: E402
 from .widgets import no_scroll_change as _no_scroll_change  # noqa: E402
 from .viewcube import ViewCube, interpolate_view, view_angles  # noqa: E402
@@ -55,6 +55,14 @@ _CSS = b"""
 .afm-task { font-weight: 600; }
 .afm-cube-btn { color: #e6e8ec; background: alpha(#000, 0.35); border-radius: 6px; padding: 2px 10px; min-height: 0; }
 .afm-cube-btn:hover { background: alpha(#00ae42, 0.8); }
+.afm-step-glyph { font-weight: 700; min-width: 1.4em; }
+.afm-step-title { font-weight: 600; }
+.afm-step-detail { font-size: 0.85em; opacity: 0.75; }
+.afm-step-ok { color: #2ec27e; }
+.afm-step-warn { color: #e5a50a; }
+.afm-step-stale { color: #e66100; }
+.afm-step-ready { color: #3584e4; }
+.afm-step-todo, .afm-step-info { opacity: 0.55; }
 """
 
 
@@ -283,12 +291,18 @@ class MainWindow(Gtk.ApplicationWindow):
         """Pestañas por tema (como Bambu Studio); cada pestaña tiene secciones y subsecciones plegables (ver `gui/steps`)."""
         self.tabs = Gtk.Notebook(scrollable=True, tab_pos=Gtk.PositionType.TOP)
         self.tabs.set_size_request(400, -1)
+        self.tabs.set_show_tabs(False)                # las páginas se eligen en el riel de pasos (etapa 5b); el Notebook sigue siendo el contenedor
         for step in STEPS:
             step.build(self)
         side = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         side.append(plane_panel.build(self))        # lista de planos fija, siempre a la vista (etapa 4b)
+        body = Gtk.Box(spacing=4)
+        body.set_vexpand(True)
+        body.append(rail.build(self))                # riel de pasos con su estado (etapa 5b)
         self.tabs.set_vexpand(True)
-        side.append(self.tabs)
+        self.tabs.set_hexpand(True)
+        body.append(self.tabs)
+        side.append(body)
         return side
 
     def _joint_spin(self, sec: Gtk.Box, label: str, lo: float, hi: float, step: float, digits: int, on_change) -> Gtk.SpinButton:
@@ -603,6 +617,8 @@ class MainWindow(Gtk.ApplicationWindow):
             self.spin_pose.set_value(ctrl._pose_angle())
             gate(self.btn_trim_add, ctrl.blocked("sym"))
             self.sidebar_box.set_sensitive(not ctrl.busy)
+            self.rail_box.set_sensitive(not ctrl.busy)
+            rail.refresh(self)
             gate(self.btn_generate, ctrl.blocked("generate"))
             gate((self.btn_export, self.btn_flat_plane, self.btn_flat_click), ctrl.blocked("outcome"))
             gate((self.btn_close_poly, self.btn_propose, self.btn_outline, self.btn_clear_poly, self.btn_end_poly),
