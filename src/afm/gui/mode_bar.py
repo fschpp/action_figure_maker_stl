@@ -25,8 +25,9 @@ MODE_HELP: dict[Mode, tuple[str, tuple[str, ...]]] = {
     Mode.JOINT_LINES: ("Clic: 4 puntos de frente (arriba→codo y codo→abajo) · Retroceso: quitar el último · Esc: cancelar",
                        ("undo_point", "cancel")),
     Mode.JOINT_SIDE: ("Clic: 4 puntos de costado para corregir las guías · Retroceso: quitar el último · Esc: cancelar",
-                      ("undo_point", "cancel")),
-    Mode.JOINT_AXIS: ("Clic sobre la figura: eje de la bisagra · Esc: cancelar", ("cancel",)),
+                      ("undo_point", "cancel", "preview")),
+    Mode.JOINT_AXIS: ("Clic sobre la figura: eje de la bisagra (con la simulación al costado se puede reajustar varias veces) · "
+                      "Esc: terminar", ("preview", "done")),
     Mode.POLYGON: ("Clic: agregar vértice · Intro: cerrar el polígono · Retroceso: quitar el último · Esc: salir",
                    ("undo_point", "close", "cancel")),
     Mode.PIN: (_PIN, ("snap", "heat", "done")),
@@ -41,7 +42,9 @@ ACTION_LABELS = {"undo_point": ("Quitar último", "Quita el último punto o vér
                  "cancel": ("Cancelar", "Sale de la herramienta sin guardar lo que falta (Esc)"),
                  "done": ("Terminar", "Sale de la herramienta (Esc)"),
                  "snap": ("Imán", "Lleva el pasador al punto más cercano de la malla (M)"),
-                 "heat": ("Calor", "Alterna la vista de mapa de calor del pasador (H)")}
+                 "heat": ("Calor", "Alterna la vista de mapa de calor del pasador (H)"),
+                 "preview": ("Simulación", "Muestra u oculta la simulación de la articulación al costado de la figura, para "
+                                           "verla doblar mientras se elige el punto")}
 
 
 def help_for(mode: Mode) -> tuple[str, tuple[str, ...]] | None:
@@ -67,7 +70,7 @@ def build(win):
     row = Gtk.Box(spacing=6)
     actions = {
         "undo_point": ctrl.undo_point, "close": ctrl.close_polygon, "cancel": ctrl.cancel, "done": ctrl.cancel,
-        "snap": ctrl.snap_pin, "heat": ctrl.toggle_heat,
+        "snap": ctrl.snap_pin, "heat": ctrl.toggle_heat, "preview": ctrl.toggle_joint_preview_here,
     }
     buttons = {}
     for key, (label, tip) in ACTION_LABELS.items():
@@ -76,7 +79,12 @@ def build(win):
         b.connect("clicked", lambda _b, fn=actions[key]: fn())
         row.append(b)
         buttons[key] = b
-    for w in (win.mode_title, win.mode_hint, row):
+    win.mode_flex_box = Gtk.Box(spacing=6, visible=False)          # flexión de la simulación, a mano de la herramienta
+    win.mode_flex_box.append(Gtk.Label(label="Flexión mostrada (°)"))
+    win.mode_flex = Gtk.SpinButton.new_with_range(-45.0, 150.0, 5.0)
+    win.mode_flex.connect("value-changed", lambda b: None if getattr(win, "_mode_flex_sync", False) else ctrl.set_joint_preview_flex(b.get_value()))
+    win.mode_flex_box.append(win.mode_flex)
+    for w in (win.mode_title, win.mode_hint, row, win.mode_flex_box):
         bar.append(w)
     revealer.set_child(bar)
     win.mode_revealer, win.mode_buttons = revealer, buttons
@@ -96,4 +104,15 @@ def update(win, title: str) -> None:
     win.mode_hint.set_text(hint)
     for key, b in win.mode_buttons.items():
         b.set_visible(key in acts)
+    ctrl = win.ctrl
+    if "preview" in acts:
+        on = ctrl.show_joint_preview
+        win.mode_buttons["preview"].set_label("Ocultar simulación" if on else "Ver simulación")
+        win.mode_flex_box.set_visible(on)
+        if on and abs(win.mode_flex.get_value() - ctrl._jp["flex"]) > 1e-9:
+            win._mode_flex_sync = True                  # no devolver al controlador lo que él mismo acaba de dar
+            win.mode_flex.set_value(ctrl._jp["flex"])
+            win._mode_flex_sync = False
+    else:
+        win.mode_flex_box.set_visible(False)
     win.mode_revealer.set_reveal_child(True)

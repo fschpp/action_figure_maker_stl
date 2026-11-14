@@ -784,6 +784,11 @@ class Controller:
         except ValueError as e:
             self._changed(f"No sirve: {e}.")
             return
+        if self.show_joint_preview and self._jp["name"] == name:
+            # con la simulación al costado se sigue ajustando: cada clic mueve el eje y la simulación se recalcula
+            self._changed(f"Eje de la {name} movido: la simulación de la derecha se recalcula. Clic otra vez para "
+                          "reajustar; Esc o «Terminar» para salir. Hay que generar de nuevo.")
+            return
         self.mode, self.joint_name = Mode.VIEW, None
         self._changed(f"Eje de la {name} movido.")
 
@@ -887,6 +892,44 @@ class Controller:
                           "se mueven acá); cambiá la flexión mostrada para verla doblar.")
         return True
 
+    JOINT_TOOL_MODES = (Mode.JOINT_PLANE, Mode.JOINT_LINES, Mode.JOINT_SIDE, Mode.JOINT_AXIS)
+
+    def joint_preview_beside(self) -> bool:
+        """True si la simulación de la articulación se dibuja AL COSTADO de la figura (que sigue a la vista para elegir
+        puntos sobre ella): vista previa encendida y alguna herramienta de articulación activa. Fuera de ellas la
+        simulación reemplaza a la figura, como siempre."""
+        return self.show_joint_preview and self.mode in self.JOINT_TOOL_MODES
+
+    def toggle_joint_preview_here(self) -> None:
+        """Botón de la barra del visor: enciende o apaga la simulación de la articulación que se está ajustando
+        (`joint_name`), sin ir a la pestaña Parámetros."""
+        name = self.joint_name
+        if name is None or not self.session.preview_exists(name):
+            self._changed(self.no_joint_text(), scene=False)
+            return
+        self.set_joint_preview(name, not self.show_joint_preview)
+
+    def _joint_beside_layout(self, pv) -> tuple[float, np.ndarray]:
+        """(corrimiento en X, caja a encuadrar) para dejar la simulación a la derecha de la figura, a la altura de la
+        articulación y con aire entre ambas. Se mide sobre la franja de la figura a esa altura (no sobre toda ella), para
+        que quede cerca de lo que se está ajustando."""
+        jp = self._jp
+        key = (id(pv), round(jp["flex"], 6))
+        if jp.get("layout_key") == key:
+            return jp["layout"]
+        pb = np.vstack([pv.proximal_mesh().bounds, pv.distal_mesh(jp["flex"]).bounds])
+        lo, hi = pb.min(axis=0), pb.max(axis=0)
+        v = np.asarray(self.session.work.vertices)
+        slab = v[(v[:, 2] >= lo[2] - 5.0) & (v[:, 2] <= hi[2] + 5.0)]
+        if len(slab) == 0:
+            slab = v
+        gap = max(8.0, 0.5 * float(hi[0] - lo[0]))
+        dx = float(slab[:, 0].max() + gap - lo[0])
+        pad = float(np.max(hi - lo))
+        box = np.array([[slab[:, 0].min(), v[:, 1].min(), lo[2] - pad], [hi[0] + dx, v[:, 1].max(), hi[2] + pad]])
+        jp["layout_key"], jp["layout"] = key, (dx, box)
+        return dx, box
+
     def set_joint_preview_flex(self, flex: float) -> None:
         """Flexión a la que se muestra la pieza distal (solo la recoloca: no recalcula el hueco)."""
         self._jp["flex"] = float(flex)
@@ -970,17 +1013,31 @@ class Controller:
                 scene.remove(key)
             jp["drawn"] = None
             return
-        for key in list(scene.items):
-            if key.startswith(self._JOINT_PREVIEW_HIDE) or (key.startswith("espejo:") and "silueta" not in key):
-                scene.show(key, False)
-        sig = (id(pv), round(jp["flex"], 6))
+        beside = self.joint_preview_beside()
+        if not beside:
+            for key in list(scene.items):
+                if key.startswith(self._JOINT_PREVIEW_HIDE) or (key.startswith("espejo:") and "silueta" not in key):
+                    scene.show(key, False)
+        dx, box = self._joint_beside_layout(pv) if beside else (0.0, None)
+        sig = (id(pv), round(jp["flex"], 6), beside, round(dx, 3))
         if jp["drawn"] != sig or "junta:prox" not in scene.items:
-            scene.set_mesh("junta:prox", pv.proximal_mesh(), color=(0.85, 0.80, 0.68, 1.0))
-            scene.set_mesh("junta:dist", pv.distal_mesh(jp["flex"]), color=(0.55, 0.75, 0.95, 1.0))
+            shift = np.array([dx, 0.0, 0.0])
+            prox, dist = pv.proximal_mesh(), pv.distal_mesh(jp["flex"])
+            if beside:
+                prox, dist = prox.copy(), dist.copy()
+                prox.apply_translation(shift)
+                dist.apply_translation(shift)
+            scene.set_mesh("junta:prox", prox, color=(0.85, 0.80, 0.68, 1.0))
+            scene.set_mesh("junta:dist", dist, color=(0.55, 0.75, 0.95, 1.0))
             b = pv.build
-            ends = np.array([b.center - b.axis * b.tips[0], b.center + b.axis * b.tips[1]])
+            ends = np.array([b.center - b.axis * b.tips[0], b.center + b.axis * b.tips[1]]) + shift
             scene.set_lines("junta:eje", ends, (1.0, 0.3, 0.3, 1.0), on_top=True)
             jp["drawn"] = sig
+        if beside and jp.get("framed_beside") != jp["name"]:
+            jp["framed_beside"] = jp["name"]                 # una vez al entrar: figura (a esa altura) y simulación juntas en pantalla
+            self.camera.frame(box)
+        elif not beside:
+            jp["framed_beside"] = None
 
     def joint_limits(self, name: str) -> tuple[float, float]:
         from ..joints import flex_range
@@ -2375,7 +2432,7 @@ class Controller:
         """True en los modos en que se eligen puntos sobre la figura (planos de 3 puntos, guías de 4)."""
         return (self.picker is not None and not self.busy and
                 self.mode in (Mode.SYMMETRY, Mode.LIMB_PLANE, Mode.NECK_PLANE, Mode.HEAD_CUT_PLANE, Mode.WEAPON_CUT_PLANE, Mode.WAIST_PLANE, Mode.HAND_EXTRACT,
-                              Mode.HAND_PLACE, Mode.JOINT_PLANE, Mode.JOINT_LINES, Mode.JOINT_SIDE))
+                              Mode.HAND_PLACE, Mode.JOINT_PLANE, Mode.JOINT_LINES, Mode.JOINT_SIDE, Mode.JOINT_AXIS))
 
     def update_hover(self, px: float, py: float, width: float, height: float) -> bool:
         """Marca (en rojo) el vértice de la figura que el puntero tiene cerca; lo suelta al alejarse. Devuelve True si
