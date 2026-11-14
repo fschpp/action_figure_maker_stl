@@ -175,7 +175,7 @@ PARAM_FIELDS = (
     ("clearance", "Holgura miembro–cavidad (mm)", 0.1, 1.5, 0.05, 2),
     ("burr", "Rebaba a rebajar en la cara (mm)", 0.0, 3.0, 0.05, 2),
     ("sit_angle", "Ángulo de pose sentada (°)", 0.0, 180.0, 5.0, 0),
-    ("flat_depth", "Sin soportes: corte plano sobre la cola (mm)", 0.2, 6.0, 0.1, 1),
+    ("flat_depth", "Corte con la cama de impresión: altura sobre la cola (mm)", 0.2, 6.0, 0.1, 1),
     ("torso_mirror", "Torso espejado (1 = sí, 0 = conserva el diseño asimétrico del STL)", 0.0, 1.0, 1.0, 0),
     ("hip_margin", "Margen del límite de cadera (°)", 0.0, 30.0, 1.0, 0),
     ("waist_pin.shaft_d", "Cintura: Ø vástago (mm)", 3.0, 14.0, 0.1, 1),
@@ -245,7 +245,7 @@ class Controller:
         self.overhang_angle = 45.0                   # grados desde la vertical (como `--max-angle`)
         self.draft: PolygonDraft | None = None      # polígono de silueta en edición (modo POLYGON)
         self.edit_limb: str | None = None
-        self.edit_cross = False                     # el polígono en edición es el 2.º corte (frente) del miembro
+        self.edit_cross = False                     # el polígono en edición es la 2.ª silueta (frente) del miembro
         self.joint_limb: str | None = None          # miembro al que se le está definiendo la articulación (JOINT_PLANE)
         self.head_pin_prev = None                   # HeadPinPreview mientras se coloca el pasador del cuello (HEAD_PIN)
         self.waist_pin_prev = None                  # LinePinPreview mientras se coloca el pasador de la cintura (WAIST_PIN)
@@ -561,7 +561,7 @@ class Controller:
         self.cancel(quiet=True)
         self.mode = Mode.NECK_PLANE
         self._changed("Plano del cuello: elegí 3 puntos (2 en la nuca, a cada lado, y 1 bajo el mentón). "
-                      "Lo de arriba es la cabeza; el pasador va en el centro de la cara del corte.")
+                      "Lo de arriba es la cabeza; el pasador va en el centro de la cara del plano de separación.")
 
     # ------------------------------------------------ articulaciones (rodilla / codo)
     def start_joint_plane(self, limb: str) -> None:
@@ -584,7 +584,7 @@ class Controller:
 
     def start_joint_lines(self, limb: str) -> None:
         """Codo (brazo) o rodilla (pierna) siguiendo el miembro: 2 líneas sobre la vista frontal, una arriba y otra abajo
-        de la articulación; el corte sigue la bisectriz y el eje queda perpendicular a ella (`Session.plane_from_lines`)."""
+        de la articulación; el plano de separación sigue la bisectriz y el eje queda perpendicular a ella (`Session.plane_from_lines`)."""
         if not self._need_loaded():
             return
         spec = self.session.limb(limb)
@@ -694,14 +694,14 @@ class Controller:
         self.joint_guides[j.name] = (np.array(pts[:2], float), np.array(pts[2:], float))
         up, down = self._line_names(self.session.limb(limb).kind)
         self._changed(f"{j.name.capitalize()} definida siguiendo el miembro: el {up} se abre {a_up:.1f}° y el {down} "
-                      f"{a_down:.1f}° (hacia +X al bajar); el corte sigue la bisectriz y el eje quedó inclinado "
+                      f"{a_down:.1f}° (hacia +X al bajar); el plano de separación sigue la bisectriz y el eje quedó inclinado "
                       f"{self.joint_tilt(j.name):.1f}°. Rango {self.joint_range_text(j.name)}. Las guías se centraron en "
                       "profundidad: revisalas de costado y, si hace falta, corregilas con «Ajustar guías de costado».")
 
     def start_joint_side(self, name: str) -> None:
         """Corrige las 4 guías de una articulación hecha con 2 líneas desde la vista de costado (conviene «Costado»):
         los mismos 4 puntos en el mismo orden (arriba del brazo, codo, codo, abajo del antebrazo). De cada clic se toman
-        y y z; la x se conserva de la guía de frente. Con eso se recalculan el corte y el eje."""
+        y y z; la x se conserva de la guía de frente. Con eso se recalculan el plano de separación y el eje."""
         if not self._need_loaded():
             return
         if self.session.joint(name) is None:
@@ -732,7 +732,7 @@ class Controller:
             return
         self.joint_guides[name] = (new[:2].copy(), new[2:].copy())
         self.mode, self.joint_name = Mode.VIEW, None
-        self._changed(f"Guías de {name} corregidas de costado: el corte y el eje se recalcularon "
+        self._changed(f"Guías de {name} corregidas de costado: el plano de separación y el eje se recalcularon "
                       f"(inclinación {self.joint_tilt(name):.1f}°). Hay que generar de nuevo.")
 
     def start_joint_plane_for_kind(self, kind: str) -> None:
@@ -1015,7 +1015,7 @@ class Controller:
             self._changed("Edición del recorte terminada." if was_trim
                           else "Edición de silueta terminada." if was == Mode.POLYGON
                           else "Colocación del pasador terminada." if was in (Mode.PIN, Mode.HEAD_PIN, Mode.WAIST_PIN)
-                          else "Ajuste del plano de corte terminado." if was == Mode.FLAT_PLANE else "Cancelado.")
+                          else "Ajuste del corte con la cama de impresión terminado." if was == Mode.FLAT_PLANE else "Cancelado.")
 
     def undo_point(self) -> None:
         if self.mode == Mode.POLYGON and self.draft is not None:
@@ -1274,7 +1274,7 @@ class Controller:
     def start_polygon(self, name: str, cross: bool = False) -> None:
         """Entra al modo de dibujo de la silueta del miembro `name` (la que ya tenga se carga para editarla).
 
-        Con `cross` se edita su segundo corte: la silueta sobre el plano perpendicular al principal (el frontal,
+        Con `cross` se edita su 2.ª silueta: la silueta sobre el plano perpendicular al principal (el frontal,
         normalmente). El miembro es lo que queda dentro de las dos siluetas, como en Onshape (un recorte de
         costado más uno de frente)."""
         if not self._need_loaded():
@@ -1287,7 +1287,7 @@ class Controller:
         if cross:
             plane = self.session.cross_plane(name)
             poly = limb.cross.polygon if limb.cross is not None else np.zeros((0, 3))
-            what = f"2.º corte de «{name}» (sobre el plano «{plane.name}»)"
+            what = f"2.ª silueta de «{name}» (sobre el plano «{plane.name}»)"
         else:
             plane, poly, what = limb.plane, limb.polygon, f"Silueta de «{name}»"
         if len(poly) >= 3:
@@ -1307,11 +1307,11 @@ class Controller:
         self._changed(msg)
 
     def raise_top(self) -> None:
-        """En el 2.º corte en edición: sube su borde superior hasta el de la silueta principal. Sirve para que el
+        """En la 2.ª silueta en edición: sube su borde superior hasta el de la silueta principal. Sirve para que el
         escalón de la cadera no limite la altura de la cara de contacto (ni la del hueco y el pasador)."""
         d = self.draft
         if self.mode != Mode.POLYGON or d is None or not self.edit_cross or not d.closed:
-            self._changed("Abrí el 2.º corte de un miembro (botón «2.º») y cerrá su polígono.", scene=False)
+            self._changed("Abrí la 2.ª silueta de un miembro (botón «2.ª») y cerrá su polígono.", scene=False)
             return
         spec = self.session.limb(self.edit_limb)
         top = self.session._other_top(spec, cross=True)
@@ -1328,13 +1328,13 @@ class Controller:
         self._commit_polygon(f"Borde superior subido a z = {top:.1f} mm")
 
     def remove_cross(self, name: str) -> None:
-        """Quita el segundo corte de `name`."""
+        """Quita la 2.ª silueta de `name`."""
         if self.edit_limb == name and self.edit_cross:
             self.cancel(quiet=True)
         if self.session.clear_limb_cross(name):
-            self._changed(f"2.º corte de «{name}» quitado.")
+            self._changed(f"2.ª silueta de «{name}» quitado.")
         else:
-            self._changed(f"«{name}» no tiene 2.º corte.", scene=False)
+            self._changed(f"«{name}» no tiene 2.ª silueta.", scene=False)
 
     def _click_polygon(self, px: float, py: float, width: float, height: float) -> None:
         d = self.draft
@@ -1385,7 +1385,7 @@ class Controller:
             return False
         if self.edit_cross:
             self.session.set_limb_cross(self.edit_limb, d.world())
-            self._changed(f"{what}. 2.º corte de «{self.edit_limb}»: {len(d.pts)} vértices.")
+            self._changed(f"{what}. 2.ª silueta de «{self.edit_limb}»: {len(d.pts)} vértices.")
         else:
             self.session.set_limb_polygon(self.edit_limb, d.world())
             self._changed(f"{what}. Silueta de «{self.edit_limb}»: {len(d.pts)} vértices.")
@@ -1488,7 +1488,7 @@ class Controller:
         half = float(max(np.ptp(prev.plane.to_uv(r), axis=0).max() for r in prev.rings_world())) * 0.65 or 10.0
         self.camera.look_along(face.outward, face.center, max(half, 8.0))
         self.hidden.discard(name)
-        note = (f"«{name}» tiene el plano de costado: ahora se extruye hacia afuera (el plano es la cara de corte) "
+        note = (f"«{name}» tiene el plano de costado: ahora se extruye hacia afuera (el plano es la cara del plano de separación) "
                 "y se descartó el pasador anterior. ") if fixed else ""
         self._changed(note + f"Pasador de «{name}»: " + self._pin_status(name) + self._reach_warning(name)
                       + " Clic = mover; flechas 0,1 mm (Mayús 1 mm); Esc termina.")
@@ -1927,7 +1927,7 @@ class Controller:
         return pieces
 
     def flat_click_advice(self) -> dict:
-        """Brazos con clic que no apoyan en el plano del corte actual (ver `pipeline.flat_click_advice`). {} sin figura."""
+        """Brazos con clic que no apoyan en el corte con la cama de impresión actual (ver `pipeline.flat_click_advice`). {} sin figura."""
         out = self.session.outcome
         if out is None:
             return {}
@@ -2062,7 +2062,7 @@ class Controller:
         if not self._need_loaded():
             return
         if self.session.outcome is None:
-            self._changed("Primero generá la figura: el plano de corte se ajusta sobre la figura generada y sentada.",
+            self._changed("Primero generá la figura: el corte con la cama de impresión se ajusta sobre la figura generada y sentada.",
                           scene=False)
             return
         self.set_pose_view(True)
@@ -2074,7 +2074,7 @@ class Controller:
                       " Hacé clic a la altura que querés (o ↑ ↓, Mayús = 1 mm); Esc termina.")
 
     def flat_message(self, depth: float) -> str:
-        return f"Corte sin soportes: {depth:.1f} mm sobre la cola (z = {self.flat_base_z() + depth:.1f} mm)."
+        return f"Corte con la cama de impresión: {depth:.1f} mm sobre la cola (z = {self.flat_base_z() + depth:.1f} mm)."
 
     def set_flat_depth(self, depth: float) -> float | None:
         """Fija la altura del corte (mm sobre la cola), dentro del rango de `Parámetros`. No invalida la figura."""
@@ -3766,7 +3766,7 @@ class Controller:
         if info.get("cavidad_rellenada"):
             msg += " La cabeza era hueca (cáscara abierta por la base): se rellenó por dentro para que la base sea maciza."
         if info["coincidencia_base"] < MIN_BASE_IOU:
-            msg += " AVISO: la base se parece poco a la del cuello; probá otro giro, eje «arriba», escala o plano de corte (Planos → Cabeza)."
+            msg += " AVISO: la base se parece poco a la del cuello; probá otro giro, eje «arriba», escala o plano de separación (Planos → Cabeza)."
         return msg
 
     def set_head_adjust(self, up: str | None = None, yaw: float | None = None, rx: float | None = None,
@@ -3835,7 +3835,7 @@ class Controller:
             self._changed(f"No sirve: {e}. Elegí 3 puntos de nuevo.")
             return
         self.mode, self.pending_kind = Mode.VIEW, None
-        self._changed(f"Plano «{name}» agregado. Falta dibujar su silueta (y, si hace falta, su 2.º corte de frente con el botón «2.º»).")
+        self._changed(f"Plano «{name}» agregado. Falta dibujar su silueta (y, si hace falta, su 2.ª silueta de frente con el botón «2.ª»).")
 
     def offset_limb(self) -> str | None:
         """Miembro activo cuyo desplazamiento de corte se puede editar (el del pasador o el de la silueta)."""
@@ -4168,7 +4168,7 @@ class Controller:
         if what == "drawing":
             return None if self.mode == Mode.POLYGON else "Se activa mientras dibujás una silueta (lápiz en la lista de planos)."
         if what == "raise":
-            return self.blocked("drawing") or (None if self.edit_cross else "Solo vale para el 2.º corte de un miembro.")
+            return self.blocked("drawing") or (None if self.edit_cross else "Solo vale para la 2.ª silueta de un miembro.")
         if what == "pin":
             return None if self.mode == Mode.PIN else "Se activa mientras colocás un pasador (ícono de pasador en la lista de planos)."
         if what == "pin_any":
@@ -4272,7 +4272,7 @@ class Controller:
         ss = files.get("sin_soportes")
         if ss:
             giro = ss["giro_brazos_grados"]
-            msg += (f" Sin soportes: corte {ss['corte_sobre_cola_mm']:g} mm sobre la cola, brazos girados "
+            msg += (f" Corte con la cama de impresión: {ss['corte_sobre_cola_mm']:g} mm sobre la cola, brazos girados "
                     + (", ".join(f"{a:.0f}°" for a in giro.values()) or "0°") + " hacia adelante.")
             msg += fill_hip_message(ss, self.session.project.params.flat_fill_hip)
             if ss["avisos"]:
@@ -4490,7 +4490,7 @@ class Controller:
         hi = np.max([m.bounds[1] for m in meshes.values()], axis=0)
         center = (lo + hi) / 2
         hs = float(np.linalg.norm(hi - lo)) * 0.5
-        plane = Plane.from_normal((center[0], center[1], z), (0.0, 0.0, 1.0), "corte sin soportes")
+        plane = Plane.from_normal((center[0], center[1], z), (0.0, 0.0, 1.0), "corte con la cama de impresión")
         scene.set_plane("plano_sin_soportes", plane, hs, center=(center[0], center[1], z), color=(1.0, 0.55, 0.1, 0.25))
         x = float(hi[0]) + 1.0
         line = np.array([[x, lo[1] - 0.15 * hs, z], [x, hi[1] + 0.15 * hs, z]])

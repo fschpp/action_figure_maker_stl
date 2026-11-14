@@ -14,14 +14,14 @@ def build(win) -> None:
     """Agrega la pestaña «Miembros» a `win.tabs` (win = la `MainWindow`)."""
     box = win._tab_page("Miembros")
     sec = _collapsible(box, "Silueta del miembro")
-    _help(sec, "Elegí «Dibujar silueta» (lápiz) en un plano de la lista de arriba; «2.º» dibuja el segundo corte, de frente (el "
+    _help(sec, "Elegí «Dibujar silueta» (lápiz) en un plano de la lista de arriba; «2.ª» dibuja la 2.ª silueta, de frente (el "
                "miembro es lo que queda dentro de las dos siluetas: p. ej. en una pierna, la columna del muslo + el escalón "
                "de la cadera). Clic = vértice sobre el plano; cerrá con un clic en el primero o con Intro. Ya cerrado: clic "
                "en un vértice y luego clic para moverlo; clic sobre un borde agrega uno; Retroceso borra el elegido.")
     win.btn_close_poly = win._button("Cerrar polígono (Intro)", lambda *_: win.ctrl.close_polygon())
     win.btn_propose = win._button("Proponer silueta automática", lambda *_: win.ctrl.propose_silhouette())
     win.btn_outline = win._button("Empezar desde el contorno de la figura", lambda *_: win.ctrl.use_outline_as_base())
-    win.btn_raise = win._button("Subir el borde superior (2.º corte) hasta la otra silueta",
+    win.btn_raise = win._button("Subir el borde superior (2.ª silueta) hasta la otra silueta",
                                   lambda *_: win.ctrl.raise_top())
     win.btn_clear_poly = win._button("Vaciar y redibujar", lambda *_: win.ctrl.clear_polygon())
     win.btn_end_poly = win._button("Terminar edición de silueta (Esc)", lambda *_: win.ctrl.cancel())

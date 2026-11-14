@@ -276,7 +276,7 @@ class Session:
             raise KeyError(name)
         if spec.kind == "leg" and spec.cross is not None and spec.cross.valid() \
                 and not plane_is_lateral(spec.cross.plane, spec.contact_axis):
-            return False        # pierna con 2.º corte de frente: el principal DEBE atravesar el cuerpo (ver set_limb_cross)
+            return False        # pierna con 2.ª silueta de frente: el principal DEBE atravesar el cuerpo (ver set_limb_cross)
         if spec.extrude == "symmetric" and plane_is_lateral(spec.plane, spec.contact_axis):
             spec.extrude = "outward"
             spec.pin_center = None
@@ -294,9 +294,9 @@ class Session:
         spec.polygon = poly
         self.outcome = None
 
-    # ------------------------------------------------- segundo corte (de frente / de costado)
+    # ------------------------------------------------- 2.ª silueta (de frente / de costado)
     def cross_plane(self, name: str) -> Plane:
-        """Plano donde se dibuja el segundo corte de `name`: el que ya tiene, o el perpendicular al principal.
+        """Plano donde se dibuja la 2.ª silueta de `name`: el que ya tiene, o el perpendicular al principal.
         Si el principal es de costado (el habitual, 3 puntos en el hombro/cadera) es el plano frontal, el que
         divide la figura en atrás/adelante; si el principal es frontal, el segundo es de costado."""
         spec = self.limb(name)
@@ -310,7 +310,7 @@ class Session:
         return Plane.from_normal((0.0, c[1], c[2]), (1.0, 0.0, 0.0), "costado")
 
     def set_limb_cross(self, name: str, polygon_world) -> None:
-        """Guarda el polígono del segundo corte de `name` (sobre `cross_plane`). El miembro pasa a ser lo que
+        """Guarda el polígono dla 2.ª silueta de `name` (sobre `cross_plane`). El miembro pasa a ser lo que
         queda dentro de los dos prismas. En una pierna con plano de costado, la cara de la cadera la define
         el borde del polígono de frente (escalón columna + cadera) y no el plano de costado: el principal pasa
         a atravesar todo el cuerpo, si no la columna del muslo (x menor que el plano) se quedaría en el torso."""
@@ -328,13 +328,13 @@ class Session:
 
     @staticmethod
     def _other_top(spec: LimbSpec, cross: bool) -> float | None:
-        """Cota z más alta de la otra silueta del miembro (la de costado si `cross`, la del 2.º corte si no)."""
+        """Cota z más alta de la otra silueta del miembro (la de costado si `cross`, la de la 2.ª silueta si no)."""
         other = (spec.polygon if cross else None if spec.cross is None else spec.cross.polygon)
         other = np.asarray(other if other is not None else [], float)
         return float(other[:, 2].max()) if other.ndim == 2 and len(other) >= 3 else None
 
     def raise_cross_top(self, name: str) -> float | None:
-        """Sube el borde superior del 2.º corte hasta el de la silueta principal y devuelve la nueva cota
+        """Sube el borde superior de la 2.ª silueta hasta el de la silueta principal y devuelve la nueva cota
         (None si no hay nada que subir). Así el escalón de la cadera no limita la altura de la cara de
         contacto, y con ella la del hueco y la del pasador: el recorte de frente solo debe sacar la columna
         del muslo y la rebaba, la altura la marca la silueta de costado."""
@@ -354,7 +354,7 @@ class Session:
         return top
 
     def clear_limb_cross(self, name: str) -> bool:
-        """Quita el segundo corte. Devuelve True si había uno."""
+        """Quita la 2.ª silueta. Devuelve True si había uno."""
         spec = self.limb(name)
         if spec is None:
             raise KeyError(name)
@@ -389,7 +389,7 @@ class Session:
 
     def propose_silhouette(self, name: str, crotch_z: float | None = None, cross: bool = False) -> np.ndarray:
         """Propone la silueta del miembro ``name`` desde cortes horizontales de ``work`` (`afm.autosil`) y la
-        guarda en su plano (o, con ``cross``, en el del segundo corte). ``crotch_z`` (solo piernas) fuerza la
+        guarda en su plano (o, con ``cross``, en el dla 2.ª silueta). ``crotch_z`` (solo piernas) fuerza la
         altura de la entrepierna. Falla con ValueError si no se encuentra el miembro en la malla.
 
         La propuesta es una región de frente (x–z). En el plano frontal se usa tal cual (con su escalón de

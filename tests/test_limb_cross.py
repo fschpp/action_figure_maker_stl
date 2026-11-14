@@ -49,7 +49,7 @@ def test_prism_is_intersection_of_both(half):
     spec = _leg_side_plus_front()
     both = S.intersection(half, limb_prism(spec))
     from afm.limbs import raise_ceiling
-    # el techo del 2.º corte de una pierna sube hasta la silueta de costado (z = 60) + margen: no limita la altura
+    # el techo del 2.ª silueta de una pierna sube hasta la silueta de costado (z = 60) + margen: no limita la altura
     front = raise_ceiling(LEG_FRONT, 60.0)
     only_front = S.intersection(half, limb_prism(LimbSpec("pierna", "leg", FRONT, front, 100.0)))
     assert both.volume() == pytest.approx(only_front.volume(), rel=1e-4)      # el de costado es generoso: no recorta
@@ -128,7 +128,7 @@ def test_draw_cross_polygon_in_gui_flow(ctrl, tmp_path):
     assert ctrl.draft.closed
     ctrl.cancel()
     assert not ctrl.edit_cross
-    # el polígono del 2.º corte viaja con el proyecto
+    # el polígono del 2.ª silueta viaja con el proyecto
     path = str(tmp_path / "p.proyecto")
     s.save_project(path)
     back = Session.open_project(path, s.stl_path)
@@ -165,7 +165,7 @@ def test_controller_raise_top_button(ctrl):
     s.limb("pierna").polygon = _side_poly(-30, 30, -1.0, 60.0)
     ctrl.start_polygon("pierna", cross=True)
     ctrl.raise_top()
-    assert "Abrí el 2.º corte" in ctrl.message                          # aún sin polígono cerrado
+    assert "Abrí la 2.ª silueta" in ctrl.message                          # aún sin polígono cerrado
     plane = ctrl.draft.plane
     _closed_poly(ctrl, plane.to_uv(LEG_FRONT + [0, plane.origin[1], 0]))
     ctrl.raise_top()
@@ -174,7 +174,7 @@ def test_controller_raise_top_button(ctrl):
 
 
 def test_leg_cross_ceiling_does_not_limit_contact_face_height(half):
-    """El 2.º corte de una pierna solo saca la columna/rebaba: su techo irregular (aquí 40–42) no debe bajar la
+    """El 2.ª silueta de una pierna solo saca la columna/rebaba: su techo irregular (aquí 40–42) no debe bajar la
     cara de contacto por debajo de la silueta de costado (aquí z = 60)."""
     from afm.limbs import raise_ceiling
 
@@ -194,7 +194,7 @@ def test_leg_cross_ceiling_does_not_limit_contact_face_height(half):
 
 
 def test_fix_limb_extrude_keeps_symmetric_leg_with_cross():
-    """Al entrar al modo pasador, una pierna con 2.º corte de frente no debe volver a «outward» (dejaba la columna
+    """Al entrar al modo pasador, una pierna con 2.ª silueta de frente no debe volver a «outward» (dejaba la columna
     del muslo en el torso y descartaba el pasador)."""
     s = Session()
     leg = _leg_side_plus_front()
@@ -202,12 +202,12 @@ def test_fix_limb_extrude_keeps_symmetric_leg_with_cross():
     s.project.limbs.append(leg)
     assert s.fix_limb_extrude("pierna") is False
     assert leg.extrude == "symmetric" and leg.pin_center == (5.0, 0.0, 45.0)
-    leg.cross = None                                    # sin 2.º corte sí se corrige, como antes
+    leg.cross = None                                    # sin 2.ª silueta sí se corrige, como antes
     assert s.fix_limb_extrude("pierna") is True and leg.extrude == "outward"
 
 
 def test_outward_leg_with_front_cross_is_treated_as_symmetric(half):
-    """Proyectos guardados con extrude='outward' + 2.º corte de frente dan lo mismo que con 'symmetric'."""
+    """Proyectos guardados con extrude='outward' + 2.ª silueta de frente dan lo mismo que con 'symmetric'."""
     import dataclasses
     a = _leg_side_plus_front()
     b = dataclasses.replace(a, extrude="outward")

@@ -1143,3 +1143,11 @@ No existe una «cara interna del muslo» detectable en Güemes (el borde interno
 - **Güemes → Belgrano (2026-10-22):** arma y valida, pero las caras de unión no coinciden: IoU 0,71 (brazo) y 0,69 (pierna), escalón de brazo 1,07 mm, pared de 0,83 mm (< `min_wall` 1,2) alrededor del pasador de la pierna en la cara de Belgrano y cabeza/vástago 1,32 (< 1,6). Es lo que prevé el riesgo 1 del plan; habrá que decidir D3 (corte estándar) con el cliente o aceptar los avisos. Resultado en el scratchpad de la sesión, no commiteado.
 - **Entorno:** este clon no trae dependencias; se usó un venv fuera del repo (`pip install -e . pytest`). `pyflakes` no está instalado.
 - `register_repo_root` no estaba disponible en la sesión; se leyó `PROGRESS.md` directamente (no hay `CLAUDE.md` en el repo).
+
+
+## Vocabulario UX (2026-11-13, rama vocabulario_plano_separacion)
+- [x] «corte» (unión de piezas) → «plano de separación»; «2.º corte» → «2.ª silueta»; corte «sin soportes» → «corte con la cama de impresión» (GUI, tutorial, manual, pruebas).
+- [x] Rama mejora_uiux probada por el usuario con GL real: todo bien.
+- [ ] Decisión pendiente: miniatura por lugar y asistente «Nuevo héroe».
+- Decidido: Catálogo queda como pestaña opcional (sin modo «Desde STL / Desde catálogo»); etapa 4a desbloqueada.
+- Sin renombrar a propósito: «Guía de cortes» y claves internas (`plano_sin_soportes`, grupo «Sin soportes»).

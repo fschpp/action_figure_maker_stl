@@ -36,7 +36,7 @@ _MODE_TITLES = {Mode.VIEW: "", Mode.CROWN: "  ·  marcando coronilla", Mode.SYMM
                 Mode.PIN: "  ·  colocando pasador", Mode.TRIM_PICK: "  ·  colocando recorte",
                 Mode.JOINT_PLANE: "  ·  plano de articulación", Mode.JOINT_AXIS: "  ·  colocando eje de bisagra",
                 Mode.JOINT_LINES: "  ·  codo con 2 líneas (de frente)", Mode.JOINT_SIDE: "  ·  guías de la articulación (de costado)",
-                Mode.FLAT_PLANE: "  ·  plano de corte sin soportes",
+                Mode.FLAT_PLANE: "  ·  corte con la cama de impresión",
                 Mode.HEAD_PIN: "  ·  pasador del cuello (de costado)", Mode.WAIST_PIN: "  ·  pasador de la cintura (de costado)"}
 
 
@@ -789,14 +789,14 @@ class MainWindow(Gtk.ApplicationWindow):
                 ed.add_css_class("flat")
                 ed.connect("clicked", lambda _b, pid=e.id: self.ctrl.start_polygon(pid))
                 row.append(ed)
-                cr = Gtk.Button(label="2.º", tooltip_text="Dibujar / editar el 2.º corte (silueta sobre el plano "
+                cr = Gtk.Button(label="2.ª", tooltip_text="Dibujar / editar la 2.ª silueta (silueta sobre el plano "
                                 "perpendicular, normalmente de frente). El miembro es lo que queda dentro de las "
                                 "dos siluetas")
                 cr.add_css_class("flat")
                 cr.connect("clicked", lambda _b, pid=e.id: self.ctrl.start_polygon(pid, cross=True))
                 row.append(cr)
                 if self.ctrl.session.limb(e.id) is not None and self.ctrl.session.limb(e.id).cross is not None:
-                    cx = Gtk.Button(icon_name="list-remove-symbolic", tooltip_text="Quitar el 2.º corte")
+                    cx = Gtk.Button(icon_name="list-remove-symbolic", tooltip_text="Quitar la 2.ª silueta")
                     cx.add_css_class("flat")
                     cx.connect("clicked", lambda _b, pid=e.id: self.ctrl.remove_cross(pid))
                     row.append(cx)

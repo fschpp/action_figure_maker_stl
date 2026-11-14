@@ -27,7 +27,7 @@ def build(win) -> Gtk.Widget:
             ("planes", "Mostrar todos los planos", "Interruptor general: se combina con el de cada plano de la lista"),
             ("pins", "Mostrar todos los pasadores de articulación",
              "Marcas de los pasadores (hombro, cadera, cuello) y ejes de las bisagras (rodilla, codo)"),
-            ("contours", "Mostrar todos los contornos", "Siluetas de los miembros (1.º y 2.º corte) y recortes manuales")):
+            ("contours", "Mostrar todos los contornos", "Siluetas de los miembros (1.º y 2.ª silueta) y recortes manuales")):
         chk = Gtk.CheckButton(label=label, active=False, tooltip_text=tip)
         chk.connect("toggled", lambda b, g=group: None if win._updating else win.ctrl.set_group_visible(g, b.get_active()))
         vis.append(chk)

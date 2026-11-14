@@ -53,7 +53,7 @@ afm-gui figura.proyecto --stl nueva/ruta/figura.stl   # si el STL cambió de lug
 |---|---|
 | **Plano** | Superficie plana que se define con 3 puntos (simetría, brazo, pierna…); se ve en la lista de planos. |
 | **Sección** | El corte de la figura por un plano: lo que se ve al mirar «de canto» el plano; también cada bloque plegable de un paso. |
-| **Silueta** | El contorno que se dibuja sobre un plano para recortar un miembro (1.º corte; el 2.º corte es la silueta vista de costado). |
+| **Silueta** | El contorno que se dibuja sobre un plano para recortar un miembro (1.ª silueta; la 2.ª silueta es la silueta vista de costado). |
 | **Pasador** | La pieza que une dos partes (hombro, cadera, cuello, cintura); las bisagras de rodilla y codo usan **eje**. |
 | **Mira** | La vista asistida (cinta de color y mapa de calor) para comprobar si un corte o un pasador es compatible. |
 
@@ -196,30 +196,30 @@ nada y el Estado te pide girar la cámara. Las siluetas ya guardadas se dibujan 
 lista de planos las muestra u oculta junto con su plano. «Pendiente» deja de listar al miembro cuando
 tiene su silueta.
 
-### 7.1b El 2.º corte (frente + costado)
+### 7.1b La 2.ª silueta (frente + costado)
 
 Con **un solo plano** el miembro no siempre queda bien cortado. Es lo mismo que en el tutorial de Onshape: el brazo
 de Mickey necesita **dos** recortes (el plano de costado del hombro y, sobre su cara, un sketch de frente que deja
 afuera el torso), y la pierna necesita su silueta de frente. Si con el plano de costado de la pierna ves que **parte
 del muslo queda pegado al torso** (el torso arranca mucho más abajo que la cadera, el pasador sobresale, las dos
-piernas se pisan en x = 0), te falta el 2.º corte.
+piernas se pisan en x = 0), te falta la 2.ª silueta.
 
-1. En la lista de planos, el botón **«2.º»** del miembro abre el dibujo de su segundo corte. La cámara se pone de
+1. En la lista de planos, el botón **«2.ª»** del miembro abre el dibujo de su 2.ª silueta. La cámara se pone de
    frente al plano **frontal** (el que divide la figura en atrás/adelante, perpendicular al plano del miembro). Si el
-   plano del miembro ya fuera frontal, el 2.º corte sería de costado.
+   plano del miembro ya fuera frontal, la 2.ª silueta sería de costado.
 2. Se dibuja igual que la silueta (clic, cerrar, mover vértices, **Proponer silueta automática**). Lo que
    dibujes es **lo que cubre al miembro visto de frente**:
    * **pierna**: la columna del muslo desde la simetría (x = 0) hasta el pie, más el **escalón de la cadera**
      (el borde vertical del escalón, a x ≈ 7 mm, es la cara donde va el pasador);
    * **brazo**: el brazo con la mano y un pedacito del hombro; lo que queda del torso se deja afuera.
 3. El miembro es **lo que queda dentro de las dos siluetas** (la de costado/del plano y la de frente). El contorno
-   del 2.º corte se ve en **cian**; el de la silueta del plano, en amarillo. El botón **−** al lado de «2.º» lo quita.
-4. **La altura de la cadera no la limita el 2.º corte.** Su borde superior (el techo del escalón) fija hasta dónde
+   de la 2.ª silueta se ve en **cian**; el de la silueta del plano, en amarillo. El botón **−** al lado de «2.ª» lo quita.
+4. **La altura de la cadera no la limita la 2.ª silueta.** Su borde superior (el techo del escalón) fija hasta dónde
    llega la cara de contacto y, con ella, la altura del hueco y del pasador: si queda más bajo que la silueta
-   de costado, el pasador no puede subir. Con el 2.º corte abierto, **«Subir el borde superior hasta la otra
+   de costado, el pasador no puede subir. Con la 2.ª silueta abierto, **«Subir el borde superior hasta la otra
    silueta»** lleva ese borde a la altura máxima de la silueta de costado (la propuesta automática ya lo hace);
    desde ahí la altura la marca la silueta de costado, y también podés mover a mano los dos vértices del techo.
-5. En una **pierna** con plano de costado, al guardar el 2.º corte el programa deja de limitar la silueta de costado
+5. En una **pierna** con plano de costado, al guardar la 2.ª silueta el programa deja de limitar la silueta de costado
    a «hacia afuera desde el plano» y la hace atravesar todo el cuerpo: la cara de la cadera la fija el escalón de
    frente. En un **brazo** no cambia nada: el plano de costado sigue marcando dónde se separa del torso.
 
@@ -544,7 +544,7 @@ Con la simetría definida y cada miembro con su silueta, el Estado deja de lista
    en la cama** todas se exportan **tal como se ven en «Ver la figura generada en la pose de cadera»** (sentada, cabeza
    arriba, sin darla vuelta), solo bajadas hasta z = 0 y con la misma transformación, para que sigan ensambladas en el
    laminador. Con **«Modificar para imprimir sin soportes»** (debajo de esa casilla), antes de exportar se corta con un
-   plano horizontal a **1 mm sobre el punto más bajo de la cola** (valor en la fila «Sin soportes: corte plano sobre
+   plano horizontal a **1 mm sobre el punto más bajo de la cola** (valor en la fila «Corte con la cama de impresión: altura sobre
    la cola» de **Generar › Impresión sin soportes**) para que **piernas y cola queden chatas**, y los **brazos giran hacia adelante** sobre el pasador del hombro
    lo justo para que su punto más bajo apoye en ese plano (un brazo que cuelga sube al girar). El torso se talla con el
    barrido del brazo para que gire libre. No se tocan los brazos; la cabeza tampoco. El Estado informa el corte, el giro
@@ -667,7 +667,7 @@ Debajo de los botones aparece la lista de planos creados: **Simetría**, uno por
 
 * Arriba de la lista hay tres **interruptores generales**: **Mostrar todos los planos**, **Mostrar todos los pines de
   articulación** (las marcas de los pasadores de hombro, cadera y cuello y los ejes de las bisagras de rodilla y codo)
-  y **Mostrar todos los contornos** (las siluetas de los miembros, 1.º y 2.º corte, y los recortes manuales). Sirven
+  y **Mostrar todos los contornos** (las siluetas de los miembros, 1.º y 2.ª silueta, y los recortes manuales). Sirven
   para despejar la vista de una vez; también ocultan lo que se ve en el espejo en vivo. Se combinan con la casilla de
   cada plano: algo se ve solo si los dos lo permiten, y volver a activar un interruptor no revive lo que ocultaste a
   mano. Los pines y contornos que estás editando en ese momento se ven siempre.
@@ -681,7 +681,7 @@ Con la simetría definida, **Trabajar un solo lado (oculta x < 0)** esconde la m
 la figura para ver mejor el lado en el que se trabaja. Es solo una ayuda visual.
 
 **Espejo en vivo** (sección «Espejo y pose sentada») muestra en ese lado oculto el reflejo de lo que
-hacés en el lado +X, con un tinte azul para distinguirlo: la figura, las siluetas y el 2.º corte (también
+hacés en el lado +X, con un tinte azul para distinguirlo: la figura, las siluetas y la 2.ª silueta (también
 el polígono mientras lo dibujás), los pasadores elegidos y los recortes. Es lo que va a salir al generar,
 que construye un solo lado y lo espeja. Al activarlo se pasa a trabajar un solo lado; si volvés a ver
 los dos lados se apaga. Durante la colocación del pasador no se dibuja (el plano de recorte ocupa ese lugar).
