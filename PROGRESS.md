@@ -7,6 +7,8 @@ _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic
 
 **Agregado (2026-11-14):** botón «Quitar la silueta» (tacho) en la fila de cada brazo / pierna de la lista de planos, como el de la 2.ª silueta: `Session.clear_limb_polygon` (deja el polígono vacío, el miembro vuelve a «pendiente»), `Controller.remove_silhouette` (sale de la edición si se estaba dibujando esa silueta). Test en `tests/test_limb_cross.py`. Sin probar con la ventana GTK.
 
+**Fila de planos más clara (2026-11-14):** en cada brazo / pierna los controles pasan a una segunda línea con texto: [Dibujar|Editar silueta][✕] · [Dibujar|Editar 2.ª silueta][✕] · [Pasador]; la ✕ quita solo esa silueta (antes el mismo ícono de tacho servía para quitar la silueta y el plano entero) y el tacho de la derecha, con tooltip «Quitar el plano entero». Solo `window.py`, ayuda de `steps/miembros.py` y tutorial; sin probar con GTK real.
+
 ### Todo List
 - [x] `polygon_hip_name`, botón «Simulación» en `POLYGON` solo para piernas, eje de corrimiento según la cámara.
 - [x] Tests (`test_gui_hip_beside.py`).
