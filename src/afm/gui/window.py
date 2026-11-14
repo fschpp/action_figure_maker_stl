@@ -820,6 +820,11 @@ class MainWindow(Gtk.ApplicationWindow):
                 ed.add_css_class("flat")
                 ed.connect("clicked", lambda _b, pid=e.id: self.ctrl.start_polygon(pid))
                 row.append(ed)
+                if self.ctrl.session.limb(e.id) is not None and len(self.ctrl.session.limb(e.id).polygon) >= 3:
+                    sx = Gtk.Button(icon_name="edit-delete-symbolic", tooltip_text="Quitar la silueta (la 2.ª silueta no se toca)")
+                    sx.add_css_class("flat")
+                    sx.connect("clicked", lambda _b, pid=e.id: self.ctrl.remove_silhouette(pid))
+                    row.append(sx)
                 cr = Gtk.Button(label="2.ª", tooltip_text="Dibujar / editar la 2.ª silueta (silueta sobre el plano "
                                 "perpendicular, normalmente de frente). El miembro es lo que queda dentro de las "
                                 "dos siluetas")

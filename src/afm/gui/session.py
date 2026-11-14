@@ -295,6 +295,18 @@ class Session:
         spec.polygon = poly
         self.outcome = None
 
+    def clear_limb_polygon(self, name: str) -> bool:
+        """Quita la silueta principal (el miembro queda «pendiente»: sin silueta, como recién agregado). Devuelve True si
+        había una. La 2.ª silueta no se toca: se quita aparte."""
+        spec = self.limb(name)
+        if spec is None:
+            raise KeyError(name)
+        if len(spec.polygon) < 3:
+            return False
+        spec.polygon = np.zeros((0, 3))
+        self.outcome = None
+        return True
+
     # ------------------------------------------------- 2.ª silueta (de frente / de costado)
     def cross_plane(self, name: str) -> Plane:
         """Plano donde se dibuja la 2.ª silueta de `name`: el que ya tiene, o el perpendicular al principal.

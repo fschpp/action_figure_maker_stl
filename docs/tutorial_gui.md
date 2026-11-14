@@ -177,6 +177,8 @@ plano del miembro**, así que primero ponete en la vista **Frente** (cubo de vis
 5. **Empezar desde el contorno de la figura** carga el contorno exterior más grande como polígono base
    (simplificado a ~0,6 mm) para que lo recortes moviendo y borrando vértices.
    **Vaciar y redibujar** lo borra. **Esc** o **Terminar edición** sale del modo.
+   Para sacar la silueta guardada de un miembro, apretá el tacho (**Quitar la silueta**) en su fila de la lista
+   de planos, junto al lápiz: el miembro vuelve a figurar como pendiente y la 2.ª silueta no se toca.
 
    **Ver la cadera mientras dibujás (solo piernas).** Con la silueta de una pierna cerrada y guardada, el botón
    **Ver simulación** de la barra del visor dibuja al costado de la figura la cadera: el muslo con su pasador y el

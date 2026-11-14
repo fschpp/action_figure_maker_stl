@@ -1449,6 +1449,15 @@ class Controller:
         self.draft = PolygonDraft.from_world(d.plane, new)
         self._commit_polygon(f"Borde superior subido a z = {top:.1f} mm")
 
+    def remove_silhouette(self, name: str) -> None:
+        """Quita la silueta principal de `name` (el miembro vuelve a figurar como pendiente de silueta)."""
+        if self.edit_limb == name and not self.edit_cross:
+            self.cancel(quiet=True)
+        if self.session.clear_limb_polygon(name):
+            self._changed(f"Silueta de «{name}» quitada. Falta dibujarla de nuevo para poder generar.")
+        else:
+            self._changed(f"«{name}» no tiene silueta.", scene=False)
+
     def remove_cross(self, name: str) -> None:
         """Quita la 2.ª silueta de `name`."""
         if self.edit_limb == name and self.edit_cross:
