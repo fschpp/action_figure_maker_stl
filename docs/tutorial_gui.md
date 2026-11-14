@@ -755,3 +755,7 @@ Cada lugar (cabeza, torso, pelvis, brazos, piernas, manos) muestra una miniatura
 
 ### La barra sobre el visor
 Cuando activás una herramienta que usa el visor (plano de 3 puntos, dibujar silueta o recorte, colocar pasador, eje de bisagra, altura del corte con la cama de impresión…), arriba al centro del visor aparece una barra con el nombre de la herramienta, **qué hace cada clic y las teclas** (Intro cierra el polígono, Retroceso quita el último punto, Esc sale, M imán y H calor en los pasadores) y los botones del modo: *Quitar último*, *Cerrar polígono*, *Cancelar* / *Terminar*, *Imán* y *Calor*. Se oculta sola al volver a «ver».
+
+
+### Ayudas con «Más ▾»
+Los recuadros de ayuda de los paneles muestran solo las primeras oraciones (menos de ~200 caracteres); el resto está detrás del botón **Más ▾** de cada recuadro. Mientras dibujás o colocás algo, la barra sobre el visor te recuerda los clics y las teclas.

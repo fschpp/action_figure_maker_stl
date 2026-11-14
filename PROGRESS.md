@@ -1164,3 +1164,10 @@ No existe una «cara interna del muslo» detectable en Güemes (el borde interno
 - [x] Barra contextual sobre el visor (`gui/mode_bar.py`: tabla de ayuda por modo probada sin GTK; `Gtk.Revealer` en el `Gtk.Overlay`; se actualiza en `_sync_title`).
 - [ ] Probar en ventana real con GL: posición (arriba al centro, puede tocar el cubo en ventanas angostas), legibilidad y botones.
 - [ ] Siguiente: sacar los párrafos largos de ayuda de Planos y Miembros ahora que la barra explica clics y teclas (criterio: ningún bloque > ~200 caracteres).
+
+
+## Ayudas cortas (2026-11-14, rama ayuda_corta, sobre main fda170f)
+- [x] Barra contextual del visor probada por el usuario en ventana real: bien.
+- [x] `help_note` muestra solo las primeras oraciones (≤200 caracteres) y el resto tras «Más ▾» (`gui/help_text.py`, probado sin GTK; 13 bloques afectados, el mayor era de 1.929 caracteres en Catálogo).
+- [ ] Probar en ventana real: cortes de oración (algunos quedan muy cortos, p. ej. Miembros) y el botón «Más ▾».
+- [ ] Pendiente del informe: reescribir los textos más largos a mano (hoy el corte es automático), 5b riel ya hecho; revisar etapas 1b (motivo en todo botón apagado) y 2c (Cancelar generación) contra el código actual.

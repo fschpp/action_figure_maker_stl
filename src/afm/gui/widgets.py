@@ -45,15 +45,35 @@ def no_scroll_change(widget: Gtk.Widget) -> None:
 
 
 def help_note(parent: Gtk.Box, text: str) -> None:
-    """Nota de ayuda: texto fijo (no se pliega ni se puede accionar), con ícono de información, fondo tenue y
-    borde lateral para distinguirla de los controles que configuran algo."""
+    """Nota de ayuda: ícono de información, fondo tenue y borde lateral para distinguirla de los controles que configuran
+    algo. Si el texto pasa de ~200 caracteres se ve solo el principio (oraciones completas) y el resto queda tras «Más ▾»."""
+    from .help_text import split_help
+
+    short, rest = split_help(text)
     box = Gtk.Box(spacing=8)
     box.add_css_class("afm-help")
     icon = Gtk.Image.new_from_icon_name("dialog-information-symbolic")
     icon.set_valign(Gtk.Align.START)
     icon.add_css_class("afm-help-icon")
-    lab = Gtk.Label(label=text, xalign=0, wrap=True, hexpand=True)
+    col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, hexpand=True)
+    lab = Gtk.Label(label=short, xalign=0, wrap=True, hexpand=True)
     lab.add_css_class("afm-help-text")
+    col.append(lab)
+    if rest:
+        more_lab = Gtk.Label(label=rest, xalign=0, wrap=True, hexpand=True)
+        more_lab.add_css_class("afm-help-text")
+        revealer = Gtk.Revealer(child=more_lab, reveal_child=False)
+        btn = Gtk.Button(label="Más ▾", halign=Gtk.Align.START)
+        btn.add_css_class("flat")
+
+        def toggle(*_):
+            on = not revealer.get_reveal_child()
+            revealer.set_reveal_child(on)
+            btn.set_label("Menos ▴" if on else "Más ▾")
+
+        btn.connect("clicked", toggle)
+        col.append(revealer)
+        col.append(btn)
     box.append(icon)
-    box.append(lab)
+    box.append(col)
     parent.append(box)
