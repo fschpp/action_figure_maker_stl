@@ -1001,6 +1001,9 @@ class Controller:
         name = jp["name"]
         if self.show_joint_preview and not self.session.preview_exists(name):
             self.show_joint_preview = False
+        if jp.get("was_beside") and not self.joint_preview_beside():
+            self.show_joint_preview = False          # la herramienta terminó por otro camino (p. ej. al completar los puntos)
+        jp["was_beside"] = self.joint_preview_beside()
         if not self.show_joint_preview:
             for key in [k for k in scene.items if k.startswith("junta:")]:
                 scene.remove(key)
@@ -1054,6 +1057,8 @@ class Controller:
 
     def cancel(self, quiet: bool = False) -> None:
         was = self.mode
+        if was in self.JOINT_TOOL_MODES and self.show_joint_preview:
+            self.show_joint_preview = False          # al terminar la herramienta vuelve la figura (la simulación solo acompaña al ajuste)
         self.mode, self.pending, self.pending_kind = Mode.VIEW, [], None
         self._hand_path_pending = None
         if was in (Mode.HEAD_CUT_PLANE, Mode.WEAPON_CUT_PLANE):

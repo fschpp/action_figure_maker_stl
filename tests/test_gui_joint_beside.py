@@ -93,7 +93,8 @@ def test_simulation_sits_beside_the_figure_while_the_axis_tool_is_active(ctrl):
     assert slab[:, 2].min() < z0 and z1 < slab[:, 2].max()                           # a la altura de la articulación
     ctrl.cancel(quiet=True)
     ctrl.sync(scene)
-    assert scene.visible["figura"] is False                                          # al salir vuelve el comportamiento de siempre
+    assert scene.visible["figura"] is True and "junta:prox" not in scene.items      # al terminar vuelve la figura y se apaga la simulación
+    assert not ctrl.show_joint_preview
 
 
 def test_axis_can_be_readjusted_without_leaving_the_tool_when_the_simulation_is_on(ctrl):
