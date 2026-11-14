@@ -214,3 +214,17 @@ def test_outward_leg_with_front_cross_is_treated_as_symmetric(half):
     va = S.intersection(half, limb_prism(a)).volume()
     vb = S.intersection(half, limb_prism(b)).volume()
     assert vb == pytest.approx(va, rel=1e-6)
+
+
+def test_remove_main_silhouette_leaves_the_limb_pending(ctrl):
+    s = ctrl.session
+    s.add_limb("pierna", "leg", Plane.from_normal((5, 0, 40), (-1, 0, 0)))
+    assert not s.clear_limb_polygon("pierna")                      # recién agregada: no hay nada que quitar
+    s.set_limb_polygon("pierna", LEG_FRONT)
+    s.set_limb_cross("pierna", LEG_FRONT)
+    ctrl.start_polygon("pierna")
+    ctrl.remove_silhouette("pierna")
+    assert ctrl.mode.name == "VIEW" and len(s.limb("pierna").polygon) == 0
+    assert s.limb("pierna").cross is not None                       # la 2.ª silueta no se toca
+    assert "pierna" in [l.name for l in s.project.limbs if len(l.polygon) < 3]
+    assert not s.clear_limb_polygon("pierna")
