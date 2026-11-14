@@ -25,7 +25,7 @@ def build(win) -> Gtk.Widget:
     vis = _collapsible(sec, "Qué se muestra", expanded=False, sub=True)
     for group, label, tip in (
             ("planes", "Mostrar todos los planos", "Interruptor general: se combina con el de cada plano de la lista"),
-            ("pins", "Mostrar todos los pines de articulación",
+            ("pins", "Mostrar todos los pasadores de articulación",
              "Marcas de los pasadores (hombro, cadera, cuello) y ejes de las bisagras (rodilla, codo)"),
             ("contours", "Mostrar todos los contornos", "Siluetas de los miembros (1.º y 2.º corte) y recortes manuales")):
         chk = Gtk.CheckButton(label=label, active=False, tooltip_text=tip)
