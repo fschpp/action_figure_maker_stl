@@ -493,6 +493,7 @@ class Controller:
     def save_project(self, path: str) -> None:
         self.record_history()                       # lo último hecho entra al historial antes de marcarlo como guardado
         self.session.save_project(path)
+        self.session.project_path = os.path.abspath(path)      # los próximos «Guardar» sobrescriben este archivo
         if self.history.current is not None:
             self._saved_text = self.history.current.text
         self._changed(f"Proyecto guardado: {path.split('/')[-1]}", scene=False)

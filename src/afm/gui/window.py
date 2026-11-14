@@ -181,9 +181,12 @@ class MainWindow(Gtk.ApplicationWindow):
         self.btn_redo.connect("clicked", lambda *_: self.ctrl.redo())
         for b in (self.btn_undo, self.btn_redo):
             bar.pack_start(b)
-        self.btn_save = self._icon_button("document-save-symbolic", "Guardar", "Guarda el proyecto en un archivo .proyecto.",
+        self.btn_save = self._icon_button("document-save-symbolic", "Guardar", "Guarda el proyecto: sobrescribe el .proyecto abierto o pregunta dónde la primera vez.",
                                           self._on_save_project)
         bar.pack_end(self.btn_save)
+        self.btn_save_as = Gtk.Button(icon_name="document-save-as-symbolic", tooltip_text="Guardar una copia del proyecto con otro nombre o en otra carpeta.")
+        self.btn_save_as.connect("clicked", self._on_save_project_as)
+        bar.pack_end(self.btn_save_as)
         self.btn_export = self._icon_button("document-send-symbolic", "Exportar",
                                             "Genera y guarda las piezas para imprimir.", lambda *_: self._on_export())
         bar.pack_end(self.btn_export)                 # queda a la izquierda de «Guardar»
@@ -566,7 +569,7 @@ class MainWindow(Gtk.ApplicationWindow):
                 self._hist_timer = GLib.timeout_add(300, self._record_history)
             gate((self.btn_crown, self.btn_sym, self.btn_sym_auto, self.dd_front, self.chk_side,
                   self.chk_over, self.spin_over), ctrl.blocked("stl"))
-            gate(self.btn_save, ctrl.blocked("save"))
+            gate((self.btn_save, self.btn_save_as), ctrl.blocked("save"))
             gate(self.btn_grip, ctrl.blocked("grip"))
             gate(self.btn_grip_hand, ctrl.blocked("grip_hand"))
             gate(self.btn_grip_plate, ctrl.blocked("grip_plate"))
@@ -2223,9 +2226,26 @@ class MainWindow(Gtk.ApplicationWindow):
         dlg.save(self, None, finished)
 
     def _on_save_project(self, *_):
-        dlg = Gtk.FileDialog(title="Guardar proyecto")
-        stl = self.ctrl.session.stl_path
-        dlg.set_initial_name((os.path.splitext(os.path.basename(stl))[0] if stl else "figura") + ".proyecto")
+        """«Guardar»: si el proyecto ya tiene archivo (abierto o guardado antes) lo sobrescribe sin preguntar; si no, pide dónde."""
+        path = self.ctrl.session.project_path
+        if path and os.path.isdir(os.path.dirname(path)):
+            try:
+                self.ctrl.save_project(path)
+            except Exception as e:          # noqa: BLE001
+                self._error(e)
+            return
+        self._on_save_project_as()
+
+    def _on_save_project_as(self, *_):
+        dlg = Gtk.FileDialog(title="Guardar proyecto como")
+        sess = self.ctrl.session
+        stl = sess.stl_path
+        if sess.project_path:
+            dlg.set_initial_file(Gio.File.new_for_path(sess.project_path))
+        else:
+            dlg.set_initial_name((os.path.splitext(os.path.basename(stl))[0] if stl else "figura") + ".proyecto")
+            if stl:
+                dlg.set_initial_folder(Gio.File.new_for_path(os.path.dirname(os.path.abspath(stl))))
 
         def finished(d, res):
             try:

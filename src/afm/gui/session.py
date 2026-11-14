@@ -74,6 +74,7 @@ class Session:
     def __init__(self, project: Project | None = None):
         self.project = project or Project()
         self.stl_path: str | None = None
+        self.project_path: str | None = None      # el .proyecto abierto o guardado por el usuario: «Guardar» lo sobrescribe
         self.report: meshio.LoadReport | None = None
         self.base: trimesh.Trimesh | None = None      # normalizada, frente tal como viene en el archivo
         self.figure: trimesh.Trimesh | None = None
@@ -2280,10 +2281,13 @@ class Session:
         if src and os.path.exists(src):
             sess = cls(Project.from_dict(d))
             sess.load(src, sess.project.crown_z)
+            sess.project_path = os.path.abspath(path)
             return sess
         org = origin(d)
         if org is not None and not stl_path:
-            return cls.from_catalog_project(d, org, catalog_root)
+            sess = cls.from_catalog_project(d, org, catalog_root)
+            sess.project_path = os.path.abspath(path)
+            return sess
         raise FileNotFoundError(f"No se encuentra el STL del proyecto: {src!r}. Indicá su ubicación.")
 
     @classmethod
