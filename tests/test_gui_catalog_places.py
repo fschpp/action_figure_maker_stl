@@ -14,3 +14,10 @@ def test_row_state_levels():
     assert S({"lugar": "brazo", "pieza": "b@1", "compat": {"nivel": "no"}}) == ("no", "✗")
     # la revisión previa (`nivel` en la fila) gana sobre `compat`
     assert S({"lugar": "brazo", "pieza": "b@1", "nivel": "no", "compat": {"nivel": "ok"}}) == ("no", "✗")
+
+
+def test_trim_size_label_only_for_solid_shapes():
+    from afm.gui.controller import trim_size_label
+
+    assert trim_size_label("polygon") is None
+    assert "Radio" in trim_size_label("sphere") and "Arista" in trim_size_label("box") and "Radio" in trim_size_label("cylinder")

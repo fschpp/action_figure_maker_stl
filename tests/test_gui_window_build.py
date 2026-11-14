@@ -199,3 +199,42 @@ def test_catalog_tab_places_first_and_menu():
     app.run([])
     assert "error" not in res, res.get("error")
     assert res["menu"] and res["btns"] and res["parts_visible"]
+
+
+def test_trim_size_row_follows_shape_and_profile_is_first_in_params():
+    """R10 / R6: «Radio» solo con esfera / caja / cilindro; el perfil de línea va antes de los parámetros."""
+    res = {}
+    app = Gtk.Application(application_id="ar.afm.test5")
+
+    def act(a):
+        try:
+            win = MainWindow(a, Controller())
+            res["poly"] = win.row_trim_size.get_visible()
+            win.dd_trim_shape.set_selected(2)                  # caja
+            res["box"] = (win.row_trim_size.get_visible(), win.lbl_trim_size.get_text())
+            win.dd_trim_shape.set_selected(0)
+            res["back"] = win.row_trim_size.get_visible()
+
+            def pos(w):                                        # orden vertical dentro de la pestaña Parámetros
+                ok, p = w.translate_coordinates(win.tabs, 0, 0)
+                return p
+            res["profile_before_params"] = None
+            page = win.tabs.get_nth_page(5)
+            box = page.get_child().get_child()
+            kids = []
+            c = box.get_first_child()
+            while c is not None:
+                kids.append(c)
+                c = c.get_next_sibling()
+            titles = [k.get_label_widget().get_text() for k in kids if isinstance(k, Gtk.Expander)]
+            res["titles"] = titles
+        except Exception as e:      # noqa: BLE001
+            res["error"] = e
+        GLib.idle_add(a.quit)
+
+    app.connect("activate", act)
+    app.run([])
+    assert "error" not in res, res.get("error")
+    assert res["poly"] is False and res["box"] == (True, "Arista de la caja (mm)") and res["back"] is False
+    t = res["titles"]
+    assert t.index("Perfil de línea") < t.index("Parámetros de articulación")
