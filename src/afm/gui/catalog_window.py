@@ -22,7 +22,7 @@ from .catalog_manager import ZOOM_STEP, zoom_about  # noqa: E402
 from .catalog_manager import view_bounds as CM_view_bounds  # noqa: E402
 from .progress_panel import ProgressPanel  # noqa: E402
 from ..parts import STATES  # noqa: E402
-from .window import _no_scroll_change  # noqa: E402
+from .widgets import no_scroll_change as _no_scroll_change  # noqa: E402
 
 JOINT_DELAY_MS = 250        # espera tras el último cambio de un valor antes de recalcular el hueco (se mueve un spin varias veces seguidas)
 CLICK_MAX_PX = 4.0          # un arrastre más corto que esto es un clic (marca un punto); más largo gira la vista
