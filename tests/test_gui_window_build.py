@@ -133,3 +133,46 @@ def test_step_rail_is_synced_with_the_pages_and_shows_each_step_state(tmp_path):
     assert res["glyph_empty"] == "○" and res["glyph_loaded"] == "✓" and res["detail_loaded"] == "Frente +Y"
     assert res["planos_glyph"] == "⚠"                                       # hay simetría pero ningún miembro
     assert res["next_key"] == "planos" and res["mode_key"] == "figura"
+
+
+def test_header_open_menu_title_marker_and_status_click(tmp_path):
+    """Cabecera (etapa 7): «Abrir ▾» agrupa STL / proyecto / catálogo, el título lleva «*» con cambios sin guardar
+    y un clic en el estado salta al paso pendiente."""
+    from afm.gui.steps import rail
+    from afm.testfigure import make_doll
+
+    m = make_doll()
+    m.apply_scale(0.05)
+    stl = str(tmp_path / "muneco.stl")
+    m.export(stl)
+    res = {}
+    app = Gtk.Application(application_id="ar.afm.test3")
+
+    def act(a):
+        try:
+            ctrl = Controller()
+            win = MainWindow(a, ctrl)
+            res["open_labels"] = [b.get_label() for b in win.btn_open] + [win.btn_build_cat.get_label()]
+            res["has_menu"] = isinstance(win.menu_open, Gtk.MenuButton)
+            ctrl.open_stl(stl)
+            win._refresh()
+            res["clean_title"] = win.get_title()
+            ctrl.auto_symmetry()
+            win._record_history()                      # la ventana lo hace tras 300 ms de pausa
+            res["dirty_title"] = win.get_title()
+            ctrl.save_project(str(tmp_path / "x.proyecto"))
+            win._refresh()
+            res["saved_title"] = win.get_title()
+            rail.go_next_pending(win)
+            res["next_ok"] = True
+        except Exception as e:      # noqa: BLE001
+            res["error"] = e
+        GLib.idle_add(a.quit)
+
+    app.connect("activate", act)
+    app.run([])
+    assert "error" not in res, res.get("error")
+    assert res["open_labels"] == ["Abrir STL…", "Abrir proyecto…", "Armar desde catálogo…"] and res["has_menu"]
+    assert not res["clean_title"].startswith("*")
+    assert res["dirty_title"].startswith("* ")
+    assert not res["saved_title"].startswith("*")

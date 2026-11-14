@@ -2,7 +2,22 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
-## Current Focus — UX etapa 5b: riel de pasos con estado (2026-11-13, sobre main fd6d3e5)
+## Current Focus — UX etapa 7 (parcial): cabecera moderna y «Pendiente» clicable (2026-11-13, rama `mejora_uiux`, sobre main 109b74e)
+Cabecera: botón **Abrir ▾** (`menu_open`, `Gtk.MenuButton` con popover) agrupa «Abrir STL…», «Abrir proyecto…» y «Armar desde catálogo…» (siguen siendo `btn_open[0..1]` y `btn_build_cat`, así que el gating no cambió); **Guardar** y **Exportar** con ícono (`_icon_button`); título con «*» cuando hay cambios sin guardar (`Controller.dirty`: compara el último estado del historial con `_saved_text`, fijado al abrir y al guardar; no vuelve a serializar; deshacer hasta el estado guardado lo limpia). `window._sync_title` se llama en cada refresco y cuando el historial registra (pausa de 300 ms). Clic en el panel Estado = ir al próximo paso pendiente (`rail.go_next_pending`; el tooltip lo avisa). Tests: `tests/test_gui_dirty.py` (2), +1 en `test_gui_window_build.py`; suite `gui/catalog_window/cancel` bajo Xvfb: 433 pasan, 1 saltado.
+
+### Todo List
+- [x] Abrir ▾, Guardar / Exportar con íconos, «*» de cambios sin guardar, Estado clicable.
+- [ ] Glosario único (**plano / sección / silueta / pasador**) en textos de la ventana, tooltips y `docs/tutorial_gui.md` (hoy «corte» = plano, sección y guía; «pin», «pasador» y «mira» compiten).
+- [ ] Subir el contraste de la ayuda gris y de los controles deshabilitados (CSS `afm-help-*`).
+- [ ] «Exportar» de la sección Generar duplica el de la cabecera (G2).
+- [ ] 4a barra contextual sobre el visor (`Gtk.Overlay`, necesita GL real) · 6 tabla de lugares del catálogo · modo «Desde STL / Desde catálogo» (saca Catálogo del riel).
+
+### Latest Blockers/Discoveries
+- `main` ya traía 1b–5b (PRs #90–#92 y el commit del riel) cuando retomé: la rama `mejora_uiux` se rehízo sobre `origin/main` (109b74e); el commit 1a (963b51e) ya estaba incluido.
+- Entorno de pruebas con GTK: `apt-get update && apt-get install gir1.2-gtk-4.0 python3-gi-cairo libgl1-mesa-dri xvfb`, y `pip install --break-system-packages` de las dependencias en `/usr/bin/python3.12`; luego `PYTHONPATH=src:tests xvfb-run -a /usr/bin/python3.12 -m pytest ...`.
+- Sin probar con GL real ni a mano: aspecto del popover «Abrir» y de los íconos del tema.
+
+## Current Focus (anterior) — UX etapa 5b: riel de pasos con estado (2026-11-13, sobre main fd6d3e5)
 Las pestañas visibles del `Gtk.Notebook` se reemplazan por un riel vertical de pasos (`gui/steps/rail.py`) con un ícono de estado y una línea de detalle por paso: ○ pendiente · ✓ listo · ⚠ falta algo · ⟳ desactualizado · ▶ listo para generar · · opcional. El orden es el del flujo (Figura → Planos → Miembros → Parámetros → Recortes → Generar) y **Catálogo** queda aparte, bajo «Opcional» (provisorio: el modo «Desde STL / Desde catálogo» en la cabecera, R1 del informe, queda para después). El Notebook sigue siendo el contenedor (con las pestañas ocultas): `tabs.set_current_page`, `_tab_for_mode` y los tests no cambian, y riel y páginas se sincronizan en los dos sentidos (un modo activo —p. ej. marcar la coronilla— marca su paso). El estado de cada paso sale de lo que ya sabe el controlador (`problems()`, `outcome_stale`, proyecto, parámetros) en `gui/step_state.py`, sin GTK. Botón «Siguiente pendiente ▸» salta al primer paso que pide algo; el riel se apaga mientras se genera. Tests: `tests/test_gui_step_state.py` (lógica) y `tests/test_gui_window_build.py` (ventana real).
 
 ### Todo List
