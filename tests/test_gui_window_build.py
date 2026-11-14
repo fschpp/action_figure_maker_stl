@@ -43,3 +43,37 @@ def test_main_window_builds_every_step():
     # controles que otras partes de la ventana (y los tests) esperan encontrar
     for attr in ("dd_front", "btn_crown", "tabs"):
         assert attr in res["attrs"]
+
+
+def test_plane_list_is_fixed_above_tabs_and_follows_planes(tmp_path):
+    """La lista de planos está fuera del Notebook (siempre visible); vacía muestra el aviso y con planos, la lista."""
+    from afm.testfigure import make_doll
+
+    m = make_doll()
+    m.apply_scale(0.05)
+    stl = str(tmp_path / "muneco.stl")
+    m.export(stl)
+    res = {}
+    app = Gtk.Application(application_id="ar.afm.test2")
+
+    def act(a):
+        try:
+            ctrl = Controller()
+            win = MainWindow(a, ctrl)
+            res["fuera_del_notebook"] = win.planes_box.get_ancestor(Gtk.Notebook) is None
+            res["vacia"] = (win.lbl_planes_empty.get_visible(), win.planes_scroller.get_visible())
+            ctrl.open_stl(stl)
+            ctrl.auto_symmetry()
+            win._rebuild_plane_list()
+            res["llena"] = (win.lbl_planes_empty.get_visible(), win.planes_scroller.get_visible())
+            res["filas"] = len(ctrl.plane_entries())
+        except Exception as e:      # noqa: BLE001
+            res["error"] = e
+        GLib.idle_add(a.quit)
+
+    app.connect("activate", act)
+    app.run([])
+    assert "error" not in res, res.get("error")
+    assert res["fuera_del_notebook"]
+    assert res["vacia"] == (True, False)
+    assert res["filas"] >= 1 and res["llena"] == (False, True)

@@ -17,25 +17,6 @@ from ..widgets import help_note as _help
 def build(win) -> None:
     """Agrega la pestaña «Planos» a `win.tabs` (win = la `MainWindow`)."""
     box = win._tab_page("Planos")
-    sec = _collapsible(box, "Lista de planos")
-    _help(sec, "Durante la selección: Retroceso deshace el último punto, Esc cancela.")
-    win.chk_show: dict[str, Gtk.CheckButton] = {}
-    for group, label, tip in (
-            ("planes", "Mostrar todos los planos", "Interruptor general: se combina con el de cada plano de la lista"),
-            ("pins", "Mostrar todos los pines de articulación",
-             "Marcas de los pasadores (hombro, cadera, cuello) y ejes de las bisagras (rodilla, codo)"),
-            ("contours", "Mostrar todos los contornos", "Siluetas de los miembros (1.º y 2.º corte) y recortes manuales")):
-        chk = Gtk.CheckButton(label=label, active=False, tooltip_text=tip)
-        chk.connect("toggled", lambda b, g=group: None if win._updating else win.ctrl.set_group_visible(g, b.get_active()))
-        sec.append(chk)
-        win.chk_show[group] = chk
-    win.planes_box = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
-    win.planes_box.add_css_class("boxed-list")
-    sec.append(win.planes_box)
-    win.chk_cut_numbers = Gtk.CheckButton(label="Numerar los cortes en el visor", active=win.ctrl.show_cut_numbers)
-    win.chk_cut_numbers.connect("toggled", lambda b: None if win._updating else win.ctrl.set_show_cut_numbers(b.get_active()))
-    sec.append(win.chk_cut_numbers)
-
     sec = _collapsible(box, "Plano de simetría")
     win.btn_sym = win._button("Plano de simetría (3 puntos)", lambda *_: win.ctrl.start_symmetry())
     win.btn_sym_auto = win._button("Simetría automática (x = 0)", lambda *_: win.ctrl.auto_symmetry())

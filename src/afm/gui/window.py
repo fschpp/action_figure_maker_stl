@@ -23,7 +23,7 @@ from . import param_meta as PM
 from .progress_panel import ProgressPanel  # noqa: E402
 from .render import SceneRenderer  # noqa: E402
 from .session import CatalogNeeded  # noqa: E402
-from .steps import STEPS  # noqa: E402
+from .steps import STEPS, plane_panel  # noqa: E402
 from .ui_consts import HEAD_ADJUST_ATTR, TRIM_OPS as _TRIM_OPS  # noqa: E402
 from .widgets import no_scroll_change as _no_scroll_change  # noqa: E402
 from .viewcube import ViewCube, interpolate_view, view_angles  # noqa: E402
@@ -285,7 +285,11 @@ class MainWindow(Gtk.ApplicationWindow):
         self.tabs.set_size_request(400, -1)
         for step in STEPS:
             step.build(self)
-        return self.tabs
+        side = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        side.append(plane_panel.build(self))        # lista de planos fija, siempre a la vista (etapa 4b)
+        self.tabs.set_vexpand(True)
+        side.append(self.tabs)
+        return side
 
     def _joint_spin(self, sec: Gtk.Box, label: str, lo: float, hi: float, step: float, digits: int, on_change) -> Gtk.SpinButton:
         row = Gtk.Box(spacing=6)
@@ -701,7 +705,10 @@ class MainWindow(Gtk.ApplicationWindow):
         while (child := self.planes_box.get_first_child()) is not None:
             self.planes_box.remove(child)
         cuts = {r["id"]: r for r in self.ctrl.cut_rows()}
-        for e in self.ctrl.plane_entries():
+        entries = self.ctrl.plane_entries()
+        self.lbl_planes_empty.set_visible(not entries)
+        self.planes_scroller.set_visible(bool(entries))
+        for e in entries:
             row = Gtk.Box(spacing=6)
             for side in ("start", "end", "top", "bottom"):
                 getattr(row, f"set_margin_{side}")(4)
