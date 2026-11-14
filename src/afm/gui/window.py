@@ -792,6 +792,16 @@ class MainWindow(Gtk.ApplicationWindow):
         if name is not None and abs(spin.get_value() - (self.ctrl.session.limb_offset(name) or 0.0)) > 1e-9:
             self.ctrl.set_limb_offset(name, spin.get_value())
 
+    @staticmethod
+    def _icon_label_button(icon: str, text: str, tooltip: str) -> Gtk.Button:
+        """Botón con ícono Y texto (un `Gtk.Button` con `icon_name` ignora su `label`)."""
+        b = Gtk.Button(tooltip_text=tooltip)
+        box = Gtk.Box(spacing=6)
+        box.append(Gtk.Image.new_from_icon_name(icon))
+        box.append(Gtk.Label(label=text))
+        b.set_child(box)
+        return b
+
     def _rebuild_plane_list(self) -> None:
         while (child := self.planes_box.get_first_child()) is not None:
             self.planes_box.remove(child)
@@ -831,8 +841,8 @@ class MainWindow(Gtk.ApplicationWindow):
                     name = "2.ª silueta" if cross else "Silueta"
                     grp = Gtk.Box()
                     grp.add_css_class("linked")
-                    ed = Gtk.Button(label=(f"Editar {name.lower()}" if has else f"Dibujar {name.lower()}"),
-                                    icon_name="document-edit-symbolic", tooltip_text=tip_draw)
+                    ed = self._icon_label_button("document-edit-symbolic",
+                                                 f"Editar {name.lower()}" if has else f"Dibujar {name.lower()}", tip_draw)
                     ed.connect("clicked", lambda _b, pid=e.id, c=cross: self.ctrl.start_polygon(pid, cross=c))
                     grp.append(ed)
                     if has:
@@ -841,8 +851,7 @@ class MainWindow(Gtk.ApplicationWindow):
                                    self.ctrl.remove_cross(pid) if c else self.ctrl.remove_silhouette(pid))
                         grp.append(rx)
                     sub.append(grp)
-                pn = Gtk.Button(label="Pasador", icon_name="find-location-symbolic",
-                                tooltip_text="Colocar el pasador sobre la cara de corte")
+                pn = self._icon_label_button("find-location-symbolic", "Pasador", "Colocar el pasador sobre la cara de corte")
                 pn.connect("clicked", lambda _b, pid=e.id: self.ctrl.start_pin(pid))
                 sub.append(pn)
             if e.kind == "joint":
