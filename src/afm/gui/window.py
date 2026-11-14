@@ -133,31 +133,62 @@ class MainWindow(Gtk.ApplicationWindow):
         prov.load_from_data(_CSS)
         Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), prov, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
+    @staticmethod
+    def _icon_button(icon: str, label: str, tip: str, cb) -> Gtk.Button:
+        """Botón de la cabecera con ícono y texto."""
+        content = Gtk.Box(spacing=6)
+        content.append(Gtk.Image.new_from_icon_name(icon))
+        content.append(Gtk.Label(label=label))
+        b = Gtk.Button(child=content)
+        b.set_tooltip_text(tip)
+        b.connect("clicked", cb)
+        return b
+
     def _build_header(self) -> Gtk.HeaderBar:
         bar = Gtk.HeaderBar()
+        # «Abrir ▾»: STL, proyecto o figura armada solo con piezas de catálogo (antes eran tres botones sueltos)
+        pop_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        popover = Gtk.Popover(child=pop_box)
         self.btn_open = []
-        for label, cb in (("Abrir STL…", self._on_open_stl), ("Abrir proyecto…", self._on_open_project)):
-            b = Gtk.Button(label=label)
-            b.connect("clicked", cb)
-            bar.pack_start(b)
-            self.btn_open.append(b)
+
+        def entry(label: str, tip: str, cb) -> Gtk.Button:
+            b = Gtk.Button(label=label, halign=Gtk.Align.FILL)
+            b.add_css_class("flat")
+            b.get_child().set_halign(Gtk.Align.START)
+            b.set_tooltip_text(tip)
+            b.connect("clicked", lambda *_: (popover.popdown(), cb()))
+            pop_box.append(b)
+            return b
+
+        self.btn_open.append(entry("Abrir STL…", "Carga el cuerpo de la figura desde un archivo STL.", lambda: self._on_open_stl()))
+        self.btn_open.append(entry("Abrir proyecto…", "Retoma un archivo .proyecto guardado.", lambda: self._on_open_project()))
+        self.btn_build_cat = entry("Armar desde catálogo…",
+                                   "Figura nueva solo con piezas del catálogo, sin abrir un STL ni un proyecto.",
+                                   lambda: self._on_catalog_build())
+        self.menu_open = Gtk.MenuButton(popover=popover)
+        self.menu_open.set_child(self._menu_content("document-open-symbolic", "Abrir"))
+        self.menu_open.set_tooltip_text("Abrir un STL, un proyecto o armar una figura desde el catálogo")
+        bar.pack_start(self.menu_open)
         self.btn_undo = Gtk.Button(icon_name="edit-undo-symbolic")
         self.btn_undo.connect("clicked", lambda *_: self.ctrl.undo())
         self.btn_redo = Gtk.Button(icon_name="edit-redo-symbolic")
         self.btn_redo.connect("clicked", lambda *_: self.ctrl.redo())
         for b in (self.btn_undo, self.btn_redo):
             bar.pack_start(b)
-        self.btn_build_cat = Gtk.Button(label="Armar desde catálogo…")
-        self.btn_build_cat.set_tooltip_text("Figura nueva solo con piezas del catálogo, sin abrir un STL ni un proyecto.")
-        self.btn_build_cat.connect("clicked", self._on_catalog_build)
-        bar.pack_start(self.btn_build_cat)
-        self.btn_save = Gtk.Button(label="Guardar proyecto…")
-        self.btn_save.connect("clicked", self._on_save_project)
+        self.btn_save = self._icon_button("document-save-symbolic", "Guardar", "Guarda el proyecto en un archivo .proyecto.",
+                                          self._on_save_project)
         bar.pack_end(self.btn_save)
-        self.btn_export = Gtk.Button(label="Exportar piezas…")
-        self.btn_export.connect("clicked", lambda *_: self._on_export())
-        bar.pack_end(self.btn_export)                 # queda a la izquierda de «Guardar proyecto…»
+        self.btn_export = self._icon_button("document-send-symbolic", "Exportar",
+                                            "Genera y guarda las piezas para imprimir.", lambda *_: self._on_export())
+        bar.pack_end(self.btn_export)                 # queda a la izquierda de «Guardar»
         return bar
+
+    @staticmethod
+    def _menu_content(icon: str, label: str) -> Gtk.Widget:
+        box = Gtk.Box(spacing=6)
+        box.append(Gtk.Image.new_from_icon_name(icon))
+        box.append(Gtk.Label(label=label))
+        return box
 
     def _build_viewer(self) -> Gtk.Widget:
         self.gl = Gtk.GLArea()
@@ -244,6 +275,10 @@ class MainWindow(Gtk.ApplicationWindow):
         self.status_view = Gtk.TextView(editable=False, cursor_visible=False, wrap_mode=Gtk.WrapMode.WORD_CHAR,
                                         left_margin=8, right_margin=8, top_margin=4, bottom_margin=4)
         self._status_buf = self.status_view.get_buffer()
+        click = Gtk.GestureClick()                            # clic en el estado = ir al próximo paso pendiente (R1)
+        click.connect("released", lambda *_: rail.go_next_pending(self))
+        self.status_view.add_controller(click)
+        self.status_view.set_cursor_from_name("pointer")
         self._status_buf.create_tag("dim", foreground="gray", style=Pango.Style.ITALIC)
         self._status_text: tuple[str, str] | None = None
         line_h = self.status_view.create_pango_layout("Ag").get_pixel_size()[1]
@@ -281,7 +316,7 @@ class MainWindow(Gtk.ApplicationWindow):
         if self._status_text == (message, problems):          # no se pisa el scroll si no cambió nada
             return
         self._status_text = (message, problems)
-        self.status_view.set_tooltip_text(message + ("\n" + problems if problems else ""))
+        self.status_view.set_tooltip_text(message + (("\n" + problems + "\n(clic: ir al próximo paso pendiente)") if problems else ""))
         buf = self._status_buf
         buf.set_text(message)
         if problems:
@@ -393,7 +428,18 @@ class MainWindow(Gtk.ApplicationWindow):
         self._hist_timer = 0
         self.ctrl.record_history()
         self._sync_undo_buttons()
+        self._sync_title()                                 # el «*» de cambios sin guardar sigue al historial
         return False
+
+    def _sync_title(self) -> None:
+        ctrl = self.ctrl
+        title = "Action Figure Maker"
+        if ctrl.session.stl_path:
+            title += " — " + os.path.basename(ctrl.session.stl_path)
+        if ctrl.dirty:
+            title = "* " + title                           # cambios sin guardar en el proyecto
+        mode_title = "  ·  dibujando recorte" if ctrl.mode == Mode.POLYGON and ctrl.trim_cfg else _MODE_TITLES[ctrl.mode]
+        self.set_title(title + mode_title)
 
     def _sync_undo_buttons(self) -> None:
         ctrl, h = self.ctrl, self.ctrl.history
@@ -502,11 +548,7 @@ class MainWindow(Gtk.ApplicationWindow):
                 tab = self._tab_for_mode()
                 if tab is not None:
                     self.tabs.set_current_page(tab)
-            title = "Action Figure Maker"
-            if ctrl.session.stl_path:
-                title += " — " + os.path.basename(ctrl.session.stl_path)
-            mode_title = "  ·  dibujando recorte" if ctrl.mode == Mode.POLYGON and ctrl.trim_cfg else _MODE_TITLES[ctrl.mode]
-            self.set_title(title + mode_title)
+            self._sync_title()
             loaded = ctrl.loaded
             gate = self._gate
             self.stale_banner.set_reveal_child(ctrl.outcome_stale)

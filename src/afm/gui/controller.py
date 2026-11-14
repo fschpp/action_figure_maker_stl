@@ -229,6 +229,7 @@ class Controller:
         self.show_groups: dict[str, bool] = {g: False for g in SHOW_GROUPS}   # interruptores generales (planos / pines / contornos)
         self.busy = False                            # generando la figura (la ventana bloquea la edición)
         self.generated_once = False                  # ya se generó una figura en esta sesión (para avisar cuando deja de valer)
+        self._saved_text: str | None = None          # estado del proyecto al abrir / guardar por última vez (para el «*» de cambios sin guardar)
         self.history = History()                     # deshacer / rehacer global por instantáneas del proyecto (ver history.py)
         self.defer_history = False                   # la ventana lo activa y registra con `record_history` tras una pausa; sin ventana se registra en cada cambio
         self.plane_faults: dict[str, tuple[str, bytes]] = {}   # id de plano -> (por qué su corte falló, firma del plano): se pinta de rojo hasta que el plano cambie
@@ -305,6 +306,13 @@ class Controller:
     # ------------------------------------------------------ deshacer / rehacer
     def _project_text(self) -> str:
         return json_sig(self.session.project.to_dict())
+
+    @property
+    def dirty(self) -> bool:
+        """Hay cambios en el proyecto desde que se abrió o guardó. Usa el último estado registrado por el historial
+        (no vuelve a serializar), así que sigue lo hecho con la misma pausa que el deshacer."""
+        cur = self.history.current
+        return self.loaded and cur is not None and self._saved_text is not None and cur.text != self._saved_text
 
     def record_history(self) -> None:
         """Registra el estado del proyecto como un paso de deshacer si cambió desde el último registrado."""
@@ -391,6 +399,7 @@ class Controller:
     def _after_load(self) -> None:
         self.generated_once = False
         self.history.reset(self._project_text())
+        self._saved_text = self.history.current.text
         self.weapon_active = False                  # se abrió una figura: el visor vuelve a ella
         self._rebuild_picker()
         self.camera.frame(self.session.work.bounds)
@@ -476,7 +485,10 @@ class Controller:
         self._changed(f"Proyecto abierto: {path.split('/')[-1]}{what}" + self._auto_catalog())
 
     def save_project(self, path: str) -> None:
+        self.record_history()                       # lo último hecho entra al historial antes de marcarlo como guardado
         self.session.save_project(path)
+        if self.history.current is not None:
+            self._saved_text = self.history.current.text
         self._changed(f"Proyecto guardado: {path.split('/')[-1]}", scene=False)
 
     # ---------------------------------------------------------------- modos
