@@ -9,6 +9,7 @@ from gi.repository import Gtk  # noqa: E402
 from ..controller import TRIM_OP_LABELS
 from ..controller import TRIM_SHAPES
 from ..controller import TRIM_SHAPE_LABELS
+from ..controller import trim_size_label
 from ..ui_consts import TRIM_OPS as _TRIM_OPS
 from ..widgets import collapsible as _collapsible
 from ..widgets import help_note as _help
@@ -37,12 +38,22 @@ def build(win) -> None:
     win.spin_trim_len.set_value(25.0)
     row.append(win.spin_trim_len)
     sec.append(row)
-    row = Gtk.Box(spacing=6)
-    row.append(Gtk.Label(label="Radio / arista de la forma (mm)", xalign=0, hexpand=True))
+    win.row_trim_size = Gtk.Box(spacing=6)
+    win.lbl_trim_size = Gtk.Label(label="Radio de la esfera (mm)", xalign=0, hexpand=True)
+    win.row_trim_size.append(win.lbl_trim_size)
     win.spin_trim_size = Gtk.SpinButton.new_with_range(0.5, 100.0, 0.5)
     win.spin_trim_size.set_value(5.0)
-    row.append(win.spin_trim_size)
-    sec.append(row)
+    win.row_trim_size.append(win.spin_trim_size)
+    sec.append(win.row_trim_size)
+
+    def shape_changed(*_) -> None:                  # el tamaño solo aplica a esfera / caja / cilindro (R10)
+        label = trim_size_label(TRIM_SHAPES[win.dd_trim_shape.get_selected()])
+        win.row_trim_size.set_visible(label is not None)
+        if label is not None:
+            win.lbl_trim_size.set_text(label)
+
+    win.dd_trim_shape.connect("notify::selected", shape_changed)
+    shape_changed()
     win.btn_trim_add = win._button("Dibujar polígono / colocar con clic", lambda *_: win._on_trim_add())
     sec.append(win.btn_trim_add)
     sec = _collapsible(box, "Recortes de la figura")

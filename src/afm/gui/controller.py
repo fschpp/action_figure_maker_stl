@@ -90,6 +90,12 @@ GUIDE_FOREARM_COLOR = (1.0, 0.35, 0.9, 1.0)    # magenta: línea del antebrazo (
 TRIM_SHAPES = ("polygon", "sphere", "box", "cylinder")
 TRIM_SHAPE_LABELS = {"polygon": "polígono", "sphere": "esfera", "box": "caja", "cylinder": "cilindro"}
 TRIM_OP_LABELS = {"subtract": "restar", "union": "unir"}
+TRIM_SIZE_LABELS = {"sphere": "Radio de la esfera (mm)", "box": "Arista de la caja (mm)", "cylinder": "Radio del cilindro (mm)"}
+
+
+def trim_size_label(shape: str) -> str | None:
+    """Etiqueta del tamaño de un recorte según su forma; None si no aplica (el polígono se dibuja, no tiene radio)."""
+    return TRIM_SIZE_LABELS.get(shape)
 SYMMETRY_PLANE_NAME = "simetría"
 JOINT_PREFIX = "articulacion:"      # id de plano de una articulación en la lista (`articulacion:rodilla`)
 POSE_TOL_MM3 = 1e-4              # misma tolerancia de interferencia que `pipeline.validate`

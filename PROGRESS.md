@@ -2,7 +2,17 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
-## Current Focus — UX etapa 6: pestaña Catálogo por lugares + cabos sueltos de Generar (2026-11-13, rama `mejora_uiux`, sobre main 9cacac8)
+## Current Focus — UX restos de R6 y R10 (2026-11-13, rama `mejora_uiux`, sobre main d6597e8)
+**R10:** en Recortes, «Radio / arista» solo se ve con esfera / caja / cilindro y cambia de etiqueta según la forma (`Controller.trim_size_label`; con Polígono la fila se oculta). **R6:** «Perfil de línea» pasa arriba de «Parámetros de articulación» y queda desplegado (antes plegado al fondo). **Decisión:** `PARAM_FIELDS` NO se amplía con valor por defecto y tipo como campos propios: se derivan en `param_meta` / `Controller.param_default` y ampliar la tupla obligaría a tocar todos los desempaquetados de 6 campos sin beneficio visible. Tests: `test_gui_catalog_places.py` (+1), `test_gui_window_build.py` (+1).
+
+### Todo List
+- [x] R10 (Radio solo cuando aplica) · [x] R6 (perfil arriba; defecto/tipo derivados, a propósito).
+- [ ] Etapa 6, resto: miniatura por lugar y asistente de 3 pasos de «Nuevo héroe desde patrón» (a confirmar si valen el esfuerzo).
+- [ ] Decidir el vocabulario de «corte».
+- [ ] 4a barra contextual sobre el visor y modo «Desde STL / Desde catálogo» (necesitan GL real / decisión de diseño).
+- [ ] Probar todo con GL real y figuras reales (cronometrar una figura completa).
+
+## Current Focus (anterior) — UX etapa 6: pestaña Catálogo por lugares + cabos sueltos de Generar (2026-11-13, rama `mejora_uiux`, sobre main 9cacac8)
 **Catálogo (`gui/steps/catalogo.py`):** «Lugares de la figura» pasa ARRIBA (antes quedaba al fondo y pedía scroll): estado del catálogo, menú **Catálogo ▾** (`menu_catalog`, popover con crear / abrir / catalogar / nuevo héroe / guía de cortes / ajustar cintura y muñeca / administrar / armar sin STL / **olvidar**, este último en rojo y apartado de lo frecuente), «Revisar» al lado y una fila por lugar con **ícono de estado** (`Controller.catalog_row_state`: · del modelo, ○ sin revisar, ✓ ok, ⚠ aviso, ✗ no; la revisión previa gana sobre `compat`). Escala, alinear, vista previa, dividir, proporciones y restablecer quedan en «Ajustes de la figura» (plegado). La ayuda de 1.929 caracteres pasa a «Ayuda del catálogo» (plegada) y a la vista queda un resumen de ~190. Todos los `btn_cat_*` conservan su nombre (ahora dentro del popover), así que el gating de `_sync_catalog` no cambió. **Generar:** la sección «Exportar» (que tiene opciones, no un botón) se llama «Opciones de exportación» y su ayuda ya nombra «Exportar» / «Guardar». Verificado con la ventana real (captura bajo Xvfb) y la suite `gui/catalog_window/cancel`: 435 pasan, 1 saltado. Tests: `test_gui_catalog_places.py`, +1 en `test_gui_window_build.py`.
 
 ### Todo List
