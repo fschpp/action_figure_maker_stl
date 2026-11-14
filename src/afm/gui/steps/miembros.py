@@ -14,7 +14,7 @@ def build(win) -> None:
     """Agrega la pestaña «Miembros» a `win.tabs` (win = la `MainWindow`)."""
     box = win._tab_page("Miembros")
     sec = _collapsible(box, "Silueta del miembro")
-    _help(sec, "Elegí «Dibujar silueta» (lápiz) en un plano de la lista; «2.º» dibuja el segundo corte, de frente (el "
+    _help(sec, "Elegí «Dibujar silueta» (lápiz) en un plano de la lista de arriba; «2.º» dibuja el segundo corte, de frente (el "
                "miembro es lo que queda dentro de las dos siluetas: p. ej. en una pierna, la columna del muslo + el escalón "
                "de la cadera). Clic = vértice sobre el plano; cerrá con un clic en el primero o con Intro. Ya cerrado: clic "
                "en un vértice y luego clic para moverlo; clic sobre un borde agrega uno; Retroceso borra el elegido.")
