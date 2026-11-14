@@ -178,6 +178,14 @@ plano del miembro**, así que primero ponete en la vista **Frente** (cubo de vis
    (simplificado a ~0,6 mm) para que lo recortes moviendo y borrando vértices.
    **Vaciar y redibujar** lo borra. **Esc** o **Terminar edición** sale del modo.
 
+   **Ver la cadera mientras dibujás (solo piernas).** Con la silueta de una pierna cerrada y guardada, el botón
+   **Ver simulación** de la barra del visor dibuja al costado de la figura la cadera: el muslo con su pasador y el
+   hueco que talla el barrido en la pelvis. **Flexión mostrada** gira el muslo (0° de pie; los grados de la pose
+   sentada para verlo sentado). Cada vez que la silueta (o la 2.ª silueta) se guarda, la simulación se recalcula
+   sola, así que se ve cómo cambia el hueco al subir o bajar vértices de la cadera. Si no se puede calcular
+   (silueta sin cerrar o inválida), la barra dice por qué. Es la misma simulación que ya ofrecen la rodilla y el
+   codo; al terminar la edición vuelve la figura entera.
+
 6. **Proponer silueta automática** reemplaza el borrador por la que calcula el programa a partir de cortes
    horizontales de la figura. Funciona con **el plano que hayas elegido**, sea cual sea su orientación: el
    programa decide qué parte del cuerpo es el miembro y la proyecta sobre tu plano a lo largo de su normal.

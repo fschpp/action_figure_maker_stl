@@ -918,23 +918,54 @@ class Controller:
         """True si la simulación de la articulación se dibuja AL COSTADO de la figura (que sigue a la vista para elegir
         puntos sobre ella): vista previa encendida y alguna herramienta de articulación activa. Fuera de ellas la
         simulación reemplaza a la figura, como siempre."""
-        return self.show_joint_preview and self.mode in self.JOINT_TOOL_MODES
+        if not self.show_joint_preview:
+            return False
+        return self.mode in self.JOINT_TOOL_MODES or (self.polygon_hip_name() is not None and self.polygon_hip_name() == self._jp["name"])
+
+    def polygon_hip_name(self) -> str | None:
+        """Entrada de la vista previa (la cadera) del miembro cuya silueta se está dibujando, o None si no aplica: solo las
+        piernas tienen cadera, y con torso de catálogo no hay cadera del modelo que mostrar. Sirve para ver cómo queda el
+        hueco de la pelvis y el pasador mientras se ajusta la silueta (principal o 2.ª) de la pierna."""
+        if self.mode != Mode.POLYGON or self.edit_limb is None or self.trim_cfg is not None:
+            return None
+        spec = self.session.limb(self.edit_limb)
+        if spec is None or spec.kind != "leg":
+            return None
+        from ..joint_preview import hip_preview_name
+        name = hip_preview_name(spec.name)
+        return name if self.session.is_hip_preview(name) else None
+
+    def preview_here_available(self) -> bool:
+        """¿Hay una simulación que mostrar con la herramienta activa? (la barra del visor decide si ofrece el botón)"""
+        if self.mode == Mode.POLYGON:
+            return self.polygon_hip_name() is not None
+        return True
 
     def toggle_joint_preview_here(self) -> None:
         """Botón de la barra del visor: enciende o apaga la simulación de la articulación que se está ajustando
-        (`joint_name`), sin ir a la pestaña Parámetros."""
-        name = self.joint_name
+        (`joint_name`; en la silueta de una pierna, su cadera), sin ir a la pestaña Parámetros."""
+        name = self.joint_name or self.polygon_hip_name()
         if name is None or not self.session.preview_exists(name):
             self._changed(self.no_joint_text(), scene=False)
             return
         self.set_joint_preview(name, not self.show_joint_preview)
 
-    def _joint_beside_layout(self, pv) -> tuple[float, np.ndarray]:
-        """(corrimiento en X, caja a encuadrar) para dejar la simulación a la derecha de la figura, a la altura de la
-        articulación y con aire entre ambas. Se mide sobre la franja de la figura a esa altura (no sobre toda ella), para
-        que quede cerca de lo que se está ajustando."""
+    def _beside_axis(self) -> tuple[int, float]:
+        """(eje, signo) del corrimiento de la simulación: +X como siempre, salvo que la cámara mire casi a lo largo de X
+        (vista de costado, la que se usa para dibujar la silueta de una pierna): ahí +X iría hacia el ojo y la simulación
+        taparía la figura, así que se corre sobre Y hacia el lado derecho de la pantalla."""
+        right = self.camera.view()[0, :3]
+        if abs(right[0]) >= 0.5:
+            return 0, 1.0
+        return 1, (1.0 if right[1] >= 0 else -1.0)
+
+    def _joint_beside_layout(self, pv) -> tuple[np.ndarray, np.ndarray]:
+        """(corrimiento, caja a encuadrar) para dejar la simulación al costado de la figura, a la altura de la articulación y
+        con aire entre ambas. Se mide sobre la franja de la figura a esa altura (no sobre toda ella), para que quede cerca de
+        lo que se está ajustando."""
         jp = self._jp
-        key = (id(pv), round(jp["flex"], 6))
+        axis, sign = jp.get("shift_axis") or (0, 1.0)
+        key = (id(pv), round(jp["flex"], 6), axis, sign)
         if jp.get("layout_key") == key:
             return jp["layout"]
         pb = np.vstack([pv.proximal_mesh().bounds, pv.distal_mesh(jp["flex"]).bounds])
@@ -943,12 +974,16 @@ class Controller:
         slab = v[(v[:, 2] >= lo[2] - 5.0) & (v[:, 2] <= hi[2] + 5.0)]
         if len(slab) == 0:
             slab = v
-        gap = max(8.0, 0.5 * float(hi[0] - lo[0]))
-        dx = float(slab[:, 0].max() + gap - lo[0])
+        gap = max(8.0, 0.5 * float(hi[axis] - lo[axis]))
+        d = float(slab[:, axis].max() + gap - lo[axis]) if sign > 0 else float(slab[:, axis].min() - gap - hi[axis])
+        shift = np.zeros(3)
+        shift[axis] = d
         pad = float(np.max(hi - lo))
-        box = np.array([[slab[:, 0].min(), v[:, 1].min(), lo[2] - pad], [hi[0] + dx, v[:, 1].max(), hi[2] + pad]])
-        jp["layout_key"], jp["layout"] = key, (dx, box)
-        return dx, box
+        moved_lo, moved_hi = lo + shift, hi + shift
+        box = np.array([[min(slab[:, 0].min(), moved_lo[0]), min(v[:, 1].min(), moved_lo[1]), lo[2] - pad],
+                        [max(slab[:, 0].max(), moved_hi[0]), max(v[:, 1].max(), moved_hi[1]), hi[2] + pad]])
+        jp["layout_key"], jp["layout"] = key, (shift, box)
+        return shift, box
 
     def set_joint_preview_flex(self, flex: float) -> None:
         """Flexión a la que se muestra la pieza distal (solo la recoloca: no recalcula el hueco)."""
@@ -1041,10 +1076,11 @@ class Controller:
             for key in list(scene.items):
                 if key.startswith(self._JOINT_PREVIEW_HIDE) or (key.startswith("espejo:") and "silueta" not in key):
                     scene.show(key, False)
-        dx, box = self._joint_beside_layout(pv) if beside else (0.0, None)
-        sig = (id(pv), round(jp["flex"], 6), beside, round(dx, 3))
+        if beside and jp.get("framed_beside") != jp["name"]:
+            jp["shift_axis"] = self._beside_axis()          # al entrar: se elige el lado según desde dónde se mira
+        shift, box = self._joint_beside_layout(pv) if beside else (np.zeros(3), None)
+        sig = (id(pv), round(jp["flex"], 6), beside, tuple(np.round(shift, 3)))
         if jp["drawn"] != sig or "junta:prox" not in scene.items:
-            shift = np.array([dx, 0.0, 0.0])
             prox, dist = pv.proximal_mesh(), pv.distal_mesh(jp["flex"])
             if beside:
                 prox, dist = prox.copy(), dist.copy()
@@ -1077,7 +1113,7 @@ class Controller:
 
     def cancel(self, quiet: bool = False) -> None:
         was = self.mode
-        if was in self.JOINT_TOOL_MODES and self.show_joint_preview:
+        if self.show_joint_preview and (was in self.JOINT_TOOL_MODES or self.polygon_hip_name() is not None):
             self.show_joint_preview = False          # al terminar la herramienta vuelve la figura (la simulación solo acompaña al ajuste)
         self.mode, self.pending, self.pending_kind = Mode.VIEW, [], None
         self._hand_path_pending = None
@@ -1366,6 +1402,7 @@ class Controller:
         if limb is None:
             self._changed(f"No existe el plano «{name}».", scene=False)
             return
+        keep_sim = self.show_joint_preview and self.polygon_hip_name() is not None     # de la silueta a la 2.ª (y al revés) sigue la simulación
         self.cancel(quiet=True)
         if cross:
             plane = self.session.cross_plane(name)
@@ -1385,6 +1422,8 @@ class Controller:
                 msg += (" Cubrí el miembro visto de frente; en una pierna incluí la columna del muslo desde la "
                         "simetría y el escalón de la cadera.")
         self.mode, self.edit_limb, self.edit_cross = Mode.POLYGON, name, cross
+        if keep_sim and self.polygon_hip_name() == self._jp["name"]:
+            self.show_joint_preview = True
         if cross:
             self.camera.look_along(plane.normal, target=plane.origin)
         self._changed(msg)

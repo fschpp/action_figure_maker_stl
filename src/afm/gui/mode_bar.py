@@ -29,7 +29,7 @@ MODE_HELP: dict[Mode, tuple[str, tuple[str, ...]]] = {
     Mode.JOINT_AXIS: ("Clic sobre la figura: eje de la bisagra (con la simulación al costado se puede reajustar varias veces) · "
                       "Esc: terminar", ("preview", "done")),
     Mode.POLYGON: ("Clic: agregar vértice · Intro: cerrar el polígono · Retroceso: quitar el último · Esc: salir",
-                   ("undo_point", "close", "cancel")),
+                   ("undo_point", "close", "cancel", "preview")),
     Mode.PIN: (_PIN, ("snap", "heat", "done")),
     Mode.HEAD_PIN: (_PIN, ("snap", "heat", "done")),
     Mode.WAIST_PIN: (_PIN, ("snap", "heat", "done")),
@@ -101,11 +101,15 @@ def update(win, title: str) -> None:
         win.mode_revealer.set_reveal_child(False)
         return
     hint, acts = info
+    ctrl = win.ctrl
+    if "preview" in acts and not ctrl.preview_here_available():
+        acts = tuple(a for a in acts if a != "preview")     # p. ej. la silueta de un brazo: no hay cadera que simular
+    if ctrl.show_joint_preview and ctrl._jp["error"] and "preview" in acts:
+        hint += "\nSimulación: " + ctrl.joint_preview_status()
     win.mode_title.set_text(title)
     win.mode_hint.set_text(hint)
     for key, b in win.mode_buttons.items():
         b.set_visible(key in acts)
-    ctrl = win.ctrl
     if "preview" in acts:
         on = ctrl.show_joint_preview
         win.mode_buttons["preview"].set_label("Ocultar simulación" if on else "Ver simulación")
