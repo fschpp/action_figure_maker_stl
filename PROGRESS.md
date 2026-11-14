@@ -2,7 +2,18 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
-## Current Focus — UX etapa 7 (parcial): cabecera moderna y «Pendiente» clicable (2026-11-13, rama `mejora_uiux`, sobre main 109b74e)
+## Current Focus — UX etapa 7 (cierre): contraste y glosario (2026-11-13, rama `mejora_uiux`, sobre main d78d381)
+Contraste: ayuda sin cursiva y con opacidad 0,9 (antes 0,75), borde y fondo del recuadro más marcados, controles deshabilitados a 0,65 de opacidad (antes ~0,5 por defecto de GTK), ícono y detalle del riel más legibles. Glosario: en la ventana ya casi todo decía «pasador»; se corrigió «pines» → «pasadores» (`plane_panel`). `docs/tutorial_gui.md` §2 se reescribió con la ventana actual (Abrir ▾, riel, aviso amarillo, Estado clicable, «*») y trae una tabla de glosario (plano / sección / silueta / pasador / mira). **No se renombró «corte»** (26 textos con sentidos distintos: lugar de unión, 2.º corte = silueta de costado, plano de corte): queda como decisión de producto.
+
+### Todo List
+- [x] Contraste de ayuda y controles deshabilitados (CSS).
+- [x] Glosario en el tutorial y «pasadores» en la ventana.
+- [ ] Decidir el vocabulario de «corte» (¿«unión», «2.ª silueta»?) y aplicarlo a ventana y tutorial.
+- [ ] «Exportar» de Generar duplica el de la cabecera (G2).
+- [ ] 4a barra contextual sobre el visor (necesita GL real) · 6 tabla de lugares del catálogo · modo «Desde STL / Desde catálogo».
+- [ ] Revisar el contraste a ojo con tema claro y oscuro (no se pudo ver en pantalla real).
+
+## Current Focus (anterior) — UX etapa 7 (parcial): cabecera moderna y «Pendiente» clicable (2026-11-13, rama `mejora_uiux`, sobre main 109b74e)
 Cabecera: botón **Abrir ▾** (`menu_open`, `Gtk.MenuButton` con popover) agrupa «Abrir STL…», «Abrir proyecto…» y «Armar desde catálogo…» (siguen siendo `btn_open[0..1]` y `btn_build_cat`, así que el gating no cambió); **Guardar** y **Exportar** con ícono (`_icon_button`); título con «*» cuando hay cambios sin guardar (`Controller.dirty`: compara el último estado del historial con `_saved_text`, fijado al abrir y al guardar; no vuelve a serializar; deshacer hasta el estado guardado lo limpia). `window._sync_title` se llama en cada refresco y cuando el historial registra (pausa de 300 ms). Clic en el panel Estado = ir al próximo paso pendiente (`rail.go_next_pending`; el tooltip lo avisa). Tests: `tests/test_gui_dirty.py` (2), +1 en `test_gui_window_build.py`; suite `gui/catalog_window/cancel` bajo Xvfb: 433 pasan, 1 saltado.
 
 ### Todo List

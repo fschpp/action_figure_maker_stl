@@ -21,25 +21,41 @@ afm-gui figura.proyecto --stl nueva/ruta/figura.stl   # si el STL cambió de lug
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
-│ [Abrir STL…] [Abrir proyecto…]            [Guardar proyecto…] │
+│ * Action Figure Maker — figura.stl                            │
+│ [Abrir ▾] [↶][↷]                        [Exportar] [Guardar]  │
 ├──────────────────────────────────────────┬────────────────────┤
-│                              [cubo]      │ Figura│Planos│…    │
-│            visor 3D          [Encuadrar] │ ▾ Sección          │
-│                                          │   ▸ Subsección     │
+│                              [cubo]      │ Planos del proyecto│
+│            visor 3D          [Encuadrar] │ ✓ Figura  │ ▾ Sección │
+│                                          │ ⚠ Planos  │   ▸ Sub…  │
 ├──────────────────────────────────────────┴────────────────────┤
-│ Estado (3 líneas de texto, con scroll si el mensaje es largo) │
+│ Estado (2 líneas; clic = ir al próximo paso pendiente)        │
 └───────────────────────────────────────────────────────────────┘
 ```
 
-* **Barra superior:** abrir un STL, abrir un proyecto y guardar el proyecto.
+* **Barra superior:** **Abrir ▾** (STL, proyecto o «Armar desde catálogo…»), deshacer / rehacer (Ctrl+Z,
+  Ctrl+Mayús+Z), **Exportar** y **Guardar**. Un `*` al comienzo del título indica cambios sin guardar.
 * **Visor 3D** (izquierda): la figura y los planos, con el **cubo de vista** arriba a la derecha.
-* **Barra lateral** (derecha): los controles, en **pestañas por tema** (Figura, Planos, Catálogo, Miembros, Recortes,
-  Parámetros, Generar). Cada pestaña tiene **secciones y subsecciones plegables** (clic en el título); los
-  textos de ayuda largos están en subsecciones «Ayuda» plegadas. Al empezar una tarea (por ejemplo dibujar una
-  silueta o colocar un pasador) la barra salta sola a la pestaña con los controles de esa tarea.
-* **Estado** (al pie de la ventana, a todo lo ancho): mensajes del programa y lo que falta definir.
-* **Título de la ventana:** muestra el nombre del archivo y, mientras hay una selección en curso,
-  qué se está haciendo (por ejemplo «plano de simetría»).
+* **Barra lateral** (derecha): arriba la **lista de planos** (siempre visible) y debajo el **riel de pasos**
+  (Figura → Planos → Miembros → Parámetros → Recortes → Generar, y Catálogo aparte) con un ícono de estado por
+  paso: ○ pendiente · ✓ listo · ⚠ falta algo · ⟳ desactualizado · ▶ listo para generar. Cada paso tiene
+  **secciones y subsecciones plegables** (clic en el título). Al empezar una tarea (por ejemplo dibujar una
+  silueta o colocar un pasador) la barra salta sola al paso con los controles de esa tarea.
+* **Aviso amarillo:** si cambiás algo después de generar, aparece «La figura generada quedó desactualizada»
+  con el botón **Generar de nuevo**.
+* **Estado** (al pie de la ventana, a todo lo ancho): mensajes del programa y lo que falta definir; un clic
+  ahí salta al próximo paso pendiente. Durante una tarea larga muestra el progreso y un botón **Cancelar**.
+* **Título de la ventana:** muestra el nombre del archivo, el `*` de cambios sin guardar y, mientras hay una
+  selección en curso, qué se está haciendo (por ejemplo «plano de simetría»).
+
+### Glosario
+
+| Palabra | Qué es |
+|---|---|
+| **Plano** | Superficie plana que se define con 3 puntos (simetría, brazo, pierna…); se ve en la lista de planos. |
+| **Sección** | El corte de la figura por un plano: lo que se ve al mirar «de canto» el plano; también cada bloque plegable de un paso. |
+| **Silueta** | El contorno que se dibuja sobre un plano para recortar un miembro (1.º corte; el 2.º corte es la silueta vista de costado). |
+| **Pasador** | La pieza que une dos partes (hombro, cadera, cuello, cintura); las bisagras de rodilla y codo usan **eje**. |
+| **Mira** | La vista asistida (cinta de color y mapa de calor) para comprobar si un corte o un pasador es compatible. |
 
 ## 3. Moverse por el visor
 
@@ -672,9 +688,9 @@ los dos lados se apaga. Durante la colocación del pasador no se dibuja (el plan
 
 ## 10. Guardar y reabrir
 
-* **Guardar proyecto…** escribe un archivo `.proyecto` (JSON) con la simetría, los planos, la
+* **Guardar** escribe un archivo `.proyecto` (JSON) con la simetría, los planos, la
   coronilla, el frente y los parámetros, más la ruta absoluta del STL de origen.
-* **Abrir proyecto…** lo recarga. Si el STL ya no está en esa ruta, la aplicación lo avisa; abrilo
+* **Abrir ▾ › Abrir proyecto…** lo recarga. Si el STL ya no está en esa ruta, la aplicación lo avisa; abrilo
   desde la terminal con `afm-gui proyecto.proyecto --stl nueva/ruta.stl`.
 
 ## 11. Recetas rápidas

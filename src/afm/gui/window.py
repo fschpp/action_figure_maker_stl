@@ -46,23 +46,24 @@ VIEW_ANIM_S = 0.25            # duración de la animación al elegir una vista e
 _CSS = b"""
 .afm-section-title { font-weight: 700; padding: 4px 0; border-bottom: 1px solid alpha(currentColor, 0.2); }
 .afm-sub-title { font-weight: 600; opacity: 0.85; padding: 2px 0; }
-.afm-help { background: alpha(currentColor, 0.06); border-left: 3px solid alpha(currentColor, 0.30);
+.afm-help { background: alpha(currentColor, 0.08); border-left: 3px solid alpha(currentColor, 0.45);
             border-radius: 4px; padding: 6px 8px; }
 .afm-banner { background: alpha(#f5c211, 0.30); padding: 6px 10px; border-bottom: 1px solid alpha(currentColor, 0.2); }
 .afm-modified { font-weight: 700; }
-.afm-help-icon { opacity: 0.55; }
-.afm-help-text { font-size: 0.9em; font-style: italic; opacity: 0.75; }
+.afm-help-icon { opacity: 0.75; }
+.afm-help-text { font-size: 0.9em; opacity: 0.9; }
 .afm-task { font-weight: 600; }
 .afm-cube-btn { color: #e6e8ec; background: alpha(#000, 0.35); border-radius: 6px; padding: 2px 10px; min-height: 0; }
 .afm-cube-btn:hover { background: alpha(#00ae42, 0.8); }
 .afm-step-glyph { font-weight: 700; min-width: 1.4em; }
 .afm-step-title { font-weight: 600; }
-.afm-step-detail { font-size: 0.85em; opacity: 0.75; }
+.afm-step-detail { font-size: 0.85em; opacity: 0.85; }
 .afm-step-ok { color: #2ec27e; }
 .afm-step-warn { color: #e5a50a; }
 .afm-step-stale { color: #e66100; }
 .afm-step-ready { color: #3584e4; }
-.afm-step-todo, .afm-step-info { opacity: 0.55; }
+.afm-step-todo, .afm-step-info { opacity: 0.7; }
+button:disabled, spinbutton:disabled, checkbutton:disabled, dropdown:disabled, switch:disabled { opacity: 0.65; }
 """
 
 
