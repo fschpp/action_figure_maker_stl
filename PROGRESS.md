@@ -1151,3 +1151,10 @@ No existe una «cara interna del muslo» detectable en Güemes (el borde interno
 - [ ] Decisión pendiente: miniatura por lugar y asistente «Nuevo héroe».
 - Decidido: Catálogo queda como pestaña opcional (sin modo «Desde STL / Desde catálogo»); etapa 4a desbloqueada.
 - Sin renombrar a propósito: «Guía de cortes» y claves internas (`plano_sin_soportes`, grupo «Sin soportes»).
+
+
+## Etapa 6 completa (2026-11-14, rama miniaturas_heroe)
+- [x] Miniatura por lugar en Catálogo (`gui/thumbnails.py`, Pillow, caché en memoria y disco, render en hilo).
+- [x] Asistente «Nuevo héroe» de 3 pasos (`gui/hero_wizard.py`, lógica probada sin GTK).
+- [ ] Probar en ventana real con GL: aspecto de las miniaturas y del asistente (aquí no hay GTK).
+- Descartado: modo «Desde STL / Desde catálogo» (Catálogo sigue como pestaña opcional).
