@@ -80,6 +80,7 @@ class Mode(Enum):
     TRIM_PICK = "recorte_clic"      # un clic sobre la figura pone el centro de un recorte esfera / caja / cilindro
     HEAD_PIN = "pasador_cabeza"     # vista de costado: un clic (o flechas) pone el pasador del cuello adelante / atrás sobre la cara
     WAIST_PIN = "pasador_cintura"   # vista de costado: un clic (o flechas) pone el pasador de la cintura adelante / atrás sobre la cara
+    FLOOR_CUT = "corte_paralelo_piso"   # plano paralelo al piso (cabeza o cintura): un clic sobre la figura (o flechas) fija su altura
     FLAT_PLANE = "plano_sin_soportes"   # figura generada sentada, vista Derecha: un clic (o flechas) fija la altura del corte plano
 
 EXPORT_ONLY_PARAMS = frozenset({"flat_depth"})   # parámetros que no cambian las piezas generadas
@@ -136,6 +137,8 @@ _ACCESSORY_COLOR = (0.82, 0.82, 0.88, 1.0)             # espada de prueba puesta
 SHOW_GROUPS = ("planes", "pins", "contours")     # lo que se puede mostrar / ocultar de una vez desde la lista de planos
 FLAT_NUDGE_MM = 0.1            # paso de las flechas al ajustar el plano de corte «sin soportes» (Mayús = 10 veces más)
 NUDGE_MM = 0.1                 # paso de las flechas al ajustar el pasador (Mayús = 10 veces más)
+FLOOR_CUT_NUDGE_MM = 0.1        # paso de las flechas al trasladar el plano paralelo al piso (Mayús = 10 veces más)
+FLOOR_CUT_LABELS = {"head": "de la cabeza (cuello)", "waist": "de la cintura"}
 
 
 def circle_world(plane: Plane, center, radius: float, n: int = 48) -> np.ndarray:
@@ -1094,7 +1097,8 @@ class Controller:
             self._changed("Edición del recorte terminada." if was_trim
                           else "Edición de silueta terminada." if was == Mode.POLYGON
                           else "Colocación del pasador terminada." if was in (Mode.PIN, Mode.HEAD_PIN, Mode.WAIST_PIN)
-                          else "Ajuste del corte con la cama de impresión terminado." if was == Mode.FLAT_PLANE else "Cancelado.")
+                          else "Ajuste del corte con la cama de impresión terminado." if was == Mode.FLAT_PLANE
+                          else "Corte paralelo al piso terminado." if was == Mode.FLOOR_CUT else "Cancelado.")
 
     def undo_point(self) -> None:
         if self.mode == Mode.POLYGON and self.draft is not None:
@@ -2516,6 +2520,8 @@ class Controller:
             self._finish_trim_pick(hit)
         elif self.mode == Mode.JOINT_AXIS:
             self._finish_joint_axis(hit)
+        elif self.mode == Mode.FLOOR_CUT:
+            self._finish_floor_cut_pick(hit)
         else:
             self.pending.append(hit.point.copy())
             need = 4 if self.mode in (Mode.JOINT_LINES, Mode.JOINT_SIDE) else 3
@@ -2594,6 +2600,59 @@ class Controller:
         self.mode = Mode.VIEW
         self._changed("Plano de la cintura definido: el torso se corta en pecho y pelvis, unidos por un pasador robusto; "
                       "la figura gira a los costados sobre la cintura.")
+
+    # ------------------------------------------- corte paralelo al piso (cabeza / cintura)
+    def start_floor_cut(self, place: str) -> None:
+        """Corta la cabeza (`place` = «head») o la cintura («waist») con un plano paralelo al piso de la figura. Es lo mismo
+        que el plano de simetría trasladado («Corte a») para brazos y piernas, pero tomando el piso: el plano nace a una
+        altura razonable (o conserva la que ya tenía) y se traslada en paralelo con «Altura sobre el piso», con un clic sobre
+        la figura o con ↑ ↓. Si ya había un plano de 3 puntos inclinado, lo reemplaza."""
+        if place not in FLOOR_CUT_LABELS:
+            raise ValueError(place)
+        if not self._need_loaded():
+            return
+        if self.session.project.symmetry is None:
+            self._changed("Primero definí el plano de simetría.", scene=False)
+            return
+        self.cancel(quiet=True)
+        try:
+            if self.session.floor_cut_height(place) is None:
+                self.session.set_floor_cut(place, self.session.default_floor_cut_height(place))
+        except ValueError as e:
+            self._changed(f"No sirve: {e}.")
+            return
+        self.mode, self.pending_kind = Mode.FLOOR_CUT, place
+        self._changed(self.floor_cut_message(place) + " Hacé clic sobre la figura a la altura que querés (o ↑ ↓, Mayús = 1 mm); Esc termina.")
+
+    def floor_cut_message(self, place: str) -> str:
+        h = self.session.floor_cut_height(place)
+        return f"Corte {FLOOR_CUT_LABELS[place]}: plano paralelo al piso a {h:.1f} mm sobre él."
+
+    def set_floor_cut_height(self, place: str, mm: float) -> None:
+        """Traslada en paralelo el plano de corte de `place` a `mm` mm sobre el piso (la cara del corte se mueve: el pasador vuelve a su posición automática)."""
+        try:
+            self.session.set_floor_cut(place, mm)
+        except ValueError as e:
+            self._changed(f"{e}.", scene=False)
+            return
+        self._changed(self.floor_cut_message(place) + " Revisá el pasador.")
+
+    def nudge_floor_cut(self, direction: int, big: bool = False) -> None:
+        """↑ sube el plano, ↓ lo baja `FLOOR_CUT_NUDGE_MM` (Mayús = 10 veces más), sin salirse del rango de la figura."""
+        if self.mode != Mode.FLOOR_CUT or self.pending_kind is None:
+            return
+        h = self.session.floor_cut_height(self.pending_kind)
+        if h is None:
+            return
+        lo, hi = self.session.floor_cut_range()
+        step = FLOOR_CUT_NUDGE_MM * (10.0 if big else 1.0) * (1 if direction > 0 else -1)
+        self.set_floor_cut_height(self.pending_kind, float(np.clip(h + step, lo, hi)))
+
+    def _finish_floor_cut_pick(self, hit: PickResult) -> None:
+        """La altura es la z del punto tocado sobre la figura (desde cualquier vista). El modo sigue activo para reajustar."""
+        if self.pending_kind is not None:
+            lo, hi = self.session.floor_cut_range()
+            self.set_floor_cut_height(self.pending_kind, float(np.clip(hit.point[2], lo, hi)))
 
     # ------------------------------------------------------------ mano estándar (extraer)
     def start_hand_extract(self) -> None:
@@ -4221,6 +4280,10 @@ class Controller:
             return self.blocked("head") or (None if proj.head.replacement_path is not None else "Primero elegí una cabeza de reemplazo (STL).")
         if what == "head_replacement_cut":
             return self.blocked("head_replacement") or (None if proj.head.replacement_cut_points is not None else "La cabeza de reemplazo no tiene un corte propio.")
+        if what in ("floor_cut_head", "floor_cut_waist"):
+            place = what.split("_")[-1]
+            return self._why_sym() or (None if self.session.floor_cut_height(place) is not None else
+                                       "Primero agregá el corte paralelo al piso (botón de arriba): el plano actual es de 3 puntos o no existe.")
         if what == "waist":
             return self._why_stl() or (None if proj.waist is not None else "Agregá primero la cintura (pestaña Planos).")
         if what == "waist_pin_reset":

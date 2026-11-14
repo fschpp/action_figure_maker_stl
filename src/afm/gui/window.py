@@ -38,6 +38,7 @@ _MODE_TITLES = {Mode.VIEW: "", Mode.CROWN: "  ·  marcando coronilla", Mode.SYMM
                 Mode.JOINT_PLANE: "  ·  plano de articulación", Mode.JOINT_AXIS: "  ·  colocando eje de bisagra",
                 Mode.JOINT_LINES: "  ·  codo con 2 líneas (de frente)", Mode.JOINT_SIDE: "  ·  guías de la articulación (de costado)",
                 Mode.FLAT_PLANE: "  ·  corte con la cama de impresión",
+                Mode.FLOOR_CUT: "  ·  corte paralelo al piso",
                 Mode.HEAD_PIN: "  ·  pasador del cuello (de costado)", Mode.WAIST_PIN: "  ·  pasador de la cintura (de costado)"}
 
 
@@ -608,6 +609,15 @@ class MainWindow(Gtk.ApplicationWindow):
             has_sym = ctrl.session.project.symmetry is not None
             gate((self.btn_arm, self.btn_leg, self.btn_neck, self.btn_waist, self.btn_hand, self.btn_hand_stl),
                  ctrl.blocked("sym"))
+            gate((self.btn_neck_floor, self.btn_waist_floor), ctrl.blocked("sym"))
+            for place, spin in self.spin_floor.items():            # «Altura sobre el piso»: solo con el plano paralelo al piso puesto
+                h = ctrl.session.floor_cut_height(place) if loaded else None
+                gate(spin, ctrl.blocked(f"floor_cut_{place}"))
+                if h is not None:
+                    lo, hi = ctrl.session.floor_cut_range()
+                    spin.set_range(lo, hi)
+                    if abs(spin.get_value() - h) > 1e-9:
+                        spin.set_value(h)
             gate((self.btn_hand_invert, self.btn_hand_save, self.btn_hand_drop), ctrl.blocked("hand_extract"))
             placed = ctrl.session.project.hand if loaded else None
             gate((self.btn_hand_flip, self.btn_hand_orig, self.spin_hand_yaw, self.chk_hand_swivel), ctrl.blocked("hand_placed"))
@@ -766,6 +776,14 @@ class MainWindow(Gtk.ApplicationWindow):
         self.chk_cut_ghost.set_sensitive(bool(figs))
         self.lbl_cut_ref.set_text(ctrl.cut_ref_text())
         self.btn_cut_match.set_sensitive(off_limb is not None and bool(ctrl.cut_ref_rows()))
+
+    def _on_floor_cut(self, place: str, spin) -> None:
+        """«Altura sobre el piso»: traslada en paralelo el plano de corte de la cabeza o la cintura."""
+        if self._updating:
+            return
+        cur = self.ctrl.session.floor_cut_height(place)
+        if cur is not None and abs(spin.get_value() - cur) > 1e-9:
+            self.ctrl.set_floor_cut_height(place, spin.get_value())
 
     def _on_cut_offset(self, spin) -> None:
         if self._updating:
@@ -1050,6 +1068,9 @@ class MainWindow(Gtk.ApplicationWindow):
             return True
         if keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter) and self.ctrl.mode == Mode.POLYGON:
             self.ctrl.close_polygon()
+            return True
+        if self.ctrl.mode == Mode.FLOOR_CUT and keyval in (Gdk.KEY_Up, Gdk.KEY_Down):
+            self.ctrl.nudge_floor_cut(1 if keyval == Gdk.KEY_Up else -1, big=bool(state & Gdk.ModifierType.SHIFT_MASK))
             return True
         if self.ctrl.mode == Mode.FLAT_PLANE and keyval in (Gdk.KEY_Up, Gdk.KEY_Down):
             self.ctrl.nudge_flat(1 if keyval == Gdk.KEY_Up else -1, big=bool(state & Gdk.ModifierType.SHIFT_MASK))

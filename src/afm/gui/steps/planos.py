@@ -14,9 +14,28 @@ from ..widgets import collapsible as _collapsible
 from ..widgets import help_note as _help
 
 
+
+def _floor_cut_controls(win, sec, place: str, button_label: str, tip: str) -> None:
+    """Botón «… paralelo al piso» + «Altura sobre el piso (mm)»: el plano horizontal se traslada en paralelo, como «Corte a»
+    traslada el plano de simetría para brazos y piernas. `place`: «head» (cuello) o «waist» (cintura)."""
+    btn = win._button(button_label, lambda *_: win.ctrl.start_floor_cut(place))
+    btn.set_tooltip_text(tip)
+    setattr(win, f"btn_{'neck' if place == 'head' else 'waist'}_floor", btn)
+    sec.append(btn)
+    row = Gtk.Box(spacing=6)
+    row.append(Gtk.Label(label="Altura sobre el piso (mm)", xalign=0, hexpand=True))
+    spin = Gtk.SpinButton.new_with_range(0.5, 400.0, 0.5)
+    spin.set_digits(2)
+    spin.set_tooltip_text("Traslada el plano de corte en paralelo al piso. También: clic sobre la figura o flechas ↑ ↓ (Mayús = 1 mm) con la herramienta activa.")
+    spin.connect("value-changed", lambda b, pl=place: win._on_floor_cut(pl, b))
+    row.append(spin)
+    sec.append(row)
+    win.spin_floor[place] = spin
+
 def build(win) -> None:
     """Agrega la pestaña «Planos» a `win.tabs` (win = la `MainWindow`)."""
     box = win._tab_page("Planos")
+    win.spin_floor: dict[str, Gtk.SpinButton] = {}      # «Altura sobre el piso» de cada corte paralelo al piso (clave: head / waist)
     sec = _collapsible(box, "Plano de simetría")
     win.btn_sym = win._button("Plano de simetría (3 puntos)", lambda *_: win.ctrl.start_symmetry())
     win.btn_sym_auto = win._button("Simetría automática (x = 0)", lambda *_: win.ctrl.auto_symmetry())
@@ -99,6 +118,8 @@ def build(win) -> None:
     win.btn_waist = win._button("Agregar cintura: cortar el torso y girar a los costados (3 puntos)",
                                   lambda *_: win.ctrl.start_waist_plane())
     sec.append(win.btn_waist)
+    _floor_cut_controls(win, sec, "waist", "Agregar cintura paralela al piso (una altura)",
+                        "Corta el torso con un plano horizontal (paralelo al piso de la figura) en vez de elegir 3 puntos. Se traslada en paralelo con «Altura sobre el piso», con un clic sobre la figura o con ↑ ↓.")
     win.btn_waist_pin = win._button("Elegir dónde va el pasador de la cintura (vista de costado)", lambda *_: win.ctrl.start_waist_pin())
     win.btn_waist_pin.set_tooltip_text("Con un pasador elegido, el puerto «cintura» que se cataloga va en él (como el cuello y los miembros); "
                                         "sin elegir, queda en el centro de la cara, como siempre. Clic = mover; flechas = 0,1 mm; M = imán; H = mapa de calor.")
@@ -242,6 +263,8 @@ def build(win) -> None:
     for b in (win.btn_neck, win.btn_head_stl, win.btn_head_orig, win.btn_head_cut, win.btn_head_uncut,
               win.btn_head_pin, win.btn_head_pin_reset):
         sec.append(b)
+    _floor_cut_controls(win, sec, "head", "Agregar corte de la cabeza paralelo al piso (una altura)",
+                        "Corta la cabeza con un plano horizontal (paralelo al piso de la figura) en vez de elegir 3 puntos. Se traslada en paralelo con «Altura sobre el piso», con un clic sobre la figura o con ↑ ↓.")
     win.btn_head_snap = win._button("Imán del pasador (M)", lambda *_: win.ctrl.snap_pin())
     win.btn_head_heat = win._button("Mapa de calor del pasador (H)", lambda *_: win.ctrl.toggle_heat())
     sec.append(win.btn_head_snap)

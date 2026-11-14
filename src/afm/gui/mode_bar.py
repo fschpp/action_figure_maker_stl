@@ -34,6 +34,7 @@ MODE_HELP: dict[Mode, tuple[str, tuple[str, ...]]] = {
     Mode.HEAD_PIN: (_PIN, ("snap", "heat", "done")),
     Mode.WAIST_PIN: (_PIN, ("snap", "heat", "done")),
     Mode.TRIM_PICK: ("Clic sobre la figura: centro del recorte · Esc: cancelar", ("cancel",)),
+    Mode.FLOOR_CUT: ("Clic sobre la figura o ↑↓: altura del plano paralelo al piso (Mayús: más) · Esc: terminar", ("done",)),
     Mode.FLAT_PLANE: ("Clic o ↑↓: altura del corte con la cama de impresión (Mayús: más) · Esc: terminar", ("done",)),
 }
 

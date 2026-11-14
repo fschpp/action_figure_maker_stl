@@ -19,13 +19,13 @@ import numpy as np
 import trimesh
 
 from .. import meshio, pipeline as P, solids as S
-from ..head import HeadPinPreview, HeadSpec, head_pin_preview, neck_plane, split_head
-from ..waist import WaistSpec, waist_plane
+from ..head import HEAD_NAME, HeadPinPreview, HeadSpec, head_pin_preview, neck_plane, split_head
+from ..waist import WAIST_NAME, WaistSpec, waist_plane
 from ..joints import JOINT_KIND_BY_LIMB, JointSpec, min_shoulder
 from ..limbs import CROSS_THICKNESS_MM, LimbCut, LimbSpec, PinPreview, check_limb_plane, contact_preview, effective_cut_offset, plane_is_lateral, plane_on_symmetry
 from ..params import PinSpec
 
-from ..planes import Plane
+from ..planes import Plane, floor_height, floor_plane
 from ..project import Project
 
 ARM_SLAB_MM = 12 * 1.653      # losa del brazo: 12 mm del tutorial a la escala final (plan §5.1)
@@ -1400,6 +1400,40 @@ class Session:
         self.project.head = None
         self.project.trims = [t for t in self.project.trims if t.target != "cabeza"]
         self.outcome = None
+
+    # ------------------------------------------- cortes paralelos al piso (cabeza / cintura)
+    FLOOR_CUT_PLACES = ("head", "waist")                 # lugares que se pueden cortar con un plano paralelo al piso
+    FLOOR_CUT_DEFAULT_FRAC = {"head": 0.82, "waist": 0.50}   # altura inicial como fracción de la altura de la figura
+
+    def floor_cut_range(self) -> tuple[float, float]:
+        """Alturas válidas (mm sobre el piso) del plano paralelo al piso: de 0,5 mm del piso a 0,5 mm de la coronilla."""
+        if self.work is None:
+            raise ValueError("Abrí un STL")
+        return 0.5, float(self.work.bounds[1][2]) - 0.5
+
+    def floor_cut_height(self, place: str) -> float | None:
+        """Altura (mm sobre el piso) del corte de `place` («head» / «waist») si es un plano paralelo al piso; None si no hay\n        plano o es uno de 3 puntos inclinado."""
+        if place not in self.FLOOR_CUT_PLACES:
+            raise ValueError(f"lugar inválido: {place!r}")
+        spec = self.project.head if place == "head" else self.project.waist
+        return None if spec is None else floor_height(spec.plane)
+
+    def default_floor_cut_height(self, place: str) -> float:
+        lo, hi = self.floor_cut_range()
+        return float(np.clip(self.FLOOR_CUT_DEFAULT_FRAC[place] * self.project.params.ref_height, lo, hi))
+
+    def set_floor_cut(self, place: str, height_mm: float) -> None:
+        """Corta la cabeza (cuello) o la cintura con un plano paralelo al piso a `height_mm` mm sobre él. Si ya había uno,\n        lo traslada en paralelo (el resto de la configuración de la cabeza / cintura se conserva; el pasador vuelve a la\n        posición automática porque la cara del corte se movió)."""
+        if place not in self.FLOOR_CUT_PLACES:
+            raise ValueError(f"lugar inválido: {place!r}")
+        h = float(height_mm)
+        lo, hi = self.floor_cut_range()
+        if not np.isfinite(h) or not (lo <= h <= hi):
+            raise ValueError(f"la altura del corte tiene que estar entre {lo:.1f} y {hi:.1f} mm sobre el piso")
+        if place == "head":
+            self.set_head(floor_plane(h, HEAD_NAME))
+        else:
+            self.set_waist(floor_plane(h, WAIST_NAME))
 
     # ----------------------------------------------------------------- cintura
     def set_waist(self, plane: Plane) -> WaistSpec:

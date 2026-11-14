@@ -61,3 +61,23 @@ class Plane:
     @classmethod
     def from_dict(cls, d: dict) -> "Plane":
         return cls.from_normal(d["origin"], d["normal"], d.get("name", ""))
+
+
+FLOOR_NORMAL = (0.0, 0.0, 1.0)
+FLOOR_TOL = 1e-6          # |n·Z| ≥ 1 − FLOOR_TOL cuenta como «paralelo al piso»
+
+
+def floor_plane(height: float, name: str = "") -> Plane:
+    """Plano paralelo al piso de la figura (z = 0) a `height` mm sobre él. Es el plano que se traslada en paralelo
+    para cortar la cabeza o la cintura, igual que el plano de simetría se traslada («Corte a») para brazos y piernas."""
+    return Plane.from_normal((0.0, 0.0, float(height)), FLOOR_NORMAL, name)
+
+
+def floor_height(plane: Plane | None) -> float | None:
+    """Altura (mm sobre el piso) de `plane` si es paralelo al piso; None si está inclinado o no hay plano."""
+    if plane is None:
+        return None
+    n = np.asarray(plane.normal, float)
+    if abs(float(n[2])) < 1.0 - FLOOR_TOL:
+        return None
+    return float(np.asarray(plane.origin, float)[2])
