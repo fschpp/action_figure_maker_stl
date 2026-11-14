@@ -23,6 +23,7 @@ from . import param_meta as PM
 from .progress_panel import ProgressPanel  # noqa: E402
 from .render import SceneRenderer  # noqa: E402
 from .session import CatalogNeeded  # noqa: E402
+from . import mode_bar  # noqa: E402
 from .steps import STEPS, plane_panel, rail  # noqa: E402
 from .ui_consts import HEAD_ADJUST_ATTR, TRIM_OPS as _TRIM_OPS  # noqa: E402
 from .widgets import no_scroll_change as _no_scroll_change  # noqa: E402
@@ -55,6 +56,8 @@ _CSS = b"""
 .afm-task { font-weight: 600; }
 .afm-cube-btn { color: #e6e8ec; background: alpha(#000, 0.35); border-radius: 6px; padding: 2px 10px; min-height: 0; }
 .afm-cube-btn:hover { background: alpha(#00ae42, 0.8); }
+.afm-mode-bar { color: #e6e8ec; background: alpha(#000, 0.55); border-radius: 8px; padding: 6px 12px; }
+.afm-mode-title { font-weight: 700; }
 .afm-thumb { border-radius: 6px; background: alpha(currentColor, 0.06); }
 .afm-step-glyph { font-weight: 700; min-width: 1.4em; }
 .afm-step-title { font-weight: 600; }
@@ -226,6 +229,7 @@ class MainWindow(Gtk.ApplicationWindow):
         overlay = Gtk.Overlay()
         overlay.set_child(self.gl)
         overlay.add_overlay(self._build_view_cube())
+        overlay.add_overlay(mode_bar.build(self))
         return overlay
 
     def _build_view_cube(self) -> Gtk.Widget:
@@ -443,6 +447,7 @@ class MainWindow(Gtk.ApplicationWindow):
             title = "* " + title                           # cambios sin guardar en el proyecto
         mode_title = "  ·  dibujando recorte" if ctrl.mode == Mode.POLYGON and ctrl.trim_cfg else _MODE_TITLES[ctrl.mode]
         self.set_title(title + mode_title)
+        mode_bar.update(self, mode_title.strip(" ·"))
 
     def _sync_undo_buttons(self) -> None:
         ctrl, h = self.ctrl, self.ctrl.history

@@ -1158,3 +1158,9 @@ No existe una «cara interna del muslo» detectable en Güemes (el borde interno
 - [x] Asistente «Nuevo héroe» de 3 pasos (`gui/hero_wizard.py`, lógica probada sin GTK).
 - [ ] Probar en ventana real con GL: aspecto de las miniaturas y del asistente (aquí no hay GTK).
 - Descartado: modo «Desde STL / Desde catálogo» (Catálogo sigue como pestaña opcional).
+
+
+## Etapa 4a (2026-11-14, rama barra_visor, sobre main 04dece4)
+- [x] Barra contextual sobre el visor (`gui/mode_bar.py`: tabla de ayuda por modo probada sin GTK; `Gtk.Revealer` en el `Gtk.Overlay`; se actualiza en `_sync_title`).
+- [ ] Probar en ventana real con GL: posición (arriba al centro, puede tocar el cubo en ventanas angostas), legibilidad y botones.
+- [ ] Siguiente: sacar los párrafos largos de ayuda de Planos y Miembros ahora que la barra explica clics y teclas (criterio: ningún bloque > ~200 caracteres).

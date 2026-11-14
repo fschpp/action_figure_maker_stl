@@ -751,3 +751,7 @@ Instalación y resumen de una página: [`manual_corto.md`](manual_corto.md). El 
 
 ### Miniaturas en la pestaña Catálogo
 Cada lugar (cabeza, torso, pelvis, brazos, piernas, manos) muestra una miniatura de frente de la pieza elegida. Se dibujan en segundo plano y quedan guardadas en la carpeta de caché del usuario (`~/.cache/afm/miniaturas`), así que la segunda vez aparecen al instante. Con «(la del modelo)» el hueco queda vacío.
+
+
+### La barra sobre el visor
+Cuando activás una herramienta que usa el visor (plano de 3 puntos, dibujar silueta o recorte, colocar pasador, eje de bisagra, altura del corte con la cama de impresión…), arriba al centro del visor aparece una barra con el nombre de la herramienta, **qué hace cada clic y las teclas** (Intro cierra el polígono, Retroceso quita el último punto, Esc sale, M imán y H calor en los pasadores) y los botones del modo: *Quitar último*, *Cerrar polígono*, *Cancelar* / *Terminar*, *Imán* y *Calor*. Se oculta sola al volver a «ver».
