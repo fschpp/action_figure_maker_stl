@@ -13,7 +13,6 @@ from ..widgets import help_note as _help
 def build(win) -> None:
     """Agrega la pestaña «Catálogo» a `win.tabs` (win = la `MainWindow`)."""
     box = win._tab_page("Catálogo")
-    sec = _collapsible(box, "Piezas de catálogo")
     win.btn_cat_new = win._button("Crear catálogo de la línea (carpeta nueva)…", win._on_catalog_new)
     win.btn_cat_open = win._button("Abrir catálogo de la línea (carpeta)…", win._on_catalog_open)
     win.btn_cat_hero = win._button("Nuevo héroe desde el patrón (p. ej. Güemes)…", win._on_new_from_pattern)
@@ -31,9 +30,6 @@ def build(win) -> None:
                                         "pelvis y de la mano del patrón (p. ej. Güemes) del catálogo abierto. Muestra qué cambiaría antes de aplicarlo.")
     win.btn_cat_manage = win._button("Administrar catálogo (piezas, certificación, compatibilidad)…", win._on_catalog_manage)
     win.btn_cat_build = win._button("Armar figura desde catálogo (sin STL)…", win._on_catalog_build)
-    for w in (win.btn_cat_new, win.btn_cat_open, win.btn_cat_hero, win.lbl_catalog, win.btn_cat_add, win.btn_cat_guide, win.btn_cat_fitcm,
-              win.btn_cat_manage, win.btn_cat_build):
-        sec.append(w)
     win.btn_cat_forget = win._button("Olvidar el catálogo recordado", lambda *_: win.ctrl.forget_catalog())
     win.btn_cat_forget.set_tooltip_text("Cierra el catálogo y borra lo recordado: la próxima vez hay que abrirlo a mano. "
                                          "No toca la carpeta ni el proyecto.")
@@ -43,21 +39,45 @@ def build(win) -> None:
     win.chk_part_preview = Gtk.CheckButton(label="Dibujar las piezas elegidas antes de generar",
                                             active=win.ctrl.show_part_preview)
     win.chk_part_preview.connect("toggled", lambda b: None if win._updating else win.ctrl.set_show_part_preview(b.get_active()))
-    for w in (win.btn_cat_forget, win.btn_cat_review, win.btn_cat_scale, win.btn_cat_align, win.chk_part_preview):
-        sec.append(w)
     win.btn_divide_model = win._button("Dividir figura actual y ajustar piezas…", win._on_divide_model)
     win.btn_proportions = win._button("Comparar proporciones con un patrón…", win._on_proportions)
     win.btn_proportions.set_tooltip_text("Tu figura en piezas al lado del cuerpo de una figura patrón del catálogo (p. ej. Güemes), en tres "
                                           "vistas, para ir igualando la escala de cada pieza viendo el resultado.")
     win.btn_reset_piece_scales = win._button("Restablecer escalas por pieza", lambda *_: win.ctrl.reset_part_scales())
-    sec.append(win.btn_divide_model)
-    sec.append(win.btn_proportions)
-    sec.append(win.btn_reset_piece_scales)
-    sec.append(Gtk.Label(label="Pieza de cada lugar (escala ×1 = original, X/Y/Z por separado; al cambiar hay que generar)", xalign=0, margin_top=8))
     win.parts_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-    sec.append(win.parts_box)
     win._parts_sig = None
-    _help(sec, "«Crear catálogo» arma una carpeta nueva para la línea (nombre y altura de figura; es lo mismo que «afm catalogo "
+
+    # ---- orden nuevo (etapa 6): primero los lugares de la figura (lo más usado), la gestión del catálogo en un menú
+    places = _collapsible(box, "Lugares de la figura")
+    places.append(win.lbl_catalog)
+    bar = Gtk.Box(spacing=6)
+    pop_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+    popover = Gtk.Popover(child=pop_box)
+    for b in (win.btn_cat_new, win.btn_cat_open, win.btn_cat_add, win.btn_cat_hero, win.btn_cat_guide, win.btn_cat_fitcm,
+              win.btn_cat_manage, win.btn_cat_build, win.btn_cat_forget):
+        b.add_css_class("flat")
+        b.set_halign(Gtk.Align.FILL)
+        if b.get_child() is not None:
+            b.get_child().set_halign(Gtk.Align.START)
+        pop_box.append(b)
+    win.btn_cat_forget.add_css_class("destructive-action")      # «Olvidar» ya no queda junto a las acciones frecuentes
+    win.menu_catalog = Gtk.MenuButton(label="Catálogo ▾", popover=popover)
+    win.menu_catalog.set_tooltip_text("Abrir, crear, administrar o catalogar; guía de cortes y ajuste al patrón")
+    bar.append(win.menu_catalog)
+    bar.append(win.btn_cat_review)
+    places.append(bar)
+    places.append(Gtk.Label(label="Pieza de cada lugar (al cambiar hay que generar)", xalign=0, css_classes=["dim-label"]))
+    places.append(win.parts_box)
+
+    sec = _collapsible(box, "Ajustes de la figura", expanded=False)
+    for w in (win.btn_cat_scale, win.btn_cat_align, win.chk_part_preview, win.btn_divide_model, win.btn_proportions,
+              win.btn_reset_piece_scales):
+        sec.append(w)
+
+    _help(box, "Elegí en cada lugar la pieza del modelo o una del catálogo. «Revisar» mide el acople sin generar; "
+               "✓ ok · ⚠ aviso · ✗ no. Todo el detalle está en «Ayuda del catálogo».")
+    long_sec = _collapsible(box, "Ayuda del catálogo", expanded=False, sub=True)
+    _help(long_sec, "«Crear catálogo» arma una carpeta nueva para la línea (nombre y altura de figura; es lo mismo que «afm catalogo "
                "crear») y la deja abierta. Si ya tenés una, abrila con «Abrir catálogo». «Catalogar esta figura» (elegís los lugares y si va como versión nueva; con cabeza de reemplazo guarda ESA cabeza) guarda "
                "sus piezas crudas (cabeza, torso, brazo, pierna, con los planos y siluetas que ya definiste) para usarlas en "
                "otras figuras. En cada lugar elegí «la del modelo» o una pieza del catálogo: «Generar figura» la pone en el "

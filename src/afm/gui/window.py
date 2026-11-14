@@ -62,6 +62,7 @@ _CSS = b"""
 .afm-step-warn { color: #e5a50a; }
 .afm-step-stale { color: #e66100; }
 .afm-step-ready { color: #3584e4; }
+.afm-step-bad { color: #e01b24; }
 .afm-step-todo, .afm-step-info { opacity: 0.7; }
 button:disabled, spinbutton:disabled, checkbutton:disabled, dropdown:disabled, switch:disabled { opacity: 0.65; }
 """
@@ -1233,6 +1234,13 @@ class MainWindow(Gtk.ApplicationWindow):
             lugar, refs = r["lugar"], choices[r["lugar"]]
             box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
             line = Gtk.Box(spacing=6)
+            state, glyph = ctrl.catalog_row_state(r)
+            icon = Gtk.Label(label=glyph, tooltip_text={"modelo": "Usa la pieza del modelo", "pendiente": "Pieza elegida, sin revisar",
+                                                         "ok": "Acopla bien", "aviso": "Acopla con avisos", "no": "No acopla"}[state])
+            icon.add_css_class("afm-step-glyph")
+            icon.add_css_class({"modelo": "afm-step-info", "pendiente": "afm-step-todo", "ok": "afm-step-ok",
+                                "aviso": "afm-step-warn", "no": "afm-step-bad"}[state])
+            line.append(icon)
             line.append(Gtk.Label(label=lugar.capitalize(), xalign=0, hexpand=True))
             dd = Gtk.DropDown.new_from_strings(["(la del modelo)"] + [shown.get(ref, ref) for ref in refs])
             cur = r["pieza"]

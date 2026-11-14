@@ -539,7 +539,7 @@ Con la simetría definida y cada miembro con su silueta, el Estado deja de lista
 2. Al terminar, el Estado resume la validación: piezas, **holgura mínima** contra el objetivo, recorrido
    libre de la cadera y avisos del soldado. Si hay **problemas** (interpenetración, holgura corta,
    interferencia en el giro) los lista.
-3. **Exportar piezas…:** elegís una carpeta y se escriben `*_ensamblada.stl`, un STL por pieza en
+3. **Exportar:** elegís una carpeta y se escriben `*_ensamblada.stl`, un STL por pieza en
    `piezas/`, el informe `*_informe.json` y el proyecto. Con la casilla **Apoyar las piezas
    en la cama** todas se exportan **tal como se ven en «Ver la figura generada en la pose de cadera»** (sentada, cabeza
    arriba, sin darla vuelta), solo bajadas hasta z = 0 y con la misma transformación, para que sigan ensambladas en el

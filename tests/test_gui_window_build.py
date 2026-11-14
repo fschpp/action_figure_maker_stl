@@ -176,3 +176,26 @@ def test_header_open_menu_title_marker_and_status_click(tmp_path):
     assert not res["clean_title"].startswith("*")
     assert res["dirty_title"].startswith("* ")
     assert not res["saved_title"].startswith("*")
+
+
+def test_catalog_tab_places_first_and_menu():
+    """Catálogo (etapa 6): los lugares van primero, la gestión está en el menú «Catálogo ▾» y los botones siguen existiendo."""
+    res = {}
+    app = Gtk.Application(application_id="ar.afm.test4")
+
+    def act(a):
+        try:
+            win = MainWindow(a, Controller())
+            res["menu"] = isinstance(win.menu_catalog, Gtk.MenuButton)
+            res["btns"] = all(hasattr(win, n) for n in ("btn_cat_new", "btn_cat_open", "btn_cat_add", "btn_cat_hero", "btn_cat_guide",
+                                                         "btn_cat_fitcm", "btn_cat_manage", "btn_cat_build", "btn_cat_forget", "btn_cat_review"))
+            # el cuadro de lugares está antes que los ajustes en la pestaña
+            res["parts_visible"] = win.parts_box.get_ancestor(Gtk.Expander) is not None
+        except Exception as e:      # noqa: BLE001
+            res["error"] = e
+        GLib.idle_add(a.quit)
+
+    app.connect("activate", act)
+    app.run([])
+    assert "error" not in res, res.get("error")
+    assert res["menu"] and res["btns"] and res["parts_visible"]

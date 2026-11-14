@@ -20,7 +20,7 @@ def build(win) -> None:
     sec.append(win.btn_generate)
     _help(sec, "Generar puede tardar varios minutos. Si cambiás algo después, hay que generar de nuevo antes de exportar.")
 
-    sec = _collapsible(box, "Exportar")
+    sec = _collapsible(box, "Opciones de exportación")
     win.chk_orient = Gtk.CheckButton(label="Apoyar las piezas en la cama al exportar (en la pose de cadera, cabeza arriba)", active=True)
     sec.append(win.chk_orient)
     sub = _collapsible(sec, "Impresión sin soportes", sub=True)
@@ -47,6 +47,6 @@ exportar; tarda un poco más.")
     win.btn_flat_click.set_tooltip_text("El brazo con clic no se puede girar después de generar: su pose la fija la fase de los clics. "
                                          "Pone «Clic: ángulo del brazo al imprimir» en el ángulo en que el brazo apoya en el plano del corte.")
     sub.append(win.btn_flat_click)
-    _help(sec, "Las piezas se exportan con el botón «Exportar piezas…» de la barra superior, junto a «Guardar proyecto…».")
+    _help(sec, "Estas opciones se aplican al exportar con el botón «Exportar» de la barra superior (sale de la figura ya generada).")
 
     win.sidebar_box = win.tabs                  # lo que se desactiva mientras se genera

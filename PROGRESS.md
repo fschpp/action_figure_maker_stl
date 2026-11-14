@@ -2,7 +2,18 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
-## Current Focus — UX etapa 7 (cierre): contraste y glosario (2026-11-13, rama `mejora_uiux`, sobre main d78d381)
+## Current Focus — UX etapa 6: pestaña Catálogo por lugares + cabos sueltos de Generar (2026-11-13, rama `mejora_uiux`, sobre main 9cacac8)
+**Catálogo (`gui/steps/catalogo.py`):** «Lugares de la figura» pasa ARRIBA (antes quedaba al fondo y pedía scroll): estado del catálogo, menú **Catálogo ▾** (`menu_catalog`, popover con crear / abrir / catalogar / nuevo héroe / guía de cortes / ajustar cintura y muñeca / administrar / armar sin STL / **olvidar**, este último en rojo y apartado de lo frecuente), «Revisar» al lado y una fila por lugar con **ícono de estado** (`Controller.catalog_row_state`: · del modelo, ○ sin revisar, ✓ ok, ⚠ aviso, ✗ no; la revisión previa gana sobre `compat`). Escala, alinear, vista previa, dividir, proporciones y restablecer quedan en «Ajustes de la figura» (plegado). La ayuda de 1.929 caracteres pasa a «Ayuda del catálogo» (plegada) y a la vista queda un resumen de ~190. Todos los `btn_cat_*` conservan su nombre (ahora dentro del popover), así que el gating de `_sync_catalog` no cambió. **Generar:** la sección «Exportar» (que tiene opciones, no un botón) se llama «Opciones de exportación» y su ayuda ya nombra «Exportar» / «Guardar». Verificado con la ventana real (captura bajo Xvfb) y la suite `gui/catalog_window/cancel`: 435 pasan, 1 saltado. Tests: `test_gui_catalog_places.py`, +1 en `test_gui_window_build.py`.
+
+### Todo List
+- [x] G2 / ayuda de Generar. · [x] Etapa 6 (tabla de lugares con estado y menú Catálogo ▾).
+- [ ] Etapa 6, resto: miniatura por lugar; «Nuevo héroe desde patrón» como asistente de 3 pasos; la fila de escala ocupa 3 líneas en el panel (valorar plegarla).
+- [ ] Decidir el vocabulario de «corte».
+- [ ] 4a barra contextual sobre el visor (necesita GL real) · modo «Desde STL / Desde catálogo» (saca Catálogo del riel).
+- [ ] R6/R10 restos: valor por defecto y tipo en `PARAM_FIELDS`, perfil de línea arriba, ocultar «Radio» con forma Polígono.
+- [ ] Probar todo con GL real y figuras reales; en la captura de Xvfb los íconos de deshacer / rehacer / exportar salen vacíos por falta de tema de íconos (revisar en el escritorio real).
+
+## Current Focus (anterior) — UX etapa 7 (cierre): contraste y glosario (2026-11-13, rama `mejora_uiux`, sobre main d78d381)
 Contraste: ayuda sin cursiva y con opacidad 0,9 (antes 0,75), borde y fondo del recuadro más marcados, controles deshabilitados a 0,65 de opacidad (antes ~0,5 por defecto de GTK), ícono y detalle del riel más legibles. Glosario: en la ventana ya casi todo decía «pasador»; se corrigió «pines» → «pasadores» (`plane_panel`). `docs/tutorial_gui.md` §2 se reescribió con la ventana actual (Abrir ▾, riel, aviso amarillo, Estado clicable, «*») y trae una tabla de glosario (plano / sección / silueta / pasador / mira). **No se renombró «corte»** (26 textos con sentidos distintos: lugar de unión, 2.º corte = silueta de costado, plano de corte): queda como decisión de producto.
 
 ### Todo List

@@ -3358,6 +3358,17 @@ class Controller:
         return self.session.part_rows() if self.loaded else []
 
     @staticmethod
+    def catalog_row_state(row: dict) -> tuple[str, str]:
+        """(estado, ícono) de una fila de lugar: «modelo» (· la del modelo), «pendiente» (○ elegida y sin revisar),
+        «ok» (✓), «aviso» (⚠) o «no» (✗; también si hay error o conflicto)."""
+        if row["pieza"] is None:
+            return "modelo", "·"
+        nivel = row.get("nivel") or (row.get("compat") or {}).get("nivel")
+        if nivel is None:
+            return "pendiente", "○"
+        return nivel, {"ok": "✓", "aviso": "⚠"}.get(nivel, "✗")
+
+    @staticmethod
     def catalog_row_text(row: dict, labels: dict | None = None) -> str:
         """Texto de una fila para la lista: «brazo: original» o «pierna: pierna-01@2 — aviso (IoU 0,71, escalón 1,07 mm)».
         `labels` = {ref: nombre para mostrar} (ver `catalog_manager.piece_label`): si la pieza tiene nombre, se muestra."""
