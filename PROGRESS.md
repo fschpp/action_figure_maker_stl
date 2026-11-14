@@ -2,7 +2,16 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
-## Current Focus — Simulación de la articulación al costado y hover al mover el eje (2026-11-13, sobre main e61a915)
+## Current Focus — Simulación de la cadera al dibujar la silueta de una pierna (2026-11-14, rama `simulacion_cadera_siluetas`, sobre main 2cb3ece)
+**Pedido:** poder ver la articulación (la cadera) al definir la pierna, como ya se hace con la rodilla y el codo. **Hecho:** en el modo `POLYGON` (silueta y 2.ª silueta) de una pierna la barra del visor ofrece «Ver / Ocultar simulación» y «Flexión mostrada»; la simulación de la cadera (`preview_hip`: pasador + hueco que talla el barrido en la pelvis) se dibuja al costado de la figura, que sigue a la vista, y se recalcula sola cuando la silueta se guarda (la clave de `joint_preview_key` ya depende del miembro). `Controller.polygon_hip_name` / `preview_here_available` / `_beside_axis`; el botón no aparece en la silueta de un brazo; de la silueta a la 2.ª (y al revés) la simulación sigue encendida; al terminar vuelve la figura. Como la silueta se dibuja de costado (cámara a lo largo de X, donde +X apunta al ojo), el corrimiento va sobre Y hacia la derecha de la pantalla en esa vista (de frente sigue en +X); si la simulación falla (silueta sin cerrar, etc.) la barra muestra el motivo. Tests: `tests/test_gui_hip_beside.py` (6) + los de simulación y barra existentes. **Sin probar con GL real ni con la ventana GTK** (`test_gui_window_build` no corre en este entorno); el encuadre y el lado elegido hay que verlos en el escritorio. **Fuera de alcance:** `LIMB_PLANE` (los 3 clics crean la pierna y aún no tiene silueta, no hay hueco que mostrar) y el modo `PIN`.
+
+### Todo List
+- [x] `polygon_hip_name`, botón «Simulación» en `POLYGON` solo para piernas, eje de corrimiento según la cámara.
+- [x] Tests (`test_gui_hip_beside.py`).
+- [ ] Ver el resultado en el escritorio con GL real (lado elegido en vista de costado, encuadre).
+- [ ] Evaluar lo mismo para `PIN` (colocar pasador de cadera) y para encender la simulación sola al entrar a la silueta de una pierna.
+
+## Current Focus (anterior) — Simulación de la articulación al costado y hover al mover el eje (2026-11-13, sobre main e61a915)
 **Problema:** al elegir el punto de la rodilla / codo la simulación (Parámetros → «Vista previa de la articulación») quedaba lejos (otra pestaña) y, encendida, ocultaba la figura; además «Mover el eje de la bisagra» (`JOINT_AXIS`) no marcaba en rojo el vértice bajo el puntero. **Hecho:** `JOINT_AXIS` entra en `hover_active`; con la vista previa encendida y una herramienta de articulación activa (`Controller.JOINT_TOOL_MODES`) la simulación se dibuja a la derecha de la figura, a la altura de la articulación, y la figura sigue a la vista (`joint_preview_beside`, `_joint_beside_layout`; la cámara encuadra ambas una vez); el eje se puede reajustar con varios clics sin salir del modo si la simulación está encendida; la barra del visor trae «Ver / Ocultar simulación» y «Flexión mostrada» (`toggle_joint_preview_here`). Fuera de las herramientas la vista previa sigue reemplazando a la figura. Tests: `tests/test_gui_joint_beside.py`. **Sin probar con GL real** (no hay `moderngl` en el entorno de desarrollo): el dibujo del punto rojo y el encuadre hay que verlos en el escritorio.
 
 ## Current Focus — UX restos de R6 y R10 (2026-11-13, rama `mejora_uiux`, sobre main d6597e8)
