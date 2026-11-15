@@ -21,6 +21,8 @@ jobs:
       - name: Wheel de fast-simplification para Pyodide (Release; decimación del torso, ver fastsimp-wheel.yml)
         env: { GH_TOKEN: "${{ github.token }}" }
         run: gh release download fast-simplification-pyodide-0.2.0 --pattern '*.whl' --dir extra
+      - name: Test de la comprobación de versión (web/version.js)
+        run: node web/tests/version_node.mjs
       - run: scripts/build_web.sh extra
       - uses: actions/upload-pages-artifact@v3
         with: { path: web }

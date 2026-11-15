@@ -2,7 +2,20 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
-## Current Focus — G3 (tiempo en el navegador) y G0 (Python 3.14): mediciones (2026-11-15, rama `g3_min_gap_recorte` sobre main 3dc03d9)
+## Current Focus — Etiqueta y botón de versión en el sitio (2026-11-15, rama `web_version_check` sobre main 4da0813)
+**Objetivo:** saber si la pestaña usa la última versión publicada o una vieja de la caché del navegador. **Hecho:** `scripts/build_web.sh` estampa `web/build-info.js` (versión cargada en la pestaña) y `web/version.json` (versión publicada, con la lista de archivos); ambos van en `.gitignore` y los genera el CI en cada push. `web/version.js`: `compareBuilds` (current / outdated / ahead / unknown), `fetchRemote` (pide `version.json` con `cache: "no-store"` y `?t=` para saltear navegador y CDN), `refreshFiles` (`cache: "reload"` por archivo) e `initVersionUI`. Pie de página con «Versión: <commit> · publicada <fecha>», botón «Buscar actualización» (se comprueba solo al abrir, en silencio) que pasa a «Actualizar ahora» si hay una versión más nueva: re-descarga todo saltando la caché y recarga. `pages.yml` corre `web/tests/version_node.mjs` antes de construir.
+**Verificado:** `web/tests/version_node.mjs` (estados, `fetch` simulado, DOM simulado); `build_web.sh` real genera ambos archivos; chequeo con HTTP real contra `python -m http.server` (misma versión → «última»; commit viejo → «Actualizar ahora» y descarga de los 12 archivos). **No verificado:** en un navegador real tras el despliegue (no hay Chrome en la sesión; `github.io` fuera de la allowlist).
+
+### Todo List
+- [x] Etiqueta + botón de versión, build que estampa commit y fecha, test en Node y en CI.
+- [ ] Mergear y, tras el despliegue, abrir el sitio: el label debe mostrar el commit del merge; con DevTools → Application → Clear storage y una versión posterior publicada, el botón debe ofrecer «Actualizar ahora».
+- [ ] Seguir con G3 (ver el Current Focus siguiente).
+
+### Latest Blockers/Discoveries
+- Límite conocido: si `index.html` o `app.js` quedaran viejos pero `build-info.js` nuevo (caché mezclada), el label mostraría la versión nueva; «Actualizar ahora» corrige igual porque re-descarga todos los archivos. GitHub Pages sirve con `max-age=600`, de ahí el `no-store` + `?t=` en `version.json`.
+- El wheel del motor conserva el nombre (`…-0.2.1-…`) entre commits, por eso está en la lista de re-descarga; los wheels extra (manifold3d, fast-simplification) llevan la versión en el nombre y no se vuelven a bajar.
+
+## Current Focus (anterior) — G3 (tiempo en el navegador) y G0 (Python 3.14): mediciones (2026-11-15, rama `g3_min_gap_recorte` sobre main 3dc03d9)
 **Objetivo inmediato:** saber DÓNDE se van los 231,6 s que tardó la demo en el navegador (tope de G3: 60 s) antes de optimizar nada.
 
 ### Todo List

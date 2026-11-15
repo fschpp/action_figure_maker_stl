@@ -1,4 +1,5 @@
 import { planeFromPoints, mergeProject, toFigure } from "./planes.js";
+import { initVersionUI } from "./version.js";
 const $ = (s) => document.querySelector(s);
 const log = (t) => { $("#log").textContent += t + "\n"; };
 
@@ -162,3 +163,14 @@ function applyHalf() {
 $("#half").addEventListener("click", () => { half = half === null ? "+" : half === "+" ? "-" : null; applyHalf(); });
 $("#front").addEventListener("change", (e) => { edits.front = e.target.value; });
 sync();
+
+// --- Versión: ¿es la última publicada o una vieja en la caché? (web/version.js) ---
+// build-info.js / version.json los genera scripts/build_web.sh; en desarrollo local pueden no existir.
+(async () => {
+  const build = await import("./build-info.js").then((m) => m.BUILD, () => null);
+  const ui = initVersionUI({
+    el: { label: $("#version-label"), button: $("#check-update"), status: $("#update-status") },
+    build, versionUrl: new URL("./version.json", import.meta.url).href, base: import.meta.url,
+  });
+  ui.check({ silent: true });
+})();

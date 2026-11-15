@@ -13,3 +13,5 @@ catalogo/*/compat.json
 catalogo/*/COMPATIBILIDAD.md
 web/wheels/*.whl
 web/wheels/manifest.json
+web/build-info.js
+web/version.json
