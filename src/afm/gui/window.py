@@ -793,11 +793,13 @@ class MainWindow(Gtk.ApplicationWindow):
             self.ctrl.set_limb_offset(name, spin.get_value())
 
     @staticmethod
-    def _icon_label_button(icon: str, text: str, tooltip: str) -> Gtk.Button:
-        """Botón con ícono Y texto (un `Gtk.Button` con `icon_name` ignora su `label`)."""
+    def _icon_label_button(icon: str | None, text: str, tooltip: str) -> Gtk.Button:
+        """Botón con ícono Y texto (un `Gtk.Button` con `icon_name` ignora su `label`). Sin ícono, solo texto: los de silueta
+        no llevan porque `document-edit-symbolic` falta en varios temas y GTK lo reemplaza por una ✕ roja de «imagen faltante»."""
         b = Gtk.Button(tooltip_text=tooltip)
         box = Gtk.Box(spacing=6)
-        box.append(Gtk.Image.new_from_icon_name(icon))
+        if icon:
+            box.append(Gtk.Image.new_from_icon_name(icon))
         box.append(Gtk.Label(label=text))
         b.set_child(box)
         return b
@@ -841,8 +843,7 @@ class MainWindow(Gtk.ApplicationWindow):
                     name = "2.ª silueta" if cross else "Silueta"
                     grp = Gtk.Box()
                     grp.add_css_class("linked")
-                    ed = self._icon_label_button("document-edit-symbolic",
-                                                 f"Editar {name.lower()}" if has else f"Dibujar {name.lower()}", tip_draw)
+                    ed = self._icon_label_button(None, f"Editar {name.lower()}" if has else f"Dibujar {name.lower()}", tip_draw)
                     ed.connect("clicked", lambda _b, pid=e.id, c=cross: self.ctrl.start_polygon(pid, cross=c))
                     grp.append(ed)
                     if has:
