@@ -90,6 +90,6 @@ jobs:
         run: |
           curl -sSL -o pyodide.tar.bz2 https://github.com/pyodide/pyodide/releases/download/314.0.8/pyodide-314.0.8.tar.bz2
           tar xjf pyodide.tar.bz2
-          python -c "from afm.testfigure import make_doll; make_doll().export('muneco.stl')"
+          pip install -q . && python -c "from afm.testfigure import make_doll; make_doll().export('muneco.stl')"
           /usr/bin/time -v node --max-old-space-size=4096 web/tests/engine_node.mjs pyodide muneco.stl 2>&1 | tee verify.log | grep -E "✓|✗|informe|Maximum resident|Elapsed"
           ! grep -q "✗" verify.log
