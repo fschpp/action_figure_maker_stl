@@ -2,6 +2,14 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — THIRD_PARTY.md y prueba en Firefox (2026-11-15, rama `third_party` sobre main f448b1b)
+`THIRD_PARTY.md` con las licencias verificadas en PyPI / npm (manifold3d Apache-2.0, trimesh MIT, numpy/scipy/shapely/scikit-image/networkx BSD, pillow MIT-CMU, python-i18n MIT, Pyodide y micropip MPL-2.0, three.js MIT): todas compatibles con GPL-3.0. **Prueba del dueño en Firefox (STL de Sucre): el visor carga, los clics marcan puntos en rojo y los planos andan.** No informó aún: «Generar» con esa figura, la demo, «Atenuar una mitad» ni cuello/cintura por separado.
+
+### Todo List
+- [x] `THIRD_PARTY.md`.
+- [ ] Probar «Generar» con la figura de Sucre (tiempo, memoria, validación) = G3; y «Atenuar una mitad».
+- [ ] `preview_pose`; `engine_node.mjs` para `frame` / `new_limb` / `new_head` / `new_waist`; G0.
+
 ## Current Focus — Licencia GPL-3.0 (2026-11-15, rama `licencia_gpl3` sobre main 448e63b)
 `LICENSE` reemplazado por el texto oficial de la GPL-3.0 (el de GPL-2.0 contradecía a `pyproject.toml`, que ya decía `GPL-3.0-or-later`); `docs/PLAN_port_pyodide.md` §11 y R9 cerrados; sección «Licencia» en el README. Pendiente menor: `THIRD_PARTY.md` con las licencias de manifold3d (Apache-2.0), three.js y Pyodide. El dueño dijo que ya probó el sitio en Firefox; falta saber qué anduvo y qué no.
 
