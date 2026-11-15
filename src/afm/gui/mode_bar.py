@@ -4,15 +4,16 @@ La tabla (`MODE_HELP`) no usa GTK y se prueba aparte; `build` arma la barra (un 
 y `update` la muestra u oculta según el modo del controlador. Cada ayuda queda en una línea (≤ 200 caracteres).
 """
 from __future__ import annotations
+from ..i18n import tr, lz, loc
 
 from .controller import Mode
 
-_PLANE3 = "Clic: punto sobre la figura (3 puntos) · Retroceso: quitar el último · Esc: cancelar"
-_PIN = "Clic: poner el pasador · Flechas: mover (Mayús: más) · M: imán · H: calor · Esc: salir"
+_PLANE3 = lz("mode_bar.clic_punto_sobre_la_figura_3")
+_PIN = lz("mode_bar.clic_poner_el_pasador_flechas_mover")
 
 # modo -> (ayuda de una línea, acciones); acciones: undo_point, close, cancel, snap, heat, done
 MODE_HELP: dict[Mode, tuple[str, tuple[str, ...]]] = {
-    Mode.CROWN: ("Clic sobre la coronilla de la figura · Esc: cancelar", ("cancel",)),
+    Mode.CROWN: (lz("mode_bar.clic_sobre_la_coronilla_de_la"), ("cancel",)),
     Mode.SYMMETRY: (_PLANE3, ("undo_point", "cancel")),
     Mode.LIMB_PLANE: (_PLANE3, ("undo_point", "cancel")),
     Mode.NECK_PLANE: (_PLANE3, ("undo_point", "cancel")),
@@ -22,30 +23,28 @@ MODE_HELP: dict[Mode, tuple[str, tuple[str, ...]]] = {
     Mode.HAND_PLACE: (_PLANE3, ("undo_point", "cancel")),
     Mode.WAIST_PLANE: (_PLANE3, ("undo_point", "cancel")),
     Mode.JOINT_PLANE: (_PLANE3, ("undo_point", "cancel")),
-    Mode.JOINT_LINES: ("Clic: 4 puntos de frente (arriba→codo y codo→abajo) · Retroceso: quitar el último · Esc: cancelar",
+    Mode.JOINT_LINES: (lz("mode_bar.clic_4_puntos_de_frente_arribacodo"),
                        ("undo_point", "cancel")),
-    Mode.JOINT_SIDE: ("Clic: 4 puntos de costado para corregir las guías · Retroceso: quitar el último · Esc: cancelar",
+    Mode.JOINT_SIDE: (lz("mode_bar.clic_4_puntos_de_costado_para"),
                       ("undo_point", "cancel", "preview")),
-    Mode.JOINT_AXIS: ("Clic sobre la figura: eje de la bisagra (con la simulación al costado se puede reajustar varias veces) · "
-                      "Esc: terminar", ("preview", "done")),
-    Mode.POLYGON: ("Clic: agregar vértice · Intro: cerrar el polígono · Retroceso: quitar el último · Esc: salir",
+    Mode.JOINT_AXIS: (lz("mode_bar.clic_sobre_la_figura_eje_de"), ("preview", "done")),
+    Mode.POLYGON: (lz("mode_bar.clic_agregar_vertice_intro_cerrar_el"),
                    ("undo_point", "close", "cancel", "preview")),
     Mode.PIN: (_PIN, ("snap", "heat", "done")),
     Mode.HEAD_PIN: (_PIN, ("snap", "heat", "done")),
     Mode.WAIST_PIN: (_PIN, ("snap", "heat", "done")),
-    Mode.TRIM_PICK: ("Clic sobre la figura: centro del recorte · Esc: cancelar", ("cancel",)),
-    Mode.FLOOR_CUT: ("Clic sobre la figura o ↑↓: altura del plano paralelo al piso (Mayús: más) · Esc: terminar", ("done",)),
-    Mode.FLAT_PLANE: ("Clic o ↑↓: altura del corte con la cama de impresión (Mayús: más) · Esc: terminar", ("done",)),
+    Mode.TRIM_PICK: (lz("mode_bar.clic_sobre_la_figura_centro_del"), ("cancel",)),
+    Mode.FLOOR_CUT: (lz("mode_bar.clic_sobre_la_figura_o_altura_del"), ("done",)),
+    Mode.FLAT_PLANE: (lz("mode_bar.clic_o_altura_del_corte_con"), ("done",)),
 }
 
-ACTION_LABELS = {"undo_point": ("Quitar último", "Quita el último punto o vértice (Retroceso)"),
-                 "close": ("Cerrar polígono", "Cierra el polígono con los vértices puestos (Intro)"),
-                 "cancel": ("Cancelar", "Sale de la herramienta sin guardar lo que falta (Esc)"),
-                 "done": ("Terminar", "Sale de la herramienta (Esc)"),
-                 "snap": ("Imán", "Lleva el pasador al punto más cercano de la malla (M)"),
-                 "heat": ("Calor", "Alterna la vista de mapa de calor del pasador (H)"),
-                 "preview": ("Simulación", "Muestra u oculta la simulación de la articulación al costado de la figura, para "
-                                           "verla doblar mientras se elige el punto")}
+ACTION_LABELS = {"undo_point": (lz("mode_bar.quitar_ultimo"), lz("mode_bar.quita_el_ultimo_punto_o_vertice")),
+                 "close": (lz("mode_bar.cerrar_poligono"), lz("mode_bar.cierra_el_poligono_con_los_vertices")),
+                 "cancel": (lz("common.cancelar"), lz("mode_bar.sale_de_la_herramienta_sin_guardar")),
+                 "done": (lz("mode_bar.terminar"), lz("mode_bar.sale_de_la_herramienta_esc")),
+                 "snap": (lz("common.iman"), lz("mode_bar.lleva_el_pasador_al_punto_mas")),
+                 "heat": (lz("mode_bar.calor"), lz("mode_bar.alterna_la_vista_de_mapa_de")),
+                 "preview": (lz("mode_bar.simulacion"), lz("mode_bar.muestra_u_oculta_la_simulacion_de"))}
 
 
 def help_for(mode: Mode) -> tuple[str, tuple[str, ...]] | None:
@@ -75,13 +74,13 @@ def build(win):
     }
     buttons = {}
     for key, (label, tip) in ACTION_LABELS.items():
-        b = Gtk.Button(label=label, tooltip_text=tip, visible=False)
+        b = Gtk.Button(label=loc(label), tooltip_text=loc(tip), visible=False)
         b.add_css_class("afm-cube-btn")
         b.connect("clicked", lambda _b, fn=actions[key]: fn())
         row.append(b)
         buttons[key] = b
     win.mode_flex_box = Gtk.Box(spacing=6, visible=False)          # flexión de la simulación, a mano de la herramienta
-    win.mode_flex_box.append(Gtk.Label(label="Flexión mostrada (°)"))
+    win.mode_flex_box.append(Gtk.Label(label=tr("common.flexion_mostrada")))
     win.mode_flex = Gtk.SpinButton.new_with_range(-45.0, 150.0, 5.0)
     win.mode_flex.connect("value-changed", lambda b: None if getattr(win, "_mode_flex_sync", False) else ctrl.set_joint_preview_flex(b.get_value()))
     win.mode_flex_box.append(win.mode_flex)
@@ -105,14 +104,14 @@ def update(win, title: str) -> None:
     if "preview" in acts and not ctrl.preview_here_available():
         acts = tuple(a for a in acts if a != "preview")     # p. ej. la silueta de un brazo: no hay cadera que simular
     if ctrl.show_joint_preview and ctrl._jp["error"] and "preview" in acts:
-        hint += "\nSimulación: " + ctrl.joint_preview_status()
+        hint += "\n" + tr("mode_bar.simulacion_estado", status=ctrl.joint_preview_status())
     win.mode_title.set_text(title)
-    win.mode_hint.set_text(hint)
+    win.mode_hint.set_text(loc(hint))
     for key, b in win.mode_buttons.items():
         b.set_visible(key in acts)
     if "preview" in acts:
         on = ctrl.show_joint_preview
-        win.mode_buttons["preview"].set_label("Ocultar simulación" if on else "Ver simulación")
+        win.mode_buttons["preview"].set_label(tr("mode_bar.ocultar_simulacion") if on else tr("mode_bar.ver_simulacion"))
         win.mode_flex_box.set_visible(on)
         if on and abs(win.mode_flex.get_value() - ctrl._jp["flex"]) > 1e-9:
             win._mode_flex_sync = True                  # no devolver al controlador lo que él mismo acaba de dar

@@ -4,6 +4,7 @@ Reemplaza a las pestañas visibles del `Gtk.Notebook`, que sigue siendo el conte
 resto de la ventana (`tabs.set_current_page`, `_tab_for_mode`, los tests) no cambia. El riel y el Notebook se mantienen sincronizados en los
 dos sentidos. El estado de cada paso sale de `gui/step_state.py`."""
 from __future__ import annotations
+from ...i18n import tr, loc
 
 import gi
 
@@ -31,13 +32,13 @@ def build(win) -> Gtk.Widget:
     for key in ORDER:
         if key == OPTIONAL[0]:
             sep = Gtk.ListBoxRow(selectable=False, activatable=False)
-            sep.set_child(Gtk.Label(label="Opcional", xalign=0, margin_top=8, margin_start=8, css_classes=["afm-sub-title"]))
+            sep.set_child(Gtk.Label(label=tr("rail.opcional"), xalign=0, margin_top=8, margin_start=8, css_classes=["afm-sub-title"]))
             win.rail.append(sep)
         row = Gtk.ListBoxRow()
         line = Gtk.Box(spacing=8, margin_top=4, margin_bottom=4, margin_start=6, margin_end=6)
         glyph = Gtk.Label(label=GLYPHS["todo"], css_classes=["afm-step-glyph"], valign=Gtk.Align.START)
         text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        title = Gtk.Label(label=TITLES[key], xalign=0, css_classes=["afm-step-title"])
+        title = Gtk.Label(label=loc(TITLES[key]), xalign=0, css_classes=["afm-step-title"])
         detail = Gtk.Label(label="", xalign=0, wrap=True, wrap_mode=Pango.WrapMode.WORD_CHAR, max_width_chars=22,
                            css_classes=["afm-step-detail"], visible=False)
         text.append(title)
@@ -53,8 +54,8 @@ def build(win) -> Gtk.Widget:
     scroller = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, vexpand=True)
     scroller.set_child(win.rail)
     box.append(scroller)
-    win.btn_next_step = Gtk.Button(label="Siguiente pendiente ▸", margin_start=4, margin_end=4, margin_bottom=4)
-    win.btn_next_step.set_tooltip_text("Salta al primer paso que todavía pide algo (○ falta · ⚠ revisar · ⟳ desactualizado · ▶ listo para generar).")
+    win.btn_next_step = Gtk.Button(label=tr("rail.siguiente_pendiente"), margin_start=4, margin_end=4, margin_bottom=4)
+    win.btn_next_step.set_tooltip_text(tr("rail.salta_al_primer_paso_que_todavia"))
     win.btn_next_step.connect("clicked", lambda *_: go_next_pending(win))
     box.append(win.btn_next_step)
     _select(win, "figura")

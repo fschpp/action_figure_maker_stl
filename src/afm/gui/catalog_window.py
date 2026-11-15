@@ -4,6 +4,7 @@ La lógica (filtro, textos, cámara, borrado) está en `catalog_manager.py` y se
 La vista previa se dibuja fuera de pantalla (`PreviewRenderer`, contexto EGL propio) y se muestra como imagen: así no
 compite con el contexto OpenGL del visor de la ventana principal. Se abre desde la pestaña «Catálogo» de la ventana principal."""
 from __future__ import annotations
+from ..i18n import tr, loc
 
 import glob
 import os
@@ -30,7 +31,7 @@ CLICK_MAX_PX = 4.0          # un arrastre más corto que esto es un clic (marca 
 
 class CatalogManagerWindow(Gtk.Window):
     def __init__(self, parent: Gtk.Window, ctrl):
-        super().__init__(title="Administrar catálogo de piezas", transient_for=parent, default_width=1240, default_height=780)
+        super().__init__(title=tr("catalog_window.administrar_catalogo_de_piezas"), transient_for=parent, default_width=1240, default_height=780)
         self.ctrl = ctrl
         self.mgr = CatalogManager(ctrl)
         self.preview = PreviewRenderer()
@@ -78,7 +79,7 @@ class CatalogManagerWindow(Gtk.Window):
         self.lbl_title = Gtk.Label(xalign=0, wrap=True)
         self.lbl_title.add_css_class("heading")
         box.append(self.lbl_title)
-        self.search = Gtk.SearchEntry(placeholder_text="Buscar: nombre, tipo, figura de origen, fecha…")
+        self.search = Gtk.SearchEntry(placeholder_text=tr("catalog_window.buscar_nombre_tipo_figura_de_origen"))
         self.search.connect("search-changed", lambda *_: self._reload())
         box.append(self.search)
         row = Gtk.Box(spacing=6)
@@ -86,7 +87,7 @@ class CatalogManagerWindow(Gtk.Window):
         self.dd_type.set_hexpand(True)
         self.dd_type.connect("notify::selected", lambda *_: None if self._updating else self._reload())
         row.append(self.dd_type)
-        btn_all = Gtk.Button(label="Elegir todas las que se ven")
+        btn_all = Gtk.Button(label=tr("catalog_window.elegir_todas_las_que_se_ven"))
         btn_all.connect("clicked", lambda *_: self.listbox.select_all())
         row.append(btn_all)
         row.append(self._build_catalog_menu())
@@ -100,8 +101,8 @@ class CatalogManagerWindow(Gtk.Window):
         for dd in (self.dd_fstate, self.dd_tag):
             dd.connect("notify::selected", lambda *_: None if self._updating else self._reload())
             row2.append(dd)
-        self.chk_latest = Gtk.CheckButton(label="solo la última versión")
-        self.chk_latest.set_tooltip_text("Como `afm catalogo listar`: una fila por pieza (su última versión). Sin tildar se ven todas las versiones.")
+        self.chk_latest = Gtk.CheckButton(label=tr("catalog_window.solo_la_ultima_version"))
+        self.chk_latest.set_tooltip_text(tr("catalog_window.como_afm_catalogo_listar_una_fila"))
         self.chk_latest.connect("toggled", lambda *_: None if self._updating else self._reload())
         row2.append(self.chk_latest)
         box.append(row2)
@@ -129,9 +130,7 @@ class CatalogManagerWindow(Gtk.Window):
         self.listbox.set_adjustment(sw.get_vadjustment())          # enfocar una fila la trae a la vista (flechas, Inicio / Fin)
         sw.get_hadjustment().connect("value-changed", lambda a: head_sw.get_hadjustment().set_value(a.get_value()))   # la cabecera acompaña
         box.append(sw)
-        hint = Gtk.Label(label="Clic elige una sola pieza; Mayús + clic (o Ctrl + clic) agrega o quita otra. Filtrá por texto y usá «Elegir todas las que se ven» "
-                               "para borrar de una vez, por ejemplo, todo lo catalogado desde un proyecto equivocado. Clic en el título de una columna "
-                               "ordena (por «Tipo» se agrupan cabezas, torsos, piernas…); F2 renombra la pieza elegida.",
+        hint = Gtk.Label(label=tr("catalog_window.clic_elige_una_sola_pieza_mayus"),
                          xalign=0, wrap=True)
         hint.add_css_class("dim-label")
         box.append(hint)
@@ -142,7 +141,7 @@ class CatalogManagerWindow(Gtk.Window):
         head = Gtk.Box(spacing=8, margin_start=8, margin_end=8)
         for key, title, width in COLUMNS:
             lab = Gtk.Label(xalign=0, width_chars=width, max_width_chars=width, ellipsize=Pango.EllipsizeMode.END,
-                            tooltip_text=f"Ordenar por «{title}» (otro clic invierte el orden)")
+                            tooltip_text=tr("catalog_window.ordenar_por_title_otro_clic_invierte", title=title))
             lab.add_css_class("heading")
             click = Gtk.GestureClick(button=1)
             click.connect("pressed", lambda *_a, k=key: self._on_sort(k))
@@ -208,37 +207,35 @@ class CatalogManagerWindow(Gtk.Window):
         box.append(legend)
 
         bar = Gtk.Box(spacing=6)                                   # (los botones se recortan si la ventana es muy angosta; el texto largo se acorta)
-        reset = Gtk.Button(label="Vista 3/4")
-        reset.set_tooltip_text("Vuelve a la vista 3/4 y sin zoom. Arrastrar con el ratón gira la pieza, la rueda acerca o aleja y el botón derecho la mueve; los puntos naranjas son los puertos. "
-                               "Con «Cortar la mano…» activo, un clic marca un punto de la muñeca.")
+        reset = Gtk.Button(label=tr("common.vista_3_4"))
+        reset.set_tooltip_text(tr("catalog_window.vuelve_a_la_vista_3_4"))
         reset.connect("clicked", self._on_reset_view)
         bar.append(reset)
-        for txt, tip, fac in (("−", "Alejar (también la rueda del ratón)", 1 / ZOOM_STEP), ("+", "Acercar (también la rueda del ratón)", ZOOM_STEP)):
+        for txt, tip, fac in (("−", tr("catalog_window.alejar_tambien_la_rueda_del_raton"), 1 / ZOOM_STEP), ("+", tr("catalog_window.acercar_tambien_la_rueda_del_raton"), ZOOM_STEP)):
             b = Gtk.Button(label=txt)
             b.set_tooltip_text(tip)
             b.connect("clicked", lambda _b, f=fac: self._zoom_by(f))
             bar.append(b)
-        bar.append(Gtk.Label(label="Arrastrá para girar · rueda o pellizco = zoom · botón derecho = mover · naranja = puertos", xalign=0, hexpand=True,
+        bar.append(Gtk.Label(label=tr("catalog_window.arrastra_para_girar_rueda_o_pellizco"), xalign=0, hexpand=True,
                              ellipsize=Pango.EllipsizeMode.END, width_chars=8))
-        self.btn_wrist = Gtk.Button(label="Cortar la mano…")
+        self.btn_wrist = Gtk.Button(label=tr("catalog_window.cortar_la_mano"))
         self.btn_wrist.set_sensitive(False)
         self.btn_wrist.connect("clicked", self._on_wrist_start)
         bar.append(self.btn_wrist)
-        self.btn_joint = Gtk.Button(label="Reajustar articulación…")
+        self.btn_joint = Gtk.Button(label=tr("catalog_window.reajustar_articulacion"))
         self.btn_joint.set_sensitive(False)
         self.btn_joint.connect("clicked", self._on_joint_start)
         bar.append(self.btn_joint)
-        self.btn_rename = Gtk.Button(label="Renombrar… (F2)")
+        self.btn_rename = Gtk.Button(label=tr("catalog_window.renombrar_f2"))
         self.btn_rename.set_sensitive(False)
-        self.btn_rename.set_tooltip_text("Cambia el nombre con que se ve la pieza (todas sus versiones). El id y la referencia no cambian: "
-                                         "las recetas y figuras que la usan siguen armando igual.")
+        self.btn_rename.set_tooltip_text(tr("catalog_window.cambia_el_nombre_con_que_se"))
         self.btn_rename.connect("clicked", self._on_rename)
         bar.append(self.btn_rename)
-        self.btn_delete = Gtk.Button(label="Eliminar…")
+        self.btn_delete = Gtk.Button(label=tr("catalog_window.eliminar"))
         self.btn_delete.add_css_class("destructive-action")
         self.btn_delete.connect("clicked", self._on_delete)
         bar.append(self.btn_delete)
-        self.btn_undo = Gtk.Button(label="Recuperar lo eliminado")
+        self.btn_undo = Gtk.Button(label=tr("catalog_window.recuperar_lo_eliminado"))
         self.btn_undo.set_sensitive(False)
         self.btn_undo.connect("clicked", self._on_undo_delete)
         bar.append(self.btn_undo)
@@ -265,11 +262,11 @@ class CatalogManagerWindow(Gtk.Window):
     def _build_state_row(self) -> Gtk.Widget:
         """«Estado: [borrador ▾] [Aplicar a las elegidas]»: cambia el estado de una o varias versiones a la vez."""
         row = Gtk.Box(spacing=8)
-        row.append(Gtk.Label(label="Estado:", xalign=0))
+        row.append(Gtk.Label(label=tr("catalog_window.estado"), xalign=0))
         self.dd_state = Gtk.DropDown.new_from_strings(list(STATES))
-        self.dd_state.set_tooltip_text("borrador → validada → impresa. Es lo único que se puede cambiar de una versión sin crear otra.")
+        self.dd_state.set_tooltip_text(tr("catalog_window.borrador_validada_impresa_es_lo_unico"))
         row.append(self.dd_state)
-        self.btn_state = Gtk.Button(label="Aplicar a las elegidas")
+        self.btn_state = Gtk.Button(label=tr("catalog_window.aplicar_a_las_elegidas"))
         self.btn_state.set_sensitive(False)
         self.btn_state.connect("clicked", self._on_apply_state)
         row.append(self.btn_state)
@@ -278,7 +275,7 @@ class CatalogManagerWindow(Gtk.Window):
     def _sync_state_row(self, refs: list[str]) -> None:
         ok = bool(refs) and not self.ctrl.busy and self._cutter is None and self._jeditor is None
         self.btn_state.set_sensitive(ok)
-        self.btn_state.set_label("Aplicar a las elegidas" if len(refs) <= 1 else f"Aplicar a {len(refs)} piezas")
+        self.btn_state.set_label(tr("catalog_window.aplicar_a_las_elegidas") if len(refs) <= 1 else tr("catalog_window.aplicar_a_n_piezas", n=len(refs)))
         if refs:                                                   # muestra el estado actual de la primera elegida
             meta = next((m for _row, m in self._rows if m.ref == refs[0]), None)
             if meta is not None and meta.estado in STATES:
@@ -296,9 +293,9 @@ class CatalogManagerWindow(Gtk.Window):
     def _sync_undo_button(self) -> None:
         n = self.ctrl.catalog_trash_count()
         self.btn_undo.set_sensitive(n > 0 and not self.ctrl.busy and self._cutter is None and self._jeditor is None)
-        self.btn_undo.set_label(f"Recuperar lo eliminado ({n})" if n else "Recuperar lo eliminado")
-        self.btn_undo.set_tooltip_text("Devuelve al catálogo el último grupo de piezas eliminadas (están en la carpeta .papelera)." if n
-                                       else "No hay nada eliminado para recuperar.")
+        self.btn_undo.set_label(tr("catalog_window.recuperar_lo_eliminado_n", n=n) if n else tr("catalog_window.recuperar_lo_eliminado"))
+        self.btn_undo.set_tooltip_text(tr("catalog_window.devuelve_al_catalogo_el_ultimo_grupo") if n
+                                       else tr("catalog_window.no_hay_nada_eliminado_para_recuperar"))
 
     def _on_undo_delete(self, *_) -> None:
         if self.ctrl.busy or self._cutter is not None or self._jeditor is not None:
@@ -310,29 +307,29 @@ class CatalogManagerWindow(Gtk.Window):
     # ------------------------------------------------------------ comandos de `afm catalogo` (catalog_ops)
     def _build_catalog_menu(self) -> Gtk.Widget:
         """Menú «Catálogo ▾»: los comandos que valen para todo el catálogo (verificar, contrato, certificar todo, compatibilidad, matriz)."""
-        self.menu_cat = Gtk.MenuButton(label="Catálogo ▾")
+        self.menu_cat = Gtk.MenuButton(label=tr("common.catalogo"))
         pop = Gtk.Popover()
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, margin_top=6, margin_bottom=6, margin_start=6, margin_end=6)
         self._menu_buttons: list[Gtk.Button] = []
         items = [
-            ("Verificar el catálogo", self._op_verify, "afm catalogo verificar: formato, hash, mallas cerradas, puertos, caras y altura de cada pieza."),
-            ("Ver el contrato de la línea", self._op_contract, "afm catalogo contrato --ver: talles de cara y posición por clase de puerto, y el talle de cada pieza."),
+            (tr("catalog_window.verificar_el_catalogo"), self._op_verify, tr("catalog_window.afm_catalogo_verificar_formato_hash_mallas")),
+            (tr("catalog_window.ver_el_contrato_de_la_linea"), self._op_contract, tr("catalog_window.afm_catalogo_contrato_ver_talles_de")),
             None,
-            ("Estado de la certificación (todas)", lambda: self._op_certify(None, status_only=True), "afm catalogo certificar --estado: no arma nada."),
-            ("Certificar todas las piezas", lambda: self._op_certify(None), "afm catalogo certificar: arma de verdad cada pieza en su panel de torsos. Reutiliza lo ya armado si no cambió nada; tarda minutos por anfitrión."),
-            ("Certificar todas de nuevo (forzar)", lambda: self._op_certify(None, force=True), "afm catalogo certificar --forzar: vuelve a armar aunque compat.json ya tenga el resultado."),
+            (tr("catalog_window.estado_de_la_certificacion_todas"), lambda: self._op_certify(None, status_only=True), tr("catalog_window.afm_catalogo_certificar_estado_no_arma")),
+            (tr("catalog_window.certificar_todas_las_piezas"), lambda: self._op_certify(None), tr("catalog_window.afm_catalogo_certificar_arma_de_verdad")),
+            (tr("catalog_window.certificar_todas_de_nuevo_forzar"), lambda: self._op_certify(None, force=True), tr("catalog_window.afm_catalogo_certificar_forzar_vuelve_a")),
             None,
-            ("Compatibilidad de las recetas", lambda: self._op_compat(False), "afm catalogo compat: build + validate de las recetas de figuras/ y recetas/ (con caché)."),
-            ("Compatibilidad de las recetas (forzar)", lambda: self._op_compat(True), "afm catalogo compat --forzar."),
-            ("Escribir COMPATIBILIDAD.md", lambda: self._op_matrix(False), "afm catalogo matriz: matriz barata del catálogo y los resultados completos guardados."),
-            ("Escribir COMPATIBILIDAD.md validando antes las recetas", lambda: self._op_matrix(True), "afm catalogo matriz --completa."),
+            (tr("common.compatibilidad_de_las_recetas"), lambda: self._op_compat(False), tr("catalog_window.afm_catalogo_compat_build_validate_de")),
+            (tr("catalog_window.compatibilidad_de_las_recetas_forzar"), lambda: self._op_compat(True), tr("catalog_window.afm_catalogo_compat_forzar")),
+            (tr("catalog_window.escribir_compatibilidad_md"), lambda: self._op_matrix(False), tr("catalog_window.afm_catalogo_matriz_matriz_barata_del")),
+            (tr("catalog_window.escribir_compatibilidad_md_validando_antes"), lambda: self._op_matrix(True), tr("catalog_window.afm_catalogo_matriz_completa")),
             None,
-            ("Medir la capacidad de las tomas (todas)", lambda: self._op_capacity(None), "afm catalogo capacidad: hasta dónde llega el hueco de cada toma con pasador. No guarda nada."),
-            ("Medir y guardar la capacidad…", lambda: self._op_capacity(None, write=True), "afm catalogo capacidad --escribir: además escribe la medida en los .pieza.json (pide confirmación)."),
+            (tr("catalog_window.medir_la_capacidad_de_las_tomas"), lambda: self._op_capacity(None), tr("catalog_window.afm_catalogo_capacidad_hasta_donde_llega")),
+            (tr("catalog_window.medir_y_guardar_la_capacidad"), lambda: self._op_capacity(None, write=True), tr("catalog_window.afm_catalogo_capacidad_escribir_ademas_esc")),
             None,
-            ("Calibrar el contrato (propuesta)", self._op_contract_propose, "afm catalogo contrato --calibrar (tolerancia 0,4 mm, radio equivalente; otra tolerancia o métrica, en consola). No guarda nada."),
-            ("Guardar la propuesta del contrato…", self._op_contract_save, "afm catalogo contrato --calibrar --guardar: escribe la última propuesta en linea.json (pide confirmación). Solo si no tiene problemas."),
-            ("Borrar el contrato de la línea…", self._op_contract_clear, "afm catalogo contrato --quitar (pide confirmación)."),
+            (tr("catalog_window.calibrar_el_contrato_propuesta"), self._op_contract_propose, tr("catalog_window.afm_catalogo_contrato_calibrar_tolerancia")),
+            (tr("catalog_window.guardar_la_propuesta_del_contrato"), self._op_contract_save, tr("catalog_window.afm_catalogo_contrato_calibrar_guardar_esc")),
+            (tr("catalog_window.borrar_el_contrato_de_la_linea_2"), self._op_contract_clear, tr("catalog_window.afm_catalogo_contrato_quitar_pide_confirma")),
         ]
         for it in items:
             if it is None:
@@ -343,7 +340,7 @@ class CatalogManagerWindow(Gtk.Window):
             b.connect("clicked", lambda _b, cb=cb: (pop.popdown(), cb()))
             box.append(b)
             self._menu_buttons.append(b)
-            if label.startswith("Guardar la propuesta"):
+            if label == tr("catalog_window.guardar_la_propuesta_del_contrato"):
                 self._btn_save_proposal = b
         pop.set_child(box)
         self.menu_cat.set_popover(pop)
@@ -351,13 +348,13 @@ class CatalogManagerWindow(Gtk.Window):
 
     def _build_import_menu(self) -> Gtk.Widget:
         """Menú «Importar ▾»: agregar al catálogo una mano, un accesorio, un arma o una pieza suelta desde un STL."""
-        self.menu_import = Gtk.MenuButton(label="Importar ▾")
+        self.menu_import = Gtk.MenuButton(label=tr("catalog_window.importar"))
         pop = Gtk.Popover()
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, margin_top=6, margin_bottom=6, margin_start=6, margin_end=6)
         self._import_buttons: list[Gtk.Button] = []
         for kind, label in CI.LABELS.items():
             b = Gtk.Button(label=label, has_frame=False, halign=Gtk.Align.START,
-                           tooltip_text=f"afm catalogo {CI.FORMS[kind]['comando']}: {CI.FORMS[kind]['ayuda']}")
+                           tooltip_text=tr("catalog_window.afm_catalogo_comando_ayuda", comando=CI.FORMS[kind]['comando'], ayuda=CI.FORMS[kind]['ayuda']))
             b.connect("clicked", lambda _b, k=kind: (pop.popdown(), self._open_import(k)))
             box.append(b)
             self._import_buttons.append(b)
@@ -376,14 +373,14 @@ class CatalogManagerWindow(Gtk.Window):
         except ValueError as exc:
             return str(exc)
         if job is None:
-            return self.ctrl.message or "No se pudo empezar la importación."
-        self._report_set(f"Importar: {CI.FORMS[kind]['titulo']}", [])
-        self._run_ops_task(f"Importando · {CI.FORMS[kind]['titulo']}", job, self._after_import, cancellable=False)
+            return self.ctrl.message or tr("catalog_window.no_se_pudo_empezar_la_importacion")
+        self._report_set(tr("catalog_window.importar_titulo", titulo=CI.FORMS[kind]['titulo']), [])
+        self._run_ops_task(tr("common.importando_titulo", titulo=CI.FORMS[kind]['titulo']), job, self._after_import, cancellable=False)
         return ""
 
     def _after_import(self, res, err) -> None:
         if err is not None:
-            self._report_append(f"ERROR: {err}")
+            self._report_append(tr("catalog_window.error_err", err=err))
             return
         for line in CI.result_lines(res):
             self._report_append(line)
@@ -399,20 +396,20 @@ class CatalogManagerWindow(Gtk.Window):
     def _build_ops_row(self) -> Gtk.Widget:
         """Comandos de la pieza elegida: certificar, cobertura, explicar."""
         row = Gtk.Box(spacing=6)
-        self.btn_certify = Gtk.Button(label="Certificar")
+        self.btn_certify = Gtk.Button(label=tr("catalog_window.certificar"))
         self.btn_certify.connect("clicked", lambda *_: self._op_certify(self._selected_refs()))
-        self.chk_force = Gtk.CheckButton(label="forzar")
-        self.chk_force.set_tooltip_text("Volver a armar aunque el resultado guardado siga valiendo (certificar --forzar).")
-        self.btn_cover = Gtk.Button(label="Cobertura")
+        self.chk_force = Gtk.CheckButton(label=tr("catalog_window.forzar"))
+        self.chk_force.set_tooltip_text(tr("catalog_window.volver_a_armar_aunque_el_resultado"))
+        self.btn_cover = Gtk.Button(label=tr("catalog_window.cobertura"))
         self.btn_cover.connect("clicked", lambda *_: self._op_piece_report("cobertura"))
-        self.btn_explain = Gtk.Button(label="Explicar acoples")
+        self.btn_explain = Gtk.Button(label=tr("catalog_window.explicar_acoples"))
         self.btn_explain.connect("clicked", lambda *_: self._op_piece_report("explicar"))
-        self.btn_capacity = Gtk.Button(label="Capacidad")
+        self.btn_capacity = Gtk.Button(label=tr("catalog_window.capacidad"))
         self.btn_capacity.connect("clicked", lambda *_: self._op_capacity(self._selected_refs()))
-        for w, tip in ((self.btn_certify, "afm catalogo certificar ID: arma la pieza elegida en un panel de torsos del catálogo (la propia figura y los de menor, mediana y mayor capacidad)."),
-                       (self.btn_cover, "afm catalogo cobertura ID: cuántas piezas del catálogo aceptan cada puerto de esta pieza (por metadatos, instantáneo)."),
-                       (self.btn_capacity, "afm catalogo capacidad ID: hasta dónde llega el hueco de las tomas con pasador de la pieza (no guarda; para guardar, Catálogo ▾ → Medir y guardar la capacidad…)."),
-                       (self.btn_explain, "afm catalogo explicar ID: por qué se acopla (o no) con cada otra pieza: radios, IoU, escalón y motivos.")):
+        for w, tip in ((self.btn_certify, tr("catalog_window.afm_catalogo_certificar_id_arma_la")),
+                       (self.btn_cover, tr("catalog_window.afm_catalogo_cobertura_id_cuantas_piezas")),
+                       (self.btn_capacity, tr("catalog_window.afm_catalogo_capacidad_id_hasta_donde")),
+                       (self.btn_explain, tr("catalog_window.afm_catalogo_explicar_id_por_que"))):
             w.set_tooltip_text(tip)
             row.append(w)
             if w is self.btn_certify:
@@ -425,15 +422,15 @@ class CatalogManagerWindow(Gtk.Window):
         self.progress = ProgressPanel()
         self.progress.set_hexpand(True)
         self.task_row.append(self.progress)
-        self.btn_task_cancel = Gtk.Button(label="Cancelar", valign=Gtk.Align.CENTER)
-        self.btn_task_cancel.set_tooltip_text("Corta en cuanto el motor informa progreso. Lo ya certificado queda guardado.")
+        self.btn_task_cancel = Gtk.Button(label=tr("common.cancelar"), valign=Gtk.Align.CENTER)
+        self.btn_task_cancel.set_tooltip_text(tr("catalog_window.corta_en_cuanto_el_motor_informa"))
         self.btn_task_cancel.connect("clicked", self._on_task_cancel)
         self.task_row.append(self.btn_task_cancel)
         return self.task_row
 
     def _build_report(self) -> Gtk.Widget:
         """Panel «Informe»: el texto de cualquier comando (lo mismo que imprimiría la consola), con copiar y guardar."""
-        self.report_exp = Gtk.Expander(label="Informe")
+        self.report_exp = Gtk.Expander(label=tr("catalog_window.informe"))
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         self.report_buf = Gtk.TextBuffer()
         view = Gtk.TextView(buffer=self.report_buf, editable=False, cursor_visible=False, monospace=True)
@@ -442,7 +439,7 @@ class CatalogManagerWindow(Gtk.Window):
         sw.set_child(view)
         box.append(sw)
         bar = Gtk.Box(spacing=6)
-        for label, cb in (("Copiar", self._on_report_copy), ("Guardar…", self._on_report_save), ("Limpiar", lambda *_: self.report_buf.set_text(""))):
+        for label, cb in ((tr("catalog_window.copiar"), self._on_report_copy), (tr("catalog_window.guardar"), self._on_report_save), (tr("catalog_window.limpiar"), lambda *_: self.report_buf.set_text(""))):
             b = Gtk.Button(label=label)
             b.connect("clicked", cb)
             bar.append(b)
@@ -466,7 +463,7 @@ class CatalogManagerWindow(Gtk.Window):
         self.get_clipboard().set(self._report_text())
 
     def _on_report_save(self, *_) -> None:
-        dlg = Gtk.FileDialog(title="Guardar el informe", initial_name="informe_catalogo.txt")
+        dlg = Gtk.FileDialog(title=tr("catalog_window.guardar_el_informe"), initial_name="informe_catalogo.txt")
 
         def finished(d, res) -> None:
             try:
@@ -476,9 +473,9 @@ class CatalogManagerWindow(Gtk.Window):
             try:
                 with open(f.get_path(), "w", encoding="utf-8") as fh:
                     fh.write(self._report_text())
-                self.lbl_status.set_text(f"Informe guardado en {f.get_path()}")
+                self.lbl_status.set_text(tr("catalog_window.informe_guardado_en_get_path", get_path=f.get_path()))
             except OSError as exc:
-                self.lbl_status.set_text(f"No se pudo guardar el informe: {exc}")
+                self.lbl_status.set_text(tr("catalog_window.no_se_pudo_guardar_el_informe", exc=exc))
 
         dlg.save(self, None, finished)
 
@@ -501,28 +498,28 @@ class CatalogManagerWindow(Gtk.Window):
         self._btn_save_proposal.set_sensitive(free and self.mgr.can_save_proposal())
         self.btn_cover.set_sensitive(free and len(refs) == 1)
         self.btn_explain.set_sensitive(free and len(refs) == 1)
-        self.btn_certify.set_label("Certificar" if len(refs) <= 1 else f"Certificar {len(self.mgr.certify_refs(refs))}")
+        self.btn_certify.set_label(tr("catalog_window.certificar") if len(refs) <= 1 else tr("catalog_window.certificar_n", n=len(self.mgr.certify_refs(refs))))
 
     def _op_error(self, title: str, exc: Exception) -> None:
-        self._report_set(title, [f"ERROR: {exc}"])
+        self._report_set(title, [tr("catalog_window.error_exc", exc=exc)])
         self.lbl_status.set_text(f"{title}: {exc}")
 
     def _op_verify(self) -> None:
         try:
             lines, ok = self.mgr.report_verify()
         except ValueError as exc:
-            self._op_error("Verificar", exc)
+            self._op_error(tr("catalog_window.verificar"), exc)
             return
-        self._report_set("Verificar el catálogo", lines)
+        self._report_set(tr("catalog_window.verificar_el_catalogo"), lines)
         self.lbl_status.set_text(lines[-1] if lines else "")
 
     def _op_contract(self) -> None:
         try:
             lines = self.mgr.report_contract()
         except ValueError as exc:
-            self._op_error("Contrato", exc)
+            self._op_error(tr("catalog_window.contrato"), exc)
             return
-        self._report_set("Contrato de la línea", lines)
+        self._report_set(tr("catalog_window.contrato_de_la_linea"), lines)
 
     def _op_piece_report(self, which: str) -> None:
         refs = self._selected_refs()
@@ -531,9 +528,10 @@ class CatalogManagerWindow(Gtk.Window):
         try:
             lines = self.mgr.report_coverage(refs[0]) if which == "cobertura" else self.mgr.report_explain(refs[0])
         except (ValueError, KeyError) as exc:
-            self._op_error(which.capitalize(), exc)
+            self._op_error(tr("catalog_window.cobertura") if which == "cobertura" else tr("catalog_window.explicar"), exc)
             return
-        self._report_set(f"{which.capitalize()} de {refs[0]}", lines or ["(sin datos)"])
+        self._report_set(tr("catalog_window.cobertura_de_ref", ref=refs[0]) if which == "cobertura"
+                         else tr("catalog_window.explicar_de_ref", ref=refs[0]), lines or [tr("catalog_window.sin_datos")])
 
     def _op_certify(self, refs: list[str] | None, force: bool = False, status_only: bool = False) -> None:
         if not self._ops_free():
@@ -544,16 +542,16 @@ class CatalogManagerWindow(Gtk.Window):
             self.lbl_status.set_text(self.ctrl.message or "")
             return
         todo = self.mgr.certify_refs(refs)
-        self._report_set(("Estado de la certificación" if status_only else "Certificar" + (" (forzado)" if force else "")) + f" · {len(todo)} pieza(s)", [])
-        label = "Revisando la certificación" if status_only else "Certificando"
+        self._report_set((tr("catalog_window.estado_de_la_certificacion") if status_only else tr("catalog_window.certificar") + ((' ' + tr("catalog_window.forzado")) if force else "")) + (' ' + tr("catalog_window.n_pieza_s", n=len(todo))), [])
+        label = tr("common.revisando_la_certificacion") if status_only else tr("common.certificando")
         self._run_ops_task(label, job, lambda res, err: self._after_certify(res, err))
 
     def _after_certify(self, res, err) -> None:
         if err is not None and not isinstance(err, OPS.Cancelled):
-            self._report_append(f"ERROR: {err}")
+            self._report_append(tr("catalog_window.error_err", err=err))
         elif res is not None:
-            self._report_append(("Cancelado. " if res.cancelled else "") + f"{res.done} pieza(s) procesada(s); "
-                                + (f"{res.bad} sin certificar o con problemas." if res.bad else "todas certificadas."))
+            self._report_append(((tr("common.cancelado_2") + ' ') if res.cancelled else "") + (tr("catalog_window.done_pieza_s_procesada_s", done=res.done) + ' ')
+                                + (tr("catalog_window.bad_sin_certificar_o_con_problemas", bad=res.bad) if res.bad else tr("catalog_window.todas_certificadas")))
 
     def _op_compat(self, force: bool) -> None:
         if not self._ops_free():
@@ -562,13 +560,13 @@ class CatalogManagerWindow(Gtk.Window):
         if job is None:
             self.lbl_status.set_text(self.ctrl.message or "")
             return
-        self._report_set("Compatibilidad de las recetas" + (" (forzada)" if force else ""), [])
-        self._run_ops_task("Compatibilidad de las recetas", job, self._after_compat)
+        self._report_set(tr("common.compatibilidad_de_las_recetas") + ((' ' + tr("catalog_window.forzada")) if force else ""), [])
+        self._run_ops_task(tr("common.compatibilidad_de_las_recetas"), job, self._after_compat)
 
     def _after_compat(self, res, err) -> None:
         if err is not None:
             if not isinstance(err, OPS.Cancelled):
-                self._report_append(f"ERROR: {err}")
+                self._report_append(tr("catalog_window.error_err", err=err))
             return
         for line in res.lines:
             self._report_append(line)
@@ -580,19 +578,19 @@ class CatalogManagerWindow(Gtk.Window):
         if job is None:
             self.lbl_status.set_text(self.ctrl.message or "")
             return
-        self._report_set("Informe COMPATIBILIDAD.md", [])
-        self._run_ops_task("Informe de compatibilidad", job, self._after_matrix)
+        self._report_set(tr("catalog_window.informe_compatibilidad_md"), [])
+        self._run_ops_task(tr("common.informe_de_compatibilidad"), job, self._after_matrix)
 
     def _after_matrix(self, res, err) -> None:
         if err is not None:
             if not isinstance(err, OPS.Cancelled):
-                self._report_append(f"ERROR: {err}")
+                self._report_append(tr("catalog_window.error_err", err=err))
             return
-        self._report_append(f"Escrito {res}")
+        self._report_append(tr("catalog_window.escrito_res", res=res))
 
     def _confirm(self, message: str, detail: str, action: str, on_yes) -> None:
         """Pregunta antes de escribir en el catálogo; `on_yes()` corre solo si se elige `action`."""
-        dlg = Gtk.AlertDialog(message=message, detail=detail, buttons=["Cancelar", action], cancel_button=0, default_button=0)
+        dlg = Gtk.AlertDialog(message=message, detail=detail, buttons=[tr("common.cancelar"), action], cancel_button=0, default_button=0)
 
         def answered(d, res) -> None:
             try:
@@ -610,11 +608,11 @@ class CatalogManagerWindow(Gtk.Window):
         if write:
             n = len(self.mgr.capacity_refs([m.ref for m in self.mgr.pieces(latest_only=True)] if refs is None else refs))
             if n == 0:
-                self.lbl_status.set_text("Ninguna de las piezas tiene tomas de pasador para medir.")
+                self.lbl_status.set_text(tr("common.ninguna_de_las_piezas_tiene_tomas"))
                 return
-            self._confirm(f"¿Guardar la capacidad medida de {n} pieza(s)?",
-                          "Se escribe en el .pieza.json de cada pieza (el campo de capacidad de sus tomas). Es lo que `afm catalogo capacidad --escribir` hace.",
-                          "Medir y guardar", lambda: self._start_capacity(refs, True))
+            self._confirm(tr("catalog_window.guardar_la_capacidad_medida_de_n", n=n),
+                          tr("catalog_window.se_escribe_en_el_pieza_json"),
+                          tr("catalog_window.medir_y_guardar"), lambda: self._start_capacity(refs, True))
         else:
             self._start_capacity(refs, False)
 
@@ -625,22 +623,22 @@ class CatalogManagerWindow(Gtk.Window):
         if job is None:
             self.lbl_status.set_text(self.ctrl.message or "")
             return
-        self._report_set("Capacidad de las tomas" + (" (se guarda)" if write else " (sin guardar)"), [])
-        self._run_ops_task("Midiendo y guardando la capacidad" if write else "Midiendo la capacidad", job, self._after_capacity)
+        self._report_set(tr("catalog_window.capacidad_de_las_tomas") + ((' ' + tr("catalog_window.se_guarda")) if write else (' ' + tr("catalog_window.sin_guardar"))), [])
+        self._run_ops_task(tr("common.midiendo_y_guardando_la_capacidad") if write else tr("common.midiendo_la_capacidad"), job, self._after_capacity)
 
     def _after_capacity(self, res, err) -> None:
         if err is not None and not isinstance(err, OPS.Cancelled):
-            self._report_append(f"ERROR: {err}")
+            self._report_append(tr("catalog_window.error_err", err=err))
 
     def _op_contract_propose(self) -> None:
         try:
             prop = self.mgr.propose_contract()
         except (ValueError, KeyError) as exc:
-            self._op_error("Calibrar el contrato", exc)
+            self._op_error(tr("catalog_window.calibrar_el_contrato"), exc)
             return
-        self._report_set("Contrato de la línea: propuesta", prop.lines)
-        self.lbl_status.set_text("La propuesta tiene problemas: no se puede guardar." if prop.problems else
-                                 "Propuesta lista. Si te sirve: Catálogo ▾ → Guardar la propuesta del contrato…")
+        self._report_set(tr("catalog_window.contrato_de_la_linea_propuesta"), prop.lines)
+        self.lbl_status.set_text(tr("catalog_window.la_propuesta_tiene_problemas_no_se") if prop.problems else
+                                 tr("catalog_window.propuesta_lista_si_te_sirve_catalogo"))
         self._sync_ops_buttons()
 
     def _op_contract_save(self) -> None:
@@ -651,15 +649,15 @@ class CatalogManagerWindow(Gtk.Window):
             try:
                 digest = self.mgr.save_proposal()
             except (ValueError, OSError) as exc:
-                self._op_error("Guardar el contrato", exc)
+                self._op_error(tr("catalog_window.guardar_el_contrato"), exc)
                 return
-            self._report_append(f"Contrato guardado en linea.json (huella {digest}). La certificación se revisa con el contrato nuevo.")
-            self.lbl_status.set_text("Contrato guardado.")
+            self._report_append(tr("catalog_window.contrato_guardado_en_linea_json_huella", digest=digest))
+            self.lbl_status.set_text(tr("catalog_window.contrato_guardado"))
             self._reload()
             self._sync_ops_buttons()
 
-        self._confirm("¿Guardar la propuesta como contrato de la línea?", "Reemplaza el contrato actual de linea.json, si lo hay. Las certificaciones guardadas pueden quedar vencidas.",
-                      "Guardar contrato", save)
+        self._confirm(tr("catalog_window.guardar_la_propuesta_como_contrato_de"), tr("catalog_window.reemplaza_el_contrato_actual_de_linea"),
+                      tr("catalog_window.guardar_contrato"), save)
 
     def _op_contract_clear(self) -> None:
         if not self._ops_free():
@@ -669,13 +667,13 @@ class CatalogManagerWindow(Gtk.Window):
             try:
                 had = self.mgr.clear_contract()
             except (ValueError, OSError) as exc:
-                self._op_error("Borrar el contrato", exc)
+                self._op_error(tr("catalog_window.borrar_el_contrato"), exc)
                 return
-            self._report_set("Contrato de la línea", ["Contrato borrado de linea.json" if had else "La línea no tenía contrato"])
+            self._report_set(tr("catalog_window.contrato_de_la_linea"), [tr("catalog_window.contrato_borrado_de_linea_json") if had else tr("catalog_window.la_linea_no_tenia_contrato")])
             self._reload()
             self._sync_ops_buttons()
 
-        self._confirm("¿Borrar el contrato de la línea?", "Se quita el contrato de linea.json; las piezas dejan de tener talle. Se puede volver a calibrar.", "Borrar contrato", clear)
+        self._confirm(tr("catalog_window.borrar_el_contrato_de_la_linea"), tr("catalog_window.se_quita_el_contrato_de_linea"), tr("catalog_window.borrar_contrato"), clear)
 
     def _run_ops_task(self, label: str, job, done, cancellable: bool = True) -> None:
         """Corre `job(progress)` en un hilo (la ventana sigue viva) y llama `done(resultado, error)` en el hilo principal."""
@@ -705,7 +703,7 @@ class CatalogManagerWindow(Gtk.Window):
     def _ops_done(self, label: str, done, res, err) -> bool:
         cancelled = isinstance(err, OPS.Cancelled) or bool(getattr(res, "cancelled", False))
         self._task_label = ""
-        self.progress.finish(err is None or cancelled, "Cancelado" if cancelled else label)
+        self.progress.finish(err is None or cancelled, tr("common.cancelado") if cancelled else label)
         self.task_row.set_visible(False)
         self.mgr.finish_task(label, OPS.Cancelled() if cancelled else err)
         self._pending_select = ""
@@ -719,7 +717,7 @@ class CatalogManagerWindow(Gtk.Window):
     def _on_task_cancel(self, *_) -> None:
         self.mgr.request_cancel()
         self.btn_task_cancel.set_sensitive(False)
-        self.lbl_status.set_text("Cancelando… se corta en cuanto el motor informa progreso.")
+        self.lbl_status.set_text(tr("catalog_window.cancelando_se_corta_en_cuanto_el"))
 
     # ------------------------------------------------------------ cortar la mano de un brazo
     def _build_wrist_panel(self) -> Gtk.Widget:
@@ -729,24 +727,24 @@ class CatalogManagerWindow(Gtk.Window):
         self.lbl_wrist.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
         self.wrist_panel.append(self.lbl_wrist)
         row = Gtk.Box(spacing=6)
-        self.btn_wrist_undo = Gtk.Button(label="Deshacer el último punto")
+        self.btn_wrist_undo = Gtk.Button(label=tr("catalog_window.deshacer_el_ultimo_punto"))
         self.btn_wrist_undo.connect("clicked", self._on_wrist_undo)
-        self.btn_wrist_invert = Gtk.Button(label="Invertir lado")
-        self.btn_wrist_invert.set_tooltip_text("Si lo verde no es la mano sino el resto del brazo, toma el otro lado del plano como mano.")
+        self.btn_wrist_invert = Gtk.Button(label=tr("catalog_window.invertir_lado"))
+        self.btn_wrist_invert.set_tooltip_text(tr("catalog_window.si_lo_verde_no_es_la"))
         self.btn_wrist_invert.connect("clicked", self._on_wrist_invert)
-        self.btn_wrist_cancel = Gtk.Button(label="Cancelar (Esc)")
+        self.btn_wrist_cancel = Gtk.Button(label=tr("catalog_window.cancelar_esc"))
         self.btn_wrist_cancel.connect("clicked", lambda *_: self._wrist_cancel())
         for b in (self.btn_wrist_undo, self.btn_wrist_invert, self.btn_wrist_cancel):
             row.append(b)
         self.wrist_panel.append(row)
         row2 = Gtk.Box(spacing=6)
-        row2.append(Gtk.Label(label="Id de la mano:"))
+        row2.append(Gtk.Label(label=tr("catalog_window.id_de_la_mano")))
         self.ent_hand_id = Gtk.Entry(hexpand=True)
-        self.ent_hand_id.set_tooltip_text("Pieza «mano» que se guarda aparte. Si ya existe, tildá «versión nueva» o elegí otro id.")
+        self.ent_hand_id.set_tooltip_text(tr("catalog_window.pieza_mano_que_se_guarda_aparte"))
         row2.append(self.ent_hand_id)
-        self.chk_hand_new = Gtk.CheckButton(label="versión nueva si ya existe")
+        self.chk_hand_new = Gtk.CheckButton(label=tr("catalog_window.version_nueva_si_ya_existe"))
         row2.append(self.chk_hand_new)
-        self.btn_wrist_save = Gtk.Button(label="Guardar")
+        self.btn_wrist_save = Gtk.Button(label=tr("common.guardar"))
         self.btn_wrist_save.add_css_class("suggested-action")
         self.btn_wrist_save.connect("clicked", self._on_wrist_save)
         row2.append(self.btn_wrist_save)
@@ -755,20 +753,19 @@ class CatalogManagerWindow(Gtk.Window):
 
     def _sync_wrist_button(self, refs: list[str]) -> None:
         """«Cortar la mano…» se puede usar con UN brazo elegido que todavía tiene la mano pegada."""
-        ok, why = False, "Elegí un brazo de la lista."
+        ok, why = False, tr("common.elegi_un_brazo_de_la_lista")
         if len(refs) == 1:
             meta = next((m for _row, m in self._rows if m.ref == refs[0]), None)
             ok, why = can_cut_wrist(meta)
         elif len(refs) > 1:
-            why = "Elegí un solo brazo."
+            why = tr("catalog_window.elegi_un_solo_brazo")
         if ok and self.ctrl.busy:
-            ok, why = False, "Esperá a que termine la tarea en curso."
+            ok, why = False, tr("common.espera_a_que_termine_la_tarea")
         if ok and self._shown is None:
-            ok, why = False, "No hay vista previa de la pieza para marcar la muñeca."
+            ok, why = False, tr("catalog_window.no_hay_vista_previa_de_la")
         self.btn_wrist.set_sensitive(ok and self._cutter is None and self._jeditor is None)
         self._sync_rename_button(refs)
-        self.btn_wrist.set_tooltip_text("Le corta la mano al brazo: tocás 3 puntos de la muñeca sobre la vista previa y se guarda una versión "
-                                        "nueva del brazo sin mano más la mano como pieza aparte (el brazo original no se toca)." if ok else why)
+        self.btn_wrist.set_tooltip_text(tr("catalog_window.le_corta_la_mano_al_brazo") if ok else why)
 
     def _on_wrist_start(self, *_) -> None:
         if self._shown is None or self._cutter is not None:
@@ -834,7 +831,7 @@ class CatalogManagerWindow(Gtk.Window):
             return
         res = c.save(self.chk_hand_new.get_active())
         if res is None:                                                  # p. ej. el id de la mano ya existe: el motivo está en el mensaje
-            self.lbl_wrist.set_text(self.ctrl.message or "No se pudo guardar.")
+            self.lbl_wrist.set_text(self.ctrl.message or tr("catalog_window.no_se_pudo_guardar"))
             return
         self._wrist_cancel(redraw=False)
         self._reload()
@@ -849,9 +846,9 @@ class CatalogManagerWindow(Gtk.Window):
     def _build_flex_row(self) -> Gtk.Widget:
         """«Flexión mostrada (°)»: visible siempre que la pieza elegida (brazo / pierna) traiga articulación, sin entrar en
         «Reajustar articulación…». Moverla abre la vista de la articulación y dobla la pieza distal (no cambia lo que se guarda)."""
-        tip = "Solo recoloca la pieza distal en la vista previa: no cambia lo que se guarda."
+        tip = tr("catalog_window.solo_recoloca_la_pieza_distal_en")
         self.flex_row = Gtk.Box(spacing=8, visible=False)
-        self.flex_row.append(Gtk.Label(label="Flexión mostrada (°)", xalign=0, hexpand=True, tooltip_text=tip))
+        self.flex_row.append(Gtk.Label(label=tr("common.flexion_mostrada"), xalign=0, hexpand=True, tooltip_text=tip))
         sp = Gtk.SpinButton.new_with_range(-45.0, 150.0, 5.0)
         sp.set_digits(0)
         sp.set_tooltip_text(tip)
@@ -878,20 +875,20 @@ class CatalogManagerWindow(Gtk.Window):
         self.lbl_joint = Gtk.Label(xalign=0, wrap=True, selectable=True)
         self.lbl_joint.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
         self.joint_panel.append(self.lbl_joint)
-        self.dd_joint = Gtk.DropDown.new_from_strings(["(ninguna)"])
+        self.dd_joint = Gtk.DropDown.new_from_strings([tr("common.ninguna")])
         self.dd_joint.connect("notify::selected", self._on_joint_choice)
         self.dd_joint.set_visible(False)                        # solo si la pieza trae más de una articulación
         self.joint_panel.append(self.dd_joint)
         grid = Gtk.Grid(column_spacing=8, row_spacing=4)
         self._jspin: dict[str, Gtk.SpinButton] = {}
-        specs = (("h", "Altura del eje sobre el plano (mm)", 0.5, 15.0, 0.1, 2,
-                  "Sube o baja el eje de la bisagra en vertical. Más alto = el hueco se lleva más material del miembro."),
-                 ("front", "Inclinación del eje, de frente (°)", -45.0, 45.0, 0.5, 1,
-                  "Ángulo del eje visto de frente (0 = a lo largo de X; + = z sube con x)."),
-                 ("side", "Inclinación del plano, de costado (°)", -60.0, 60.0, 1.0, 1,
-                  "Ángulo del plano visto de costado (+ = sube hacia +Y). 0 = plano recto: el eje no se mueve; lo que se corre es el plano."),
-                 ("lo", "Rango: mínimo (°, negativo = hiperextensión)", -45.0, 149.0, 1.0, 0, "Flexión mínima del rango de la articulación."),
-                 ("hi", "Rango: máximo (°)", -44.0, 150.0, 1.0, 0, "Flexión máxima del rango de la articulación."))
+        specs = (("h", tr("common.altura_del_eje_sobre_el_plano"), 0.5, 15.0, 0.1, 2,
+                  tr("catalog_window.sube_o_baja_el_eje_de")),
+                 ("front", tr("catalog_window.inclinacion_del_eje_de_frente"), -45.0, 45.0, 0.5, 1,
+                  tr("catalog_window.angulo_del_eje_visto_de_frente")),
+                 ("side", tr("catalog_window.inclinacion_del_plano_de_costado"), -60.0, 60.0, 1.0, 1,
+                  tr("catalog_window.angulo_del_plano_visto_de_costado")),
+                 ("lo", tr("catalog_window.rango_minimo_negativo_hiperextension"), -45.0, 149.0, 1.0, 0, tr("catalog_window.flexion_minima_del_rango_de_la")),
+                 ("hi", tr("catalog_window.rango_maximo"), -44.0, 150.0, 1.0, 0, tr("catalog_window.flexion_maxima_del_rango_de_la")))
         for i, (key, label, lo, hi, step, digits, tip) in enumerate(specs):
             grid.attach(Gtk.Label(label=label, xalign=0, hexpand=True, wrap=True, tooltip_text=tip), 0, i, 1, 1)
             sp = Gtk.SpinButton.new_with_range(lo, hi, step)
@@ -903,23 +900,23 @@ class CatalogManagerWindow(Gtk.Window):
             grid.attach(sp, 1, i, 1, 1)
         self.joint_panel.append(grid)
         row = Gtk.Box(spacing=6)
-        self.btn_joint_pick = Gtk.Button(label="Mover el eje con un clic")
-        self.btn_joint_pick.set_tooltip_text("Muestra la pieza entera: un clic sobre su costado pone el eje ahí (se toman la altura y la profundidad del clic).")
+        self.btn_joint_pick = Gtk.Button(label=tr("catalog_window.mover_el_eje_con_un_clic"))
+        self.btn_joint_pick.set_tooltip_text(tr("catalog_window.muestra_la_pieza_entera_un_clic"))
         self.btn_joint_pick.connect("clicked", self._on_joint_pick)
-        self.btn_joint_straight = Gtk.Button(label="Enderezar el plano")
-        self.btn_joint_straight.set_tooltip_text("Inclinación de costado 0°: el eje no se mueve y conserva su altura; se corre el plano.")
+        self.btn_joint_straight = Gtk.Button(label=tr("catalog_window.enderezar_el_plano"))
+        self.btn_joint_straight.set_tooltip_text(tr("catalog_window.inclinacion_de_costado_0_el_eje"))
         self.btn_joint_straight.connect("clicked", lambda *_: self._on_joint_value("side", 0.0))
-        self.btn_joint_reset = Gtk.Button(label="Restablecer")
-        self.btn_joint_reset.set_tooltip_text("Vuelve a la articulación de la versión guardada.")
+        self.btn_joint_reset = Gtk.Button(label=tr("catalog_window.restablecer"))
+        self.btn_joint_reset.set_tooltip_text(tr("catalog_window.vuelve_a_la_articulacion_de_la"))
         self.btn_joint_reset.connect("clicked", self._on_joint_reset)
         for b in (self.btn_joint_pick, self.btn_joint_straight, self.btn_joint_reset):
             row.append(b)
         self.joint_panel.append(row)
         row = Gtk.Box(spacing=6)
-        row.append(Gtk.Label(label="Se guarda como versión nueva (borrador); la actual no se toca.", xalign=0, hexpand=True, wrap=True))
-        self.btn_joint_cancel = Gtk.Button(label="Cancelar (Esc)")
+        row.append(Gtk.Label(label=tr("catalog_window.se_guarda_como_version_nueva_borrador"), xalign=0, hexpand=True, wrap=True))
+        self.btn_joint_cancel = Gtk.Button(label=tr("catalog_window.cancelar_esc"))
         self.btn_joint_cancel.connect("clicked", lambda *_: self._joint_cancel())
-        self.btn_joint_save = Gtk.Button(label="Guardar versión nueva")
+        self.btn_joint_save = Gtk.Button(label=tr("catalog_window.guardar_version_nueva"))
         self.btn_joint_save.add_css_class("suggested-action")
         self.btn_joint_save.connect("clicked", self._on_joint_save)
         row.append(self.btn_joint_cancel)
@@ -929,21 +926,20 @@ class CatalogManagerWindow(Gtk.Window):
 
     def _sync_joint_button(self, refs: list[str]) -> None:
         """«Reajustar articulación…» se puede usar con UN brazo / pierna elegido que trae articulación."""
-        ok, why = False, "Elegí un brazo o una pierna de la lista."
+        ok, why = False, tr("common.elegi_un_brazo_o_una_pierna")
         if len(refs) == 1:
             meta = next((m for _row, m in self._rows if m.ref == refs[0]), None)
             ok, why = can_retune_joint(meta)
         elif len(refs) > 1:
-            why = "Elegí una sola pieza."
+            why = tr("catalog_window.elegi_una_sola_pieza")
         if ok and self.ctrl.busy:
-            ok, why = False, "Esperá a que termine la tarea en curso."
+            ok, why = False, tr("common.espera_a_que_termine_la_tarea")
         if ok and self._shown is None:
-            ok, why = False, "No hay vista previa de la pieza."
+            ok, why = False, tr("catalog_window.no_hay_vista_previa_de_la_2")
         self.btn_joint.set_sensitive(ok and self._jeditor is None and self._cutter is None)
         self.flex_row.set_visible(ok or self._jeditor is not None)          # con articulación: se ve aunque no se esté reajustando
         self.flex_row.set_sensitive(self._cutter is None and (self._jeditor is not None or (ok and not self.ctrl.busy)))
-        self.btn_joint.set_tooltip_text("Mové el eje de la bisagra, inclinás el plano o cambiá el rango viendo cuánto material se lleva el hueco; "
-                                        "se guarda como una versión nueva de la pieza (la actual no se toca)." if ok else why)
+        self.btn_joint.set_tooltip_text(tr("catalog_window.move_el_eje_de_la_bisagra") if ok else why)
 
     def edit_joint(self, ref: str) -> None:
         """Elige la pieza `ref` (`id@n`, o `id` = la última versión) y abre «Reajustar articulación…» (lo llama la ventana principal)."""
@@ -951,7 +947,7 @@ class CatalogManagerWindow(Gtk.Window):
         pid, _, ver = ref.partition("@")
         found = [(row, m) for row, m in self._rows if m.id == pid and (not ver or m.version == int(ver))]
         if not found:
-            self.lbl_status.set_text(f"«{ref}» no está en la lista (¿hay un filtro puesto?).")
+            self.lbl_status.set_text(tr("catalog_window.ref_no_esta_en_la_lista", ref=ref))
             return
         row, _m = max(found, key=lambda t: t[1].version)
         self.listbox.unselect_all()
@@ -1128,7 +1124,7 @@ class CatalogManagerWindow(Gtk.Window):
             return
         meta = ed.save()
         if meta is None:                                       # el motivo está en el mensaje del controlador
-            self.lbl_joint.set_text(self.ctrl.message or "No se pudo guardar.")
+            self.lbl_joint.set_text(self.ctrl.message or tr("catalog_window.no_se_pudo_guardar"))
             return
         self._joint_cancel(redraw=False)
         self._reload()
@@ -1258,9 +1254,9 @@ class CatalogManagerWindow(Gtk.Window):
         root = self.ctrl.session.catalog_root
         total = len(everything)
         summary = self.mgr.cert_summary() if root else ""
-        self.lbl_title.set_text("No hay un catálogo abierto." if not root else
-                                f"Catálogo: {root}\n{total} versión(es) de pieza" + ("" if len(metas) == total else f" · se ven {len(metas)}")
-                                + (f"\nCertificación: {summary}" if summary else ""))
+        self.lbl_title.set_text(tr("common.no_hay_un_catalogo_abierto") if not root else
+                                tr("catalog_window.catalogo_root_total_version_es_de", root=root, total=total) + ("" if len(metas) == total else (' ' + tr("catalog_window.se_ven_n", n=len(metas))))
+                                + (('\n' + tr("catalog_window.certificacion_summary", summary=summary)) if summary else ""))
         self._updating = True
         try:
             while (child := self.listbox.get_first_child()) is not None:
@@ -1287,13 +1283,13 @@ class CatalogManagerWindow(Gtk.Window):
             self._wrist_cancel(redraw=False)
         if self._jeditor is not None and refs != [self._jeditor.meta.ref]:
             self._joint_cancel(redraw=False)
-        self.btn_delete.set_label("Eliminar…" if n == 0 else f"Eliminar {n} pieza(s)…")
+        self.btn_delete.set_label(tr("catalog_window.eliminar") if n == 0 else tr("catalog_window.eliminar_n_pieza_s", n=n))
         self.btn_delete.set_sensitive(bool(n) and not self.ctrl.busy and self._cutter is None and self._jeditor is None)
         self._sync_rename_button(refs)
         self._sync_state_row(refs)
         self._sync_undo_button()
         if n == 0:
-            self.lbl_detail.set_text("Elegí una pieza de la lista para verla." if self._rows else "El catálogo no tiene piezas (todavía).")
+            self.lbl_detail.set_text(tr("catalog_window.elegi_una_pieza_de_la_lista") if self._rows else tr("catalog_window.el_catalogo_no_tiene_piezas_todavia"))
             self._show(None)
             self._sync_wrist_button(refs)
             self._sync_joint_button(refs)
@@ -1302,7 +1298,7 @@ class CatalogManagerWindow(Gtk.Window):
         meta = next(m for _row, m in self._rows if m.ref == refs[0])
         text = detail_text(meta, self.mgr.uses(meta.ref), self.mgr.cert_text(meta.ref))
         if n > 1:
-            text = f"{n} piezas elegidas (se muestra la primera).\n\n" + text
+            text = (tr("catalog_window.n_piezas_elegidas_se_muestra_la", n=n) + '\n\n') + text
         self.lbl_detail.set_text(text)
         if self._shown is None or self._shown[0].ref != meta.ref:      # agregar una a la selección no redibuja la misma
             self._show(meta)
@@ -1324,7 +1320,7 @@ class CatalogManagerWindow(Gtk.Window):
             self._shown = (meta, self.mgr.mesh(meta.ref))
         except (ValueError, OSError) as exc:
             self.picture.set_paintable(None)
-            self.lbl_status.set_text(f"No se pudo leer la malla de {meta.ref}: {exc}")
+            self.lbl_status.set_text(tr("catalog_window.no_se_pudo_leer_la_malla", ref=meta.ref, exc=exc))
             return
         self._redraw()
 
@@ -1347,7 +1343,7 @@ class CatalogManagerWindow(Gtk.Window):
                                           zoom=self._zoom, pan=self._pan)
         except Exception as exc:                               # noqa: BLE001  (sin EGL: el resto de la ventana sigue andando)
             self.picture.set_paintable(None)
-            self.lbl_status.set_text(f"La vista previa 3D no está disponible: {exc}")
+            self.lbl_status.set_text(tr("common.la_vista_previa_3d_no_esta", exc=exc))
             return
         self.lbl_status.set_text("")
         h, w = img.shape[:2]
@@ -1478,16 +1474,16 @@ class CatalogManagerWindow(Gtk.Window):
         if len(refs) != 1 or self.ctrl.busy or self._cutter is not None or self._jeditor is not None:
             return
         meta = next(m for _row, m in self._rows if m.ref == refs[0])
-        dlg = Gtk.Window(title="Renombrar pieza", transient_for=self, modal=True, default_width=440, resizable=False)
+        dlg = Gtk.Window(title=tr("catalog_window.renombrar_pieza"), transient_for=self, modal=True, default_width=440, resizable=False)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_top=12, margin_bottom=12, margin_start=12, margin_end=12)
-        box.append(Gtk.Label(label=f"Nombre para «{meta.id}» (se aplica a todas sus versiones). Vacío = volver a mostrar el id.",
+        box.append(Gtk.Label(label=tr("catalog_window.nombre_para_id_se_aplica_a", id=meta.id),
                              xalign=0, wrap=True))
         entry = Gtk.Entry(text=meta.nombre, placeholder_text=meta.id, max_length=60, activates_default=True)
         box.append(entry)
         row = Gtk.Box(spacing=6, halign=Gtk.Align.END)
-        cancel = Gtk.Button(label="Cancelar")
+        cancel = Gtk.Button(label=tr("common.cancelar"))
         cancel.connect("clicked", lambda *_: dlg.close())
-        ok = Gtk.Button(label="Renombrar")
+        ok = Gtk.Button(label=tr("catalog_window.renombrar"))
         ok.add_css_class("suggested-action")
 
         def accept(*_) -> None:
@@ -1515,7 +1511,7 @@ class CatalogManagerWindow(Gtk.Window):
         if not refs or self.ctrl.busy or self._cutter is not None or self._jeditor is not None:
             return
         msg, detail = self.mgr.confirm_for(refs)
-        dlg = Gtk.AlertDialog(message=msg, detail=detail, buttons=["Cancelar", "Eliminar"], cancel_button=0, default_button=0)
+        dlg = Gtk.AlertDialog(message=msg, detail=detail, buttons=[tr("common.cancelar"), tr("catalog_window.eliminar_2")], cancel_button=0, default_button=0)
 
         def answered(d, res) -> None:
             try:
@@ -1557,9 +1553,9 @@ class ImportDialog(Gtk.Window):
         self.lbl_error.add_css_class("error")
         outer.append(self.lbl_error)
         bar = Gtk.Box(spacing=8, halign=Gtk.Align.END)
-        cancel = Gtk.Button(label="Cancelar")
+        cancel = Gtk.Button(label=tr("common.cancelar"))
         cancel.connect("clicked", lambda *_: self.close())
-        go = Gtk.Button(label="Importar")
+        go = Gtk.Button(label=tr("catalog_window.importar_2"))
         go.add_css_class("suggested-action")
         go.connect("clicked", self._on_go)
         bar.append(cancel)
@@ -1572,8 +1568,8 @@ class ImportDialog(Gtk.Window):
     def _make_field(self, f: CI.Field) -> Gtk.Widget:
         if f.kind == CI.FILE:
             box = Gtk.Box(spacing=6)
-            ent = Gtk.Entry(hexpand=True, placeholder_text="ruta del archivo .stl")
-            btn = Gtk.Button(label="Elegir…")
+            ent = Gtk.Entry(hexpand=True, placeholder_text=tr("catalog_window.ruta_del_archivo_stl"))
+            btn = Gtk.Button(label=tr("common.elegir"))
             btn.connect("clicked", lambda *_: self._choose_file(ent))
             box.append(ent)
             box.append(btn)
@@ -1597,7 +1593,7 @@ class ImportDialog(Gtk.Window):
         return w
 
     def _choose_file(self, entry: Gtk.Entry) -> None:
-        dlg = Gtk.FileDialog(title="Elegir el STL")
+        dlg = Gtk.FileDialog(title=tr("catalog_window.elegir_el_stl"))
         flt = Gtk.FileFilter(name="STL")
         flt.add_pattern("*.stl")
         flt.add_pattern("*.STL")

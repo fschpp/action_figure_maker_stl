@@ -10,6 +10,7 @@ clic cerca de un vértice lo elige y el siguiente clic lo mueve; un clic sobre u
 vértice; Retroceso borra el elegido.
 """
 from __future__ import annotations
+from ..i18n import tr
 
 from dataclasses import dataclass, field
 
@@ -66,12 +67,12 @@ class PolygonDraft:
         from shapely.geometry import Polygon
 
         if len(self.pts) < 3:
-            return "necesita al menos 3 vértices"
+            return tr("polygon_editor.necesita_al_menos_3_vertices")
         pg = Polygon(np.array(self.pts))
         if not pg.is_valid:
-            return "se cruza consigo mismo"
+            return tr("polygon_editor.se_cruza_consigo_mismo")
         if pg.area < MIN_AREA:
-            return "tiene área casi nula"
+            return tr("polygon_editor.tiene_area_casi_nula")
         return None
 
     # ---------------------------------------------------------- edición

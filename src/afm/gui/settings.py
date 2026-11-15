@@ -83,3 +83,16 @@ def forget_catalog(line: str | None = None) -> bool:
         if root is not None and d.get("ultimo_catalogo") == root:
             d["ultimo_catalogo"] = None
     return save(d)
+
+
+def language() -> str | None:
+    """Idioma elegido en la interfaz (es / en / pt) o None si nunca se eligió (entonces manda el del sistema)."""
+    from ..i18n import normalize
+    return normalize(load().get("idioma"))
+
+
+def remember_language(code: str) -> bool:
+    """Recuerda el idioma elegido para los próximos arranques."""
+    d = load()
+    d["idioma"] = code
+    return save(d)

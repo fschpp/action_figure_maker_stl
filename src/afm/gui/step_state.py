@@ -3,14 +3,15 @@
 Todo sale de lo que el controlador ya sabe (`problems()`, `outcome_stale()`, el proyecto y los parámetros): acá no hay lógica nueva de la
 figura, solo se resume en una palabra y una línea por paso. No importa GTK: se prueba sin ventana. Ver `gui/steps/rail.py`."""
 from __future__ import annotations
+from ..i18n import tr, lz, loc
 
 from dataclasses import dataclass
 
 FLOW = ("figura", "planos", "miembros", "parametros", "recortes", "generar")      # el orden del trabajo
 OPTIONAL = ("catalogo",)                                                           # modo aparte: la figura sale (en parte) del catálogo
 ORDER = FLOW + OPTIONAL
-TITLES = {"figura": "Figura", "planos": "Planos", "miembros": "Miembros", "parametros": "Parámetros", "recortes": "Recortes",
-          "generar": "Generar", "catalogo": "Catálogo"}
+TITLES = {"figura": lz("common.figura"), "planos": lz("common.planos"), "miembros": lz("common.miembros"), "parametros": lz("common.parametros"), "recortes": lz("common.recortes"),
+          "generar": lz("common.generar"), "catalogo": lz("common.catalogo_2")}
 GLYPHS = {"todo": "○", "ok": "✓", "warn": "⚠", "stale": "⟳", "ready": "▶", "info": "·"}
 ATTENTION = ("todo", "warn", "stale", "ready")      # estados que piden que el usuario haga algo (los salta «Siguiente pendiente»)
 
@@ -23,7 +24,7 @@ class StepState:
 
     @property
     def title(self) -> str:
-        return TITLES[self.key]
+        return loc(TITLES[self.key])
 
     @property
     def glyph(self) -> str:
@@ -35,7 +36,7 @@ def _plural(n: int, one: str, many: str) -> str:
 
 
 def _short(names: list[str], limit: int = 2) -> str:
-    return ", ".join(names[:limit]) + (f" y {len(names) - limit} más" if len(names) > limit else "")
+    return ", ".join(names[:limit]) + ((' ' + tr("step_state.y_v_mas", v=len(names) - limit)) if len(names) > limit else "")
 
 
 def step_states(ctrl) -> dict[str, StepState]:
@@ -49,20 +50,20 @@ def step_states(ctrl) -> dict[str, StepState]:
         out[key] = StepState(key, state, detail)
 
     # --- Figura
-    put("figura", "ok" if loaded else "todo", f"Frente {proj.front}" if loaded else "Abrí un STL")
+    put("figura", "ok" if loaded else "todo", tr("step_state.frente_front", front=proj.front) if loaded else tr("common.abri_un_stl"))
 
     # --- Planos
     n_planes = len(proj.limbs) + (proj.head is not None) + (proj.waist is not None)
     if not loaded:
         put("planos", "todo", "")
     elif catalog_only:
-        put("planos", "info", "no hacen falta: la figura sale del catálogo")
+        put("planos", "info", tr("step_state.no_hacen_falta_la_figura_sale"))
     elif proj.symmetry is None:
-        put("planos", "todo", "Falta el plano de simetría")
+        put("planos", "todo", tr("common.falta_el_plano_de_simetria"))
     elif n_planes == 0:
-        put("planos", "warn", "Falta un miembro, la cabeza o la cintura")
+        put("planos", "warn", tr("step_state.falta_un_miembro_la_cabeza_o"))
     else:
-        put("planos", "ok", "Simetría + " + _plural(n_planes, "plano", "planos"))
+        put("planos", "ok", (tr("step_state.simetria") + ' ') + _plural(n_planes, "plano", "planos"))
 
     # --- Miembros (siluetas y pasadores)
     open_limbs = [l.name for l in proj.limbs if len(l.polygon) < 3]
@@ -70,15 +71,15 @@ def step_states(ctrl) -> dict[str, StepState]:
         put("miembros", "info" if catalog_only else "todo", "")
     elif proj.symmetry is None or not proj.limbs:
         put("miembros", "info" if (proj.head is not None or proj.waist is not None) else "todo",
-            "Sin miembros: solo cabeza / cintura" if (proj.head is not None or proj.waist is not None) else "Agregá un brazo o una pierna")
+            tr("step_state.sin_miembros_solo_cabeza_cintura") if (proj.head is not None or proj.waist is not None) else tr("step_state.agrega_un_brazo_o_una_pierna"))
     elif open_limbs:
-        put("miembros", "warn", "Falta la silueta: " + _short(open_limbs))
+        put("miembros", "warn", (tr("step_state.falta_la_silueta") + ' ') + _short(open_limbs))
     else:
-        put("miembros", "ok", _plural(len(proj.limbs), "miembro", "miembros") + " con silueta")
+        put("miembros", "ok", _plural(len(proj.limbs), "miembro", "miembros") + (' ' + tr("step_state.con_silueta")))
 
     # --- Parámetros
     n_mod = len(ctrl.modified_params()) if loaded else 0
-    put("parametros", "info", f"{n_mod} modificados" if n_mod else "valores por defecto")
+    put("parametros", "info", tr("step_state.n_mod_modificados", n_mod=n_mod) if n_mod else tr("step_state.valores_por_defecto"))
 
     # --- Recortes
     n_trims = len(proj.trims)
@@ -89,20 +90,20 @@ def step_states(ctrl) -> dict[str, StepState]:
     if not loaded:
         put("generar", "todo", "")
     elif problems:
-        put("generar", "todo", "Falta: " + problems[0] + (f" (+{len(problems) - 1})" if len(problems) > 1 else ""))
+        put("generar", "todo", (tr("common.falta") + ' ') + problems[0] + (f" (+{len(problems) - 1})" if len(problems) > 1 else ""))
     elif ctrl.outcome_stale:
-        put("generar", "stale", "Desactualizada: generá de nuevo")
+        put("generar", "stale", tr("step_state.desactualizada_genera_de_nuevo"))
     elif ctrl.session.outcome is None:
-        put("generar", "ready", "Lista para generar")
+        put("generar", "ready", tr("step_state.lista_para_generar"))
     else:
-        put("generar", "ok", "Figura generada")
+        put("generar", "ok", tr("common.figura_generada"))
 
     # --- Catálogo (opcional)
     n_parts = len(proj.parts)
     if not ctrl.session.catalog_root:
-        put("catalogo", "info", "sin catálogo abierto")
+        put("catalogo", "info", tr("step_state.sin_catalogo_abierto"))
     else:
-        put("catalogo", "info", _plural(n_parts, "pieza elegida", "piezas elegidas") if n_parts else "catálogo abierto")
+        put("catalogo", "info", _plural(n_parts, tr("step_state.pieza_elegida"), tr("step_state.piezas_elegidas")) if n_parts else tr("step_state.catalogo_abierto"))
     return out
 
 

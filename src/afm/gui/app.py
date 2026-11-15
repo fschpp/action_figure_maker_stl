@@ -1,22 +1,35 @@
 """Punto de entrada de la aplicación de escritorio (`afm-gui`)."""
 from __future__ import annotations
+from ..i18n import LANGUAGES, initial_language, set_language, tr
 
 import argparse
 import sys
 
 
+def _early_language(argv) -> str:
+    """Fija el idioma antes de armar el `--help` (que ya sale traducido). `--lang` pisa a lo guardado."""
+    pre = argparse.ArgumentParser(add_help=False)
+    pre.add_argument("--lang")
+    known, _ = pre.parse_known_args(argv)
+    try:
+        from . import settings
+        saved = settings.language()
+    except Exception:  # noqa: BLE001 — las preferencias son una comodidad
+        saved = None
+    return set_language(initial_language(known.lang, saved))
+
+
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(prog="afm-gui", description="Action Figure Maker (GTK4)")
-    ap.add_argument("archivo", nargs="?", help="STL o .proyecto a abrir al iniciar")
-    ap.add_argument("--stl", help="STL a usar con un .proyecto (si cambió de lugar)")
+    _early_language(sys.argv[1:] if argv is None else argv)
+    ap = argparse.ArgumentParser(prog="afm-gui", description=tr("app.action_figure_maker_gtk4"))
+    ap.add_argument("archivo", nargs="?", help=tr("app.stl_o_proyecto_a_abrir_al"))
+    ap.add_argument("--stl", help=tr("app.stl_a_usar_con_un_proyecto"))
+    ap.add_argument("--lang", choices=sorted(LANGUAGES), help=tr("app.idioma_de_la_interfaz"))
     args = ap.parse_args(argv)
     try:
         from .window import Application
     except (ImportError, ValueError) as e:
-        print("Faltan dependencias de la interfaz (GTK4, PyGObject, moderngl).\n"
-              "En Debian/Ubuntu: sudo apt install python3-gi gir1.2-gtk-4.0 libgl1\n"
-              "y: pip install 'action-figure-maker-stl[gui]'\n"
-              f"Detalle: {e}", file=sys.stderr)
+        print(tr("app.faltan_dependencias", error=e), file=sys.stderr)
         return 1
     stl, project = args.stl, None
     if args.archivo:

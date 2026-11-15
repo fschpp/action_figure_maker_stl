@@ -38,6 +38,18 @@ afm-gui [figura.stl | proyecto.proyecto]
 
 Guía de uso: [`docs/tutorial_gui.md`](docs/tutorial_gui.md).
 
+### Idioma de la interfaz (es / en / pt)
+
+La interfaz está en español, inglés y portugués (con [`python-i18n`](https://pypi.org/project/python-i18n/)). Se cambia
+desde el botón de idioma de la cabecera (la ventana se vuelve a armar sin perder la figura) y se recuerda para el próximo
+arranque. También: `afm-gui --lang en` o la variable `AFM_LANG=pt`; sin nada de eso se usa el idioma del sistema.
+Orden de prioridad: `--lang` > `AFM_LANG` > el elegido en la ventana > el del sistema > español.
+
+Los textos viven en `src/afm/locales/{es,en,pt}.json` (claves anidadas; `%{var}` para variables). El español es el idioma de
+origen y el de reserva. Para agregar un texto: crear la clave en `es.json`, traducirla en `en.json` y `pt.json` y usar
+`tr("seccion.clave", var=...)` (o `lz("seccion.clave")` en constantes de módulo, que se traducen al mostrarse con `loc()`).
+`tests/test_i18n.py` verifica que los tres idiomas tengan las mismas claves y variables.
+
 ## Uso (motor, sin interfaz)
 
 ```bash

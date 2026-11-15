@@ -4,6 +4,7 @@ Capa fina sobre `Controller` (toda la lógica está ahí y se prueba sin pantall
 traduce eventos de GTK (ratón, teclas, botones, diálogos) y dibuja con el contexto GL del GLArea.
 """
 from __future__ import annotations
+from ..i18n import LANGUAGES, get_language, loc, lz, set_language, tr
 
 import os
 import threading
@@ -20,6 +21,7 @@ from .catalog_manager import can_retune_joint, find_piece, piece_label  # noqa: 
 from .controller import EXPORT_ONLY_PARAMS, JOINT_PREFIX, TRIM_OP_LABELS, TRIM_SHAPES, Controller, Mode  # noqa: E402
 from ..progress import CancelToken, TaskCancelled
 from . import param_meta as PM
+from . import settings as _settings
 from .progress_panel import ProgressPanel  # noqa: E402
 from .render import SceneRenderer  # noqa: E402
 from .session import CatalogNeeded  # noqa: E402
@@ -32,14 +34,14 @@ from .viewcube import ViewCube, interpolate_view, view_angles  # noqa: E402
 DRAG_THRESHOLD_PX = 4.0
 # flechas -> (derecha, arriba) sobre la cara de contacto vista de frente
 _ARROWS = {Gdk.KEY_Left: (-1, 0), Gdk.KEY_Right: (1, 0), Gdk.KEY_Up: (0, 1), Gdk.KEY_Down: (0, -1)}
-_MODE_TITLES = {Mode.VIEW: "", Mode.CROWN: "  ·  marcando coronilla", Mode.SYMMETRY: "  ·  plano de simetría",
-                Mode.LIMB_PLANE: "  ·  plano de un miembro", Mode.NECK_PLANE: "  ·  plano del cuello", Mode.HEAD_CUT_PLANE: "  ·  corte de la base de la cabeza", Mode.WEAPON_CUT_PLANE: "  ·  corte del mango del arma", Mode.WAIST_PLANE: "  ·  plano de la cintura", Mode.HAND_EXTRACT: "  ·  muñeca: extraer mano", Mode.HAND_PLACE: "  ·  muñeca: pegar mano estándar", Mode.POLYGON: "  ·  dibujando silueta",
-                Mode.PIN: "  ·  colocando pasador", Mode.TRIM_PICK: "  ·  colocando recorte",
-                Mode.JOINT_PLANE: "  ·  plano de articulación", Mode.JOINT_AXIS: "  ·  colocando eje de bisagra",
-                Mode.JOINT_LINES: "  ·  codo con 2 líneas (de frente)", Mode.JOINT_SIDE: "  ·  guías de la articulación (de costado)",
-                Mode.FLAT_PLANE: "  ·  corte con la cama de impresión",
-                Mode.FLOOR_CUT: "  ·  corte paralelo al piso",
-                Mode.HEAD_PIN: "  ·  pasador del cuello (de costado)", Mode.WAIST_PIN: "  ·  pasador de la cintura (de costado)"}
+_MODE_TITLES = {Mode.VIEW: "", Mode.CROWN: lz("window.marcando_coronilla"), Mode.SYMMETRY: lz("window.plano_de_simetria"),
+                Mode.LIMB_PLANE: lz("window.plano_de_un_miembro"), Mode.NECK_PLANE: lz("window.plano_del_cuello"), Mode.HEAD_CUT_PLANE: lz("window.corte_de_la_base_de_la"), Mode.WEAPON_CUT_PLANE: lz("window.corte_del_mango_del_arma"), Mode.WAIST_PLANE: lz("window.plano_de_la_cintura"), Mode.HAND_EXTRACT: lz("window.muneca_extraer_mano"), Mode.HAND_PLACE: lz("window.muneca_pegar_mano_estandar"), Mode.POLYGON: lz("window.dibujando_silueta"),
+                Mode.PIN: lz("window.colocando_pasador"), Mode.TRIM_PICK: lz("window.colocando_recorte"),
+                Mode.JOINT_PLANE: lz("window.plano_de_articulacion"), Mode.JOINT_AXIS: lz("window.colocando_eje_de_bisagra"),
+                Mode.JOINT_LINES: lz("window.codo_con_2_lineas_de_frente"), Mode.JOINT_SIDE: lz("window.guias_de_la_articulacion_de_costado"),
+                Mode.FLAT_PLANE: lz("window.corte_con_la_cama_de_impresion"),
+                Mode.FLOOR_CUT: lz("window.corte_paralelo_al_piso"),
+                Mode.HEAD_PIN: lz("window.pasador_del_cuello_de_costado"), Mode.WAIST_PIN: lz("window.pasador_de_la_cintura_de_costado")}
 
 
 TAB_FIGURA, TAB_PLANOS, TAB_CATALOGO, TAB_MIEMBROS, TAB_RECORTES, TAB_PARAMS, TAB_GENERAR = range(7)
@@ -94,7 +96,7 @@ class MainWindow(Gtk.ApplicationWindow):
     _build_win = None                                  # ventana «Armar figura desde catálogo» abierta (una sola)
 
     def __init__(self, app: Gtk.Application, ctrl: Controller):
-        super().__init__(application=app, title="Action Figure Maker", default_width=1240, default_height=780)
+        super().__init__(application=app, title=tr("window.action_figure_maker"), default_width=1240, default_height=780)
         self.ctrl = ctrl
         self.ctrl.on_change = self._refresh
         self.ctrl.defer_history = True                   # el historial de deshacer se registra tras una pausa (agrupa arrastres y giros de spin)
@@ -167,16 +169,16 @@ class MainWindow(Gtk.ApplicationWindow):
             pop_box.append(b)
             return b
 
-        self.btn_open.append(entry("Abrir STL…", "Carga el cuerpo de la figura desde un archivo STL.", lambda: self._on_open_stl()))
-        self.btn_open.append(entry("Abrir proyecto…", "Retoma un archivo .proyecto guardado.", lambda: self._on_open_project()))
-        self.btn_build_cat = entry("Armar desde catálogo…",
-                                   "Figura nueva solo con piezas del catálogo, sin abrir un STL ni un proyecto.",
+        self.btn_open.append(entry(tr("window.abrir_stl_2"), tr("window.carga_el_cuerpo_de_la_figura"), lambda: self._on_open_stl()))
+        self.btn_open.append(entry(tr("window.abrir_proyecto_2"), tr("window.retoma_un_archivo_proyecto_guardado"), lambda: self._on_open_project()))
+        self.btn_build_cat = entry(tr("window.armar_desde_catalogo"),
+                                   tr("window.figura_nueva_solo_con_piezas_del"),
                                    lambda: self._on_catalog_build())
         self.menu_open = Gtk.MenuButton(popover=popover)
-        self.menu_open.set_child(self._menu_content("document-open-symbolic", "Abrir"))
-        self.menu_open.set_tooltip_text("Abrir un STL, un proyecto o armar una figura desde el catálogo")
+        self.menu_open.set_child(self._menu_content("document-open-symbolic", tr("window.abrir")))
+        self.menu_open.set_tooltip_text(tr("window.abrir_un_stl_un_proyecto_o"))
         bar.pack_start(self.menu_open)
-        self.btn_new = self._icon_button("document-new-symbolic", "Nuevo", "Descarta la figura cargada y vuelve a los valores de inicio.",\
+        self.btn_new = self._icon_button("document-new-symbolic", tr("window.nuevo"), tr("window.descarta_la_figura_cargada_y_vuelve"),\
                                          lambda *_: self._on_new())
         bar.pack_start(self.btn_new)
         self.btn_undo = Gtk.Button(icon_name="edit-undo-symbolic")
@@ -185,16 +187,47 @@ class MainWindow(Gtk.ApplicationWindow):
         self.btn_redo.connect("clicked", lambda *_: self.ctrl.redo())
         for b in (self.btn_undo, self.btn_redo):
             bar.pack_start(b)
-        self.btn_save = self._icon_button("document-save-symbolic", "Guardar", "Guarda el proyecto: sobrescribe el .proyecto abierto o pregunta dónde la primera vez.",
+        self.btn_save = self._icon_button("document-save-symbolic", tr("common.guardar"), tr("window.guarda_el_proyecto_sobrescribe_el_proyecto"),
                                           self._on_save_project)
+        self.menu_lang = self._build_language_menu()
+        bar.pack_end(self.menu_lang)
         bar.pack_end(self.btn_save)
-        self.btn_save_as = Gtk.Button(icon_name="document-save-as-symbolic", tooltip_text="Guardar una copia del proyecto con otro nombre o en otra carpeta.")
+        self.btn_save_as = Gtk.Button(icon_name="document-save-as-symbolic", tooltip_text=tr("window.guardar_una_copia_del_proyecto_con"))
         self.btn_save_as.connect("clicked", self._on_save_project_as)
         bar.pack_end(self.btn_save_as)
-        self.btn_export = self._icon_button("document-send-symbolic", "Exportar",
-                                            "Genera y guarda las piezas para imprimir.", lambda *_: self._on_export())
+        self.btn_export = self._icon_button("document-send-symbolic", tr("window.exportar"),
+                                            tr("window.genera_y_guarda_las_piezas_para"), lambda *_: self._on_export())
         bar.pack_end(self.btn_export)                 # queda a la izquierda de «Guardar»
         return bar
+
+    def _build_language_menu(self) -> Gtk.MenuButton:
+        """«Idioma»: español, inglés o portugués. Al elegir uno la ventana se vuelve a armar en ese idioma (no se pierde la figura)."""
+        pop_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        popover = Gtk.Popover(child=pop_box)
+        self.btn_lang = {}
+        current = get_language()
+        for code, name in LANGUAGES.items():
+            b = Gtk.Button(label=("✓ " if code == current else "    ") + name, halign=Gtk.Align.FILL)
+            b.add_css_class("flat")
+            b.get_child().set_halign(Gtk.Align.START)
+            b.connect("clicked", lambda _b, c=code: (popover.popdown(), self._on_language(c)))
+            pop_box.append(b)
+            self.btn_lang[code] = b
+        menu = Gtk.MenuButton(popover=popover)
+        menu.set_child(self._menu_content("preferences-desktop-locale-symbolic", current.upper()))
+        menu.set_tooltip_text(tr("window.idioma_de_la_interfaz"))
+        return menu
+
+    def _on_language(self, code: str) -> None:
+        """Cambia el idioma de la interfaz en caliente (lo recuerda para el próximo arranque)."""
+        if code == get_language():
+            return
+        if self.ctrl.busy:
+            self.ctrl._changed(tr("window.espera_a_que_termine_la_tarea_para_cambiar_el_idioma"), scene=False)
+            return
+        app = self.get_application()
+        if hasattr(app, "switch_language"):
+            app.switch_language(code)
 
     @staticmethod
     def _menu_content(icon: str, label: str) -> Gtk.Widget:
@@ -248,7 +281,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self.cube_area = Gtk.DrawingArea(content_width=CUBE_PX, content_height=CUBE_PX,
                                          halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER)
         self.cube_area.set_draw_func(self._draw_cube)
-        self.cube_area.set_tooltip_text("Cubo de vista: clic en una cara, arista o vértice para mirar desde ahí; arrastrar para orbitar")
+        self.cube_area.set_tooltip_text(tr("window.cubo_de_vista_clic_en_una"))
         drag = Gtk.GestureDrag()
         drag.set_button(1)
         drag.connect("drag-begin", self._on_cube_drag_begin)
@@ -264,7 +297,7 @@ class MainWindow(Gtk.ApplicationWindow):
         for side in ("end", "top"):
             getattr(box, f"set_margin_{side}")(10)
         box.append(self.cube_area)
-        self.btn_frame = Gtk.Button(label="Encuadrar", halign=Gtk.Align.CENTER, tooltip_text="Encuadrar la figura en el visor")
+        self.btn_frame = Gtk.Button(label=tr("window.encuadrar"), halign=Gtk.Align.CENTER, tooltip_text=tr("window.encuadrar_la_figura_en_el_visor"))
         self.btn_frame.add_css_class("afm-cube-btn")
         self.btn_frame.connect("clicked", lambda *_: self._frame())
         box.append(self.btn_frame)
@@ -274,9 +307,9 @@ class MainWindow(Gtk.ApplicationWindow):
         """Franja superior: la figura generada ya no vale porque cambió el proyecto (aparece sola, sin abrir otra pestaña)."""
         row = Gtk.Box(spacing=8)
         row.add_css_class("afm-banner")
-        lbl = Gtk.Label(label="La figura generada quedó desactualizada: cambiaste el proyecto desde la última generación.",
+        lbl = Gtk.Label(label=tr("window.la_figura_generada_quedo_desactualizada_ca"),
                         xalign=0, hexpand=True, wrap=True)
-        self.btn_stale_gen = Gtk.Button(label="Generar de nuevo")
+        self.btn_stale_gen = Gtk.Button(label=tr("window.generar_de_nuevo"))
         self.btn_stale_gen.add_css_class("suggested-action")
         self.btn_stale_gen.connect("clicked", lambda *_: self._on_generate())
         row.append(lbl)
@@ -312,11 +345,11 @@ class MainWindow(Gtk.ApplicationWindow):
         self.lbl_task = Gtk.Label(xalign=0)
         self.lbl_task.add_css_class("afm-task")
         head = Gtk.Box(spacing=6)
-        head.append(Gtk.Label(label="Estado"))
+        head.append(Gtk.Label(label=tr("common.estado")))
         head.append(self.spinner)
         head.append(self.lbl_task)
-        self.btn_task_cancel = Gtk.Button(label="Cancelar", visible=False)
-        self.btn_task_cancel.set_tooltip_text("Corta la tarea cuando termine el paso en curso (un paso largo no se puede interrumpir a medias).")
+        self.btn_task_cancel = Gtk.Button(label=tr("common.cancelar"), visible=False)
+        self.btn_task_cancel.set_tooltip_text(tr("window.corta_la_tarea_cuando_termine_el"))
         self.btn_task_cancel.connect("clicked", lambda *_: self._on_task_cancel())
         head.append(self.btn_task_cancel)
         frame = Gtk.Frame()
@@ -330,7 +363,7 @@ class MainWindow(Gtk.ApplicationWindow):
         if self._status_text == (message, problems):          # no se pisa el scroll si no cambió nada
             return
         self._status_text = (message, problems)
-        self.status_view.set_tooltip_text(message + (("\n" + problems + "\n(clic: ir al próximo paso pendiente)") if problems else ""))
+        self.status_view.set_tooltip_text(message + (("\n" + problems + ('\n' + tr("window.clic_ir_al_proximo_paso_pendiente"))) if problems else ""))
         buf = self._status_buf
         buf.set_text(message)
         if problems:
@@ -384,7 +417,7 @@ class MainWindow(Gtk.ApplicationWindow):
         if names != self._joint_names:
             keep = self._jprev_name()
             self._joint_names = names
-            self.dd_jprev.set_model(Gtk.StringList.new([n.capitalize() for n in names] or ["(ninguna)"]))
+            self.dd_jprev.set_model(Gtk.StringList.new([n.capitalize() for n in names] or [tr("common.ninguna")]))
             self.dd_jprev.set_selected(names.index(keep) if keep in names else 0)
         if ctrl.show_joint_preview and ctrl._jp["name"] in names:
             self.dd_jprev.set_selected(names.index(ctrl._jp["name"]))
@@ -406,11 +439,11 @@ class MainWindow(Gtk.ApplicationWindow):
                     spin.set_value(val)
         if has:
             note = ("" if editable or hip else
-                    "Articulación de la pieza de catálogo: el eje, el plano y el rango son los de la pieza.\n")
+                    (tr("window.articulacion_de_la_pieza_de_catalogo") + '\n'))
             self.lbl_jprev.set_text(note + ctrl.joint_preview_status())
         else:
             self.lbl_jprev.set_text(ctrl.no_joint_text() if ctrl.loaded and ctrl.session.catalog_only()
-                                    else "Agregá la rodilla o el codo de un miembro, o una pierna (cadera), en la pestaña Planos.")
+                                    else tr("window.agrega_la_rodilla_o_el_codo"))
 
     def _tab_page(self, title: str) -> Gtk.Box:
         """Agrega una pestaña con scroll propio y devuelve la caja donde van sus secciones."""
@@ -447,29 +480,34 @@ class MainWindow(Gtk.ApplicationWindow):
 
     def _sync_title(self) -> None:
         ctrl = self.ctrl
-        title = "Action Figure Maker"
+        title = tr("window.action_figure_maker")
         if ctrl.session.stl_path:
             title += " — " + os.path.basename(ctrl.session.stl_path)
         if ctrl.dirty:
             title = "* " + title                           # cambios sin guardar en el proyecto
-        mode_title = "  ·  dibujando recorte" if ctrl.mode == Mode.POLYGON and ctrl.trim_cfg else _MODE_TITLES[ctrl.mode]
+        if ctrl.mode == Mode.POLYGON and ctrl.trim_cfg:
+            mode_title = "  " + tr("window.dibujando_recorte")
+        else:
+            mode_title = loc(_MODE_TITLES[ctrl.mode])
+            mode_title = "  " + mode_title if mode_title else ""
         self.set_title(title + mode_title)
         mode_bar.update(self, mode_title.strip(" ·"))
 
     def _sync_undo_buttons(self) -> None:
         ctrl, h = self.ctrl, self.ctrl.history
-        why = ctrl.undo_blocked() or (None if h.can_undo else "No hay nada para deshacer.")
+        why = ctrl.undo_blocked() or (None if h.can_undo else tr("window.no_hay_nada_para_deshacer"))
         self.btn_undo.set_sensitive(why is None)
-        self.btn_undo.set_tooltip_text(why or ("Deshacer: " + h.undo_label if h.undo_label else "Deshacer (Ctrl+Z)"))
-        why = ctrl.undo_blocked() or (None if h.can_redo else "No hay nada para rehacer.")
+        self.btn_undo.set_tooltip_text(why or ((tr("window.deshacer") + ' ') + h.undo_label if h.undo_label else tr("window.deshacer_ctrl_z")))
+        why = ctrl.undo_blocked() or (None if h.can_redo else tr("window.no_hay_nada_para_rehacer"))
         self.btn_redo.set_sensitive(why is None)
-        self.btn_redo.set_tooltip_text(why or ("Rehacer: " + h.redo_label if h.redo_label else "Rehacer (Ctrl+Mayús+Z)"))
+        self.btn_redo.set_tooltip_text(why or ((tr("window.rehacer") + ' ') + h.redo_label if h.redo_label else tr("window.rehacer_ctrl_mayus_z")))
 
     def _param_row(self, key: str, label: str, lo: float, hi: float, step: float, digits: int) -> Gtk.Box:
         """Fila de un parámetro: etiqueta corta (la explicación va al tooltip), spin o interruptor y «restaurar» si se modificó."""
+        label = loc(label)
         short, hint = PM.split_label(label)
         if key in EXPORT_ONLY_PARAMS:
-            hint = (hint + " " if hint else "") + "Se aplica al exportar: no obliga a generar de nuevo."
+            hint = (hint + " " if hint else "") + tr("window.se_aplica_al_exportar_no_obliga")
         row = Gtk.Box(spacing=6)
         lbl = Gtk.Label(label=short, xalign=0, hexpand=True, wrap=True)
         if hint:
@@ -505,12 +543,12 @@ class MainWindow(Gtk.ApplicationWindow):
             info["reset"].set_visible(mod)
             if mod:
                 d = ctrl.param_default(key)
-                info["reset"].set_tooltip_text("Restaurar el valor por defecto (" + ("sí" if d >= 0.5 else "no") + ")" if PM.is_boolean(key)
-                                               else f"Restaurar el valor por defecto ({d:g})")
+                info["reset"].set_tooltip_text(tr("window.restaurar_el_valor_por_defecto") + (tr("common.si") if d >= 0.5 else tr("common.no")) + ")" if PM.is_boolean(key)
+                                               else tr("window.restaurar_el_valor_por_defecto_d", d=f"{d:g}"))
                 info["label"].add_css_class("afm-modified")
             else:
                 info["label"].remove_css_class("afm-modified")
-        self.lbl_param_modified.set_text(f"{mods} modificado(s) respecto de los valores por defecto." if mods else "Todos con su valor por defecto.")
+        self.lbl_param_modified.set_text(tr("window.mods_modificado_s_respecto_de_los", mods=mods) if mods else tr("window.todos_con_su_valor_por_defecto"))
         self.btn_param_reset_all.set_sensitive(bool(mods) and not ctrl.busy)
 
     def _on_param_search(self, text: str) -> None:
@@ -557,7 +595,7 @@ class MainWindow(Gtk.ApplicationWindow):
                 self._shown_height = ref
                 self.spin_height.set_value(ref)
             probs = ctrl.problems()
-            self._set_status(ctrl.message, "Pendiente: " + "; ".join(probs) if probs else "Siluetas completas.")
+            self._set_status(ctrl.message, (tr("window.pendiente") + ' ') + "; ".join(probs) if probs else tr("window.siluetas_completas"))
             if ctrl.mode != self._last_mode:                 # al empezar una tarea, mostrar la pestaña con sus controles
                 self._last_mode = ctrl.mode
                 tab = self._tab_for_mode()
@@ -626,8 +664,7 @@ class MainWindow(Gtk.ApplicationWindow):
                 self.spin_hand_yaw.set_value(placed.yaw)
             fit = ctrl.hand_fit() if placed is not None else None
             self.lbl_hand_fit.set_text("" if fit is None else
-                                       f"Muñeca del modelo Ø{2 * fit['info']['radio_brazo_mm']:.1f} mm · de la mano "
-                                       f"Ø{2 * fit['info']['radio_mano_mm']:.1f} mm (escalón {fit['info']['escalon_mm']:.1f} mm)")
+                                       tr("window.muneca_del_modelo_v_mm_de", v=f"{2 * fit['info']['radio_brazo_mm']:.1f}", v2=f"{2 * fit['info']['radio_mano_mm']:.1f}", escalon_mm=f"{fit['info']['escalon_mm']:.1f}"))
             self._sync_catalog(loaded)
             gate((self.btn_knee, self.btn_elbow, self.btn_elbow_lines), ctrl.blocked("limbs"))
             head = ctrl.session.project.head
@@ -638,7 +675,7 @@ class MainWindow(Gtk.ApplicationWindow):
             gate(self.btn_waist_pin_reset, ctrl.blocked("waist_pin_reset"))
             joint_pin = ctrl.mode in (Mode.HEAD_PIN, Mode.WAIST_PIN)
             gate((self.btn_head_snap, self.btn_head_heat, self.btn_waist_snap, self.btn_waist_heat),
-                 None if joint_pin else "Se activa mientras colocás el pasador del cuello o de la cintura.")
+                 None if joint_pin else tr("window.se_activa_mientras_colocas_el_pasador"))
             self._sync_joint_aim_ui(loaded)
             rep = loaded and head is not None and head.replacement_path is not None
             gate((self.btn_head_orig, self.dd_head_up, self.btn_head_cut, *self.head_spins.values()), ctrl.blocked("head_replacement"))
@@ -651,8 +688,7 @@ class MainWindow(Gtk.ApplicationWindow):
                         spin.set_value(val)
                 prev = ctrl.head_preview()
                 self.lbl_head_fit.set_text("" if prev is None else
-                                           f"Base coincide {100 * prev[1]['coincidencia_base']:.0f} % "
-                                           f"(conviene ≥ {100 * MIN_BASE_IOU:.0f} %) · alto {prev[1]['alto_mm']:.1f} mm")
+                                           tr("window.base_coincide_v_conviene_v2_alto", v=f"{100 * prev[1]['coincidencia_base']:.0f}", v2=f"{100 * MIN_BASE_IOU:.0f}", alto_mm=f"{prev[1]['alto_mm']:.1f}"))
             else:
                 self.lbl_head_fit.set_text("")
             off_limb = ctrl.offset_limb() if loaded else None
@@ -723,16 +759,16 @@ class MainWindow(Gtk.ApplicationWindow):
             row.append(Gtk.Label(label=e["label"], xalign=0, hexpand=True, wrap=True))
             i = e["index"]
             if e["shape"] == "polygon":
-                ed = Gtk.Button(icon_name="document-edit-symbolic", tooltip_text="Editar los vértices del polígono")
+                ed = Gtk.Button(icon_name="document-edit-symbolic", tooltip_text=tr("window.editar_los_vertices_del_poligono"))
                 ed.add_css_class("flat")
                 ed.connect("clicked", lambda _b, k=i: self.ctrl.start_trim(index=k))
                 row.append(ed)
             other = "union" if e["op"] == "subtract" else "subtract"
-            tg = Gtk.Button(label="→ " + TRIM_OP_LABELS[other], tooltip_text="Cambiar entre restar y unir")
+            tg = Gtk.Button(label="→ " + loc(TRIM_OP_LABELS[other]), tooltip_text=tr("window.cambiar_entre_restar_y_unir"))
             tg.add_css_class("flat")
             tg.connect("clicked", lambda _b, k=i, o=other: self.ctrl.set_trim_op(k, o))
             row.append(tg)
-            rm = Gtk.Button(icon_name="edit-delete-symbolic", tooltip_text="Quitar el recorte")
+            rm = Gtk.Button(icon_name="edit-delete-symbolic", tooltip_text=tr("window.quitar_el_recorte"))
             rm.add_css_class("flat")
             rm.connect("clicked", lambda _b, k=i: self.ctrl.remove_trim(k))
             row.append(rm)
@@ -763,7 +799,7 @@ class MainWindow(Gtk.ApplicationWindow):
         figs = ctrl.cut_ref_figures()
         if figs != self._cut_ref_figs:
             self._cut_ref_figs = figs
-            self.dd_cut_ref.set_model(Gtk.StringList.new(figs or ["(sin referencia)"]))
+            self.dd_cut_ref.set_model(Gtk.StringList.new(figs or [tr("window.sin_referencia")]))
         cur = ctrl.cut_ref_figure()
         if cur in figs and self.dd_cut_ref.get_selected() != figs.index(cur):
             self.dd_cut_ref.set_selected(figs.index(cur))
@@ -815,15 +851,14 @@ class MainWindow(Gtk.ApplicationWindow):
             row = Gtk.Box(spacing=6)
             for side in ("start", "end", "top", "bottom"):
                 getattr(row, f"set_margin_{side}")(4)
-            vis = Gtk.CheckButton(active=e.visible, tooltip_text="Mostrar / ocultar")
+            vis = Gtk.CheckButton(active=e.visible, tooltip_text=tr("window.mostrar_ocultar"))
             vis.connect("toggled", lambda _b, pid=e.id: None if self._updating else self.ctrl.toggle_plane(pid))
             row.append(vis)
             cut = cuts.get(e.id)
             lab = Gtk.Label(label=self.ctrl.cut_row_text(cut) if cut else e.label, xalign=0, hexpand=True, wrap=True)
             row.append(lab)
             if cut and cut["dif_mm"] is not None and abs(cut["dif_mm"]) >= 0.05:
-                al = Gtk.Button(label="Alinear", tooltip_text="Mover este corte a la misma distancia del plano de simetría "
-                                "que el de la pieza de catálogo elegida")
+                al = Gtk.Button(label=tr("window.alinear"), tooltip_text=tr("window.mover_este_corte_a_la_misma"))
                 al.add_css_class("flat")
                 al.connect("clicked", lambda _b, pid=e.id: self.ctrl.align_cut_to_line(pid))
                 row.append(al)
@@ -834,16 +869,18 @@ class MainWindow(Gtk.ApplicationWindow):
                 spec = self.ctrl.session.limb(e.id)
                 sub = Gtk.Box(spacing=12, margin_start=30, margin_bottom=2)
                 for cross, tip_draw, tip_rm in (
-                        (False, "Dibuja o edita la silueta del miembro (el contorno sobre el plano de la fila, el de costado)",
-                         f"Quitar la silueta de «{e.id}» (el miembro queda pendiente de silueta; la 2.ª silueta no se toca)"),
-                        (True, "Dibuja o edita la 2.ª silueta (sobre el plano perpendicular, normalmente de frente). El miembro "
-                               "es lo que queda dentro de las dos siluetas",
-                         f"Quitar la 2.ª silueta de «{e.id}» (la silueta principal no se toca)")):
+                        (False, tr("window.dibuja_o_edita_la_silueta_del_miembro"),
+                         tr("window.quitar_la_silueta_de_name", name=e.id)),
+                        (True, tr("window.dibuja_o_edita_la_2_a_silueta"),
+                         tr("window.quitar_la_2_a_silueta_de_name", name=e.id))):
                     has = spec is not None and ((spec.cross is not None) if cross else len(spec.polygon) >= 3)
-                    name = "2.ª silueta" if cross else "Silueta"
+                    if cross:
+                        label = tr("window.editar_2_a_silueta") if has else tr("window.dibujar_2_a_silueta")
+                    else:
+                        label = tr("window.editar_silueta") if has else tr("window.dibujar_silueta")
                     grp = Gtk.Box()
                     grp.add_css_class("linked")
-                    ed = self._icon_label_button(None, f"Editar {name.lower()}" if has else f"Dibujar {name.lower()}", tip_draw)
+                    ed = self._icon_label_button(None, label, tip_draw)
                     ed.connect("clicked", lambda _b, pid=e.id, c=cross: self.ctrl.start_polygon(pid, cross=c))
                     grp.append(ed)
                     if has:
@@ -852,37 +889,35 @@ class MainWindow(Gtk.ApplicationWindow):
                                    self.ctrl.remove_cross(pid) if c else self.ctrl.remove_silhouette(pid))
                         grp.append(rx)
                     sub.append(grp)
-                pn = self._icon_label_button("find-location-symbolic", "Pasador", "Colocar el pasador sobre la cara de corte")
+                pn = self._icon_label_button("find-location-symbolic", tr("window.pasador"), tr("window.colocar_el_pasador_sobre_la_cara"))
                 pn.connect("clicked", lambda _b, pid=e.id: self.ctrl.start_pin(pid))
                 sub.append(pn)
             if e.kind == "joint":
                 jn = e.id[len(JOINT_PREFIX):]
-                ax = Gtk.Button(icon_name="find-location-symbolic", tooltip_text="Colocar el eje de la bisagra "
-                                "(clic sobre el costado de la figura)")
+                ax = Gtk.Button(icon_name="find-location-symbolic", tooltip_text=tr("window.colocar_el_eje_de_la_bisagra"))
                 ax.add_css_class("flat")
                 ax.connect("clicked", lambda _b, n=jn: self.ctrl.start_joint_axis(n))
                 row.append(ax)
                 if jn in self.ctrl.joint_guides:
                     sd = Gtk.Button(icon_name="object-flip-horizontal-symbolic",
-                                    tooltip_text="Ajustar las guías de las 2 líneas desde el costado (4 clics en la vista "
-                                                 "«Costado»); recalcula el corte y el eje")
+                                    tooltip_text=tr("window.ajustar_las_guias_de_las_2"))
                     sd.add_css_class("flat")
                     sd.connect("clicked", lambda _b, n=jn: self.ctrl.start_joint_side(n))
                     row.append(sd)
                 lo, hi = self.ctrl.joint_limits(jn)
                 for tip, val, lo_b, hi_b, cb in (
-                        ("Flexión mínima (° ; negativa = hiperextensión)", lo, -45.0, 149.0,
+                        (tr("window.flexion_minima_negativa_hiperextension"), lo, -45.0, 149.0,
                          lambda b, n=jn: self.ctrl.set_joint_limit(n, "lo", b.get_value())),
-                        ("Flexión máxima (°)", hi, -44.0, 150.0,
+                        (tr("window.flexion_maxima"), hi, -44.0, 150.0,
                          lambda b, n=jn: self.ctrl.set_joint_limit(n, "hi", b.get_value())),
-                        ("Inclinación del eje, vista de frente (° ; positiva = sube hacia +X)", self.ctrl.joint_tilt(jn), -45.0, 45.0,
+                        (tr("window.inclinacion_del_eje_vista_de_frente"), self.ctrl.joint_tilt(jn), -45.0, 45.0,
                          lambda b, n=jn: self.ctrl.set_joint_tilt(n, b.get_value()))):
                     sp = Gtk.SpinButton.new_with_range(lo_b, hi_b, 1.0)
                     sp.set_value(val)
                     sp.set_tooltip_text(tip)
                     sp.connect("value-changed", lambda b, cb=cb: None if self._updating else cb(b))
                     row.append(sp)
-            rm = Gtk.Button(icon_name="edit-delete-symbolic", tooltip_text="Quitar el plano entero (con sus siluetas)")
+            rm = Gtk.Button(icon_name="edit-delete-symbolic", tooltip_text=tr("window.quitar_el_plano_entero_con_sus_siluetas"))
             rm.add_css_class("flat")
             rm.connect("clicked", lambda _b, pid=e.id: self.ctrl.remove_plane(pid))
             row.append(rm)
@@ -951,7 +986,7 @@ class MainWindow(Gtk.ApplicationWindow):
         """Mira del plano del cuello / de la cintura: casilla, texto, botones para mirarlo, correrlo (±0,5 mm) y el imán, y el recuadro
         de la sección. La cinta se pinta en el visor mientras esta sección es la que se mira (`Controller.joint_focus`)."""
         w = {}
-        name = "del cuello" if lugar == "cuello" else "de la cintura"
+        name = tr("window.del_cuello") if lugar == "cuello" else tr("window.de_la_cintura")
 
         def focus(fn):
             def go(*_):
@@ -960,21 +995,18 @@ class MainWindow(Gtk.ApplicationWindow):
                 self._refresh()
             return go
 
-        w["chk"] = Gtk.CheckButton(label=f"Mira del plano {name} (cinta de color y sección)")
-        w["chk"].set_tooltip_text("Con un catálogo abierto: pinta la sección del plano con el color de cuánto del catálogo la acepta (verde = casi "
-                                  "todo, amarillo = una parte, rojo = nada) y una cinta de puntos a lo largo de la normal del plano, ±4 mm cada "
-                                  "0,5 mm; el punto blanco es la mejor posición. Informativo, no una garantía.")
+        w["chk"] = Gtk.CheckButton(label=tr("window.mira_del_plano_name_cinta_de", name=name))
+        w["chk"].set_tooltip_text(tr("window.con_un_catalogo_abierto_pinta_la"))
         w["chk"].connect("toggled", lambda b: None if self._updating else self.ctrl.toggle_cut_aim())
         sec.append(w["chk"])
         w["lbl"] = Gtk.Label(label="", xalign=0, wrap=True, selectable=True)
         sec.append(w["lbl"])
         row = Gtk.Box(spacing=6)
-        w["look"] = self._button(f"Mirar este plano", focus(lambda: None))
+        w["look"] = self._button(tr("window.mirar_este_plano"), focus(lambda: None))
         w["minus"] = self._button("−0,5 mm", focus(lambda: self.ctrl.shift_joint_plane(lugar, -0.5)))
         w["plus"] = self._button("+0,5 mm", focus(lambda: self.ctrl.shift_joint_plane(lugar, 0.5)))
-        w["snap"] = self._button("Imán del plano", focus(lambda: self.ctrl.snap_joint()))
-        w["snap"].set_tooltip_text("Desliza el plano a la mejor posición de la cinta (±4 mm sobre su normal). Descarta el pasador elegido: hay "
-                                   "que volver a revisarlo. (La tecla M sigue moviendo solo el corte lateral de un miembro.)")
+        w["snap"] = self._button(tr("window.iman_del_plano"), focus(lambda: self.ctrl.snap_joint()))
+        w["snap"].set_tooltip_text(tr("window.desliza_el_plano_a_la_mejor"))
         for b in (w["look"], w["minus"], w["plus"], w["snap"]):
             row.append(b)
         sec.append(row)
@@ -1027,7 +1059,7 @@ class MainWindow(Gtk.ApplicationWindow):
         if job is None:
             return
         key, run = job
-        self._run_task("Midiendo el choque en pose sentada…", run, lambda res, err: self.ctrl.finish_cut_seated(key, res, err))
+        self._run_task(tr("window.midiendo_el_choque_en_pose_sentada"), run, lambda res, err: self.ctrl.finish_cut_seated(key, res, err))
 
     def _draw_aim(self, _area, cr, w: int, h: int) -> None:
         """El recuadro de la mira: lo que lee bajo el puntero o, si no hay lectura, en el centro actual del pasador."""
@@ -1054,7 +1086,7 @@ class MainWindow(Gtk.ApplicationWindow):
             self.gl.queue_render()
             if self.ctrl.aim_active():                  # la mira: solo la barra de estado y el recuadro, no toda la interfaz
                 probs = self.ctrl.problems()
-                self._set_status(self.ctrl.message, "Pendiente: " + "; ".join(probs) if probs else "Siluetas completas.")
+                self._set_status(self.ctrl.message, (tr("window.pendiente") + ' ') + "; ".join(probs) if probs else tr("window.siluetas_completas"))
                 self.aim_area.queue_draw()
         return False
 
@@ -1207,10 +1239,9 @@ class MainWindow(Gtk.ApplicationWindow):
                 finally:
                     self._updating = False
 
-        dlg = Gtk.AlertDialog(message="La cadera tiene mecanismo de clic",
-                              detail="Rellenar los muslos talla la pelvis alrededor del muslo alargado y puede cortar las lengüetas del clic: "
-                                     "el clic de la cadera podría dejar de funcionar. Al exportar se informa cuánto se pierde. ¿Rellenar igual?",
-                              buttons=["Cancelar", "Rellenar igual"], cancel_button=0, default_button=0)
+        dlg = Gtk.AlertDialog(message=tr("window.la_cadera_tiene_mecanismo_de_clic"),
+                              detail=tr("window.rellenar_los_muslos_talla_la_pelvis"),
+                              buttons=[tr("common.cancelar"), tr("window.rellenar_igual")], cancel_button=0, default_button=0)
         dlg.choose(self, None, answered)
 
     def _on_flat_toggled(self, on: bool) -> None:
@@ -1266,7 +1297,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self.btn_build_cat.set_sensitive(not ctrl.busy)
         if self._catalog_win is not None:
             self._catalog_win.refresh_if_changed()
-        self.lbl_catalog.set_text("Sin catálogo abierto" if not root else f"Catálogo: {root}")
+        self.lbl_catalog.set_text(tr("common.sin_catalogo_abierto") if not root else tr("window.catalogo_root", root=root))
         self.btn_cat_forget.set_sensitive(bool(root and not ctrl.busy))
         self.btn_cat_review.set_sensitive(bool(loaded and (ctrl.session.project.parts or ctrl.session.project.part_scales) and not ctrl.busy))
         self.btn_divide_model.set_sensitive(bool(loaded and not ctrl.busy and not ctrl.session.catalog_only()))
@@ -1274,8 +1305,8 @@ class MainWindow(Gtk.ApplicationWindow):
         self.btn_cat_scale.set_sensitive(bool(loaded and root and not ctrl.busy))
         self.btn_cat_align.set_sensitive(bool(loaded and root and ctrl.session.project.parts and not ctrl.busy))
         scale = ctrl.line_scale() if root else None
-        self.btn_cat_scale.set_label("Escalar la figura a la altura de la línea" if scale is None else
-                                     f"Escalar la figura a la altura de la línea (×{scale:.3f})".replace(".", ","))
+        self.btn_cat_scale.set_label(tr("common.escalar_la_figura_a_la_altura") if scale is None else
+                                     tr("window.escalar_la_figura_a_la_altura", scale=f"{scale:.3f}").replace(".", ","))
         rows = ctrl.catalog_rows() if loaded else []
         choices = {r["lugar"]: [m.ref for m in ctrl.catalog_choices(r["lugar"])] if root else [] for r in rows}
         pieces = ctrl.catalog_pieces() if root else []
@@ -1294,15 +1325,15 @@ class MainWindow(Gtk.ApplicationWindow):
             box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
             line = Gtk.Box(spacing=6)
             state, glyph = ctrl.catalog_row_state(r)
-            icon = Gtk.Label(label=glyph, tooltip_text={"modelo": "Usa la pieza del modelo", "pendiente": "Pieza elegida, sin revisar",
-                                                         "ok": "Acopla bien", "aviso": "Acopla con avisos", "no": "No acopla"}[state])
+            icon = Gtk.Label(label=glyph, tooltip_text={"modelo": tr("window.usa_la_pieza_del_modelo"), "pendiente": tr("window.pieza_elegida_sin_revisar"),
+                                                         "ok": tr("window.acopla_bien"), "aviso": tr("window.acopla_con_avisos"), "no": tr("window.no_acopla")}[state])
             icon.add_css_class("afm-step-glyph")
             icon.add_css_class({"modelo": "afm-step-info", "pendiente": "afm-step-todo", "ok": "afm-step-ok",
                                 "aviso": "afm-step-warn", "no": "afm-step-bad"}[state])
             line.append(icon)
             line.append(self._thumb_picture(root, r["pieza"]))
             line.append(Gtk.Label(label=lugar.capitalize(), xalign=0, hexpand=True))
-            dd = Gtk.DropDown.new_from_strings(["(la del modelo)"] + [shown.get(ref, ref) for ref in refs])
+            dd = Gtk.DropDown.new_from_strings([tr("window.la_del_modelo")] + [shown.get(ref, ref) for ref in refs])
             cur = r["pieza"]
             # la pieza guardada puede traer versión fija («id@2»): se muestra la fila de esa pieza si está en la lista
             idx = 0 if cur is None else next((i + 1 for i, ref in enumerate(refs) if ref == cur or ref.split("@")[0] == cur.split("@")[0]), 0)
@@ -1322,9 +1353,8 @@ class MainWindow(Gtk.ApplicationWindow):
                     box.append(self._part_actions(lugar, r))
                 piece = find_piece(pieces, r["pieza"]) if lugar in ("brazo", "pierna") else None
                 if piece is not None and can_retune_joint(piece)[0]:
-                    btn = Gtk.Button(label="Reajustar la articulación de esta pieza…", halign=Gtk.Align.START,
-                                     tooltip_text="Abre «Administrar catálogo» con esta pieza para mover el eje de la bisagra, inclinar el plano o cambiar el rango "
-                                                  "viendo el hueco; se guarda como versión nueva de la pieza (después elegila en este lugar).")
+                    btn = Gtk.Button(label=tr("window.reajustar_la_articulacion_de_esta_pieza"), halign=Gtk.Align.START,
+                                     tooltip_text=tr("window.abre_administrar_catalogo_con_esta_pieza"))
                     btn.connect("clicked", self._on_retune_joint, piece.ref)
                     box.append(btn)
             self.parts_box.append(box)
@@ -1339,7 +1369,7 @@ class MainWindow(Gtk.ApplicationWindow):
         pic.add_css_class("afm-thumb")
         if not ref or not root:
             return pic
-        pic.set_tooltip_text(f"Vista de frente de «{ref}»")
+        pic.set_tooltip_text(tr("window.vista_de_frente_de_ref", ref=ref))
         session = self.ctrl.session
 
         def work():
@@ -1364,8 +1394,8 @@ class MainWindow(Gtk.ApplicationWindow):
         ctrl = self.ctrl
         k = ctrl.session.part_scale(lugar)
         line = Gtk.Box(spacing=6)
-        line.append(Gtk.Label(label="Escala de la pieza ×", xalign=0))
-        lock = Gtk.CheckButton(label="igual", tooltip_text="Los tres ejes juntos (escala uniforme). Sin marcar, cada eje es independiente.")
+        line.append(Gtk.Label(label=tr("window.escala_de_la_pieza"), xalign=0))
+        lock = Gtk.CheckButton(label=tr("common.igual"), tooltip_text=tr("window.los_tres_ejes_juntos_escala_uniforme"))
         lock.set_active(k[0] == k[1] == k[2])
         spins = []
         guard = {"on": False}
@@ -1379,8 +1409,8 @@ class MainWindow(Gtk.ApplicationWindow):
                     sp.set_value(src.get_value())
             guard["on"] = False
 
-        for name, tip, val in (("X", "lateral: ancho de la pieza", k[0]), ("Y", "adelante-atrás: profundidad", k[1]),
-                               ("Z", "vertical: alto", k[2])):
+        for name, tip, val in (("X", tr("window.lateral_ancho_de_la_pieza"), k[0]), ("Y", tr("window.adelante_atras_profundidad"), k[1]),
+                               ("Z", tr("window.vertical_alto"), k[2])):
             line.append(Gtk.Label(label=name, xalign=1, tooltip_text=tip))
             sp = Gtk.SpinButton.new_with_range(0.05, 10.0, 0.01)
             sp.set_digits(3)
@@ -1391,7 +1421,7 @@ class MainWindow(Gtk.ApplicationWindow):
             spins.append(sp)
             line.append(sp)
         line.append(lock)
-        apply = Gtk.Button(label="Aplicar")
+        apply = Gtk.Button(label=tr("common.aplicar"))
         apply.connect("clicked", lambda *_: ctrl.set_part_scale(lugar, tuple(sp.get_value() for sp in spins)))
         line.append(apply)
         ok = bool(not ctrl.busy and not ctrl.session.catalog_only())
@@ -1414,33 +1444,31 @@ class MainWindow(Gtk.ApplicationWindow):
         """Botones de una fila revisada: «Ver por qué», escalar para este lugar y resolver el conflicto de rodilla/codo."""
         ctrl = self.ctrl
         bar = Gtk.Box(spacing=4)
-        why = Gtk.Button(label="Ver por qué", tooltip_text="Superpone la cara de la pieza y la del modelo y explica el acople")
+        why = Gtk.Button(label=tr("window.ver_por_que"), tooltip_text=tr("window.superpone_la_cara_de_la_pieza"))
         why.connect("clicked", lambda *_: self._show_fit_diagnosis(lugar))
         bar.append(why)
         pv = ctrl.part_preview(lugar)
         if pv is not None and pv.scale_hint is not None and abs(pv.scale_hint - 1.0) > 0.03:
-            sc = Gtk.Button(label=f"Escalar la figura ×{pv.scale_hint:.3f}".replace(".", ","),
-                            tooltip_text="Escala TODA la figura para que la cara de este lugar tenga el tamaño de la de la pieza")
+            sc = Gtk.Button(label=tr("window.escalar_la_figura_scale_hint", scale_hint=f"{pv.scale_hint:.3f}").replace(".", ","),
+                            tooltip_text=tr("window.escala_toda_la_figura_para_que"))
             sc.connect("clicked", lambda *_: ctrl.scale_to_fit_part(lugar))
             bar.append(sc)
             if not ctrl.session.catalog_only():
-                local = Gtk.Button(label="Ajustar sólo torso / pelvis", tooltip_text="Iguala el radio de las caras de unión. Revisá luego IoU, escalón y pared.")
+                local = Gtk.Button(label=tr("window.ajustar_solo_torso_pelvis"), tooltip_text=tr("window.iguala_el_radio_de_las_caras"))
                 local.connect("clicked", lambda *_: ctrl.scale_host_for_part(lugar))
                 bar.append(local)
         if (pv is not None and pv.scale_xyz is not None and not ctrl.session.catalog_only()
                 and max(abs(v - 1.0) for v in pv.scale_xyz) > 0.03):
             sx, sy, sz = pv.scale_xyz
-            xyz = Gtk.Button(label=f"Ajustar ejes (X {sx:.2f}, Y {sy:.2f}, Z {sz:.2f})".replace(".", ","),
-                             tooltip_text="Escala por separado ancho, profundidad y alto de la pieza del modelo que lleva esta unión "
-                                          "para que su cara tenga el ancho y el alto de la de la pieza elegida; no toca el espesor "
-                                          "ni las demás piezas. Revisá luego IoU, escalón y pared.")
+            xyz = Gtk.Button(label=tr("window.ajustar_ejes_x_sx_y_sy", sx=f"{sx:.2f}", sy=f"{sy:.2f}", sz=f"{sz:.2f}").replace(".", ","),
+                             tooltip_text=tr("window.escala_por_separado_ancho_profundidad_y"))
             xyz.connect("clicked", lambda *_: ctrl.fit_host_xyz(lugar))
             bar.append(xyz)
         if r.get("conflictos"):
-            k1 = Gtk.Button(label="Usar la articulación de la pieza",
-                            tooltip_text="Quita la rodilla/codo del modelo en este miembro")
+            k1 = Gtk.Button(label=tr("window.usar_la_articulacion_de_la_pieza"),
+                            tooltip_text=tr("window.quita_la_rodilla_codo_del_modelo"))
             k1.connect("clicked", lambda *_: ctrl.resolve_joint_conflict(lugar, "part"))
-            k2 = Gtk.Button(label="Usar la del modelo", tooltip_text="Vuelve a la pieza del modelo en este lugar")
+            k2 = Gtk.Button(label=tr("window.usar_la_del_modelo"), tooltip_text=tr("window.vuelve_a_la_pieza_del_modelo"))
             k2.connect("clicked", lambda *_: ctrl.resolve_joint_conflict(lugar, "model"))
             bar.append(k1)
             bar.append(k2)
@@ -1450,20 +1478,19 @@ class MainWindow(Gtk.ApplicationWindow):
         """Ventana con las dos caras superpuestas (u, v en mm) y el porqué, en lenguaje llano."""
         d = self.ctrl.fit_diagnosis(lugar)
         if d is None:
-            self.ctrl.report_progress("Primero revisá las piezas.")
+            self.ctrl.report_progress(tr("window.primero_revisa_las_piezas"))
             return
-        win = Gtk.Window(title=f"Por qué «{d['pieza']}» en {lugar}", transient_for=self, modal=False)
+        win = Gtk.Window(title=tr("window.por_que_pieza_en_lugar", pieza=d['pieza'], lugar=lugar), transient_for=self, modal=False)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_top=12, margin_bottom=12,
                       margin_start=12, margin_end=12)
         box.append(Gtk.Label(label=d["resumen"], xalign=0, wrap=True, max_width_chars=60))
         area = Gtk.DrawingArea(content_width=420, content_height=320)
         area.set_draw_func(lambda _a, cr, w, h: self._draw_faces(cr, w, h, d["caras"]))
         box.append(area)
-        box.append(Gtk.Label(label="Verde: lo que se toca · rojo: sobra de la pieza · ámbar: sobra del modelo · "
-                                   "azul: contorno del modelo · naranja: contorno de la pieza", xalign=0, wrap=True, max_width_chars=60))
-        for t in d["lineas"] or ["Todo bien: las caras coinciden."]:
+        box.append(Gtk.Label(label=tr("window.verde_lo_que_se_toca_rojo"), xalign=0, wrap=True, max_width_chars=60))
+        for t in d["lineas"] or [tr("window.todo_bien_las_caras_coinciden")]:
             box.append(Gtk.Label(label="• " + t, xalign=0, wrap=True, max_width_chars=60))
-        close = Gtk.Button(label="Cerrar", halign=Gtk.Align.END)
+        close = Gtk.Button(label=tr("common.cerrar"), halign=Gtk.Align.END)
         close.connect("clicked", lambda *_: win.close())
         box.append(close)
         win.set_child(box)
@@ -1508,9 +1535,9 @@ class MainWindow(Gtk.ApplicationWindow):
         if self.ctrl.busy:
             return
         self.ctrl.busy = True
-        self.ctrl._changed("Dividiendo la figura en piezas crudas…", scene=False)
-        self._run_task("Dividiendo la figura…", lambda progress: self.ctrl.session.divide_model(),
-                       lambda res, err: self.ctrl.finish_preview_parts(res, err), "Figura dividida")
+        self.ctrl._changed(tr("window.dividiendo_la_figura_en_piezas_crudas"), scene=False)
+        self._run_task(tr("window.dividiendo_la_figura"), lambda progress: self.ctrl.session.divide_model(),
+                       lambda res, err: self.ctrl.finish_preview_parts(res, err), tr("window.figura_dividida"))
 
     def _on_proportions(self, *_):
         """«Comparar proporciones con un patrón…»: ventana (no modal) con tu figura y el patrón del catálogo, en tres vistas."""
@@ -1518,7 +1545,7 @@ class MainWindow(Gtk.ApplicationWindow):
             self._prop_win.present()
             return
         if not self.ctrl.proportion_figures():
-            self.ctrl._changed("Abrí un catálogo con una figura patrón completa (cabeza, torso, brazo y pierna del mismo origen).", scene=False)
+            self.ctrl._changed(tr("window.abri_un_catalogo_con_una_figura"), scene=False)
             return
         from .proportions_window import ProportionsWindow
 
@@ -1537,19 +1564,18 @@ class MainWindow(Gtk.ApplicationWindow):
         lines = self.ctrl.cut_guide_lines()
         if lines is None:
             return
-        win = Gtk.Window(title="Guía de cortes", transient_for=self, modal=False, default_width=760, default_height=520)
+        win = Gtk.Window(title=tr("window.guia_de_cortes"), transient_for=self, modal=False, default_width=760, default_height=520)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_top=12, margin_bottom=12, margin_start=12, margin_end=12)
         label = Gtk.Label(label="\n".join(lines), xalign=0, yalign=0, selectable=True, wrap=False)
         label.add_css_class("monospace")
         scroller = Gtk.ScrolledWindow(vexpand=True, hexpand=True)
         scroller.set_child(label)
-        box.append(Gtk.Label(label="Cada corte se mide sobre la figura abierta (sin generar). «Como enchufe» es la pieza que saldría de esta "
-                                   "figura puesta en otros torsos del catálogo; «como toma», el torso de esta figura con piezas de otras.",
+        box.append(Gtk.Label(label=tr("window.cada_corte_se_mide_sobre_la"),
                              xalign=0, wrap=True, max_width_chars=90))
         box.append(scroller)
         bar = Gtk.Box(spacing=6, halign=Gtk.Align.END)
-        again = Gtk.Button(label="Volver a medir")
-        close = Gtk.Button(label="Cerrar")
+        again = Gtk.Button(label=tr("window.volver_a_medir"))
+        close = Gtk.Button(label=tr("common.cerrar"))
 
         def refresh(*_):
             new = self.ctrl.cut_guide_lines()
@@ -1576,30 +1602,28 @@ class MainWindow(Gtk.ApplicationWindow):
         if image is None or not os.path.isfile(image):
             return
         self._review_on_open()
-        win = Gtk.Window(title="Revisión de los planos (frente y costado)", transient_for=self, modal=False, default_width=900, default_height=640)
+        win = Gtk.Window(title=tr("window.revision_de_los_planos_frente_y"), transient_for=self, modal=False, default_width=900, default_height=640)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, margin_top=8, margin_bottom=8, margin_start=8, margin_end=8)
         pic = Gtk.Picture.new_for_filename(image)
         pic.set_can_shrink(True)
         pic.set_vexpand(True)
         box.append(pic)
-        box.append(Gtk.Label(label=f"{image}\nSi un plano no cae donde debe, corregilo en Planos o en el editor de siluetas.", xalign=0, wrap=True))
+        box.append(Gtk.Label(label=tr("window.image_si_un_plano_no_cae", image=image), xalign=0, wrap=True))
         win.set_child(box)
         win.present()
 
     def _on_fit_waist_wrist(self, *_):
         """«Ajustar cintura y muñeca al patrón»: ventana con lo que se movería y botón para aplicarlo (con el catálogo abierto)."""
         opts = self.ctrl.waist_wrist_options()
-        win = Gtk.Window(title="Ajustar cintura y muñeca al patrón", transient_for=self, modal=False, default_width=760, default_height=480)
+        win = Gtk.Window(title=tr("window.ajustar_cintura_y_muneca_al_patron"), transient_for=self, modal=False, default_width=760, default_height=480)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_top=12, margin_bottom=12, margin_start=12, margin_end=12)
-        box.append(Gtk.Label(label="Compara el tamaño de la cara de la cintura y de la muñeca de esta figura con las de la pelvis y la mano "
-                                   "del patrón del catálogo y propone cuánto mover cada plano. «Aplicar» solo mueve los planos; si sobra "
-                                   "escala, el texto lo dice.", xalign=0, wrap=True, max_width_chars=90))
+        box.append(Gtk.Label(label=tr("window.compara_el_tamano_de_la_cara"), xalign=0, wrap=True, max_width_chars=90))
         drops = {}
-        for key, title in (("pelvis", "Pelvis del patrón"), ("mano", "Mano del patrón")):
+        for key, title in (("pelvis", tr("window.pelvis_del_patron")), ("mano", tr("window.mano_del_patron"))):
             refs = opts.get(key) or []
             row = Gtk.Box(spacing=6)
             row.append(Gtk.Label(label=title + ":", xalign=0))
-            dd = Gtk.DropDown.new_from_strings(refs or ["(ninguna en el catálogo)"])
+            dd = Gtk.DropDown.new_from_strings(refs or [tr("window.ninguna_en_el_catalogo")])
             dd.set_sensitive(len(refs) > 1)
             row.append(dd)
             box.append(row)
@@ -1609,9 +1633,8 @@ class MainWindow(Gtk.ApplicationWindow):
             dd, refs = drops[key]
             return refs[dd.get_selected()] if refs else None
 
-        scale_chk = Gtk.CheckButton(label="Al aplicar, escalar también la pelvis del patrón con la escala que sobra")
-        scale_chk.set_tooltip_text("Escribe la escala de la pieza «pelvis» (la inversa de la escala restante del héroe) cuando entra en el tope de ±10 %. "
-                                   "La mano no se reescala.")
+        scale_chk = Gtk.CheckButton(label=tr("window.al_aplicar_escalar_tambien_la_pelvis"))
+        scale_chk.set_tooltip_text(tr("window.escribe_la_escala_de_la_pieza"))
         box.append(scale_chk)
         label = Gtk.Label(label="", xalign=0, yalign=0, selectable=True, wrap=False)
         label.add_css_class("monospace")
@@ -1619,9 +1642,9 @@ class MainWindow(Gtk.ApplicationWindow):
         scroller.set_child(label)
         box.append(scroller)
         bar = Gtk.Box(spacing=6, halign=Gtk.Align.END)
-        measure = Gtk.Button(label="Medir")
-        apply_btn = Gtk.Button(label="Aplicar")
-        close = Gtk.Button(label="Cerrar")
+        measure = Gtk.Button(label=tr("window.medir"))
+        apply_btn = Gtk.Button(label=tr("common.aplicar"))
+        close = Gtk.Button(label=tr("common.cerrar"))
 
         def refresh(*_):
             new = self.ctrl.waist_wrist_fit_lines(chosen("pelvis"), chosen("mano"))
@@ -1645,8 +1668,8 @@ class MainWindow(Gtk.ApplicationWindow):
     def _on_catalog_review(self, *_):
         job = self.ctrl.begin_preview_parts()
         if job is not None:
-            self._run_task("Revisando las piezas", job, lambda items, err: self.ctrl.finish_preview_parts(items, err),
-                           "Piezas revisadas")
+            self._run_task(tr("window.revisando_las_piezas"), job, lambda items, err: self.ctrl.finish_preview_parts(items, err),
+                           tr("window.piezas_revisadas"))
 
     def _review_on_open(self) -> None:
         """Al abrir un proyecto (o su catálogo) con piezas de otra figura: las revisa en segundo plano para dibujarlas."""
@@ -1666,7 +1689,7 @@ class MainWindow(Gtk.ApplicationWindow):
     def _ask_catalog_for_project(self, path: str, exc: "CatalogNeeded") -> None:
         """El proyecto es de una figura armada solo con piezas de catálogo (sin STL) y no está el catálogo de su línea:
         se pide la carpeta y se vuelve a abrir."""
-        dlg = Gtk.FileDialog(title=f"Catálogo de la línea «{exc.line}» (carpeta)")
+        dlg = Gtk.FileDialog(title=tr("window.catalogo_de_la_linea_line_carpeta", line=exc.line))
 
         def finished(d, res):
             try:
@@ -1688,7 +1711,7 @@ class MainWindow(Gtk.ApplicationWindow):
     def _on_catalog_new(self, *_):
         """«Crear catálogo…»: elegir la carpeta nueva, después nombre de la línea y altura de figura."""
         name0, height0 = self.ctrl.default_catalog_line()
-        dlg = Gtk.FileDialog(title="Carpeta nueva para el catálogo de la línea", initial_name=name0)
+        dlg = Gtk.FileDialog(title=tr("window.carpeta_nueva_para_el_catalogo_de"), initial_name=name0)
 
         def picked(d, res):
             try:
@@ -1700,20 +1723,20 @@ class MainWindow(Gtk.ApplicationWindow):
         dlg.save(self, None, picked)
 
     def _catalog_line_dialog(self, path: str, height0: float) -> None:
-        win = Gtk.Window(title="Crear catálogo de la línea", transient_for=self, modal=True, resizable=False)
+        win = Gtk.Window(title=tr("window.crear_catalogo_de_la_linea"), transient_for=self, modal=True, resizable=False)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_top=12, margin_bottom=12,
                       margin_start=12, margin_end=12)
-        box.append(Gtk.Label(label=f"Carpeta: {path}", xalign=0, wrap=True, max_width_chars=50))
-        box.append(Gtk.Label(label="Nombre de la línea (letras, números, guiones y puntos)", xalign=0))
+        box.append(Gtk.Label(label=tr("window.carpeta_path", path=path), xalign=0, wrap=True, max_width_chars=50))
+        box.append(Gtk.Label(label=tr("window.nombre_de_la_linea_letras_numeros"), xalign=0))
         ent = Gtk.Entry(text=os.path.basename(path.rstrip(os.sep)), hexpand=True)
         box.append(ent)
-        box.append(Gtk.Label(label="Altura de la figura de la línea, de los pies a la coronilla (mm)", xalign=0))
+        box.append(Gtk.Label(label=tr("window.altura_de_la_figura_de_la"), xalign=0))
         spin = Gtk.SpinButton.new_with_range(10.0, 500.0, 1.0)
         spin.set_value(height0)
         box.append(spin)
         row = Gtk.Box(spacing=6, halign=Gtk.Align.END, margin_top=6)
-        cancel = Gtk.Button(label="Cancelar")
-        ok = Gtk.Button(label="Crear")
+        cancel = Gtk.Button(label=tr("common.cancelar"))
+        ok = Gtk.Button(label=tr("window.crear"))
         ok.add_css_class("suggested-action")
         row.append(cancel)
         row.append(ok)
@@ -1731,7 +1754,7 @@ class MainWindow(Gtk.ApplicationWindow):
         win.present()
 
     def _on_catalog_open(self, *_):
-        dlg = Gtk.FileDialog(title="Catálogo de la línea (carpeta)")
+        dlg = Gtk.FileDialog(title=tr("window.catalogo_de_la_linea_carpeta"))
 
         def finished(d, res):
             try:
@@ -1758,7 +1781,7 @@ class MainWindow(Gtk.ApplicationWindow):
             if last and self.ctrl.open_catalog(last):
                 self._open_builder()
                 return
-            dlg = Gtk.FileDialog(title="Catálogo de la línea (carpeta)")
+            dlg = Gtk.FileDialog(title=tr("window.catalogo_de_la_linea_carpeta"))
 
             def finished(d, res):
                 try:
@@ -1804,7 +1827,7 @@ class MainWindow(Gtk.ApplicationWindow):
             if last and self.ctrl.open_catalog(last):
                 self._open_catalog_manager()
                 return
-            dlg = Gtk.FileDialog(title="Catálogo de la línea (carpeta)")
+            dlg = Gtk.FileDialog(title=tr("window.catalogo_de_la_linea_carpeta"))
 
             def finished(d, res):
                 try:
@@ -1844,22 +1867,22 @@ class MainWindow(Gtk.ApplicationWindow):
         opts = self.ctrl.catalog_add_options()
         if opts is None:
             return
-        win = Gtk.Window(title="Catalogar esta figura", transient_for=self, modal=True, resizable=False)
+        win = Gtk.Window(title=tr("window.catalogar_esta_figura"), transient_for=self, modal=True, resizable=False)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_top=12, margin_bottom=12, margin_start=12, margin_end=12)
-        box.append(Gtk.Label(label=f"Piezas que se guardan en el catálogo (ids «…-{opts['prefijo']}-01»)", xalign=0, wrap=True,
+        box.append(Gtk.Label(label=tr("window.piezas_que_se_guardan_en_el", prefijo=opts['prefijo']), xalign=0, wrap=True,
                              max_width_chars=60))
         checks: dict[str, Gtk.CheckButton] = {}
         for row in opts["lugares"]:
             lugar = row["lugar"]
             text = lugar.capitalize() + (f" — {row['nota']}" if row["nota"] else "")
             if row["existentes"]:
-                text += f"  (ya está: {', '.join(row['existentes'])})"
+                text += ('  ' + tr("window.ya_esta_join", join=', '.join(row['existentes'])))
             chk = Gtk.CheckButton(label=text)
             chk.set_sensitive(row["disponible"])
             chk.set_active(bool(row["disponible"] and (not row["existentes"] or (lugar == "cabeza" and opts["cabeza_reemplazo"]))))
             checks[lugar] = chk
             box.append(chk)
-        newv = Gtk.CheckButton(label="Guardar como versión nueva si la pieza ya existe")
+        newv = Gtk.CheckButton(label=tr("window.guardar_como_version_nueva_si_la"))
         box.append(newv)
 
         def sync(*_):
@@ -1870,15 +1893,14 @@ class MainWindow(Gtk.ApplicationWindow):
         for chk in checks.values():
             chk.connect("toggled", sync)
         sync()
-        hint = ("La cabeza que se guarda es la de reemplazo que importaste (ya escalada a la base del cuello), no la del modelo. "
+        hint = ((tr("window.la_cabeza_que_se_guarda_es") + ' ')
                 if opts["cabeza_reemplazo"] else "")
-        hint += ("Para subir solo una cabeza nueva dejá tildada únicamente «Cabeza» y «versión nueva»: el resto del catálogo no se toca "
-                 "y las figuras que ya usan la versión anterior siguen usándola.")
+        hint += (tr("window.para_subir_solo_una_cabeza_nueva"))
         lab = Gtk.Label(label=hint, xalign=0, wrap=True, max_width_chars=60)
         lab.add_css_class("dim-label")
         box.append(lab)
         row = Gtk.Box(spacing=6, halign=Gtk.Align.END, margin_top=6)
-        cancel, ok = Gtk.Button(label="Cancelar"), Gtk.Button(label="Catalogar")
+        cancel, ok = Gtk.Button(label=tr("common.cancelar")), Gtk.Button(label=tr("window.catalogar"))
         ok.add_css_class("suggested-action")
         row.append(cancel)
         row.append(ok)
@@ -1892,15 +1914,15 @@ class MainWindow(Gtk.ApplicationWindow):
                 return
             nv, prefix = newv.get_active(), opts["prefijo"]
             win.close()
-            self._run_task("Catalogando la figura…",
+            self._run_task(tr("window.catalogando_la_figura"),
                            lambda progress: self.ctrl.session.catalog_add(prefix, places=places, new_version=nv),
-                           lambda res, err: self.ctrl.catalog_add_done(res, err), "Figura catalogada")
+                           lambda res, err: self.ctrl.catalog_add_done(res, err), tr("window.figura_catalogada"))
 
         ok.connect("clicked", go)
         win.present()
 
     def _on_hand_replacement(self, *_):
-        self._pick_file("Mano estándar (STL)", ["*.stl"], "Archivos STL", self.ctrl.start_hand_place)
+        self._pick_file(tr("window.mano_estandar_stl"), ["*.stl"], tr("window.archivos_stl"), self.ctrl.start_hand_place)
 
     def _on_hand_yaw(self, spin: Gtk.SpinButton) -> None:
         hand = self.ctrl.session.project.hand
@@ -1920,9 +1942,9 @@ class MainWindow(Gtk.ApplicationWindow):
             self.ctrl.set_front(front)
             return
         dlg = Gtk.AlertDialog(
-            message="Cambiar hacia dónde mira la figura",
-            detail="Esto borra " + ", ".join(loss) + " y no se puede deshacer. ¿Cambiar igual?",
-            buttons=["Cancelar", "Cambiar y borrar"], cancel_button=0, default_button=0)
+            message=tr("window.cambiar_hacia_donde_mira_la_figura"),
+            detail=(tr("window.esto_borra") + ' ') + ", ".join(loss) + (' ' + tr("window.y_no_se_puede_deshacer_cambiar")),
+            buttons=[tr("common.cancelar"), tr("window.cambiar_y_borrar")], cancel_button=0, default_button=0)
 
         def answered(d, res) -> None:
             try:
@@ -1942,7 +1964,7 @@ class MainWindow(Gtk.ApplicationWindow):
 
     # --------------------------------------------------------------- diálogos
     def _error(self, e: Exception) -> None:
-        Gtk.AlertDialog(message="No se pudo completar la acción", detail=str(e)).show(self)
+        Gtk.AlertDialog(message=tr("window.no_se_pudo_completar_la_accion"), detail=str(e)).show(self)
 
     @staticmethod
     def _filters(name: str, patterns: list[str]) -> Gio.ListStore:
@@ -1990,7 +2012,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self.progress_panel.start(stages, label)
         self.spinner.set_visible(True)
         self.spinner.start()
-        self.btn_task_cancel.set_label("Cancelar")
+        self.btn_task_cancel.set_label(tr("common.cancelar"))
         self.btn_task_cancel.set_sensitive(True)
         self.btn_task_cancel.set_visible(True)
         self._task_tick()
@@ -2012,7 +2034,7 @@ class MainWindow(Gtk.ApplicationWindow):
             return
         t["token"].cancel()
         self.btn_task_cancel.set_sensitive(False)
-        self.btn_task_cancel.set_label("Cancelando…")
+        self.btn_task_cancel.set_label(tr("window.cancelando"))
 
     def _collapse_progress(self, serial: int) -> bool:
         if serial == self._task_serial and self._task is None:      # no si arrancó otra tarea en el medio
@@ -2023,7 +2045,7 @@ class MainWindow(Gtk.ApplicationWindow):
         t = self._task
         if t is None:
             return False                    # terminó: se corta el temporizador
-        extra = " · cancelando: termina el paso en curso" if t["token"].cancelled else ""
+        extra = (' ' + tr("window.cancelando_termina_el_paso_en_curso")) if t["token"].cancelled else ""
         self.lbl_task.set_text(f"{t['label']} · {self._fmt_elapsed(time.monotonic() - t['t0'])}{extra}")
         return True
 
@@ -2036,11 +2058,11 @@ class MainWindow(Gtk.ApplicationWindow):
         took = self._fmt_elapsed(time.monotonic() - t["t0"]) if t else ""
         self.progress_panel.finish(error is None, (t or {}).get("done", ""))
         if cancelled and self.progress_panel.get_visible():
-            self.progress_panel.bar.set_text("Cancelado")
+            self.progress_panel.bar.set_text(tr("common.cancelado"))
         self._task_serial += 1
         if error is None or cancelled:          # si salió bien (o se canceló) se pliega solo; si falló queda visible
             GLib.timeout_add_seconds(4, self._collapse_progress, self._task_serial)
-        self.lbl_task.set_text(("Cancelado" if cancelled else f"✗ Falló a los {took}" if error else f"✓ {t['done']} en {took}") if t else "")
+        self.lbl_task.set_text((tr("common.cancelado") if cancelled else tr("window.fallo_a_los_took", took=took) if error else tr("window.done_en_took", done=t['done'], took=took)) if t else "")
         done(result, error)
         return False
 
@@ -2060,7 +2082,7 @@ class MainWindow(Gtk.ApplicationWindow):
                     if err is None:
                         self._confirm_generate()
 
-                self._run_task("Revisando las piezas", job, reviewed, "Piezas revisadas")
+                self._run_task(tr("window.revisando_las_piezas"), job, reviewed, tr("window.piezas_revisadas"))
                 return
         self._confirm_generate()
 
@@ -2071,10 +2093,10 @@ class MainWindow(Gtk.ApplicationWindow):
             self._start_generate()
             return
         lines = [("✗ " + t) for t in bad] + [("• " + t) for t in warn]
-        detail = "\n".join(lines[:12]) + (f"\n… y {len(lines) - 12} más" if len(lines) > 12 else "")
+        detail = "\n".join(lines[:12]) + (('\n' + tr("common.y_v_mas", v=len(lines) - 12)) if len(lines) > 12 else "")
         if bad:
-            detail += "\n\nGenerar con esto probablemente falle o deje la unión mal."
-        dlg = Gtk.AlertDialog(message="Antes de generar", detail=detail, buttons=["Cancelar", "Generar igual"],
+            detail += ('\n\n' + tr("window.generar_con_esto_probablemente_falle_o"))
+        dlg = Gtk.AlertDialog(message=tr("window.antes_de_generar"), detail=detail, buttons=[tr("common.cancelar"), tr("window.generar_igual")],
                               cancel_button=0, default_button=0)
 
         def answered(d, res) -> None:
@@ -2090,10 +2112,10 @@ class MainWindow(Gtk.ApplicationWindow):
     def _start_generate(self) -> None:
         job = self.ctrl.begin_generate()
         if job is not None:
-            self._run_task("Generando la figura", job, lambda outcome, err: self.ctrl.finish_generate(outcome, err), "Figura generada")
+            self._run_task(tr("window.generando_la_figura"), job, lambda outcome, err: self.ctrl.finish_generate(outcome, err), tr("common.figura_generada"))
 
     def _on_export(self) -> None:
-        dlg = Gtk.FileDialog(title="Carpeta donde exportar las piezas")
+        dlg = Gtk.FileDialog(title=tr("window.carpeta_donde_exportar_las_piezas"))
 
         def finished(d, res):
             try:
@@ -2110,7 +2132,7 @@ class MainWindow(Gtk.ApplicationWindow):
                 if err is not None:
                     self._error(err)
 
-            self._run_task("Exportando las piezas", job, done, "Piezas exportadas")
+            self._run_task(tr("window.exportando_las_piezas"), job, done, tr("window.piezas_exportadas"))
 
         dlg.select_folder(self, None, finished)
 
@@ -2140,7 +2162,7 @@ class MainWindow(Gtk.ApplicationWindow):
             self.dd_profile.set_selected(names.index(name) if name in names else 0)
 
     def _on_probes(self) -> None:
-        dlg = Gtk.FileDialog(title="Carpeta donde guardar las probetas")
+        dlg = Gtk.FileDialog(title=tr("window.carpeta_donde_guardar_las_probetas"))
         which = ("hip", "shoulder", "hinge")[self.dd_probe.get_selected()]
 
         def finished(d, res):
@@ -2158,15 +2180,15 @@ class MainWindow(Gtk.ApplicationWindow):
                 if err is not None:
                     self._error(err)
 
-            self._run_task("Generando las probetas", job, done, "Probetas generadas")
+            self._run_task(tr("window.generando_las_probetas"), job, done, tr("window.probetas_generadas"))
 
         dlg.select_folder(self, None, finished)
 
     def _on_head_replacement(self, *_):
-        self._pick_file("Cabeza de reemplazo (STL)", ["*.stl"], "Archivos STL", self.ctrl.set_head_replacement)
+        self._pick_file(tr("window.cabeza_de_reemplazo_stl"), ["*.stl"], tr("window.archivos_stl"), self.ctrl.set_head_replacement)
 
     def _on_open_stl(self, *_):
-        self._pick_file("Abrir STL", ["*.stl"], "Archivos STL", self._open_stl_task)
+        self._pick_file(tr("window.abrir_stl"), ["*.stl"], tr("window.archivos_stl"), self._open_stl_task)
 
     def _open_stl_task(self, path: str) -> None:
         """Abre el STL en un hilo: leer y reparar la malla puede tardar (y la interfaz no debe congelarse)."""
@@ -2179,13 +2201,13 @@ class MainWindow(Gtk.ApplicationWindow):
             if err is not None:
                 self._error(err)
 
-        self._run_task("Abriendo el STL", job, done, "STL abierto")
+        self._run_task(tr("window.abriendo_el_stl"), job, done, tr("window.stl_abierto"))
 
     def _on_open_project(self, *_):
-        self._pick_file("Abrir proyecto", ["*.proyecto", "*.json"], "Proyectos", self._open_project_path)
+        self._pick_file(tr("window.abrir_proyecto"), ["*.proyecto", "*.json"], tr("window.proyectos"), self._open_project_path)
 
     def _on_weapon_open(self, *_):
-        self._pick_file("Arma (STL)", ["*.stl"], "Archivos STL", lambda path: self.ctrl.open_weapon(path))
+        self._pick_file(tr("window.arma_stl"), ["*.stl"], tr("window.archivos_stl"), lambda path: self.ctrl.open_weapon(path))
 
     def _on_weapon_roll(self) -> None:
         self.ctrl.set_weapon_roll(None if self.chk_weapon_roll.get_active() else self.spin_weapon_roll.get_value())
@@ -2206,7 +2228,7 @@ class MainWindow(Gtk.ApplicationWindow):
         while (child := self.box_proj_acc.get_first_child()) is not None:
             self.box_proj_acc.remove(child)
         if not metas:
-            lbl = Gtk.Label(label="El catálogo abierto no tiene accesorios: importá un arma arriba.", xalign=0, wrap=True)
+            lbl = Gtk.Label(label=tr("window.el_catalogo_abierto_no_tiene_accesorios"), xalign=0, wrap=True)
             lbl.add_css_class("dim-label")
             self.box_proj_acc.append(lbl)
         for m in metas:
@@ -2218,7 +2240,7 @@ class MainWindow(Gtk.ApplicationWindow):
             self.box_proj_acc.append(chk)
 
     def _on_grip_pick(self, *_):
-        self._pick_file("Mano estándar (STL)", ["*.stl"], "Archivos STL", self._grip_task)
+        self._pick_file(tr("window.mano_estandar_stl"), ["*.stl"], tr("window.archivos_stl"), self._grip_task)
 
     def _grip_task(self, path: str) -> None:
         """Busca el canal y taladra la mano en un hilo (tarda hasta un minuto y la interfaz no debe congelarse)."""
@@ -2231,7 +2253,7 @@ class MainWindow(Gtk.ApplicationWindow):
             if err is not None:
                 self._error(err)
 
-        self._run_task("Taladrando la mano estándar", job, done, "Mano taladrada")
+        self._run_task(tr("window.taladrando_la_mano_estandar"), job, done, tr("window.mano_taladrada"))
 
     def _save_as(self, title: str, name: str, done) -> None:
         dlg = Gtk.FileDialog(title=title)
@@ -2254,13 +2276,13 @@ class MainWindow(Gtk.ApplicationWindow):
         return os.path.splitext(os.path.basename(g.source))[0] if g is not None else "mano"
 
     def _on_grip_save_hand(self, *_):
-        self._save_as("Guardar mano con agarre", f"{self._grip_stem()}_agarre.stl", self.ctrl.save_grip_hand)
+        self._save_as(tr("window.guardar_mano_con_agarre"), f"{self._grip_stem()}_agarre.stl", self.ctrl.save_grip_hand)
 
     def _on_grip_save_plate(self, *_):
-        self._save_as("Guardar placa de espadas de prueba", f"{self._grip_stem()}_espadas_prueba.stl", self.ctrl.save_grip_plate)
+        self._save_as(tr("window.guardar_placa_de_espadas_de_prueba"), f"{self._grip_stem()}_espadas_prueba.stl", self.ctrl.save_grip_plate)
 
     def _on_save_hand(self, *_):
-        dlg = Gtk.FileDialog(title="Guardar mano estándar")
+        dlg = Gtk.FileDialog(title=tr("window.guardar_mano_estandar"))
         dlg.set_initial_name("mano_estandar.stl")
 
         def finished(d, res):
@@ -2281,14 +2303,13 @@ class MainWindow(Gtk.ApplicationWindow):
         if not ctrl.loaded:
             ctrl.new_project()                       # nada que perder: solo deja todo en el estado de inicio
             return
-        detail = ("Se va a descartar la figura cargada y todo lo hecho con ella (planos, siluetas, articulaciones, "
-                  "parámetros) y se vuelve a los valores de inicio.")
+        detail = (tr("window.se_va_a_descartar_la_figura"))
         if ctrl.dirty:
-            detail += " Hay cambios sin guardar: se van a perder."
+            detail += (' ' + tr("window.hay_cambios_sin_guardar_se_van"))
         else:
-            detail += " Lo que no esté guardado se va a perder."
-        dlg = Gtk.AlertDialog(message="¿Empezar un proyecto nuevo?", detail=detail,
-                              buttons=["Cancelar", "Descartar y empezar de nuevo"], cancel_button=0, default_button=0)
+            detail += (' ' + tr("window.lo_que_no_este_guardado_se"))
+        dlg = Gtk.AlertDialog(message=tr("window.empezar_un_proyecto_nuevo"), detail=detail,
+                              buttons=[tr("common.cancelar"), tr("window.descartar_y_empezar_de_nuevo")], cancel_button=0, default_button=0)
 
         def answered(d, res):
             try:
@@ -2313,7 +2334,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self._on_save_project_as()
 
     def _on_save_project_as(self, *_):
-        dlg = Gtk.FileDialog(title="Guardar proyecto como")
+        dlg = Gtk.FileDialog(title=tr("window.guardar_proyecto_como"))
         sess = self.ctrl.session
         stl = sess.stl_path
         if sess.project_path:
@@ -2341,6 +2362,31 @@ class Application(Gtk.Application):
         super().__init__(application_id="ar.afm.ActionFigureMaker", flags=Gio.ApplicationFlags.NON_UNIQUE)
         self._stl, self._project = stl_path, project_path
         self.win: MainWindow | None = None
+
+    def switch_language(self, code: str) -> None:
+        """Pasa la interfaz a `code`: arma una ventana nueva con el MISMO controlador (la figura, el historial y los
+        cambios sin guardar siguen ahí) y cierra la anterior. Las ventanas auxiliares se cierran (se reabren en el idioma nuevo)."""
+        old = self.win
+        if old is None or old.ctrl.busy:
+            return
+        if old._hist_timer:                              # que no se pierda el último cambio por la pausa del historial
+            GLib.source_remove(old._hist_timer)
+            old._record_history()
+        _settings.remember_language(set_language(code))
+        for attr in ("_catalog_win", "_prop_win", "_build_win"):
+            aux = getattr(old, attr, None)
+            if aux is not None:
+                setattr(old, attr, None)
+                aux.destroy()
+        w, h = old.get_default_size()
+        was_max = old.is_maximized()
+        new = MainWindow(self, old.ctrl)
+        new.set_default_size(w, h)
+        if was_max:
+            new.maximize()
+        self.win = new
+        new.present()
+        old.destroy()
 
     def do_activate(self) -> None:
         ctrl = Controller()

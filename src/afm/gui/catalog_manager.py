@@ -4,6 +4,7 @@ prueba sin ventana; la ventana está en `catalog_window.py`.
 Sirve para ver qué hay en el catálogo (con una vista previa 3/4 de cada pieza) y eliminar versiones de pieza, por ejemplo
 las que se catalogaron por error desde un proyecto viejo."""
 from __future__ import annotations
+from ..i18n import tr, lz
 
 import glob
 import os
@@ -18,9 +19,9 @@ from .picking import Picker
 
 PREVIEW_YAW = 55.0          # 3/4: desde el frente (+Y) corrido hacia la derecha de la figura (+X), mirando un poco desde arriba
 PREVIEW_PITCH = 22.0
-ALL_TYPES = "(todos los tipos)"
-ALL_STATES = "(todos los estados)"
-ALL_TAGS = "(todas las etiquetas)"
+ALL_TYPES = lz("catalog_manager.todos_los_tipos")
+ALL_STATES = lz("catalog_manager.todos_los_estados")
+ALL_TAGS = lz("catalog_manager.todas_las_etiquetas")
 
 
 def three_quarter_camera(bounds, aspect: float = 1.0) -> OrbitCamera:
@@ -109,9 +110,9 @@ def joint_label(meta: PieceMeta) -> str:
     «○ sin rodilla» (pierna), «toma de codo / rodilla» (antebrazo, pantorrilla, bota) o «—» (el resto de los tipos)."""
     name = JOINT_OF_TYPE.get(meta.tipo)
     if name:
-        return f"● con {name}" if (meta.articulaciones or []) else f"○ sin {name}"
+        return tr("catalog_manager.con_name", name=name) if (meta.articulaciones or []) else tr("catalog_manager.sin_name", name=name)
     if meta.tipo in SOCKET_OF_TYPE:
-        return f"toma de {SOCKET_OF_TYPE[meta.tipo]}"
+        return tr("catalog_manager.toma_de_socket_of_type", socket_of_type=SOCKET_OF_TYPE[meta.tipo])
     return "—"
 
 
@@ -120,8 +121,8 @@ def has_joint_pin(meta: PieceMeta) -> bool:
 
 
 # Columnas de la lista: (clave, título, ancho en caracteres)
-COLUMNS = (("nombre", "Nombre", 24), ("tipo", "Tipo", 10), ("version", "Ver.", 4), ("articulacion", "Articulación", 14),
-           ("estado", "Estado", 9), ("certificacion", "Certificación", 18), ("origen", "Origen", 18))
+COLUMNS = (("nombre", lz("catalog_manager.nombre"), 24), ("tipo", lz("catalog_manager.tipo"), 10), ("version", lz("catalog_manager.ver"), 4), ("articulacion", lz("common.articulacion"), 14),
+           ("estado", lz("common.estado"), 9), ("certificacion", lz("catalog_manager.certificacion"), 18), ("origen", lz("catalog_manager.origen"), 18))
 
 
 def row_cells(meta: PieceMeta, cert: str = "") -> dict[str, str]:
@@ -133,7 +134,7 @@ def row_cells(meta: PieceMeta, cert: str = "") -> dict[str, str]:
 def sort_pieces(metas, key: str = "tipo", descending: bool = False, cert_of=None) -> list[PieceMeta]:
     """Ordena por la columna `key` (desempata por nombre y versión): ordenar por «tipo» agrupa cabezas, torsos, piernas…"""
     if key not in {k for k, _t, _w in COLUMNS}:
-        raise ValueError(f"columna desconocida «{key}»")
+        raise ValueError(tr("catalog_manager.columna_desconocida_key", param=key))
     return sorted(metas, key=lambda m: (row_cells(m, cert_of(m) if cert_of else "")[key].lower(), m.display_name.lower(), m.version),
                   reverse=descending)
 
@@ -172,30 +173,28 @@ def row_text(meta: PieceMeta, badge: str = "") -> str:
 def detail_text(meta: PieceMeta, uses: list[str] | None = None, cert: str = "") -> str:
     """Ficha de una pieza para el panel de la derecha."""
     size = np.asarray(meta.bbox[1], float) - np.asarray(meta.bbox[0], float)
-    lines = [f"{meta.ref}" + (f" — «{meta.nombre}»" if meta.nombre else ""), f"Tipo: {meta.tipo} · estado: {meta.estado} · etiquetas: {', '.join(meta.etiquetas) or '—'}",
-             f"Tamaño: {size[0]:.1f} × {size[1]:.1f} × {size[2]:.1f} mm · volumen {meta.volumen_mm3:.0f} mm³".replace(".", ",")]
+    lines = [f"{meta.ref}" + (f" — «{meta.nombre}»" if meta.nombre else ""), tr("catalog_manager.tipo_tipo_estado_estado_etiquetas_v", tipo=meta.tipo, estado=meta.estado, v=', '.join(meta.etiquetas) or '—'),
+             tr("catalog_manager.tamano_size_size2_size3_mm_volumen", size=f"{size[0]:.1f}", size2=f"{size[1]:.1f}", size3=f"{size[2]:.1f}", volumen_mm3=f"{meta.volumen_mm3:.0f}").replace(".", ",")]
     if meta.altura_figura_mm:
-        lines.append(f"Altura de la figura de origen: {meta.altura_figura_mm:g} mm".replace(".", ","))
+        lines.append(tr("catalog_manager.altura_de_la_figura_de_origen", altura_figura_mm=f"{meta.altura_figura_mm:g}").replace(".", ","))
     org = piece_origin(meta)
     proj = meta.origen.get("proyecto")
-    lines.append(f"Origen: {org or '—'}" + (f" · proyecto {proj}" if proj else "") + (f" · {meta.origen['fecha']}" if meta.origen.get("fecha") else ""))
+    lines.append(tr("catalog_manager.origen_v", v=org or '—') + ((' ' + tr("catalog_manager.proyecto_proj", proj=proj)) if proj else "") + (f" · {meta.origen['fecha']}" if meta.origen.get("fecha") else ""))
     if meta.tipo in JOINT_OF_TYPE or meta.tipo in SOCKET_OF_TYPE:
-        lines.append(f"Articulación: {joint_label(meta)}" + (" (el eje se ve en azul en la vista previa)" if has_joint_pin(meta) else ""))
+        lines.append(tr("catalog_manager.articulacion_joint_label", joint_label=joint_label(meta)) + ((' ' + tr("catalog_manager.el_eje_se_ve_en_azul")) if has_joint_pin(meta) else ""))
     if meta.puertos:
-        lines.append("Puertos: " + ", ".join(f"{n} ({p.rol})" for n, p in meta.puertos.items()))
+        lines.append((tr("catalog_manager.puertos") + ' ') + ", ".join(f"{n} ({p.rol})" for n, p in meta.puertos.items()))
     ag = (meta.mecanismo or {}).get("agarre")
     if ag and meta.tipo == "mano" and "diametro_taladro_mm" in ag:
-        lines.append(f"Agarre: taladro Ø{ag['diametro_taladro_mm']:g} mm · canal {ag.get('largo_canal_mm', 0):g} mm · el dentado apoya "
-                     f"en ≈ {ag.get('apoyo_dentado_grados', 0):.0f}°".replace(".", ","))
+        lines.append(tr("catalog_manager.agarre_taladro_diametro_taladro_mm_mm", diametro_taladro_mm=f"{ag['diametro_taladro_mm']:g}", get=f"{ag.get('largo_canal_mm', 0):g}", get2=f"{ag.get('apoyo_dentado_grados', 0):.0f}").replace(".", ","))
     elif ag and meta.tipo == "accesorio" and "taladro_mm" in ag:
-        lines.append(f"Agarre: para taladro Ø{ag['taladro_mm']:g} mm · vástago Ø{ag.get('vastago_mm', 0):g} · dentado Ø{ag.get('dentado_mm', 0):g} · "
-                     f"lengüeta {ag.get('largo_lengueta_mm', 0):g} mm · canal {ag.get('largo_canal_mm', 0):g} mm".replace(".", ","))
+        lines.append(tr("catalog_manager.agarre_para_taladro_taladro_mm_mm", taladro_mm=f"{ag['taladro_mm']:g}", get=f"{ag.get('vastago_mm', 0):g}", get2=f"{ag.get('dentado_mm', 0):g}", get3=f"{ag.get('largo_lengueta_mm', 0):g}", get4=f"{ag.get('largo_canal_mm', 0):g}").replace(".", ","))
     if meta.descripcion:
         lines.append(meta.descripcion)
     if cert:
-        lines.append(f"Certificación: {cert}")
+        lines.append(tr("catalog_manager.certificacion_cert", cert=cert))
     if uses is not None:
-        lines.append("Se usa en: " + ("; ".join(uses) if uses else "ninguna figura ni receta que se conozca"))
+        lines.append((tr("catalog_manager.se_usa_en") + ' ') + ("; ".join(uses) if uses else tr("catalog_manager.ninguna_figura_ni_receta_que_se")))
     return "\n".join(lines)
 
 
@@ -209,8 +208,7 @@ def port_markers(meta: PieceMeta, length: float) -> tuple[np.ndarray, list[np.nd
     return (np.array(pts) if pts else np.zeros((0, 3))), segs
 
 
-PIN_LEGEND = ("Naranja: puertos / pasadores de encastre (cilindro con su dirección) · Azul: eje de la articulación (codo / rodilla), "
-              "con su plano celeste")
+PIN_LEGEND = (lz("catalog_manager.naranja_puertos_pasadores_de_encastre_cili"))
 JOINT_COLOR = (0.20, 0.50, 1.0, 1.0)
 JOINT_PLANE_COLOR = (0.30, 0.75, 1.0, 0.28)
 
@@ -296,14 +294,14 @@ def view_bounds(mesh, meta: PieceMeta | None = None) -> np.ndarray:
 def confirm_texts(metas: list[PieceMeta], uses: dict[str, list[str]]) -> tuple[str, str]:
     """(mensaje, detalle) del diálogo de confirmación para eliminar `metas`. `uses` = {ref: dónde se usa}."""
     n = len(metas)
-    msg = "¿Eliminar esta pieza del catálogo?" if n == 1 else f"¿Eliminar estas {n} piezas del catálogo?"
+    msg = tr("catalog_manager.eliminar_esta_pieza_del_catalogo") if n == 1 else tr("catalog_manager.eliminar_estas_n_piezas_del_catalogo", n=n)
     shown = [piece_label(m) for m in metas[:12]]
-    detail = "\n".join(f"• {r}" for r in shown) + (f"\n… y {n - len(shown)} más" if n > len(shown) else "")
+    detail = "\n".join(f"• {r}" for r in shown) + (('\n' + tr("common.y_v_mas", v=n - len(shown))) if n > len(shown) else "")
     used = {r: u for r, u in uses.items() if u}
     if used:
-        detail += "\n\nOjo, se usan en:\n" + "\n".join(f"• {r}: {'; '.join(u)}" for r, u in list(used.items())[:8])
-        detail += "\nLas recetas que las nombran van a fallar al armar; en la figura abierta esos lugares vuelven a la pieza del modelo."
-    detail += "\n\nSe mueven a la papelera del catálogo (carpeta .papelera): «Recuperar lo eliminado» las devuelve a su lugar."
+        detail += ('\n\n' + tr("catalog_manager.ojo_se_usan_en") + '\n') + "\n".join(f"• {r}: {'; '.join(u)}" for r, u in list(used.items())[:8])
+        detail += ('\n' + tr("catalog_manager.las_recetas_que_las_nombran_van"))
+    detail += ('\n\n' + tr("catalog_manager.se_mueven_a_la_papelera_del"))
     return msg, detail
 
 
@@ -350,7 +348,7 @@ class PreviewRenderer:
         `marks`: puntos (Nx3) a marcar encima, p. ej. los de la muñeca."""
         off = self._ensure()
         if off is None:
-            raise RuntimeError(self.error or "sin vista previa")
+            raise RuntimeError(self.error or tr("catalog_manager.sin_vista_previa"))
         with off.ctx:                        # vuelve a poner este contexto como el actual (GTK tiene el suyo)
             key = (id(mesh), meta.ref if meta is not None else None, len(meta.articulaciones or []) if meta is not None else 0)
             if self._mesh is not mesh or self._key != key:
@@ -376,9 +374,9 @@ class PreviewRenderer:
         mismo objeto de la llamada anterior no se vuelve a subir a la GPU (arrastrar para girar solo mueve la cámara)."""
         off = self._ensure()
         if off is None:
-            raise RuntimeError(self.error or "sin vista previa")
+            raise RuntimeError(self.error or tr("catalog_manager.sin_vista_previa"))
         if not parts:
-            raise ValueError("no hay piezas para dibujar")
+            raise ValueError(tr("catalog_manager.no_hay_piezas_para_dibujar"))
         with off.ctx:
             if self._mesh is not parts:
                 off.scene.clear()
@@ -490,7 +488,7 @@ class CatalogManager:
                 txt = self.cert_text(m.ref)
                 c["certificadas" if txt.startswith("certificada") and "falla" not in txt else
                   "parciales" if txt.startswith("certificada") else "vencidas" if txt.startswith("certificación vencida") else
-                  "sin certificar"] += 1
+                  tr("catalog_manager.sin_certificar")] += 1
         return " · ".join(f"{k} {v}" for k, v in c.items())
 
     # ---- informes rápidos (líneas de texto; no escriben nada)
@@ -537,10 +535,10 @@ class CatalogManager:
 
         todo = self.certify_refs(refs)
         if not todo:
-            self.ctrl._changed("No hay piezas para certificar (se certifican brazo, pierna, cabeza, pelvis y mano).", scene=False)
+            self.ctrl._changed(tr("catalog_manager.no_hay_piezas_para_certificar_se"), scene=False)
             return None
         self.cancel_event.clear()
-        label = "Revisando la certificación" if status_only else "Certificando"
+        label = tr("common.revisando_la_certificacion") if status_only else tr("common.certificando")
         return self.ctrl.begin_catalog_task(
             label, lambda root, progress: OPS.certify_pieces(root, todo, force, status_only, progress, self.cancelled, emit))
 
@@ -548,13 +546,13 @@ class CatalogManager:
         from .. import catalog_ops as OPS
 
         self.cancel_event.clear()
-        return self.ctrl.begin_catalog_task("Compatibilidad de las recetas", lambda root, progress: OPS.compat_all(root, force, progress, self.cancelled))
+        return self.ctrl.begin_catalog_task(tr("common.compatibilidad_de_las_recetas"), lambda root, progress: OPS.compat_all(root, force, progress, self.cancelled))
 
     def matrix_job(self, complete: bool = False):
         from .. import catalog_ops as OPS
 
         self.cancel_event.clear()
-        return self.ctrl.begin_catalog_task("Informe de compatibilidad", lambda root, progress: OPS.write_matrix(root, None, complete, progress, self.cancelled))
+        return self.ctrl.begin_catalog_task(tr("common.informe_de_compatibilidad"), lambda root, progress: OPS.write_matrix(root, None, complete, progress, self.cancelled))
 
     def capacity_refs(self, refs: list[str]) -> list[str]:
         """De `refs`, las piezas con alguna toma de pasador (las que `capacidad` mide)."""
@@ -568,10 +566,10 @@ class CatalogManager:
         """Mide la capacidad de las tomas de `refs` (sin `refs`, de todo el catálogo); con `write` la guarda en los .pieza.json."""
         todo = self.capacity_refs([m.ref for m in self.pieces(latest_only=True)] if refs is None else refs)
         if not todo:
-            self.ctrl._changed("Ninguna de las piezas tiene tomas de pasador para medir.", scene=False)
+            self.ctrl._changed(tr("common.ninguna_de_las_piezas_tiene_tomas"), scene=False)
             return None
         self.cancel_event.clear()
-        label = "Midiendo y guardando la capacidad" if write else "Midiendo la capacidad"
+        label = tr("common.midiendo_y_guardando_la_capacidad") if write else tr("common.midiendo_la_capacidad")
         return self.ctrl.begin_catalog_task(label, lambda root, progress: OPS.measure_capacity(root, todo, write, self.cancelled, emit))
 
     # ---- contrato de la línea (escribe linea.json: la ventana pide confirmación antes de guardar o borrar)
@@ -586,7 +584,7 @@ class CatalogManager:
     def save_proposal(self) -> str:
         """Guarda la propuesta vigente en linea.json y devuelve su huella (`ValueError` si no hay una sin problemas)."""
         if not self.can_save_proposal():
-            raise ValueError("No hay una propuesta de contrato sin problemas para guardar (calibrarla primero).")
+            raise ValueError(tr("catalog_manager.no_hay_una_propuesta_de_contrato"))
         digest = OPS.save_contract(self.ctrl.catalog_handle(required=True), self.proposal.contract)
         self.proposal = None
         self._badges = ((), {})                              # el contrato cambia los talles: la certificación puede quedar vencida
@@ -606,7 +604,7 @@ class CatalogManager:
 
         parsed = CI.parse(kind, values)
         self.cancel_event.clear()
-        return self.ctrl.begin_catalog_task(f"Importando · {CI.FORMS[kind]['titulo']}", lambda root, progress: CI.run(kind, root, parsed))
+        return self.ctrl.begin_catalog_task(tr("common.importando_titulo", titulo=CI.FORMS[kind]['titulo']), lambda root, progress: CI.run(kind, root, parsed))
 
     def finish_task(self, label: str, error) -> None:
         """Cierra una tarea larga: suelta `busy` y deja el mensaje (cancelada / falló / terminó). Los cachés de la insignia se invalidan solos."""
@@ -655,19 +653,19 @@ class CatalogManager:
 HAND_COLOR = (0.30, 0.78, 0.40, 1.0)          # la mano cortada, en verde (como en «Extraer mano estándar»)
 ARM_COLOR = PreviewRenderer.PIECE_COLOR
 WRIST_POINTS = 3
-WRIST_HINTS = ("Punto 1 de 3: tocá el lado del PULGAR de la muñeca (siempre en el mismo lugar: fija cómo queda girada la mano).",
-               "Punto 2 de 3: tocá un lado de la muñeca, del otro costado del brazo.",
-               "Punto 3 de 3: tocá el tercer punto de la muñeca (los 3 tienen que formar un triángulo, no una línea).")
+WRIST_HINTS = (lz("catalog_manager.punto_1_de_3_toca_el"),
+               lz("catalog_manager.punto_2_de_3_toca_un"),
+               lz("catalog_manager.punto_3_de_3_toca_el"))
 
 
 def can_cut_wrist(meta: PieceMeta | None) -> tuple[bool, str]:
     """¿Se le puede cortar la mano a esta pieza? (sí/no, motivo cuando no)."""
     if meta is None:
-        return False, "Elegí un brazo de la lista."
+        return False, tr("common.elegi_un_brazo_de_la_lista")
     if meta.tipo != "brazo":
-        return False, f"«{meta.ref}» es una pieza «{meta.tipo}»: solo se le corta la mano a un brazo."
+        return False, tr("catalog_manager.ref_es_una_pieza_tipo_solo", ref=meta.ref, tipo=meta.tipo)
     if "muneca" in meta.puertos:
-        return False, f"«{meta.ref}» ya está sin mano (tiene el puerto «muneca»): elegí la versión con la mano pegada."
+        return False, tr("catalog_manager.ref_ya_esta_sin_mano_tiene", ref=meta.ref)
     return True, ""
 
 
@@ -698,29 +696,28 @@ class WristCutter:
         if not self.complete:
             return WRIST_HINTS[len(self.points)]
         if self.plan is None:
-            return f"No sirve: {self.error}. Usá «Deshacer el último punto» y probá de nuevo."
+            return tr("catalog_manager.no_sirve_error_usa_deshacer_el", error=self.error)
         p = self.plan
-        txt = (f"Mano cortada (verde): muñeca Ø{2 * p.wrist_radius_mm:.1f} mm, {p.hand_volume_mm3:.0f} mm³. Si lo verde no es la mano, "
-               "«Invertir lado»; si está bien, revisá el id de la mano y «Guardar».")
-        return txt + ("  Avisos: " + "; ".join(p.warnings) if p.warnings else "")
+        txt = (tr("catalog_manager.mano_cortada_verde_muneca_v_mm", v=f"{2 * p.wrist_radius_mm:.1f}", hand_volume_mm3=f"{p.hand_volume_mm3:.0f}"))
+        return txt + (('  ' + tr("common.avisos") + ' ') + "; ".join(p.warnings) if p.warnings else "")
 
     # ---- clics
     def pick_at(self, x: float, y: float, widget_size, image_size, yaw_off: float = 0.0, pitch_off: float = 0.0,
                 zoom: float = 1.0, pan=(0.0, 0.0)) -> str:
         """Clic en (x, y) del widget; `widget_size` e `image_size` = (ancho, alto). Devuelve el mensaje para mostrar."""
         if self.complete:
-            return "Ya están los 3 puntos: «Deshacer el último punto» para cambiar uno."
+            return tr("catalog_manager.ya_estan_los_3_puntos_deshacer")
         img_w, img_h = image_size
         hit = widget_to_image(x, y, widget_size[0], widget_size[1], img_w, img_h)
         if hit is None:
-            return "Ese clic cayó fuera de la imagen. " + self.message()
+            return (tr("catalog_manager.ese_clic_cayo_fuera_de_la") + ' ') + self.message()
         cam = preview_camera(view_bounds(self.mesh, self.meta), img_w / img_h, yaw_off, pitch_off, zoom, pan)
         origin, direction = cam.ray(hit[0], hit[1], img_w, img_h)
         if self._picker is None:
             self._picker = Picker(self.mesh)
         res = self._picker.pick(origin, direction)
         if res is None:
-            return "Ahí no hay pieza: hacé clic sobre el brazo. " + self.message()
+            return (tr("catalog_manager.ahi_no_hay_pieza_hace_clic") + ' ') + self.message()
         self.points.append(np.asarray(res.point, float))
         if self.complete:
             self._recompute()
@@ -776,7 +773,7 @@ class WristCutter:
     def save(self, new_hand_version: bool = False):
         """Guarda el corte. Devuelve el `WristCut` o None (el motivo queda en `ctrl.message`)."""
         if not self.complete or self.plan is None:
-            self.ctrl._changed("Primero elegí los 3 puntos de la muñeca y revisá el corte.", scene=False)
+            self.ctrl._changed(tr("catalog_manager.primero_elegi_los_3_puntos_de"), scene=False)
             return None
         return self.ctrl.catalog_cut_wrist(self.meta.ref, self.points, self.invert, self.hand_id or None, new_hand_version)
 
@@ -799,12 +796,11 @@ def find_piece(metas, ref: str | None) -> PieceMeta | None:
 def can_retune_joint(meta: PieceMeta | None) -> tuple[bool, str]:
     """¿Se le puede reajustar la articulación a esta pieza? (sí/no, motivo cuando no)."""
     if meta is None:
-        return False, "Elegí un brazo o una pierna de la lista."
+        return False, tr("common.elegi_un_brazo_o_una_pierna")
     if meta.tipo not in ("brazo", "pierna"):
-        return False, f"«{meta.ref}» es una pieza «{meta.tipo}»: solo un brazo o una pierna lleva rodilla / codo."
+        return False, tr("catalog_manager.ref_es_una_pieza_tipo_solo_2", ref=meta.ref, tipo=meta.tipo)
     if not (meta.articulaciones or []):
-        return False, (f"«{meta.ref}» no trae articulación (se catalogó sin rodilla / codo): la articulación se define en la figura "
-                       "y se catalogan juntas.")
+        return False, (tr("catalog_manager.ref_no_trae_articulacion_se_catalogo", ref=meta.ref))
     return True, ""
 
 
@@ -884,7 +880,7 @@ class JointEditor:
         try:
             new = fn(self.joint, *args)
         except ValueError as exc:
-            self.error = f"No sirve: {exc}."
+            self.error = tr("catalog_manager.no_sirve_exc", exc=exc)
             return self.error
         i = self.joints.index(self.joint)
         self.joints[i] = self.joint = new
@@ -929,7 +925,7 @@ class JointEditor:
     # ---- clic para mover el eje
     def start_pick(self) -> str:
         self.pick_axis, self._drawn = True, None
-        return "Hacé clic sobre el costado de la pieza, en el centro de la bisagra (se toman la altura y la profundidad del clic)."
+        return tr("catalog_manager.hace_clic_sobre_el_costado_de")
 
     def cancel_pick(self) -> None:
         self.pick_axis, self._drawn = False, None
@@ -942,14 +938,14 @@ class JointEditor:
         img_w, img_h = image_size
         hit = widget_to_image(x, y, widget_size[0], widget_size[1], img_w, img_h)
         if hit is None:
-            return "Ese clic cayó fuera de la imagen. " + self.message()
+            return (tr("catalog_manager.ese_clic_cayo_fuera_de_la") + ' ') + self.message()
         cam = preview_camera(view_bounds(self.mesh, self.meta), img_w / img_h, yaw_off, pitch_off, zoom, pan)
         origin, direction = cam.ray(hit[0], hit[1], img_w, img_h)
         if self._picker is None:
             self._picker = Picker(self.mesh)
         res = self._picker.pick(origin, direction)
         if res is None:
-            return "Ahí no hay pieza: hacé clic sobre el miembro. " + self.message()
+            return (tr("catalog_manager.ahi_no_hay_pieza_hace_clic_2") + ' ') + self.message()
         msg = self.set_axis_point(res.point)
         if not self.error:
             self.pick_axis = False
@@ -1026,16 +1022,16 @@ class JointEditor:
         if self.error:
             return self.error
         if self.pick_axis:
-            return "Hacé clic sobre el costado de la pieza, en el centro de la bisagra."
+            return tr("catalog_manager.hace_clic_sobre_el_costado_de_2")
         if self.pv is None:
-            return "Calculando la articulación…" if self.busy else "Movés el eje, el plano o el rango y la vista previa se recalcula."
+            return tr("common.calculando_la_articulacion") if self.busy else tr("catalog_manager.moves_el_eje_el_plano_o")
         txt = self.pv.summary()
-        return txt + ("\n  (actualizando…)" if self.busy else "") + ("" if self.changed else "\n  Sin cambios respecto de la versión guardada.")
+        return txt + (('\n  ' + tr("common.actualizando")) if self.busy else "") + ("" if self.changed else ('\n  ' + tr("catalog_manager.sin_cambios_respecto_de_la_version")))
 
     # ---- guardar
     def save(self):
         """Guarda la articulación como versión nueva de la pieza. Devuelve la meta nueva o None (el motivo queda en `ctrl.message`)."""
         if not self.changed:
-            self.ctrl._changed("No cambiaste nada: no hay nada que guardar.", scene=False)
+            self.ctrl._changed(tr("catalog_manager.no_cambiaste_nada_no_hay_nada"), scene=False)
             return None
         return self.ctrl.catalog_save_joint(self.meta.ref, self.joint)

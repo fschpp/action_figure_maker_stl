@@ -5,6 +5,7 @@ factor de escala y los 3 puntos del plano en coordenadas del STL original; cada 
 empuñadura de la línea (la de la mano con agarre del catálogo elegido). El controlador dibuja lo que esta clase devuelve.
 """
 from __future__ import annotations
+from ..i18n import tr
 
 import os
 
@@ -33,7 +34,7 @@ class WeaponSession:
         try:
             cat = Catalog.open(root)
         except (CatalogError, OSError) as exc:
-            raise W.WeaponError(f"no se pudo abrir el catálogo «{root}»: {exc}") from exc
+            raise W.WeaponError(tr("weapon_session.no_se_pudo_abrir_el_catalogo", root=root, exc=exc)) from exc
         self.hand = W.line_hand(cat, hand_ref)            # WeaponError si no hay ninguna mano con agarre
         self.catalog = cat
         self._rebuild()
@@ -66,7 +67,7 @@ class WeaponSession:
 
     def set_scale(self, factor: float) -> None:
         if factor <= 0:
-            raise W.WeaponError("la escala tiene que ser positiva")
+            raise W.WeaponError(tr("weapon_session.la_escala_tiene_que_ser_positiva"))
         self.scale = float(factor)
         self.spec.scale = self.scale
         self._scaled = None
@@ -101,10 +102,10 @@ class WeaponSession:
         if self.raw is None or self.spec is None:
             return
         if len(self.spec.cut_points) != 3:
-            self.error = "elegí el plano de corte (3 puntos sobre el arma)"
+            self.error = tr("weapon_session.elegi_el_plano_de_corte_3")
             return
         if self.catalog is None or self.hand is None:
-            self.error = "elegí el catálogo de la línea (necesita una mano con agarre)"
+            self.error = tr("weapon_session.elegi_el_catalogo_de_la_linea")
             return
         try:
             grip, hole = W.line_grip(self.hand.mecanismo["agarre"])
@@ -112,7 +113,7 @@ class WeaponSession:
         except W.WeaponError as exc:
             self.error = str(exc)
         except Exception as exc:                          # noqa: BLE001 — una booleana que falla no tiene que tumbar la ventana
-            self.error = f"no se pudo armar el arma: {exc}"
+            self.error = tr("weapon_session.no_se_pudo_armar_el_arma", exc=exc)
 
     def plane(self):
         """El plano de corte (marco del arma escalada) o None."""
@@ -136,15 +137,13 @@ class WeaponSession:
     def summary(self) -> str:
         if self.raw is None:
             return ""
-        lines = [f"{os.path.basename(self.path)} · ×{self.scale:.4g} · largo {self.length_mm:.1f} mm"]
+        lines = [tr("weapon_session.basename_scale_largo_length_mm_mm", basename=os.path.basename(self.path), scale=f"{self.scale:.4g}", length_mm=f"{self.length_mm:.1f}")]
         if self.hand is not None:
-            lines.append(f"Empuñadura para la mano {self.hand.ref} (Ø{self.hand.mecanismo['agarre']['diametro_taladro_mm']:g} mm, "
-                         f"canal {self.hand.mecanismo['agarre']['largo_canal_mm']:g} mm)")
+            lines.append(tr("weapon_session.empunadura_para_la_mano_ref_diametro", ref=self.hand.ref, diametro_taladro_mm=f"{self.hand.mecanismo['agarre']['diametro_taladro_mm']:g}", largo_canal_mm=f"{self.hand.mecanismo['agarre']['largo_canal_mm']:g}"))
         if self.build is not None:
             i = self.build.info
-            lines.append(f"Resultado: {i['dimensiones_mm'][0]:g} × {i['dimensiones_mm'][1]:g} × {i['dimensiones_mm'][2]:g} mm · "
-                         f"se conserva el {i['volumen_mantenido_pct']:g} % · sección de corte {i['seccion_corte_mm2']:g} mm² · giro {i['giro_grados']:g}°")
-            lines += [f"AVISO: {w}" for w in i["avisos"]]
+            lines.append(tr("weapon_session.resultado_v_v2_v3_mm_se", v=f"{i['dimensiones_mm'][0]:g}", v2=f"{i['dimensiones_mm'][1]:g}", v3=f"{i['dimensiones_mm'][2]:g}", volumen_mantenido_pct=f"{i['volumen_mantenido_pct']:g}", seccion_corte_mm2=f"{i['seccion_corte_mm2']:g}", giro_grados=f"{i['giro_grados']:g}"))
+            lines += [tr("common.aviso_w", w=w) for w in i["avisos"]]
         elif self.error:
             lines.append(self.error[0].upper() + self.error[1:])
         return "\n".join(lines)
@@ -152,5 +151,5 @@ class WeaponSession:
     def save(self, piece_id: str | None = None, new_version: bool = False, descripcion: str = ""):
         """Guarda el arma en el catálogo como pieza `accesorio`. Devuelve (meta, avisos)."""
         if self.build is None:
-            raise W.WeaponError(self.error or "todavía no hay arma para guardar")
+            raise W.WeaponError(self.error or tr("weapon_session.todavia_no_hay_arma_para_guardar"))
         return W.add_weapon_to_catalog(self.catalog, self.scaled, self.spec, self.hand.ref, piece_id, new_version, descripcion)

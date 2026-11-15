@@ -1,5 +1,6 @@
 """Pestaña «Recortes» de la barra lateral (se arma una vez al abrir la ventana)."""
 from __future__ import annotations
+from ...i18n import tr, loc
 
 import gi
 
@@ -17,15 +18,12 @@ from ..widgets import help_note as _help
 
 def build(win) -> None:
     """Agrega la pestaña «Recortes» a `win.tabs` (win = la `MainWindow`)."""
-    box = win._tab_page("Recortes")
-    sec = _collapsible(box, "Recortes manuales")
-    _help(sec, "Para los ajustes propios de cada figura (p. ej. la «esfera panza»): se dibuja un polígono sobre el plano de "
-               "simetría (visto de costado) o se coloca una esfera / caja / cilindro con un clic en la figura; se extruye y "
-               "se resta o se une a una pieza. Se hace sobre el lado +X y se espeja. Tiene que llegar a la superficie: un "
-               "hueco cerrado por dentro se descarta.")
-    for text, attr, items in (("Pieza", "dd_trim_target", ["torso"]),
-                              ("Forma", "dd_trim_shape", [TRIM_SHAPE_LABELS[k].capitalize() for k in TRIM_SHAPES]),
-                              ("Operación", "dd_trim_op", [TRIM_OP_LABELS[k].capitalize() for k in _TRIM_OPS])):
+    box = win._tab_page(tr("common.recortes"))
+    sec = _collapsible(box, tr("recortes.recortes_manuales"))
+    _help(sec, tr("recortes.para_los_ajustes_propios_de_cada"))
+    for text, attr, items in ((tr("recortes.pieza"), "dd_trim_target", ["torso"]),
+                              (tr("recortes.forma"), "dd_trim_shape", [loc(TRIM_SHAPE_LABELS[k]).capitalize() for k in TRIM_SHAPES]),
+                              (tr("recortes.operacion"), "dd_trim_op", [loc(TRIM_OP_LABELS[k]).capitalize() for k in _TRIM_OPS])):
         row = Gtk.Box(spacing=6)
         row.append(Gtk.Label(label=text, xalign=0, hexpand=True))
         dd = Gtk.DropDown.new_from_strings(items)
@@ -33,13 +31,13 @@ def build(win) -> None:
         row.append(dd)
         sec.append(row)
     row = Gtk.Box(spacing=6)
-    row.append(Gtk.Label(label="Extrusión (mm)", xalign=0, hexpand=True))
+    row.append(Gtk.Label(label=tr("recortes.extrusion_mm"), xalign=0, hexpand=True))
     win.spin_trim_len = Gtk.SpinButton.new_with_range(0.1, 500.0, 1.0)
     win.spin_trim_len.set_value(25.0)
     row.append(win.spin_trim_len)
     sec.append(row)
     win.row_trim_size = Gtk.Box(spacing=6)
-    win.lbl_trim_size = Gtk.Label(label="Radio de la esfera (mm)", xalign=0, hexpand=True)
+    win.lbl_trim_size = Gtk.Label(label=tr("common.radio_de_la_esfera_mm"), xalign=0, hexpand=True)
     win.row_trim_size.append(win.lbl_trim_size)
     win.spin_trim_size = Gtk.SpinButton.new_with_range(0.5, 100.0, 0.5)
     win.spin_trim_size.set_value(5.0)
@@ -54,9 +52,9 @@ def build(win) -> None:
 
     win.dd_trim_shape.connect("notify::selected", shape_changed)
     shape_changed()
-    win.btn_trim_add = win._button("Dibujar polígono / colocar con clic", lambda *_: win._on_trim_add())
+    win.btn_trim_add = win._button(tr("recortes.dibujar_poligono_colocar_con_clic"), lambda *_: win._on_trim_add())
     sec.append(win.btn_trim_add)
-    sec = _collapsible(box, "Recortes de la figura")
+    sec = _collapsible(box, tr("recortes.recortes_de_la_figura"))
     win.trims_box = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
     win.trims_box.add_css_class("boxed-list")
     sec.append(win.trims_box)

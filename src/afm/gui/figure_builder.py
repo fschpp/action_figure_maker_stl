@@ -4,6 +4,7 @@ Es la versión de ventana de `afm armar`: se elige una pieza por lugar (torso, p
 genera, se valida y se exporta con el mismo motor (`cli.run_armar` → `recipe.assemble`). La receta (`afm-receta-1`) se puede
 guardar en `<catálogo>/figuras/`, que es donde `Catalog.usages` y `afm catalogo compat` la buscan."""
 from __future__ import annotations
+from ..i18n import tr, lz, loc
 
 import os
 import re
@@ -19,12 +20,12 @@ from ..recipe import PLACES, SCALE_PLACES, Recipe, RecipeError, accessory_fit
 PLACE_TYPES = {"torso": ("torso", "torso_sup"), "pelvis": ("pelvis",), "cabeza": ("cabeza",), "brazo": ("brazo",),
                "pierna": ("pierna",), "mano": ("mano",)}
 PLACE_ORDER = ("torso", "pelvis", "cabeza", "brazo", "pierna", "mano")
-PLACE_LABELS = {"torso": "Torso", "pelvis": "Pelvis", "cabeza": "Cabeza", "brazo": "Brazo", "pierna": "Pierna", "mano": "Mano"}
-NONE_LABEL = "(ninguna)"
+PLACE_LABELS = {"torso": lz("figure_builder.torso"), "pelvis": lz("figure_builder.pelvis"), "cabeza": lz("common.cabeza"), "brazo": lz("figure_builder.brazo"), "pierna": lz("figure_builder.pierna"), "mano": lz("figure_builder.mano")}
+NONE_LABEL = lz("common.ninguna")
 HAND_JOINS = ("solape", "giro")
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _RANK = {"ok": 0, "aviso": 1, "no": 2}
-FIT_TEXT = {"ok": "ok", "aviso": "aviso", "no": "no se sujeta", "sin_datos": "sin datos de agarre"}   # accesorio vs. mano elegida
+FIT_TEXT = {"ok": "ok", "aviso": lz("figure_builder.aviso"), "no": lz("figure_builder.no_se_sujeta"), "sin_datos": lz("figure_builder.sin_datos_de_agarre")}   # accesorio vs. mano elegida
 
 
 class FigureBuilder:
@@ -98,11 +99,11 @@ class FigureBuilder:
     # ------------------------------------------------------------------ elecciones
     def set_choice(self, place: str, ref: str | None) -> None:
         if place not in PLACE_TYPES:
-            raise ValueError(f"«{place}» no es un lugar (hay {', '.join(PLACE_ORDER)})")
+            raise ValueError(tr("figure_builder.place_no_es_un_lugar_hay", place=place, join=', '.join(PLACE_ORDER)))
         if ref:
             meta = self.catalog().meta(ref)           # CatalogError (ValueError) si no existe
             if meta.tipo not in PLACE_TYPES[place]:
-                raise ValueError(f"«{meta.ref}» es una pieza «{meta.tipo}» y «{place}» pide «{' o '.join(PLACE_TYPES[place])}»")
+                raise ValueError(tr("common.ref_es_una_pieza_tipo_y", ref=meta.ref, tipo=meta.tipo, place=place, join=' o '.join(PLACE_TYPES[place])))
             ref = meta.ref                            # siempre fija la versión
         self.choices[place] = ref or None
         if place == "torso" and not self.waist:
@@ -122,14 +123,14 @@ class FigureBuilder:
         return {m.ref: accessory_fit(hand, m)["nivel"] for m in self.accessory_pieces(cat)}
 
     def accessory_label(self, meta, fits: dict[str, str]) -> str:
-        return f"{meta.ref} — {FIT_TEXT.get(fits.get(meta.ref), '')}".rstrip(" —")
+        return f"{meta.ref} — {loc(FIT_TEXT.get(fits.get(meta.ref), ''))}".rstrip(" —")
 
     def set_accessory(self, ref: str, on: bool = True) -> None:
         """Agrega (`on`) o quita un accesorio. Una sola versión por id: elegir otra versión reemplaza la anterior."""
         if on:
             meta = self.catalog().meta(ref)                          # CatalogError (ValueError) si no existe
             if meta.tipo != "accesorio":
-                raise ValueError(f"«{meta.ref}» es una pieza «{meta.tipo}», no un accesorio")
+                raise ValueError(tr("figure_builder.ref_es_una_pieza_tipo_no", ref=meta.ref, tipo=meta.tipo))
             self.accessories = [r for r in self.accessories if r.split("@")[0] != meta.id] + [meta.ref]
         else:
             pid = ref.split("@")[0]
@@ -141,22 +142,22 @@ class FigureBuilder:
         aparte con pasador, gira libre) y cuánto se hunde la base de la mano en el brazo (mm, solo con «solape»)."""
         if yaw is not None:
             if float(yaw) < -360.0:
-                raise ValueError("el giro de la mano no puede ser menor que −360° (hacia arriba no hay tope)")
+                raise ValueError(tr("figure_builder.el_giro_de_la_mano_no"))
             self.hand["yaw"] = float(yaw)
         if union is not None:
             if union not in HAND_JOINS:
-                raise ValueError(f"unión de la mano «{union}» (hay {', '.join(HAND_JOINS)})")
+                raise ValueError(tr("figure_builder.union_de_la_mano_union_hay", union=union, join=', '.join(HAND_JOINS)))
             self.hand["union"] = union
         if solape is not None:
             if not 0.0 <= float(solape) <= 5.0:
-                raise ValueError("el solape de la mano va de 0 a 5 mm")
+                raise ValueError(tr("figure_builder.el_solape_de_la_mano_va"))
             self.hand["solape"] = float(solape)
 
     def set_scale(self, place: str, factor) -> None:
         """Escala de la pieza de un lugar: un número (uniforme) o (sx, sy, sz) en X lateral, Y adelante-atrás, Z alto.
         ×1 en los tres ejes la quita. La pieza se escala alrededor de su unión principal y el resto se vuelve a acoplar."""
         if place not in SCALE_PLACES:
-            raise ValueError(f"«{place}» no se escala (hay {', '.join(SCALE_PLACES)}; la mano va en mm reales)")
+            raise ValueError(tr("figure_builder.place_no_se_escala_hay_join", place=place, join=', '.join(SCALE_PLACES)))
         try:
             k = scale_vector(factor)
         except Exception as exc:                                                  # AssemblyError: se muestra tal cual
@@ -191,10 +192,10 @@ class FigureBuilder:
         try:
             r = Recipe.load(path)
         except (OSError, ValueError) as exc:                  # JSON roto, formato desconocido, lugares mal formados…
-            raise ValueError(f"no se pudo abrir la receta: {exc}") from exc
+            raise ValueError(tr("figure_builder.no_se_pudo_abrir_la_receta", exc=exc)) from exc
         cat = self.catalog()
         if r.linea != cat.name:
-            raise ValueError(f"la receta es de la línea «{r.linea}» y este catálogo es el de «{cat.name}»")
+            raise ValueError(tr("figure_builder.la_receta_es_de_la_linea", linea=r.linea, name=cat.name))
         warns: list[str] = []
         choices: dict[str, str | None] = {p: None for p in PLACE_ORDER}
         for place in PLACE_ORDER:
@@ -204,10 +205,10 @@ class FigureBuilder:
             try:
                 meta = cat.meta(ref)
             except CatalogError as exc:
-                warns.append(f"{place}: {exc} (queda sin pieza)")
+                warns.append(tr("figure_builder.place_exc_queda_sin_pieza", place=place, exc=exc))
                 continue
             if meta.tipo not in PLACE_TYPES[place]:
-                warns.append(f"{place}: «{meta.ref}» es una pieza «{meta.tipo}» (queda sin pieza)")
+                warns.append(tr("figure_builder.place_ref_es_una_pieza_tipo", place=place, ref=meta.ref, tipo=meta.tipo))
                 continue
             choices[place] = meta.ref
         self.accessories = []
@@ -215,7 +216,7 @@ class FigureBuilder:
             try:
                 self.set_accessory(ref, True)
             except ValueError as exc:
-                warns.append(f"accesorio: {exc} (se descartó)")
+                warns.append(tr("figure_builder.accesorio_exc_se_descarto", exc=exc))
         self.name = r.personaje
         self.choices = choices
         if not self.waist:
@@ -230,7 +231,7 @@ class FigureBuilder:
                 self.set_scale(place, k)
         for place in list(self.scales):
             if not choices.get(place):
-                warns.append(f"la escala de «{place}» se descartó: ese lugar quedó sin pieza")
+                warns.append(tr("figure_builder.la_escala_de_place_se_descarto", place=place))
                 del self.scales[place]
         return warns
 
@@ -238,13 +239,13 @@ class FigureBuilder:
         """Lo que falta o sobra antes de poder armar (vacío = listo)."""
         out = []
         if not NAME_RE.match(self.name or ""):
-            out.append("el nombre de la figura admite letras, números, guiones y puntos (sin espacios)")
+            out.append(tr("figure_builder.el_nombre_de_la_figura_admite"))
         if not self.choices.get("torso"):
-            return out + ["elegí un torso: es la pieza que arma el cuerpo"]
+            return out + [tr("figure_builder.elegi_un_torso_es_la_pieza")]
         if self.waist and not self.choices.get("pelvis"):
-            out.append("el torso elegido es solo la parte de arriba: elegí también una pelvis")
+            out.append(tr("figure_builder.el_torso_elegido_es_solo_la"))
         if self.choices.get("mano") and not self.choices.get("brazo"):
-            out.append("la mano se acopla a la muñeca de un brazo: elegí también un brazo")
+            out.append(tr("figure_builder.la_mano_se_acopla_a_la"))
         out += self.recipe().problems()
         return list(dict.fromkeys(out))
 
@@ -313,7 +314,7 @@ def preview_parts(builder: "FigureBuilder") -> tuple[list, list[str]]:
     from ..recipe import load_choices
 
     if not builder.choices.get("torso"):
-        raise ValueError("elegí un torso para ver la figura")
+        raise ValueError(tr("figure_builder.elegi_un_torso_para_ver_la"))
     cat, ch = load_choices(builder.recipe(), builder.root)
     notes: list[str] = []
     out: list = []
@@ -323,15 +324,15 @@ def preview_parts(builder: "FigureBuilder") -> tuple[list, list[str]]:
     if lower is not None:
         cp, lp = upper.meta.puertos.get("cintura"), lower.meta.puertos.get("cintura")
         if cp is None or lp is None:
-            notes.append("falta el puerto «cintura»: la pelvis no se puede colocar")
+            notes.append(tr("figure_builder.falta_el_puerto_cintura_la_pelvis"))
         else:
             out.append(("pelvis", transform_choice(lower, coupling_transform(lp.frame, cp.frame)).mesh, "pelvis", False))
     elif builder.choices.get("pelvis"):
-        notes.append("el torso elegido es entero: la pelvis no se usa")
+        notes.append(tr("figure_builder.el_torso_elegido_es_entero_la"))
     if "cabeza" in ch:
         neck = upper.meta.puertos.get("cuello")
         if neck is None:
-            notes.append(f"«{upper.meta.ref}» no tiene puerto «cuello»: la cabeza no se puede colocar")
+            notes.append(tr("figure_builder.ref_no_tiene_puerto_cuello_la", ref=upper.meta.ref))
         else:
             hc = ch["cabeza"]
             m = hc.mesh.copy()
@@ -342,7 +343,7 @@ def preview_parts(builder: "FigureBuilder") -> tuple[list, list[str]]:
             continue
         port = owner.meta.puertos.get(toma)
         if port is None:
-            notes.append(f"«{owner.meta.ref}» no tiene el puerto «{toma}»: {place} no se puede colocar")
+            notes.append(tr("figure_builder.ref_no_tiene_el_puerto_toma", ref=owner.meta.ref, toma=toma, place=place))
             continue
         face = ContactFace(np.asarray(port.frame.center, float).copy(), -np.asarray(port.frame.axis, float), 0.0, None)
         try:
@@ -356,7 +357,7 @@ def preview_parts(builder: "FigureBuilder") -> tuple[list, list[str]]:
         wrist = ch[place].meta.puertos.get("muneca") if place == "brazo" else None
         if place == "brazo" and "mano" in ch:
             if wrist is None:
-                notes.append("el brazo no trae puerto «muneca»: la mano no se puede colocar")
+                notes.append(tr("figure_builder.el_brazo_no_trae_puerto_muneca"))
                 continue
             wp = wrist.transformed(T)
             fr = WristFrame(wp.frame.center.copy(), wp.frame.axis.copy(), wp.frame.ref.copy()).twisted(builder.hand["yaw"])
@@ -375,10 +376,10 @@ def preview_parts(builder: "FigureBuilder") -> tuple[list, list[str]]:
 def summary(info: dict) -> str:
     """Resumen legible del resultado de `FigureBuilder.generate` (validación y archivos)."""
     val = info.get("validacion", {})
-    lines = ["Figura armada: " + ("sin problemas." if val.get("ok") else "CON PROBLEMAS.")]
+    lines = [(tr("figure_builder.figura_armada") + ' ') + (tr("figure_builder.sin_problemas") if val.get("ok") else tr("figure_builder.con_problemas"))]
     lines += [f"✗ {t}" for t in val.get("problems", [])[:10]]
     lines += [f"• {t}" for t in (val.get("avisos", []) + val.get("avisos_pasador", []))[:10]]
-    lines.append(f"Piezas exportadas: {len(info.get('archivos', {}).get('piezas', []))} (más la figura ensamblada y la lista de piezas).")
+    lines.append(tr("figure_builder.piezas_exportadas_n_mas_la_figura", n=len(info.get('archivos', {}).get('piezas', []))))
     if info.get("proyecto"):
-        lines.append(f"Proyecto: {os.path.basename(info['proyecto'])} (se abre en la ventana principal sin el STL).")
+        lines.append(tr("figure_builder.proyecto_basename_se_abre_en_la", basename=os.path.basename(info['proyecto'])))
     return "\n".join(lines)

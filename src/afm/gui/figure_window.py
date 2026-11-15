@@ -3,6 +3,7 @@
 La lógica está en `figure_builder.py` (se prueba sin GTK). Acá: un desplegable por lugar (cada pieza marcada con cómo
 acopla a la ya elegida), vista previa 3/4 de la pieza elegida y, al armar, de la figura entera, y el armado en un hilo."""
 from __future__ import annotations
+from ..i18n import tr, loc
 
 import os
 import threading
@@ -23,7 +24,7 @@ YAW_MAX = 1.0e6      # GTK pide un tope numérico: este es técnico, el giro no 
 
 class FigureBuilderWindow(Gtk.Window):
     def __init__(self, parent: Gtk.Window, catalog_root: str, remember_dir: str | None = None):
-        super().__init__(title="Armar figura desde catálogo", transient_for=parent, default_width=980, default_height=640)
+        super().__init__(title=tr("figure_window.armar_figura_desde_catalogo"), transient_for=parent, default_width=980, default_height=640)
         self.builder = FigureBuilder(catalog_root)
         self.preview = PreviewRenderer()
         self._refs: dict[str, list] = {p: [] for p in PLACE_ORDER}      # lugar -> refs en el orden del desplegable
@@ -56,32 +57,31 @@ class FigureBuilderWindow(Gtk.Window):
     def _build_form(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_top=10, margin_bottom=10, margin_start=10, margin_end=10)
         cat = self.builder.catalog()
-        title = Gtk.Label(label=f"Línea «{cat.name}» · figuras de {cat.height_mm:g} mm\n{self.builder.root}", xalign=0, wrap=True)
+        title = Gtk.Label(label=tr("figure_window.linea_name_figuras_de_height_mm", name=cat.name, height_mm=f"{cat.height_mm:g}", root=self.builder.root), xalign=0, wrap=True)
         title.add_css_class("heading")
         box.append(title)
-        box.append(Gtk.Label(label="Nombre de la figura", xalign=0))
+        box.append(Gtk.Label(label=tr("figure_window.nombre_de_la_figura"), xalign=0))
         name_row = Gtk.Box(spacing=6)
         self.ent_name = Gtk.Entry(text=self.builder.name, hexpand=True)
         self.ent_name.connect("changed", self._on_name)
         name_row.append(self.ent_name)
-        self.btn_open = Gtk.Button(label="Abrir receta…")
-        self.btn_open.set_tooltip_text("Carga una receta guardada (piezas, opciones, mano y escalas) para retocarla. "
-                                       "Guardala con otro nombre para no pisar la original.")
+        self.btn_open = Gtk.Button(label=tr("figure_window.abrir_receta"))
+        self.btn_open.set_tooltip_text(tr("figure_window.carga_una_receta_guardada_piezas_opciones"))
         self.btn_open.connect("clicked", self._on_open_recipe)
         name_row.append(self.btn_open)
         box.append(name_row)
-        box.append(Gtk.Label(label="Pieza de cada lugar (empezá por el torso)", xalign=0, margin_top=6))
+        box.append(Gtk.Label(label=tr("figure_window.pieza_de_cada_lugar_empeza_por"), xalign=0, margin_top=6))
         for place in PLACE_ORDER:
             row = Gtk.Box(spacing=8)
-            row.append(Gtk.Label(label=PLACE_LABELS[place], xalign=0, width_chars=7))
-            dd = Gtk.DropDown.new_from_strings([NONE_LABEL])
+            row.append(Gtk.Label(label=loc(PLACE_LABELS[place]), xalign=0, width_chars=7))
+            dd = Gtk.DropDown.new_from_strings([loc(NONE_LABEL)])
             dd.set_hexpand(True)
             dd.connect("notify::selected", self._on_pick, place)
             self._dd[place] = dd
             row.append(dd)
             box.append(row)
-        self.chk_shoulder = Gtk.CheckButton(label="Clic en los hombros")
-        self.chk_hip = Gtk.CheckButton(label="Clic en las caderas")
+        self.chk_shoulder = Gtk.CheckButton(label=tr("figure_window.clic_en_los_hombros"))
+        self.chk_hip = Gtk.CheckButton(label=tr("figure_window.clic_en_las_caderas"))
         for chk, key in ((self.chk_shoulder, "clic_hombro"), (self.chk_hip, "clic_cadera")):
             chk.connect("toggled", lambda b, k=key: self.builder.options.__setitem__(k, b.get_active()))
             box.append(chk)
@@ -93,11 +93,10 @@ class FigureBuilderWindow(Gtk.Window):
         box.append(self.lbl_problems)
 
         bar = Gtk.Box(spacing=6, margin_top=4)
-        self.btn_recipe = Gtk.Button(label="Guardar receta en el catálogo")
-        self.btn_recipe.set_tooltip_text("Guarda las piezas elegidas en <catálogo>/figuras/<nombre>.receta.json "
-                                         "(se puede volver a armar con «afm armar» y cuenta como uso de cada pieza).")
+        self.btn_recipe = Gtk.Button(label=tr("figure_window.guardar_receta_en_el_catalogo"))
+        self.btn_recipe.set_tooltip_text(tr("figure_window.guarda_las_piezas_elegidas_en_catalogo"))
         self.btn_recipe.connect("clicked", self._on_save_recipe)
-        self.btn_build = Gtk.Button(label="Armar y exportar…")
+        self.btn_build = Gtk.Button(label=tr("figure_window.armar_y_exportar"))
         self.btn_build.add_css_class("suggested-action")
         self.btn_build.connect("clicked", self._on_build)
         bar.append(self.btn_recipe)
@@ -106,16 +105,12 @@ class FigureBuilderWindow(Gtk.Window):
         self._last_project: str | None = None
         self.progress_panel = ProgressPanel()                # porcentaje, tarea en curso, pendientes y tiempo estimado
         box.append(self.progress_panel)
-        self.btn_open_main = Gtk.Button(label="Abrir la figura armada en la ventana principal")
-        self.btn_open_main.set_tooltip_text("Abre el .proyecto recién exportado (sin STL: el cuerpo sale del catálogo) y la figura "\
-                                            "se ve por partes. Reemplaza lo que esté abierto en la ventana principal.")
+        self.btn_open_main = Gtk.Button(label=tr("figure_window.abrir_la_figura_armada_en_la"))
+        self.btn_open_main.set_tooltip_text(tr("figure_window.abre_el_proyecto_recien_exportado_sin"))
         self.btn_open_main.set_visible(False)
         self.btn_open_main.connect("clicked", self._on_open_main)
         box.append(self.btn_open_main)
-        hint = Gtk.Label(label="El torso arma el cuerpo: uno entero, o «torso_sup» + una pelvis (la figura lleva cintura). "
-                               "Cada pieza de la lista dice cómo acopla a la ya elegida (ok / aviso / no acopla). Armar tarda "
-                               "unos minutos; exporta las piezas, la figura ensamblada, el informe, la receta y un .proyecto (abrible en la ventana "
-                               "principal sin el STL) en la carpeta que elijas.",
+        hint = Gtk.Label(label=tr("figure_window.el_torso_arma_el_cuerpo_uno"),
                          xalign=0, wrap=True)
         hint.add_css_class("dim-label")
         box.append(hint)
@@ -123,27 +118,26 @@ class FigureBuilderWindow(Gtk.Window):
 
     def _build_hand_section(self) -> Gtk.Widget:
         """Mismos controles de mano que la ventana principal: giro (−180°…180°, de a 1°) y «Mano articulada»."""
-        exp = Gtk.Expander(label="Mano: giro y articulación")
+        exp = Gtk.Expander(label=tr("figure_window.mano_giro_y_articulacion"))
         self.exp_hand = exp
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, margin_top=6)
         row = Gtk.Box(spacing=6)
-        row.append(Gtk.Label(label="Giro de la mano (°)", xalign=0, hexpand=True))
+        row.append(Gtk.Label(label=tr("common.giro_de_la_mano"), xalign=0, hexpand=True))
         self.sp_yaw = Gtk.SpinButton.new_with_range(-180.0, YAW_MAX, 1.0)      # sin tope superior (solo el mínimo de −180°)
         self.sp_yaw.set_digits(0)
-        self.sp_yaw.set_tooltip_text("Gira la mano alrededor de la muñeca. 0 = como la guarda el catálogo.")
+        self.sp_yaw.set_tooltip_text(tr("figure_window.gira_la_mano_alrededor_de_la"))
         self.sp_yaw.connect("value-changed", self._on_hand)
         row.append(self.sp_yaw)
         box.append(row)
-        self.chk_swivel = Gtk.CheckButton(label="Mano articulada (pieza aparte, gira libre dentro del brazo)")
-        self.chk_swivel.set_tooltip_text("Sin marcar, la base de la mano se hunde en el brazo y queda soldada (solape). Marcada, la mano "
-                                         "sale como otra pieza con un pasador que entra en el brazo y gira libre.")
+        self.chk_swivel = Gtk.CheckButton(label=tr("common.mano_articulada_pieza_aparte_gira_libre"))
+        self.chk_swivel.set_tooltip_text(tr("figure_window.sin_marcar_la_base_de_la"))
         self.chk_swivel.connect("toggled", self._on_hand)
         box.append(self.chk_swivel)
         row = Gtk.Box(spacing=6)
-        row.append(Gtk.Label(label="Solape (mm)", xalign=0, hexpand=True))
+        row.append(Gtk.Label(label=tr("figure_window.solape_mm"), xalign=0, hexpand=True))
         self.sp_overlap = Gtk.SpinButton.new_with_range(0.0, 5.0, 0.1)
         self.sp_overlap.set_digits(1)
-        self.sp_overlap.set_tooltip_text("Cuánto se hunde la base de la mano en el brazo (solo con la mano soldada, sin «Mano articulada»).")
+        self.sp_overlap.set_tooltip_text(tr("figure_window.cuanto_se_hunde_la_base_de"))
         self.sp_overlap.connect("value-changed", self._on_hand)
         row.append(self.sp_overlap)
         self.row_overlap = row
@@ -153,7 +147,7 @@ class FigureBuilderWindow(Gtk.Window):
 
     def _build_accessory_section(self) -> Gtk.Widget:
         """Accesorios del catálogo que acompañan a la figura: se exportan aparte (STL en piezas/ y en la lista de piezas)."""
-        self.exp_acc = Gtk.Expander(label="Accesorios que acompañan a la figura", expanded=False)
+        self.exp_acc = Gtk.Expander(label=tr("figure_window.accesorios_que_acompanan_a_la_figura"), expanded=False)
         self.box_acc = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, margin_start=12, margin_top=4)
         self.exp_acc.set_child(self.box_acc)
         self._acc_checks: dict[str, Gtk.CheckButton] = {}
@@ -168,7 +162,7 @@ class FigureBuilderWindow(Gtk.Window):
         metas = b.accessory_pieces(cat)
         fits = b.accessory_fits(cat)
         if not metas:
-            lbl = Gtk.Label(label="El catálogo no tiene accesorios (afm agarre --catalogo, o afm catalogo importar-accesorio).",
+            lbl = Gtk.Label(label=tr("figure_window.el_catalogo_no_tiene_accesorios_afm"),
                             xalign=0, wrap=True)
             lbl.add_css_class("dim-label")
             self.box_acc.append(lbl)
@@ -191,29 +185,28 @@ class FigureBuilderWindow(Gtk.Window):
         self._sync()
 
     def _build_scale_section(self) -> Gtk.Widget:
-        exp = Gtk.Expander(label="Escala de cada pieza (X ancho · Y profundidad · Z alto)")
+        exp = Gtk.Expander(label=tr("figure_window.escala_de_cada_pieza_x_ancho"))
         self.exp_scale = exp
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, margin_top=6)
         for place in SCALE_PLACES:
             row = Gtk.Box(spacing=4)
-            row.append(Gtk.Label(label=PLACE_LABELS[place], xalign=0, width_chars=7))
+            row.append(Gtk.Label(label=loc(PLACE_LABELS[place]), xalign=0, width_chars=7))
             sps = []
             for axis in "XYZ":
                 sp = Gtk.SpinButton.new_with_range(0.5, 2.0, 0.01)
                 sp.set_digits(2)
                 sp.set_value(1.0)
                 sp.set_width_chars(5)
-                sp.set_tooltip_text(f"Factor en {axis}: 1 = original, 1,10 = 10 % mayor, 0,95 = 5 % menor.")
+                sp.set_tooltip_text(tr("figure_window.factor_en_axis_1_original_1", axis=axis))
                 sp.connect("value-changed", self._on_scale, place, axis)
                 sps.append(sp)
                 row.append(sp)
-            lock = Gtk.CheckButton(label="igual", active=True)
-            lock.set_tooltip_text("Los tres ejes se mueven juntos (escala uniforme).")
+            lock = Gtk.CheckButton(label=tr("common.igual"), active=True)
+            lock.set_tooltip_text(tr("figure_window.los_tres_ejes_se_mueven_juntos"))
             row.append(lock)
             self._scale_sp[place], self._scale_lock[place], self._scale_row[place] = sps, lock, row
             box.append(row)
-        note = Gtk.Label(label="La pieza se escala alrededor de su unión principal y las demás se vuelven a acoplar. Los pasadores y las "
-                               "holguras no se escalan (son mm de impresión). La mano va siempre en mm reales. Revisá la validación al armar.",
+        note = Gtk.Label(label=tr("figure_window.la_pieza_se_escala_alrededor_de"),
                          xalign=0, wrap=True)
         note.add_css_class("dim-label")
         box.append(note)
@@ -232,15 +225,14 @@ class FigureBuilderWindow(Gtk.Window):
         frame.set_child(self.picture)
         box.append(frame)
         row = Gtk.Box(spacing=6)
-        reset = Gtk.Button(label="Vista 3/4")
+        reset = Gtk.Button(label=tr("common.vista_3_4"))
         reset.connect("clicked", self._on_reset_view)
         row.append(reset)
-        self.tgl_all = Gtk.ToggleButton(label="Ver todas las piezas juntas")
-        self.tgl_all.set_tooltip_text("Pone las piezas elegidas en su lugar (con sus escalas y la mano) y las dibuja juntas, sin generar: "
-                                      "sirve para ver proporciones y uniones antes de esperar el armado. No incluye pasadores ni holguras.")
+        self.tgl_all = Gtk.ToggleButton(label=tr("figure_window.ver_todas_las_piezas_juntas"))
+        self.tgl_all.set_tooltip_text(tr("figure_window.pone_las_piezas_elegidas_en_su"))
         self.tgl_all.connect("toggled", self._on_toggle_all)
         row.append(self.tgl_all)
-        row.append(Gtk.Label(label="Arrastrá para girar", xalign=0, hexpand=True))
+        row.append(Gtk.Label(label=tr("figure_window.arrastra_para_girar"), xalign=0, hexpand=True))
         self.spinner = Gtk.Spinner()
         row.append(self.spinner)
         box.append(row)
@@ -263,12 +255,12 @@ class FigureBuilderWindow(Gtk.Window):
                 fit = b.fit_labels(place, cat)
                 self._refs[place] = [m.ref for m in metas]
                 dd = self._dd[place]
-                dd.set_model(Gtk.StringList.new([NONE_LABEL] + [b.label(m, fit) for m in metas]))
+                dd.set_model(Gtk.StringList.new([loc(NONE_LABEL)] + [b.label(m, fit) for m in metas]))
                 cur = b.choices.get(place)
                 dd.set_selected(self._refs[place].index(cur) + 1 if cur in self._refs[place] else 0)
                 enabled = not self._busy and (place != "pelvis" or b.waist) and bool(metas)
                 dd.set_sensitive(enabled)
-                dd.set_tooltip_text(None if metas else "El catálogo no tiene piezas de este tipo.")
+                dd.set_tooltip_text(None if metas else tr("figure_window.el_catalogo_no_tiene_piezas_de"))
         finally:
             self._updating = False
         self._updating = True
@@ -281,7 +273,7 @@ class FigureBuilderWindow(Gtk.Window):
 
     def _sync(self) -> None:
         probs = self.builder.problems()
-        self.lbl_problems.set_text("Falta: " + "; ".join(probs) if probs else "Listo para armar.")
+        self.lbl_problems.set_text((tr("common.falta") + ' ') + "; ".join(probs) if probs else tr("figure_window.listo_para_armar"))
         self.btn_build.set_sensitive(not probs and not self._busy)
         self.btn_recipe.set_sensitive(not probs and not self._busy)
         self.ent_name.set_sensitive(not self._busy)
@@ -373,9 +365,9 @@ class FigureBuilderWindow(Gtk.Window):
         self._refresh_group()
 
     def _on_open_recipe(self, *_) -> None:
-        dlg = Gtk.FileDialog(title="Abrir receta para retocarla")
+        dlg = Gtk.FileDialog(title=tr("figure_window.abrir_receta_para_retocarla"))
         flt = Gtk.FileFilter()
-        flt.set_name("Recetas (*.receta.json)")
+        flt.set_name(tr("figure_window.recetas_receta_json"))
         flt.add_pattern("*.receta.json")
         flt.add_pattern("*.json")
         store = Gio.ListStore.new(Gtk.FileFilter)
@@ -405,9 +397,9 @@ class FigureBuilderWindow(Gtk.Window):
         self.chk_shoulder.set_active(self.builder.options["clic_hombro"])
         self.chk_hip.set_active(self.builder.options["clic_cadera"])
         self._refill()
-        msg = f"Receta abierta: {path}\nRetocala y guardala con otro nombre, o armala."
+        msg = tr("figure_window.receta_abierta_path_retocala_y_guardala", path=path)
         if warns:
-            msg += "\nNo se pudo cargar todo:\n" + "\n".join(f"• {w}" for w in warns)
+            msg += ('\n' + tr("figure_window.no_se_pudo_cargar_todo") + '\n') + "\n".join(f"• {w}" for w in warns)
         self.lbl_result.set_text(msg)
         shown = self.builder.choices.get("torso")
         if shown:
@@ -429,11 +421,11 @@ class FigureBuilderWindow(Gtk.Window):
             self._group, notes = self.builder.preview()
         except Exception as exc:                              # noqa: BLE001  (sin torso, pieza rota…): se dice y se vuelve a la pieza
             self._group = None
-            self.lbl_result.set_text(f"No se puede ver la figura: {exc}")
+            self.lbl_result.set_text(tr("figure_window.no_se_puede_ver_la_figura", exc=exc))
             self._redraw()
             return
         if notes:
-            self.lbl_result.set_text("Vista conjunta (sin pasadores ni holguras):\n" + "\n".join(f"• {n}" for n in notes))
+            self.lbl_result.set_text((tr("figure_window.vista_conjunta_sin_pasadores_ni_holguras") + '\n') + "\n".join(f"• {n}" for n in notes))
         self._redraw()
 
     def _show_piece(self, ref: str) -> None:
@@ -443,7 +435,7 @@ class FigureBuilderWindow(Gtk.Window):
         try:
             meta, mesh = self.builder.catalog().load(ref, check_hash=False)
         except Exception as exc:                              # noqa: BLE001
-            self.lbl_result.set_text(f"No se pudo leer {ref}: {exc}")
+            self.lbl_result.set_text(tr("figure_window.no_se_pudo_leer_ref_exc", ref=ref, exc=exc))
             return
         self._set_shown(mesh, meta)
 
@@ -464,7 +456,7 @@ class FigureBuilderWindow(Gtk.Window):
                 img = self.preview.render(mesh, meta, self._dyaw, self._dpitch)
         except Exception as exc:                              # noqa: BLE001  (sin EGL: el resto sigue andando)
             self.picture.set_paintable(None)
-            self.lbl_result.set_text(f"La vista previa 3D no está disponible: {exc}")
+            self.lbl_result.set_text(tr("common.la_vista_previa_3d_no_esta", exc=exc))
             return
         h, w = img.shape[:2]
         data = GLib.Bytes.new(img.tobytes())
@@ -484,12 +476,12 @@ class FigureBuilderWindow(Gtk.Window):
         try:
             path = self.builder.save_recipe()
         except Exception as exc:                              # noqa: BLE001
-            self.lbl_result.set_text(f"No se guardó la receta: {exc}")
+            self.lbl_result.set_text(tr("figure_window.no_se_guardo_la_receta_exc", exc=exc))
             return
-        self.lbl_result.set_text(f"Receta guardada en {path}")
+        self.lbl_result.set_text(tr("figure_window.receta_guardada_en_path", path=path))
 
     def _on_build(self, *_) -> None:
-        dlg = Gtk.FileDialog(title="Carpeta donde exportar la figura")
+        dlg = Gtk.FileDialog(title=tr("figure_window.carpeta_donde_exportar_la_figura"))
 
         def picked(d, res):
             try:
@@ -514,12 +506,12 @@ class FigureBuilderWindow(Gtk.Window):
             return
         self._t0 = time.monotonic()
         self._set_busy(True)
-        self.lbl_result.set_text("Armando la figura… (tarda unos minutos)")
+        self.lbl_result.set_text(tr("figure_window.armando_la_figura_tarda_unos_minutos"))
         try:
             stages = self.builder.progress_stages()
         except Exception:                                     # noqa: BLE001 — sin plan la barra solo late
             stages = None
-        self.progress_panel.start(stages, "Armando la figura…")
+        self.progress_panel.start(stages, tr("figure_window.armando_la_figura"))
         progress = self.progress_panel.feed
 
         def work() -> None:
@@ -539,17 +531,17 @@ class FigureBuilderWindow(Gtk.Window):
         try:
             parent._open_project_path(self._last_project, self.builder.root)
         except Exception as exc:                              # noqa: BLE001
-            self.lbl_result.set_text(f"No se pudo abrir en la ventana principal: {exc}")
+            self.lbl_result.set_text(tr("figure_window.no_se_pudo_abrir_en_la", exc=exc))
 
     def _build_done(self, info, error, folder: str) -> bool:
         self._set_busy(False)
-        self.progress_panel.finish(error is None, "Figura armada y exportada")
+        self.progress_panel.finish(error is None, tr("figure_window.figura_armada_y_exportada"))
         if error is not None:
-            self.lbl_result.set_text(f"No se pudo armar: {error}")
+            self.lbl_result.set_text(tr("figure_window.no_se_pudo_armar_error", error=error))
             return False
         self._last_project = info.get("proyecto")
         self.btn_open_main.set_visible(bool(self._last_project))
-        self.lbl_result.set_text(summary(info) + f"\n\nExportado en {folder}")
+        self.lbl_result.set_text(summary(info) + ('\n\n' + tr("figure_window.exportado_en_folder", folder=folder)))
         if self.tgl_all.get_active():
             self.tgl_all.set_active(False)       # se muestra la figura armada de verdad
         try:
@@ -558,5 +550,5 @@ class FigureBuilderWindow(Gtk.Window):
             mesh = trimesh.load(info["ensamblada"], force="mesh")
             self._set_shown(mesh, None)
         except Exception as exc:                              # noqa: BLE001
-            self.lbl_result.set_text(self.lbl_result.get_text() + f"\n(sin vista previa: {exc})")
+            self.lbl_result.set_text(self.lbl_result.get_text() + ('\n' + tr("figure_window.sin_vista_previa_exc", exc=exc)))
         return False

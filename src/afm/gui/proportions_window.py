@@ -5,6 +5,7 @@ catálogo, lado a lado y superpuestos, en tres vistas (frente, costado, arriba),
 Todo el cálculo (mallas, medidas, siluetas, escalas sugeridas) está en `afm.proportions` y se prueba sin GTK; acá solo hay
 widgets. Se abre desde la pestaña «Catálogo» de la ventana principal."""
 from __future__ import annotations
+from ..i18n import tr, lz, loc
 
 import gi
 
@@ -15,15 +16,15 @@ from .. import proportions as PR  # noqa: E402
 
 PX_MM = 0.5                  # milímetros por píxel de las imágenes
 ZOOM = 3.0                   # píxeles de pantalla por milímetro
-VIEW_TITLES = {"frente": "Frente", "costado": "Costado", "arriba": "Arriba"}
-KIND_TITLES = (("model", "Tu figura (en piezas)"), ("ref", "Patrón"), ("over", "Superpuestas (patrón en gris)"))
+VIEW_TITLES = {"frente": lz("common.frente"), "costado": lz("proportions_window.costado"), "arriba": lz("common.arriba")}
+KIND_TITLES = (("model", lz("proportions_window.tu_figura_en_piezas")), ("ref", lz("proportions_window.patron")), ("over", lz("proportions_window.superpuestas_patron_en_gris")))
 LEVEL_COLOR = {"ok": "#2FB36B", "aviso": "#D9A400", "no": "#E5484D", "sin_dato": "#9CA3AF"}
-LEVEL_TEXT = {"ok": "coincide", "aviso": "casi", "no": "no coincide", "sin_dato": "sin dato"}
+LEVEL_TEXT = {"ok": lz("proportions_window.coincide"), "aviso": lz("proportions_window.casi"), "no": lz("proportions_window.no_coincide"), "sin_dato": lz("proportions_window.sin_dato")}
 
 
 class ProportionsWindow(Gtk.Window):
     def __init__(self, parent: Gtk.Window, ctrl):
-        super().__init__(title="Comparar proporciones con un patrón", transient_for=parent, default_width=1180, default_height=860)
+        super().__init__(title=tr("proportions_window.comparar_proporciones_con_un_patron"), transient_for=parent, default_width=1180, default_height=860)
         self.parent_win, self.ctrl = parent, ctrl
         self.figures: list[str] = []
         self.snapshot: dict | None = None
@@ -37,30 +38,28 @@ class ProportionsWindow(Gtk.Window):
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_top=10, margin_bottom=10, margin_start=10, margin_end=10)
         self.set_child(outer)
         bar = Gtk.Box(spacing=8)
-        bar.append(Gtk.Label(label="Figura patrón:"))
-        self.dd_fig = Gtk.DropDown.new_from_strings(["(ninguna)"])
+        bar.append(Gtk.Label(label=tr("proportions_window.figura_patron")))
+        self.dd_fig = Gtk.DropDown.new_from_strings([tr("common.ninguna")])
         bar.append(self.dd_fig)
-        self.btn_reload = Gtk.Button(label="Actualizar")
+        self.btn_reload = Gtk.Button(label=tr("proportions_window.actualizar"))
         self.btn_reload.connect("clicked", lambda *_: self.reload())
         bar.append(self.btn_reload)
-        self.chk_guides = Gtk.CheckButton(label="Guías a las alturas del patrón", active=True)
+        self.chk_guides = Gtk.CheckButton(label=tr("proportions_window.guias_a_las_alturas_del_patron"), active=True)
         self.chk_guides.connect("toggled", lambda *_: self._redraw())
         bar.append(self.chk_guides)
         self.lbl_status = Gtk.Label(label="", xalign=0, hexpand=True, wrap=True)
         bar.append(self.lbl_status)
         outer.append(bar)
         outer.append(Gtk.Label(
-            label="Cada pieza de tu figura se compara con la del patrón. Cambiá la escala X (ancho), Y (fondo) o Z (alto) de una pieza y "
-                  "mirá cómo se acerca a las líneas amarillas. «Sugerida» calcula la escala que iguala las medidas de la caja de la "
-                  "pieza (no la forma): revisá las tres vistas antes de generar.", xalign=0, wrap=True))
+            label=tr("proportions_window.cada_pieza_de_tu_figura_se"), xalign=0, wrap=True))
 
         body = Gtk.Box(spacing=12, vexpand=True)
         outer.append(body)
         grid = Gtk.Grid(column_spacing=6, row_spacing=6)
         for c, (_kind, title) in enumerate(KIND_TITLES):
-            grid.attach(Gtk.Label(label=title, xalign=0), c + 1, 0, 1, 1)
+            grid.attach(Gtk.Label(label=loc(title), xalign=0), c + 1, 0, 1, 1)
         for r, view in enumerate(PR.VIEWS):
-            grid.attach(Gtk.Label(label=VIEW_TITLES[view], xalign=1, valign=Gtk.Align.CENTER), 0, r + 1, 1, 1)
+            grid.attach(Gtk.Label(label=loc(VIEW_TITLES[view]), xalign=1, valign=Gtk.Align.CENTER), 0, r + 1, 1, 1)
             for c, (kind, _t) in enumerate(KIND_TITLES):
                 area = Gtk.DrawingArea(content_width=200, content_height=200)
                 area.set_draw_func(self._make_draw(view, kind))
@@ -72,17 +71,16 @@ class ProportionsWindow(Gtk.Window):
 
         side = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, width_request=430)
         self.table = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        side.append(Gtk.Label(label="Escala por pieza (1 = original)", xalign=0, css_classes=["heading"]))
+        side.append(Gtk.Label(label=tr("proportions_window.escala_por_pieza_1_original"), xalign=0, css_classes=["heading"]))
         side.append(self.table)
-        self.btn_all = Gtk.Button(label="Aplicar las escalas sugeridas a todas las piezas")
+        self.btn_all = Gtk.Button(label=tr("proportions_window.aplicar_las_escalas_sugeridas_a_todas"))
         self.btn_all.connect("clicked", self._on_apply_all)
         side.append(self.btn_all)
-        self.btn_fit = Gtk.Button(label="Ajustar los cortes al talle estándar (como «afm guia --estandar»)")
-        self.btn_fit.set_tooltip_text("Lleva la cara de cada miembro al talle más cercano del contrato de la línea. Para copiar los planos "
-                                      "de un patrón a un héroe nuevo usá «Nuevo héroe desde el patrón…» de la pestaña Catálogo.")
+        self.btn_fit = Gtk.Button(label=tr("proportions_window.ajustar_los_cortes_al_talle_estandar"))
+        self.btn_fit.set_tooltip_text(tr("proportions_window.lleva_la_cara_de_cada_miembro"))
         self.btn_fit.connect("clicked", self._on_fit)
         side.append(self.btn_fit)
-        close = Gtk.Button(label="Cerrar", halign=Gtk.Align.END)
+        close = Gtk.Button(label=tr("common.cerrar"), halign=Gtk.Align.END)
         close.connect("clicked", lambda *_: self.close())
         side.append(close)
         body.append(side)
@@ -127,7 +125,7 @@ class ProportionsWindow(Gtk.Window):
         """Arma de nuevo la comparación (en un hilo): divide la figura si hace falta y dibuja las tres vistas."""
         self.figures = self.ctrl.proportion_figures()
         if not self.figures:
-            self.lbl_status.set_text("El catálogo abierto no tiene una figura con cabeza, torso, brazo y pierna para usar de patrón.")
+            self.lbl_status.set_text(tr("proportions_window.el_catalogo_abierto_no_tiene_una"))
             return
         current = self.dd_fig.get_selected()
         if self.dd_fig.get_model().get_n_items() != len(self.figures) or current >= len(self.figures):
@@ -137,9 +135,9 @@ class ProportionsWindow(Gtk.Window):
         job = self.ctrl.proportions_job(figura)
         if job is None:
             return
-        self.lbl_status.set_text(f"Comparando con «{figura}»…")
-        self.parent_win._run_task("Comparando proporciones…", lambda progress: self._render(job(progress)),
-                                  self._loaded, "Comparación lista")
+        self.lbl_status.set_text(tr("proportions_window.comparando_con_figura", figura=figura))
+        self.parent_win._run_task(tr("proportions_window.comparando_proporciones"), lambda progress: self._render(job(progress)),
+                                  self._loaded, tr("proportions_window.comparacion_lista"))
 
     @staticmethod
     def _render(snap: dict) -> dict:
@@ -160,7 +158,7 @@ class ProportionsWindow(Gtk.Window):
     def _loaded(self, res, err) -> None:
         self.ctrl.finish_proportions(err)
         if err is not None or res is None:
-            self.lbl_status.set_text(f"No se pudo comparar: {err}")
+            self.lbl_status.set_text(tr("proportions_window.no_se_pudo_comparar_err", err=err))
             return
         import cairo
 
@@ -177,7 +175,7 @@ class ProportionsWindow(Gtk.Window):
         self._guides = res["guides"]
         self._fill_table(res["rows"])
         self._redraw()
-        self.lbl_status.set_text(f"Comparando con «{res['figura']}». Las líneas amarillas marcan las alturas del patrón."
+        self.lbl_status.set_text(tr("proportions_window.comparando_con_figura_las_lineas_amarillas", figura=res['figura'])
                                  + (f" {res['nota']}" if res.get("nota") else ""))
 
     # ------------------------------------------------------------------ tabla de piezas
@@ -192,11 +190,11 @@ class ProportionsWindow(Gtk.Window):
         for row in rows:
             box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
             head = Gtk.Label(xalign=0, use_markup=True)
-            head.set_markup(f"<b>{GLib.markup_escape_text(row.label)}</b>  <span foreground='{LEVEL_COLOR[row.nivel]}'>● {LEVEL_TEXT[row.nivel]}</span>")
+            head.set_markup(tr("proportions_window.b_markup_escape_text_b_span", markup_escape_text=GLib.markup_escape_text(row.label), level_color=LEVEL_COLOR[row.nivel], level_text=LEVEL_TEXT[row.nivel]))
             box.append(head)
             if row.model is not None and row.ref is not None:
                 m, r = row.model.size, row.ref.size
-                box.append(Gtk.Label(label=f"tu figura {m[0]:.1f} × {m[1]:.1f} × {m[2]:.1f} mm  ·  patrón {r[0]:.1f} × {r[1]:.1f} × {r[2]:.1f} mm",
+                box.append(Gtk.Label(label=tr("proportions_window.tu_figura_m_m2_m3_mm", m=f"{m[0]:.1f}", m2=f"{m[1]:.1f}", m3=f"{m[2]:.1f}", r=f"{r[0]:.1f}", r2=f"{r[1]:.1f}", r3=f"{r[2]:.1f}"),
                                      xalign=0, wrap=True))
             box.append(Gtk.Label(label=row.text(), xalign=0, wrap=True))
             if row.place in ("cabeza", "torso", "brazo", "pelvis", "pierna") and self._place_name(row.place) in self.ctrl.session.scale_places():
@@ -210,10 +208,10 @@ class ProportionsWindow(Gtk.Window):
                     spins.append(sp)
                     line.append(sp)
                 self._spins[row.place] = tuple(spins)
-                sug = Gtk.Button(label="Sugerida", sensitive=row.suggested is not None)
+                sug = Gtk.Button(label=tr("proportions_window.sugerida"), sensitive=row.suggested is not None)
                 sug.connect("clicked", lambda _b, rw=row: self._set_spins(rw.place, rw.suggested))
                 line.append(sug)
-                ap = Gtk.Button(label="Aplicar")
+                ap = Gtk.Button(label=tr("common.aplicar"))
                 ap.connect("clicked", lambda _b, rw=row: self._apply(rw.place))
                 line.append(ap)
                 box.append(line)

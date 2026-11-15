@@ -8,6 +8,7 @@ Marcos de coordenadas (igual que el CLI, ver `afm.cli.run`):
   de silueta, los polígonos y los recortes (así los consume ``pipeline.build``).
 """
 from __future__ import annotations
+from ..i18n import tr
 
 import copy
 import dataclasses
@@ -54,9 +55,8 @@ class CatalogNeeded(FileNotFoundError):
 
     def __init__(self, line: str, last_root: str | None = None):
         self.line, self.last_root = line, last_root
-        where = f" (la última vez estaba en {last_root})" if last_root else ""
-        super().__init__(f"Este proyecto se armó con el catálogo de la línea «{line}»{where} y no lo encuentro: "
-                         "elegí la carpeta del catálogo.")
+        where = (' ' + tr("session.la_ultima_vez_estaba_en_last", last_root=last_root)) if last_root else ""
+        super().__init__(tr("session.este_proyecto_se_armo_con_el", line=line, where=where))
 
 
 @dataclass
@@ -103,7 +103,7 @@ class Session:
         """Declara que la altura ``z_mm`` (medida sobre la malla actual) es la coronilla: reescala para que
         mida ``ref_height`` y guarda la cota equivalente en unidades del archivo."""
         if not self.loaded or z_mm <= 1.0:
-            raise ValueError("Cota de coronilla inválida")
+            raise ValueError(tr("session.cota_de_coronilla_invalida"))
         ref = self.project.params.ref_height
         k = ref / z_mm
         self.base = self.base.copy()
@@ -126,7 +126,7 @@ class Session:
         mm = float(mm)
         lo, hi = self.REF_HEIGHT_RANGE
         if not np.isfinite(mm) or not (lo <= mm <= hi):
-            raise ValueError(f"La altura tiene que estar entre {lo:g} y {hi:g} mm")
+            raise ValueError(tr("session.la_altura_tiene_que_estar_entre", lo=f"{lo:g}", hi=f"{hi:g}"))
         old = float(self.project.params.ref_height)
         k = mm / old
         if abs(k - 1.0) < 1e-9:
@@ -144,7 +144,7 @@ class Session:
     def set_front(self, front: str) -> None:
         """'+Y' o '-Y' según hacia dónde mira la figura en el archivo. Invalida simetría, miembros y recortes."""
         if front not in ("+Y", "-Y"):
-            raise ValueError("front debe ser '+Y' o '-Y'")
+            raise ValueError(tr("session.front_debe_ser_y_o_y"))
         if front == self.project.front:
             return
         self.project.front = front
@@ -169,13 +169,13 @@ class Session:
     def plane_from_points(points, name: str = "") -> Plane:
         pts = np.asarray(points, float)
         if pts.shape != (3, 3):
-            raise ValueError("Se necesitan 3 puntos")
+            raise ValueError(tr("session.se_necesitan_3_puntos"))
         return Plane.from_points(*pts, name=name)
 
     def set_symmetry(self, plane: Plane | None) -> None:
         """Plano de simetría (en el marco ``figure``). None = ninguno (se usa la figura tal cual)."""
         if plane is not None and abs(plane.normal[2]) > 0.05:
-            raise ValueError("El plano de simetría debe ser vertical (la normal no puede apuntar arriba/abajo)")
+            raise ValueError(tr("session.el_plano_de_simetria_debe_ser"))
         self.project.symmetry = plane
         self.outcome = None
         self._rebuild_frames()
@@ -201,9 +201,9 @@ class Session:
         if thickness is None:
             thickness = ARM_SLAB_MM if extrude == "outward" else 100.0
         if kind not in ("arm", "leg"):
-            raise ValueError("kind debe ser 'arm' o 'leg'")
+            raise ValueError(tr("session.kind_debe_ser_arm_o_leg"))
         if self.limb(name):
-            raise ValueError(f"Ya existe un miembro llamado {name!r}")
+            raise ValueError(tr("session.ya_existe_un_miembro_llamado_name", name=f"{name!r}"))
         check_limb_plane(plane)
         spec = LimbSpec(name, kind, plane, np.zeros((0, 3)), thickness, auto=auto, extrude=extrude)
         self.project.limbs.append(spec)
@@ -228,9 +228,9 @@ class Session:
             raise KeyError(name)
         mm = float(mm)
         if not np.isfinite(mm) or not (0.5 <= mm <= 200.0):
-            raise ValueError("el desplazamiento del corte tiene que estar entre 0,5 y 200 mm")
+            raise ValueError(tr("session.el_desplazamiento_del_corte_tiene_que"))
         if not plane_on_symmetry(spec.plane, spec.contact_axis):
-            raise ValueError(f"«{name}» no está sobre el plano de simetría: el desplazamiento no aplica")
+            raise ValueError(tr("session.name_no_esta_sobre_el_plano", name=name))
         spec.cut_offset = mm
         spec.pin_center = None          # la cara de contacto se movió
         self.outcome = None
@@ -258,13 +258,12 @@ class Session:
         pieza de catálogo elegida, para que las caras de unión coincidan. Devuelve el desplazamiento nuevo (mm)."""
         spec = self.limb(place)
         if spec is None:
-            raise ValueError(f"«{place}» no es un miembro del modelo")
+            raise ValueError(tr("session.place_no_es_un_miembro_del", place=place))
         if place not in self.project.parts:
-            raise ValueError(f"«{place}» usa la pieza del modelo: elegí una pieza de catálogo para alinear a su corte")
+            raise ValueError(tr("session.place_usa_la_pieza_del_modelo", place=place))
         x = self.line_cut_x(place)
         if x is None:
-            raise ValueError(f"el corte de la pieza de «{place}» no es lateral: no se reproduce con un desplazamiento "
-                             "(hay que alinear el plano a mano)")
+            raise ValueError(tr("session.el_corte_de_la_pieza_de", place=place))
         self.set_limb_offset(place, x)            # también valida que el plano esté sobre la simetría
         return x
 
@@ -291,7 +290,7 @@ class Session:
             raise KeyError(name)
         poly = np.asarray(polygon_world, float)
         if poly.ndim != 2 or poly.shape[1] != 3:
-            raise ValueError("El polígono debe ser Nx3")
+            raise ValueError(tr("session.el_poligono_debe_ser_nx3"))
         spec.polygon = poly
         self.outcome = None
 
@@ -332,7 +331,7 @@ class Session:
             raise KeyError(name)
         poly = np.asarray(polygon_world, float)
         if poly.ndim != 2 or poly.shape[1] != 3:
-            raise ValueError("El polígono debe ser Nx3")
+            raise ValueError(tr("session.el_poligono_debe_ser_nx3"))
         spec.cross = LimbCut(self.cross_plane(name), poly)
         if (spec.kind == "leg" and spec.extrude == "outward" and plane_is_lateral(spec.plane, spec.contact_axis)
                 and not plane_is_lateral(spec.cross.plane, spec.contact_axis)):
@@ -387,7 +386,7 @@ class Session:
         if spec is None:
             raise KeyError(name)
         if self.work is None:
-            raise ValueError("Abrí un STL")
+            raise ValueError(tr("common.abri_un_stl"))
         key = id(self.work)
         if getattr(self, "_slices_key", None) != key:
             self._slices, self._slices_key = autosil.scan(self.work), key
@@ -396,8 +395,7 @@ class Session:
         else:
             p2 = autosil.propose_leg(self.work, self._slices, crotch_z=crotch_z)
         if p2 is None:
-            raise ValueError("No se pudo proponer la silueta: no hay un tramo donde el miembro quede separado del "
-                             "tronco. Dibujala a mano.")
+            raise ValueError(tr("session.no_se_pudo_proponer_la_silueta"))
         return p2
 
     def propose_silhouette(self, name: str, crotch_z: float | None = None, cross: bool = False) -> np.ndarray:
@@ -458,11 +456,11 @@ class Session:
         if spec is None:
             raise KeyError(name)
         if self.work is None:
-            raise ValueError("Abrí un STL")
+            raise ValueError(tr("common.abri_un_stl"))
         if self.project.symmetry is None:
-            raise ValueError("Falta el plano de simetría")
+            raise ValueError(tr("common.falta_el_plano_de_simetria"))
         if not self.catalog_root:
-            raise ValueError("Abrí un catálogo para medir el corte contra sus piezas")
+            raise ValueError(tr("session.abri_un_catalogo_para_medir_el_3"))
         why = unsupported(spec)
         if why:
             raise ValueError(why)
@@ -487,13 +485,13 @@ class Session:
     def _joint_aid_blocked(self, lugar: str) -> str | None:
         """Por qué NO hay mira del plano del cuello («cuello») o de la cintura («cintura») (None = hay)."""
         if self.work is None:
-            return "Abrí un STL"
+            return tr("common.abri_un_stl")
         if not self.catalog_root:
-            return "Abrí un catálogo para medir el plano contra sus piezas"
+            return tr("session.abri_un_catalogo_para_medir_el")
         if lugar == "cuello" and self.project.head is None:
-            return "Primero definí el plano del cuello"
+            return tr("session.primero_defini_el_plano_del_cuello")
         if lugar == "cintura" and self.project.waist is None:
-            return "Primero definí el plano de la cintura"
+            return tr("session.primero_defini_el_plano_de_la")
         return None
 
     def joint_aid(self, lugar: str):
@@ -530,7 +528,7 @@ class Session:
         corte de un miembro, descarta el pasador elegido: era de la cara anterior)."""
         spec = self.project.head if lugar == "cuello" else self.project.waist
         if spec is None:
-            raise ValueError(f"Primero definí el plano {'del cuello' if lugar == 'cuello' else 'de la cintura'}")
+            raise ValueError(tr("session.primero_defini_el_plano_v", v=tr("controller.del_cuello") if lugar == "cuello" else tr("controller.de_la_cintura")))
         pl = neck_plane(spec) if lugar == "cuello" else waist_plane(spec)
         plane = Plane.from_normal(pl.origin + pl.normal * float(shift), pl.normal, pl.name)
         if lugar == "cuello":
@@ -546,7 +544,7 @@ class Session:
 
         spec = self.project.waist
         if spec is None or self.work is None:
-            raise ValueError("Primero definí el plano de la cintura")
+            raise ValueError(tr("session.primero_defini_el_plano_de_la"))
         key = (id(self.work), spec.plane.origin.tobytes(), spec.plane.normal.tobytes(), spec.auto)
         cache = getattr(self, "_waist_pin_cache", None)
         if cache is not None and cache[0] == key:
@@ -560,7 +558,7 @@ class Session:
         cara; `None` vuelve al automático. Con pasador elegido el puerto «cintura» que se cataloga va en él (`waist_port_center`)."""
         spec = self.project.waist
         if spec is None:
-            raise ValueError("Primero definí el plano de la cintura")
+            raise ValueError(tr("session.primero_defini_el_plano_de_la"))
         if point_world is None:
             center = None
         else:
@@ -568,7 +566,7 @@ class Session:
             c = prev.on_line(point_world)                       # en el mundo: sobre el plano de la cintura y con x = 0
             shaft = self.project.params.waist_pin.shaft_d
             if prev.fit(prev.project(c), shaft)[1] <= -shaft:
-                raise ValueError("el vástago no toca la cara de la cintura: el pasador quedaría suelto")
+                raise ValueError(tr("session.el_vastago_no_toca_la_cara"))
             center = tuple(float(x) for x in c)
         self.project.waist = dataclasses.replace(spec, pin_center=center)
         self.outcome = None
@@ -580,11 +578,11 @@ class Session:
 
         spec = self.limb(name)
         if spec is None:
-            return f"no hay un miembro «{name}»"
+            return tr("session.no_hay_un_miembro_name", name=name)
         if self.work is None:
-            return "Abrí un STL"
+            return tr("common.abri_un_stl")
         if not self.catalog_root:
-            return "Abrí un catálogo para medir el choque con sus piezas"
+            return tr("session.abri_un_catalogo_para_medir_el_2")
         why = unsupported(spec)
         if why:
             return why
@@ -616,7 +614,7 @@ class Session:
         cuts = {m.lugar: m for m in measure_cuts(trial, S.to_manifold(self.work), self._catalog(), exclude_figure=stl)}
         m = cuts.get(place)
         if m is None or m.error or m.port is None:
-            raise ValueError((m.error if m else None) or "no se pudo medir el corte en esa posición")
+            raise ValueError((m.error if m else None) or tr("session.no_se_pudo_medir_el_corte"))
         return seated_summary(m, off)
 
     def pin_preview(self, name: str) -> PinPreview:
@@ -630,11 +628,11 @@ class Session:
         if spec is None:
             raise KeyError(name)
         if self.work is None:
-            raise ValueError("Abrí un STL")
+            raise ValueError(tr("common.abri_un_stl"))
         if self.project.symmetry is None:
-            raise ValueError("Falta el plano de simetría")
+            raise ValueError(tr("common.falta_el_plano_de_simetria"))
         if len(spec.polygon) < 3:
-            raise ValueError(f"{name}: dibujá primero la silueta (mínimo 3 puntos)")
+            raise ValueError(tr("session.name_dibuja_primero_la_silueta_minimo", name=name))
         burr = self.project.params.burr
         key = (id(self.work), np.asarray(spec.polygon).tobytes(), spec.plane.origin.tobytes(),
                spec.plane.normal.tobytes(), spec.thickness,
@@ -652,9 +650,7 @@ class Session:
         shaft = self.pin_spec(name).shaft_d
         if prev.face.area < np.pi * (shaft / 2) ** 2:
             raise ValueError(
-                f"la cara de contacto encontrada es muy chica ({prev.face.area:.1f} mm², menos que el vástago de "
-                f"Ø{shaft:g}): no es la cara de corte. Apoyá el plano en la cara chata donde el miembro se separa del "
-                "torso (la extrusión es «hacia afuera» si el plano está de costado), o revisá la silueta")
+                tr("session.la_cara_de_contacto_encontrada_es", area=f"{prev.face.area:.1f}", shaft=f"{shaft:g}"))
         self._pin_cache = (key, prev)
         return prev
 
@@ -688,7 +684,7 @@ class Session:
             uv = prev.project(point_world)
             _inside, margin = prev.fit(uv, self.pin_spec(name).shaft_d)
             if margin <= -self.pin_spec(name).shaft_d:        # centro a más de un diámetro del borde: ni lo roza
-                raise ValueError("el vástago no toca la cara de contacto: el pasador quedaría suelto")
+                raise ValueError(tr("session.el_vastago_no_toca_la_cara_2"))
             spec.pin_center = tuple(float(x) for x in prev.plane.to_world(uv[None])[0])
         self.outcome = None
 
@@ -736,7 +732,7 @@ class Session:
                 pp = place_part(choice, hl.kind, face, p, p.ref_height)
                 for j in placed_joints(pp, lname):
                     if j.kind != JOINT_KIND_BY_LIMB.get(hl.kind):
-                        raise ValueError(f"«{lname}»: la articulación «{j.name}» de la pieza es «{j.kind}» y el miembro es «{hl.kind}»")
+                        raise ValueError(tr("session.lname_la_articulacion_name_de_la", lname=lname, name=j.name, kind=j.kind, kind2=hl.kind))
                     state["joints"][j.name] = j
                     state["placed"][lname] = pp
         except (AssemblyError, ValueError) as exc:
@@ -791,8 +787,7 @@ class Session:
 
     def _refuse_catalog_joint(self, name: str) -> None:
         if self.is_catalog_joint(name):
-            raise ValueError(f"la articulación «{name}» viene de la pieza de catálogo: su eje, plano y rango son los de la pieza "
-                             "(se cambian en el proyecto con el que se catalogó)")
+            raise ValueError(tr("session.la_articulacion_name_viene_de_la", name=name))
 
     @staticmethod
     def _tilt_axis(tilt_deg: float) -> tuple:
@@ -819,16 +814,16 @@ class Session:
             d = np.array([q[0] - p[0], 0.0, q[2] - p[2]])
             length = float(np.linalg.norm(d))
             if length < 2.0:
-                raise ValueError(f"la línea del {what} es demasiado corta vista de frente (menos de 2 mm)")
+                raise ValueError(tr("session.la_linea_del_what_es_demasiado", what=what))
             d /= length
             if d[2] > 0:
                 d = -d                                    # siempre de arriba hacia abajo
             if -d[2] < 0.5:
-                raise ValueError(f"la línea del {what} tiene que ir de arriba hacia abajo (a menos de 60° de la vertical)")
+                raise ValueError(tr("session.la_linea_del_what_tiene_que", what=what))
             return d
 
-        u = direction(*upper, "brazo / muslo")
-        v = direction(*lower, "antebrazo / pantorrilla")
+        u = direction(*upper, tr("session.brazo_muslo"))
+        v = direction(*lower, tr("session.antebrazo_pantorrilla"))
         w = u + v
         w /= np.linalg.norm(w)
         opening = lambda d: float(np.degrees(np.arctan2(d[0], -d[2])))
@@ -864,7 +859,7 @@ class Session:
         """Centro del eje: `h` mm sobre el plano (a lo largo de la normal `n`), subiendo desde `base` por `lift_dir`."""
         lift = np.array([0.0, 0.0, 1.0]) if lift_dir is None else np.asarray(lift_dir, float) / np.linalg.norm(lift_dir)
         if lift @ n < 0.5:
-            raise ValueError("la dirección del miembro es casi paralela al plano de la articulación")
+            raise ValueError(tr("session.la_direccion_del_miembro_es_casi"))
         return np.asarray(base, float) + lift * (h / float(lift @ n))
 
     def retarget_joint_lines(self, name: str, upper, lower) -> JointSpec:
@@ -880,7 +875,7 @@ class Session:
         if n[2] < 0:
             n = -n
         if abs(n[2]) < 0.5:
-            raise ValueError("el plano de la articulación tiene que ser casi horizontal (corta el miembro a lo largo)")
+            raise ValueError(tr("session.el_plano_de_la_articulacion_tiene"))
         h = min_shoulder(self.project.params.hinge_pin, self.project.params)
         base = elbow - n * float((elbow - plane.origin) @ n)
         j.plane = plane
@@ -905,14 +900,14 @@ class Session:
         if spec is None:
             raise KeyError(limb)
         if self.joint_of_limb(limb) is not None:
-            raise ValueError(f"«{limb}» ya tiene una articulación: quitala primero")
+            raise ValueError(tr("session.limb_ya_tiene_una_articulacion_quitala", limb=limb))
         kind = JOINT_KIND_BY_LIMB[spec.kind]
         n = np.asarray(plane.normal, float)
         n = n / np.linalg.norm(n)
         if n[2] < 0:
             n = -n                                            # lado proximal = arriba (figura de pie, Z arriba)
         if abs(n[2]) < 0.5:
-            raise ValueError("el plano de la articulación tiene que ser casi horizontal (corta el miembro a lo largo)")
+            raise ValueError(tr("session.el_plano_de_la_articulacion_tiene"))
         p = self.project.params
         h = min_shoulder(p.hinge_pin, p)
         base = np.asarray(plane.origin if anchor is None else anchor, float)
@@ -946,7 +941,7 @@ class Session:
             n = -n
         h = float((c - np.asarray(j.plane.origin, float)) @ n)
         if h < 0.5:
-            raise ValueError(f"el eje tiene que quedar al menos 0,5 mm arriba del plano de articulación (queda a {h:.2f} mm)")
+            raise ValueError(tr("session.el_eje_tiene_que_quedar_al", h=f"{h:.2f}"))
         j.axis_center = tuple(float(x) for x in c)
         if tilt_deg is not None:
             j.axis_dir = self._tilt_axis(tilt_deg)
@@ -964,7 +959,7 @@ class Session:
         else:
             lo, hi = float(lo), float(hi)
             if not (-45.0 <= lo < hi <= 150.0):
-                raise ValueError("el rango tiene que cumplir −45° ≤ mínimo < máximo ≤ 150°")
+                raise ValueError(tr("session.el_rango_tiene_que_cumplir_45"))
             j.flex_range = (lo, hi)
         self.outcome = None
         return j
@@ -990,7 +985,7 @@ class Session:
             raise KeyError(name)
         h = float(h)
         if h < 0.5:
-            raise ValueError(f"el eje tiene que quedar al menos 0,5 mm arriba del plano de articulación (pedido: {h:.2f} mm)")
+            raise ValueError(tr("session.el_eje_tiene_que_quedar_al_2", h=f"{h:.2f}"))
         n = self._joint_normal(j)
         c = np.asarray(j.axis_center, float)
         c[2] += (h - self.joint_height(name)) / float(n[2])      # en vertical: x e y no cambian, la altura sobre el plano sí
@@ -1019,13 +1014,13 @@ class Session:
             raise KeyError(name)
         t = float(tilt_deg)
         if abs(t) > 60.0:
-            raise ValueError("la inclinación de costado tiene que estar entre −60° y 60°")
+            raise ValueError(tr("session.la_inclinacion_de_costado_tiene_que"))
         n = self._joint_normal(j)
         h = self.joint_height(name)
         new = np.array([n[0] / n[2], -np.tan(np.radians(t)), 1.0])     # misma pendiente de frente, nueva de costado
         new = new / np.linalg.norm(new)
         if new[2] < 0.5:
-            raise ValueError("con esa inclinación el plano deja de cortar el miembro a lo largo (tiene que ser casi horizontal)")
+            raise ValueError(tr("session.con_esa_inclinacion_el_plano_deja"))
         c = np.asarray(j.axis_center, float)
         j.plane = Plane.from_normal(c - new * h, new, j.plane.name)
         self.outcome = None
@@ -1078,10 +1073,9 @@ class Session:
         if spec is None:
             raise KeyError(j.limb)
         if needed(self.project):
-            raise ValueError("la figura tiene piezas escaladas: la vista previa de la articulación todavía no las contempla")
+            raise ValueError(tr("session.la_figura_tiene_piezas_escaladas_la"))
         if self.catalog_only():
-            raise ValueError("la figura se arma solo con piezas de catálogo y esta articulación no es de ninguna de ellas: "
-                             "las del proyecto no entran en esa figura")
+            raise ValueError(tr("session.la_figura_se_arma_solo_con"))
         choice = (self._resolved_parts() or {}).get(j.limb)        # pieza de catálogo en ese lugar (None = miembro del modelo)
         part_sig = "" if choice is None else json_sig({"ref": self.project.parts[j.limb].to_dict(), "root": self.catalog_root})
         work = self.work
@@ -1119,9 +1113,9 @@ class Session:
         if spec is None:
             raise KeyError(name)
         if needed(self.project):
-            raise ValueError("la figura tiene piezas escaladas: la vista previa de la cadera todavía no las contempla")
+            raise ValueError(tr("session.la_figura_tiene_piezas_escaladas_la_2"))
         if self.catalog_only():
-            raise ValueError("la figura se arma solo con piezas de catálogo: la cadera del modelo no entra en esa figura")
+            raise ValueError(tr("session.la_figura_se_arma_solo_con_2"))
         choice = (self._resolved_parts() or {}).get(lname)
         part_sig = "" if choice is None else json_sig({"ref": self.project.parts[lname].to_dict(), "root": self.catalog_root})
         work = self.work
@@ -1193,12 +1187,12 @@ class Session:
         coincidencia de base, alto…). Si falla no cambia nada."""
         head = self.project.head
         if head is None:
-            raise ValueError("Primero definí el plano del cuello (la cabeza que se reemplaza)")
+            raise ValueError(tr("session.primero_defini_el_plano_del_cuello_2"))
         if self.work is None:
-            raise ValueError("Abrí un STL")
+            raise ValueError(tr("common.abri_un_stl"))
         path = os.path.abspath(path)
         if not os.path.isfile(path):
-            raise ValueError(f"No existe el archivo «{path}»")
+            raise ValueError(tr("session.no_existe_el_archivo_path", path=path))
         spec = dataclasses.replace(head, replacement_path=path, replacement_yaw=float(yaw), replacement_up=up,
                                    replacement_rx=float(rx), replacement_ry=float(ry), replacement_scale=float(scale),
                                    replacement_cut_points=None if cut_points is None else
@@ -1219,10 +1213,10 @@ class Session:
         head = self.project.head
         prev = self.head_replacement_preview()
         if head is None or prev is None:
-            raise ValueError("Primero cargá una cabeza de reemplazo (STL)")
+            raise ValueError(tr("session.primero_carga_una_cabeza_de_reemplazo"))
         pts = np.asarray(world_points, float)
         if pts.shape != (3, 3):
-            raise ValueError("Se necesitan 3 puntos")
+            raise ValueError(tr("session.se_necesitan_3_puntos"))
         inv = np.linalg.inv(np.asarray(prev[1]["raw_a_mundo"], float))     # mundo -> coordenadas del STL
         raw = (inv[:3, :3] @ pts.T).T + inv[:3, 3]
         return self._apply_head_spec(dataclasses.replace(head, replacement_cut_points=tuple(map(tuple, raw))))
@@ -1238,7 +1232,7 @@ class Session:
         """Cara del cuello y centro automático del pasador de la cabeza (en caché hasta que cambie el plano)."""
         head = self.project.head
         if head is None or self.work is None:
-            raise ValueError("Primero definí el plano del cuello")
+            raise ValueError(tr("session.primero_defini_el_plano_del_cuello"))
         key = (self._head_fit_key(head), head.auto)
         cache = getattr(self, "_head_pin_cache", None)
         if cache is not None and cache[0] == key:
@@ -1252,7 +1246,7 @@ class Session:
         Falla con ValueError si el vástago no toca la cara (quedaría suelto); `None` vuelve al automático."""
         head = self.project.head
         if head is None:
-            raise ValueError("Primero definí el plano del cuello")
+            raise ValueError(tr("session.primero_defini_el_plano_del_cuello"))
         if point_world is None:
             center = None
         else:
@@ -1260,7 +1254,7 @@ class Session:
             c = prev.project(point_world)
             shaft = self.project.params.neck_pin.shaft_d
             if prev.fit(c, shaft)[1] <= -shaft:
-                raise ValueError("el vástago no toca la cara del cuello: el pasador quedaría suelto")
+                raise ValueError(tr("session.el_vastago_no_toca_la_cara_3"))
             center = tuple(float(x) for x in c)
         self.project.head = dataclasses.replace(head, pin_center=center)
         self.outcome = None
@@ -1278,7 +1272,7 @@ class Session:
         from ..hand import extract_standard_hand
 
         if self.work is None:
-            raise ValueError("Primero abrí una figura.")
+            raise ValueError(tr("session.primero_abri_una_figura"))
         return extract_standard_hand(S.to_manifold(self.work), points, invert=invert)
 
     def save_hand(self, path: str, hand_local, split) -> dict:
@@ -1301,12 +1295,12 @@ class Session:
         from ..hand import DEFAULT_OVERLAP_MM, HandSpec
 
         if self.work is None:
-            raise ValueError("Primero abrí una figura.")
+            raise ValueError(tr("session.primero_abri_una_figura"))
         if self.project.symmetry is None:
-            raise ValueError("Primero definí el plano de simetría: la mano se pega en un brazo y el otro sale por espejo.")
+            raise ValueError(tr("session.primero_defini_el_plano_de_simetria"))
         path = os.path.abspath(path)
         if not os.path.isfile(path):
-            raise ValueError(f"No existe el archivo «{path}»")
+            raise ValueError(tr("session.no_existe_el_archivo_path", path=path))
         old = self.project.hand
         spec = HandSpec(path=path, points=tuple(tuple(float(x) for x in q) for q in points), yaw=float(yaw),
                         invert=bool(invert), overlap=old.overlap if old else DEFAULT_OVERLAP_MM,
@@ -1318,7 +1312,7 @@ class Session:
         reemplazo ya elegida."""
         cur = self.project.hand
         if cur is None:
-            raise ValueError("Primero elegí una mano de reemplazo (STL).")
+            raise ValueError(tr("common.primero_elegi_una_mano_de_reemplazo"))
         return self._apply_hand_spec(dataclasses.replace(
             cur, yaw=cur.yaw if yaw is None else float(yaw), invert=cur.invert if invert is None else bool(invert),
             join=cur.join if join is None else join))
@@ -1420,13 +1414,13 @@ class Session:
     def floor_cut_range(self) -> tuple[float, float]:
         """Alturas válidas (mm sobre el piso) del plano paralelo al piso: de 0,5 mm del piso a 0,5 mm de la coronilla."""
         if self.work is None:
-            raise ValueError("Abrí un STL")
+            raise ValueError(tr("common.abri_un_stl"))
         return 0.5, float(self.work.bounds[1][2]) - 0.5
 
     def floor_cut_height(self, place: str) -> float | None:
         """Altura (mm sobre el piso) del corte de `place` («head» / «waist») si es un plano paralelo al piso; None si no hay\n        plano o es uno de 3 puntos inclinado."""
         if place not in self.FLOOR_CUT_PLACES:
-            raise ValueError(f"lugar inválido: {place!r}")
+            raise ValueError(tr("session.lugar_invalido_place", place=f"{place!r}"))
         spec = self.project.head if place == "head" else self.project.waist
         return None if spec is None else floor_height(spec.plane)
 
@@ -1437,11 +1431,11 @@ class Session:
     def set_floor_cut(self, place: str, height_mm: float) -> None:
         """Corta la cabeza (cuello) o la cintura con un plano paralelo al piso a `height_mm` mm sobre él. Si ya había uno,\n        lo traslada en paralelo (el resto de la configuración de la cabeza / cintura se conserva; el pasador vuelve a la\n        posición automática porque la cara del corte se movió)."""
         if place not in self.FLOOR_CUT_PLACES:
-            raise ValueError(f"lugar inválido: {place!r}")
+            raise ValueError(tr("session.lugar_invalido_place", place=f"{place!r}"))
         h = float(height_mm)
         lo, hi = self.floor_cut_range()
         if not np.isfinite(h) or not (lo <= h <= hi):
-            raise ValueError(f"la altura del corte tiene que estar entre {lo:.1f} y {hi:.1f} mm sobre el piso")
+            raise ValueError(tr("session.la_altura_del_corte_tiene_que_estar", lo=f"{lo:.1f}", hi=f"{hi:.1f}"))
         if place == "head":
             self.set_head(floor_plane(h, HEAD_NAME))
         else:
@@ -1508,29 +1502,29 @@ class Session:
         """Motivos por los que todavía no se puede generar (vacío = listo)."""
         out = []
         if not self.loaded:
-            out.append("Abrí un STL")
+            out.append(tr("common.abri_un_stl"))
             return out
         if self.catalog_only():
             return self.catalog_only_problems()          # la figura sale del catálogo: no hace falta el modelo
         if self.project.symmetry is None:
-            out.append("Falta el plano de simetría")
+            out.append(tr("common.falta_el_plano_de_simetria"))
         if not self.project.limbs and self.project.head is None and self.project.waist is None:
-            out.append("Definí al menos un miembro (brazo o pierna), la cabeza o la cintura")
+            out.append(tr("session.defini_al_menos_un_miembro_brazo"))
         for l in self.project.limbs:
             if len(l.polygon) < 3:
-                out.append(f"{l.name}: dibujá la silueta (mínimo 3 puntos)")
+                out.append(tr("session.name_dibuja_la_silueta_minimo_3", name=l.name))
         names = {l.name for l in self.project.limbs}
         for j in self.project.joints:
             if j.limb not in names:
-                out.append(f"{j.name}: su miembro «{j.limb}» ya no existe")
+                out.append(tr("session.name_su_miembro_limb_ya_no", name=j.name, limb=j.limb))
         for place in self.project.parts:
             if place not in self.part_places():
-                out.append(f"la pieza de catálogo de «{place}» apunta a un lugar que el modelo ya no tiene: quitala")
+                out.append(tr("session.la_pieza_de_catalogo_de_place", place=place))
         if "pelvis" in self.project.parts and self.project.waist is None:
-            out.append("la pelvis de catálogo necesita el plano de cintura del modelo (Planos → Cintura): define dónde se corta")
+            out.append(tr("session.la_pelvis_de_catalogo_necesita_el"))
         hand = self.project.hand
         if hand is not None and not os.path.isfile(hand.path):
-            out.append(f"la mano estándar «{hand.path}» ya no existe: elegí otra o quitá la mano de reemplazo")
+            out.append(tr("session.la_mano_estandar_path_ya_no", path=hand.path))
         return out
 
     # ------------------------------------------------------------- catálogo de piezas (plan de piezas intercambiables, Fase 8)
@@ -1543,7 +1537,7 @@ class Session:
         try:
             cat = Catalog.open(root)
         except (CatalogError, OSError) as exc:
-            raise ValueError(f"No se pudo abrir el catálogo «{root}»: {exc}") from exc
+            raise ValueError(tr("session.no_se_pudo_abrir_el_catalogo", root=root, exc=exc)) from exc
         self.catalog_root = cat.root
         self.outcome = None
         return cat
@@ -1558,7 +1552,7 @@ class Session:
         from ..guide import measure_cuts
 
         if self.work is None:
-            raise ValueError("Primero abrí una figura.")
+            raise ValueError(tr("session.primero_abri_una_figura"))
         cat = self._catalog() if self.catalog_root else None
         name = os.path.basename(self.stl_path or "") or None
         return measure_cuts(self.project, S.to_manifold(self.work), cat, exclude_figure=name)
@@ -1569,12 +1563,12 @@ class Session:
         from ..guide import contract_of, fit_cut
 
         if self.work is None:
-            raise ValueError("Primero abrí una figura.")
+            raise ValueError(tr("session.primero_abri_una_figura"))
         if not self.catalog_root:
-            raise ValueError("Abrí el catálogo de la línea: el contrato de interfaz vive ahí.")
+            raise ValueError(tr("session.abri_el_catalogo_de_la_linea"))
         contract = contract_of(self._catalog())
         if contract is None:
-            raise ValueError("La línea no tiene contrato de interfaz (`afm catalogo contrato … --calibrar --guardar`).")
+            raise ValueError(tr("session.la_linea_no_tiene_contrato_de"))
         return fit_cut(self.project, S.to_manifold(self.work), contract)
 
     def apply_cut_fit(self, results) -> int:
@@ -1596,9 +1590,9 @@ class Session:
         from ..ajuste import ajustar
 
         if self.work is None:
-            raise ValueError("Primero abrí una figura.")
+            raise ValueError(tr("session.primero_abri_una_figura"))
         if not self.catalog_root:
-            raise ValueError("Abrí el catálogo de la línea: la pelvis y la mano del patrón viven ahí.")
+            raise ValueError(tr("session.abri_el_catalogo_de_la_linea_2"))
         return ajustar(self.project, S.to_manifold(self.work), self._catalog(), pelvis, mano)
 
     def apply_waist_wrist_fit(self, results, escalar_pelvis: bool = False) -> int:
@@ -1621,29 +1615,29 @@ class Session:
 
         root = os.path.abspath(os.path.expanduser(root or ""))
         if not root or root == os.path.sep:
-            raise ValueError("Elegí una carpeta para el catálogo.")
+            raise ValueError(tr("session.elegi_una_carpeta_para_el_catalogo"))
         if os.path.isdir(root) and os.listdir(root) and not os.path.isfile(os.path.join(root, "linea.json")):
-            raise ValueError(f"La carpeta «{root}» no está vacía: elegí una nueva o vacía.")
+            raise ValueError(tr("session.la_carpeta_root_no_esta_vacia", root=root))
         name = (name or os.path.basename(root)).strip()
         height = float(height_mm if height_mm is not None else self.project.params.ref_height)
         nozzle = self.project.params.nozzle
         try:
             cat = Catalog.create(root, name, height, nozzle, default_for_nozzle(nozzle))
         except (CatalogError, OSError) as exc:
-            raise ValueError(f"No se pudo crear el catálogo «{root}»: {exc}") from exc
+            raise ValueError(tr("session.no_se_pudo_crear_el_catalogo", root=root, exc=exc)) from exc
         self.catalog_root = cat.root
         self.outcome = None
         return cat
 
     def _catalog(self):
         if not self.catalog_root:
-            raise ValueError("Primero abrí un catálogo de piezas.")
+            raise ValueError(tr("common.primero_abri_un_catalogo_de_piezas"))
         from ..catalog import Catalog, CatalogError
 
         try:
             return Catalog.open(self.catalog_root)
         except (CatalogError, OSError) as exc:
-            raise ValueError(f"No se pudo abrir el catálogo «{self.catalog_root}»: {exc}") from exc
+            raise ValueError(tr("session.no_se_pudo_abrir_el_catalogo_2", catalog_root=self.catalog_root, exc=exc)) from exc
 
     def catalog_warnings(self) -> list[str]:
         """Diferencias entre la línea del catálogo y esta figura que conviene mirar antes de elegir piezas."""
@@ -1652,10 +1646,9 @@ class Session:
         cat, out = self._catalog(), []
         p, q = self.project.params, cat.params
         if abs(p.ref_height - float(cat.line.get("altura_mm", p.ref_height))) > 0.5:
-            out.append(f"la figura mide {p.ref_height:g} mm y la línea «{cat.name}» {cat.line.get('altura_mm')} mm")
+            out.append(tr("session.la_figura_mide_ref_height_mm", ref_height=f"{p.ref_height:g}", name=cat.name, get=cat.line.get('altura_mm')))
         if abs(p.clearance - q.clearance) > 1e-9:
-            out.append(f"la holgura del proyecto ({p.clearance:g} mm) difiere de la de la línea ({q.clearance:g} mm): "
-                       "al armar con piezas manda la del proyecto en «Generar» y la de la línea en «afm armar»")
+            out.append(tr("session.la_holgura_del_proyecto_clearance_mm", clearance=f"{p.clearance:g}", clearance2=f"{q.clearance:g}"))
         return out
 
     def part_places(self) -> list[str]:
@@ -1678,7 +1671,7 @@ class Session:
                 return (LIMB_PART[l.kind][0],)
         if place in ("cabeza", "mano"):
             return (place,)
-        raise ValueError(f"«{place}» no es un lugar del modelo (hay {', '.join(self.part_places())})")
+        raise ValueError(tr("session.place_no_es_un_lugar_del", place=place, join=', '.join(self.part_places())))
 
     def _place_type(self, place: str) -> str:
         return self._place_types(place)[0]
@@ -1707,9 +1700,9 @@ class Session:
         from ..assembly import AssemblyError
         from ..customize import normalize_scale
         if place not in self.scale_places():
-            raise ValueError(f"«{place}»: definí su corte antes de escalar la pieza")
+            raise ValueError(tr("session.place_defini_su_corte_antes_de", place=place))
         if self.catalog_only():
-            raise ValueError("Con un torso de catálogo la figura sale entera del catálogo: quitalo para escalar piezas del modelo")
+            raise ValueError(tr("session.con_un_torso_de_catalogo_la"))
         try:
             k = normalize_scale(factor)
         except AssemblyError as exc:
@@ -1725,16 +1718,16 @@ class Session:
         from .. import proportions as PR
 
         if self.work is None:
-            raise ValueError("Primero abrí una figura.")
+            raise ValueError(tr("session.primero_abri_una_figura"))
         if self.catalog_only():
-            raise ValueError("Con un torso de catálogo la figura sale entera del catálogo: no hay piezas del modelo para comparar")
+            raise ValueError(tr("session.con_un_torso_de_catalogo_la_2"))
         ref = PR.reference_meshes(self._catalog(), figura)
         items = self.part_preview_items() if self.project.part_scales else {}
         if not items:
             items = self.divide_model() if not self.project.part_scales else self.preview_parts(progress)
         model = PR.model_meshes(items, self.project)
         if not model:
-            raise ValueError("No se pudieron armar las piezas del modelo (revisá planos y siluetas).")
+            raise ValueError(tr("session.no_se_pudieron_armar_las_piezas"))
         kind_place = {"arm": "brazo", "leg": "pierna"}
         scales = {kind_place.get(self._limb_kind(p), p): self.part_scale(p) for p in self.scale_places()}
         model, ref, note = PR.harmonize(model, ref)
@@ -1769,7 +1762,7 @@ class Session:
         if not self.catalog_only():
             return out
         if not self.catalog_root:
-            out.append("el torso de catálogo necesita el catálogo abierto")
+            out.append(tr("session.el_torso_de_catalogo_necesita_el"))
             return out
         cat = self._catalog()
         tipo = {}
@@ -1782,18 +1775,17 @@ class Session:
                     out.append(f"«{place}»: {exc}")
         t, pel = tipo.get("torso"), tipo.get("pelvis")
         if t == "torso_sup" and "pelvis" not in parts:
-            out.append("el torso elegido es solo la parte de arriba (torso_sup): elegí también una «pelvis»")
+            out.append(tr("session.el_torso_elegido_es_solo_la"))
         elif t == "torso" and "pelvis" in parts:
-            out.append("el torso elegido es entero: con «pelvis» hace falta un torso de arriba (torso_sup), o quitá la pelvis")
+            out.append(tr("session.el_torso_elegido_es_entero_con"))
         if "pelvis" in parts and pel not in (None, "pelvis"):
-            out.append(f"«pelvis» pide una pieza «pelvis» y se eligió una «{pel}»")
+            out.append(tr("session.pelvis_pide_una_pieza_pelvis_y", pel=pel))
         seen: dict[str, str] = {}
         for l in self.project.limbs:
             if l.name in parts:
                 host = {"arm": "brazo", "leg": "pierna"}[l.kind]
                 if host in seen:
-                    out.append(f"«{seen[host]}» y «{l.name}» son los dos {host}s de catálogo: con torso de catálogo se pone un "
-                               f"{host} y se espeja; dejá la pieza del modelo en uno")
+                    out.append(tr("session.seen_y_name_son_los_dos", seen=seen[host], name=l.name, host=host, host2=host))
                 seen[host] = l.name
         return out
 
@@ -1840,7 +1832,7 @@ class Session:
         except CatalogError as exc:
             raise ValueError(str(exc)) from exc
         if meta.tipo not in tipos:
-            raise ValueError(f"«{meta.ref}» es una pieza «{meta.tipo}» y «{place}» pide «{' o '.join(tipos)}»")
+            raise ValueError(tr("common.ref_es_una_pieza_tipo_y", ref=meta.ref, tipo=meta.tipo, place=place, join=' o '.join(tipos)))
         self.project.parts[place] = PartRef(id=meta.id, version=meta.version, linea=cat.name)
         self.outcome = None
         return self.project.parts[place]
@@ -1908,7 +1900,7 @@ class Session:
         from ..preflight import preview_parts as _preview
 
         if self.work is None:
-            raise ValueError("Primero abrí una figura.")
+            raise ValueError(tr("session.primero_abri_una_figura"))
         # La firma es la del estado con el que arranca la revisión: la revisión corre en un hilo y, si mientras tanto se
         # cambia algo (la cabeza, una pieza, un parámetro), el resultado queda viejo y no se dibuja como si fuera vigente.
         sig = self._preview_signature()
@@ -1934,7 +1926,7 @@ class Session:
             self._part_preview = (sig, items)
             return items
         if self.project.symmetry is None:
-            raise ValueError("Falta el plano de simetría")
+            raise ValueError(tr("common.falta_el_plano_de_simetria"))
         parts = self._resolved_parts()
         items = _preview(self.project, parts, S.to_manifold(self.work), progress)
         self._part_preview = (sig, items)
@@ -1947,14 +1939,14 @@ class Session:
             raise ValueError(keep)
         if keep == "model":
             if not self.clear_part(place):
-                raise ValueError(f"«{place}» ya usaba la pieza del modelo")
-            return f"«{place}» vuelve a usar la pieza del modelo (queda la articulación del modelo)."
+                raise ValueError(tr("session.place_ya_usaba_la_pieza_del", place=place))
+            return tr("session.place_vuelve_a_usar_la_pieza", place=place)
         js = [j for j in self.project.joints if j.limb == place]
         if not js:
-            raise ValueError(f"«{place}» no tiene una articulación propia del modelo que quitar")
+            raise ValueError(tr("session.place_no_tiene_una_articulacion_propia", place=place))
         for j in js:
             self.remove_joint(j.name)
-        return f"Se quitó «{', '.join(j.name for j in js)}» del modelo: «{place}» usa la articulación de la pieza."
+        return tr("session.se_quito_join_del_modelo_place", join=', '.join(j.name for j in js), place=place)
 
     def line_height(self) -> float | None:
         """Altura de figura (mm) de la línea del catálogo abierto, o None."""
@@ -1971,11 +1963,11 @@ class Session:
         from ..extract import ExtractError, extract_all
 
         if self.work is None:
-            raise ValueError("Primero abrí una figura.")
+            raise ValueError(tr("session.primero_abri_una_figura"))
         only_head = bool(places) and set(places) <= {"cabeza"}
         if only_head:                       # la cabeza solo necesita el plano del cuello: el resto de la figura puede estar sin terminar
             if self.project.head is None:
-                raise ValueError("Primero definí el plano del cuello (la cabeza que se cataloga).")
+                raise ValueError(tr("session.primero_defini_el_plano_del_cuello_3"))
         else:
             probs = self.problems()
             if probs:
@@ -1996,7 +1988,7 @@ class Session:
         except ExtractError as exc:
             raise ValueError(str(exc)) from exc
         if not res.pieces:
-            raise ValueError("No se extrajo ninguna pieza.")
+            raise ValueError(tr("session.no_se_extrajo_ninguna_pieza"))
         if self.project.part_scales:
             from ..assembly import PartChoice
             from ..customize import scale_choice
@@ -2009,8 +2001,7 @@ class Session:
                 piece.meta, piece.mesh = adjusted.meta, adjusted.mesh
         dup = [e.meta.id for e in res.pieces if cat.versions(e.meta.id)]
         if dup and not new_version:         # antes de guardar nada: no dejar el catálogo a medio llenar
-            raise ValueError(f"ya están en el catálogo: {', '.join(dup)}. Las piezas son inmutables: tildá «guardar como versión "
-                             "nueva» o elegí solo los lugares que faltan.")
+            raise ValueError(tr("session.ya_estan_en_el_catalogo_join", join=', '.join(dup)))
         metas, avisos = [], list(res.warnings)
         for e in res.pieces:
             e.meta.etiquetas = list(labels)
@@ -2041,11 +2032,11 @@ class Session:
         kinds = {l.kind for l in self.project.limbs}
         head = self.project.head
         rep = os.path.basename(head.replacement_path) if head is not None and head.replacement_path else None
-        avail = {"cabeza": (head is not None, f"cabeza de reemplazo «{rep}»" if rep else
-                            ("" if head is not None else "falta el plano del cuello")),
+        avail = {"cabeza": (head is not None, tr("session.cabeza_de_reemplazo_rep", rep=rep) if rep else
+                            ("" if head is not None else tr("session.falta_el_plano_del_cuello"))),
                  "torso": (True, ""),
-                 "brazo": ("arm" in kinds, "" if "arm" in kinds else "el proyecto no define un brazo"),
-                 "pierna": ("leg" in kinds, "" if "leg" in kinds else "el proyecto no define una pierna")}
+                 "brazo": ("arm" in kinds, "" if "arm" in kinds else tr("session.el_proyecto_no_define_un_brazo")),
+                 "pierna": ("leg" in kinds, "" if "leg" in kinds else tr("session.el_proyecto_no_define_una_pierna"))}
         rows = [{"lugar": lugar, "disponible": avail[lugar][0], "nota": avail[lugar][1],
                  "existentes": sorted(m.ref for m in have if place_of.get(m.tipo) == lugar)} for lugar in self.CATALOG_ADD_PLACES]
         return {"prefijo": prefix, "lugares": rows, "cabeza_reemplazo": rep}
@@ -2070,7 +2061,7 @@ class Session:
         from ..proportions import reference_meshes
 
         if not self.catalog_root:
-            raise ValueError("no hay un catálogo abierto")
+            raise ValueError(tr("session.no_hay_un_catalogo_abierto"))
         return reference_meshes(self._catalog(), figura)
 
     def catalog_pieces(self) -> list:
@@ -2132,8 +2123,8 @@ class Session:
         """Dónde se usa `ref` (texto para mostrar): recetas del catálogo y lugares de la figura abierta. No mira otros
         `.proyecto` del disco (para eso `afm catalogo usos --buscar`)."""
         cat = self._catalog()
-        out = [f"receta «{os.path.basename(u['archivo'])}» (lugar «{u['lugar']}»)" for u in cat.usages(ref)]
-        out += [f"la figura abierta (lugar «{place}»)" for place in self._parts_using(cat, ref)]
+        out = [tr("session.receta_basename_lugar_lugar", basename=os.path.basename(u['archivo']), lugar=u['lugar']) for u in cat.usages(ref)]
+        out += [tr("session.la_figura_abierta_lugar_place", place=place) for place in self._parts_using(cat, ref)]
         return out
 
     def catalog_delete(self, refs) -> dict:
@@ -2210,14 +2201,14 @@ class Session:
         if task == "export":
             if self.outcome is None:
                 return None
-            st = [PR.Stage("Aplanando la base", 4)] if flat else []
+            st = [PR.Stage(tr("session.aplanando_la_base"), 4)] if flat else []
             cap = p.export_max_tris
             if cap and cap > 0 and any(m.num_tri() > cap for m in self.outcome.result.pieces.values()):
-                st.append(PR.Stage("Reduciendo triángulos de las piezas", 4))      # `pipeline.export` lo anuncia solo si alguna supera el tope
-            st += [PR.Stage("Calculando la orientación de impresión", 5)] if orient else []
-            st += [PR.Stage(f"Escribiendo «{n}»", 2) for n in self.outcome.result.pieces]
-            return st + [PR.Stage("Escribiendo la figura ensamblada", 3), PR.Stage("Escribiendo la lista de piezas", 1),
-                         PR.Stage("Guardando el informe y el proyecto", 1)]
+                st.append(PR.Stage(tr("session.reduciendo_triangulos_de_las_piezas"), 4))      # `pipeline.export` lo anuncia solo si alguna supera el tope
+            st += [PR.Stage(tr("session.calculando_la_orientacion_de_impresion"), 5)] if orient else []
+            st += [PR.Stage(tr("session.escribiendo_n", n=n), 2) for n in self.outcome.result.pieces]
+            return st + [PR.Stage(tr("session.escribiendo_la_figura_ensamblada"), 3), PR.Stage(tr("session.escribiendo_la_lista_de_piezas"), 1),
+                         PR.Stage(tr("session.guardando_el_informe_y_el_proyecto_2"), 1)]
         if task == "preview":
             from ..customize import needed
 
@@ -2243,7 +2234,7 @@ class Session:
         if needed(self.project):
             res, limbs = build_model(S.to_manifold(self.work), self.project, self._resolved_parts(), progress)
             if progress:
-                progress("Validando la figura…")
+                progress(tr("session.validando_la_figura"))
             val = P.validate(res, self.project.params, limbs, joints=res.joint_specs)
             self.outcome = BuildOutcome(res, val)
             return self.outcome
@@ -2255,7 +2246,7 @@ class Session:
                       progress=progress, trims=self.project.trims, head=self.project.head,
                       joints=self.project.joints, waist=self.project.waist, hand=self.project.hand, parts=parts)
         if progress:
-            progress("Validando la figura…")
+            progress(tr("session.validando_la_figura"))
         val = P.validate(res, self.project.params, self.project.limbs, joints=self.project.joints)
         self.outcome = BuildOutcome(res, val)
         return self.outcome
@@ -2267,7 +2258,7 @@ class Session:
         p = self.project.params
         try:
             if progress:
-                progress("Armando el cuerpo base…")
+                progress(tr("session.armando_el_cuerpo_base"))
             host = synthesize_host(self._catalog_only_choices(), p)
             hand = self.project.hand if (self.project.hand is not None and not self.project.hand.path) else None   # mano de catálogo: giro y unión
             res = P.build(host.body, host.limbs, p, None, True, progress, None, host.head, None, host.waist, hand,
@@ -2275,7 +2266,7 @@ class Session:
         except AssemblyError as exc:
             raise ValueError(str(exc)) from exc
         if progress:
-            progress("Validando la figura…")
+            progress(tr("session.validando_la_figura"))
         val = P.validate(res, p, host.limbs, joints=res.joint_specs)
         self.outcome = BuildOutcome(res, val)
         return self.outcome
@@ -2283,7 +2274,7 @@ class Session:
     def export(self, outdir: str, name: str | None = None, orient: bool = False, max_angle: float = 45.0,
                flat: bool = False, progress=None) -> dict:
         if self.outcome is None:
-            raise ValueError("Primero generá la figura")
+            raise ValueError(tr("session.primero_genera_la_figura"))
         name = name or (os.path.splitext(os.path.basename(self.stl_path or "figura"))[0])
         os.makedirs(outdir, exist_ok=True)
         from ..accessories import finish_export, load_project_items
@@ -2296,7 +2287,7 @@ class Session:
         if acc_info:
             files["accesorios"] = [a["archivo"] for a in acc_info]
         if progress:
-            progress("Guardando el informe y el proyecto…")
+            progress(tr("session.guardando_el_informe_y_el_proyecto"))
         info = {"validacion": self.outcome.validation, "construccion": self.outcome.result.report, "archivos": files}
         if acc_info:
             info["accesorios"] = acc_info
@@ -2334,7 +2325,7 @@ class Session:
             sess = cls.from_catalog_project(d, org, catalog_root)
             sess.project_path = os.path.abspath(path)
             return sess
-        raise FileNotFoundError(f"No se encuentra el STL del proyecto: {src!r}. Indicá su ubicación.")
+        raise FileNotFoundError(tr("session.no_se_encuentra_el_stl_del", src=f"{src!r}"))
 
     @classmethod
     def from_catalog_project(cls, d: dict, org: dict, catalog_root: str | None = None) -> "Session":

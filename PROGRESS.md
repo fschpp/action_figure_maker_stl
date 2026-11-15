@@ -2,7 +2,24 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
-## Current Focus — Simulación de la cadera al dibujar la silueta de una pierna (2026-11-14, rama `simulacion_cadera_siluetas`, sobre main 2cb3ece)
+## Current Focus — Internacionalización (es / en / pt) con python-i18n (2026-11-14, rama `i18n`; parche rehecho sobre main a324526)
+**Hecho:** se aplicó `i18n-wip.patch` (extracción automática de ~1570 textos de `gui/` a `src/afm/locales/es.json`, módulo `afm/i18n.py` con `tr`, `lz`/`loc`, `set_language`) y se completó: (1) `en.json` y `pt.json` con las 1574 claves, mismas variables `%{...}` (verificado por script y por `tests/test_i18n.py`); (2) selector de idioma en la cabecera (`MainWindow._build_language_menu`) y cambio en vivo (`Application.switch_language`: ventana nueva con el MISMO `Controller`, cierra las auxiliares, copia tamaño); (3) persistencia en `gui.json` (`settings.language()` / `remember_language()`); (4) arranque: `--lang` > `AFM_LANG` > idioma elegido > sistema > español (`i18n.initial_language`); (5) `python-i18n` en las dependencias y `locales/*.json` como package-data; (6) README con la sección de idioma.
+**Arreglos al patch:** nombres de íconos (`document-new-symbolic`…) estaban dentro de `tr()` → vuelven a ser literales; `%{key}` chocaba con el primer argumento de `i18n.t` → ahora `%{param}`; `tr`/`tr_in` con argumentos posicionales (`/`); textos que faltaban (valores por defecto `what=`, `'del cuello'`, etiqueta de recorte, `--help`, mensaje de dependencias, comparación `label.startswith(...)` del menú del catálogo).
+**Verificado:** con GTK4 real bajo Xvfb la ventana se arma en es/en/pt y en inglés no queda ningún texto en español (escaneo de etiquetas y tooltips); `tests/test_gui_language.py` cambia es→en→pt en vivo.
+
+### Todo List
+- [x] Aplicar el patch sobre main · [x] en.json / pt.json · [x] selector + cambio en vivo + persistencia · [x] tests
+- [ ] Mensajes del MOTOR (módulos de `afm/` fuera de `gui/`: `ValueError` de `params`, `planes`, `catalog_ops`, `certify`, etc.) siguen en español cuando salen en la ventana; falta extraerlos (misma técnica) y traducirlos.
+- [ ] Textos de la CLI (`afm`, `cli.py`, `catalog_cli.py`) sin traducir (la GUI sí).
+- [ ] `docs/tutorial_gui.md` sigue solo en español.
+- [ ] Revisar a ojo la traducción al portugués con alguien nativo (términos: pino, haste, folga, lingueta, punho).
+- [ ] Probar con GL real el cambio de idioma con un proyecto abierto (la escena se vuelve a cargar al realizar el `GLArea`; en Xvfb no hay GL).
+
+### Latest Blockers/Discoveries
+- Las constantes de módulo se traducen con `lz()` (`Msg`, subclase de `str` igual al español) y `loc()` al mostrarlas; la lógica que compara con el texto en español no cambia.
+- Textos que salen del motor y se comparan en la GUI (`catalog_manager`: `startswith("certificación vencida")`) dependen del español del motor: al traducir el motor hay que cambiar esas comparaciones por códigos.
+
+## Current Focus (anterior) — Simulación de la cadera al dibujar la silueta de una pierna (2026-11-14, rama `simulacion_cadera_siluetas`, sobre main 2cb3ece)
 **Pedido:** poder ver la articulación (la cadera) al definir la pierna, como ya se hace con la rodilla y el codo. **Hecho:** en el modo `POLYGON` (silueta y 2.ª silueta) de una pierna la barra del visor ofrece «Ver / Ocultar simulación» y «Flexión mostrada»; la simulación de la cadera (`preview_hip`: pasador + hueco que talla el barrido en la pelvis) se dibuja al costado de la figura, que sigue a la vista, y se recalcula sola cuando la silueta se guarda (la clave de `joint_preview_key` ya depende del miembro). `Controller.polygon_hip_name` / `preview_here_available` / `_beside_axis`; el botón no aparece en la silueta de un brazo; de la silueta a la 2.ª (y al revés) la simulación sigue encendida; al terminar vuelve la figura. Como la silueta se dibuja de costado (cámara a lo largo de X, donde +X apunta al ojo), el corrimiento va sobre Y hacia la derecha de la pantalla en esa vista (de frente sigue en +X); si la simulación falla (silueta sin cerrar, etc.) la barra muestra el motivo. Tests: `tests/test_gui_hip_beside.py` (6) + los de simulación y barra existentes. **Sin probar con GL real ni con la ventana GTK** (`test_gui_window_build` no corre en este entorno); el encuadre y el lado elegido hay que verlos en el escritorio. **Fuera de alcance:** `LIMB_PLANE` (los 3 clics crean la pierna y aún no tiene silueta, no hay hueco que mostrar) y el modo `PIN`.
 
 **Agregado (2026-11-14):** botón «Quitar la silueta» (tacho) en la fila de cada brazo / pierna de la lista de planos, como el de la 2.ª silueta: `Session.clear_limb_polygon` (deja el polígono vacío, el miembro vuelve a «pendiente»), `Controller.remove_silhouette` (sale de la edición si se estaba dibujando esa silueta). Test en `tests/test_limb_cross.py`. Sin probar con la ventana GTK.
@@ -16,6 +33,7 @@ _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic
 - [ ] Evaluar lo mismo para `PIN` (colocar pasador de cadera) y para encender la simulación sola al entrar a la silueta de una pierna.
 
 ## Current Focus (anterior) — Simulación de la articulación al costado y hover al mover el eje (2026-11-13, sobre main e61a915)
+
 **Problema:** al elegir el punto de la rodilla / codo la simulación (Parámetros → «Vista previa de la articulación») quedaba lejos (otra pestaña) y, encendida, ocultaba la figura; además «Mover el eje de la bisagra» (`JOINT_AXIS`) no marcaba en rojo el vértice bajo el puntero. **Hecho:** `JOINT_AXIS` entra en `hover_active`; con la vista previa encendida y una herramienta de articulación activa (`Controller.JOINT_TOOL_MODES`) la simulación se dibuja a la derecha de la figura, a la altura de la articulación, y la figura sigue a la vista (`joint_preview_beside`, `_joint_beside_layout`; la cámara encuadra ambas una vez); el eje se puede reajustar con varios clics sin salir del modo si la simulación está encendida; la barra del visor trae «Ver / Ocultar simulación» y «Flexión mostrada» (`toggle_joint_preview_here`). Fuera de las herramientas la vista previa sigue reemplazando a la figura. Tests: `tests/test_gui_joint_beside.py`. **Sin probar con GL real** (no hay `moderngl` en el entorno de desarrollo): el dibujo del punto rojo y el encuadre hay que verlos en el escritorio.
 
 ## Current Focus — UX restos de R6 y R10 (2026-11-13, rama `mejora_uiux`, sobre main d6597e8)

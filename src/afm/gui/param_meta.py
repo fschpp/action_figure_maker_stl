@@ -4,13 +4,14 @@ Se deriva de `PARAM_FIELDS` (clave, etiqueta larga, mín, máx, paso, decimales)
 trae la explicación entre paréntesis y acá se separa en «etiqueta corta» + «ayuda» (que va al tooltip). No depende de GTK.
 """
 from __future__ import annotations
+from ..i18n import tr, lz, loc
 
 import re
 import unicodedata
 
-PARAM_GROUPS = ("Generales", "Pasador de hombro", "Pasador de cadera", "Mecanismo de clic", "Rodilla / codo", "Cintura",
-                "Mano articulada")
-GENERATE_GROUP = "Sin soportes"          # no va en la pestaña Parámetros: su fila vive en Generar › Impresión sin soportes
+PARAM_GROUPS = (lz("param_meta.generales"), lz("common.pasador_de_hombro"), lz("common.pasador_de_cadera"), lz("param_meta.mecanismo_de_clic"), lz("param_meta.rodilla_codo"), lz("common.cintura"),
+                lz("param_meta.mano_articulada"))
+GENERATE_GROUP = lz("param_meta.sin_soportes")          # no va en la pestaña Parámetros: su fila vive en Generar › Impresión sin soportes
 
 BOOLEAN_KEYS = frozenset({"torso_mirror", "shoulder_detent", "hip_detent", "hinge_pin.neck", "hinge_pin.rod"})
 
@@ -53,7 +54,7 @@ def split_label(label: str) -> tuple[str, str]:
     base, inner = m["base"], m["inner"]
     onoff = _ONOFF.match(inner)
     if onoff:
-        return base, f"Encendido: {onoff['on'].strip()}. Apagado: {onoff['off'].strip()}."
+        return base, tr("param_meta.encendido_strip_apagado_strip2", strip=onoff['on'].strip(), strip2=onoff['off'].strip())
     parts = [p.strip() for p in inner.split(";")]
     if parts[0] in ("mm", "°"):
         return f"{base} ({parts[0]})", "; ".join(parts[1:])
@@ -69,5 +70,5 @@ def matches(query: str, key: str, label: str) -> bool:
     words = _fold(query).split()
     if not words:
         return True
-    hay = _fold(f"{label} {key} {group_of(key)}")
+    hay = _fold(f"{label} {key} {loc(group_of(key))}")
     return all(w in hay for w in words)

@@ -8,6 +8,7 @@ simetría en x = 0), que es donde viven los planos de los miembros (ver `session
 simetría, ``work`` coincide con ``figure``.
 """
 from __future__ import annotations
+from ..i18n import tr, lz, loc
 
 import os
 import re
@@ -47,11 +48,10 @@ def fill_hip_message(ss: dict, wanted: bool) -> str:
         return ""
     done = {k: r for k, r in (ss.get("relleno_cadera") or {}).items() if "aviso" not in r}
     if not done:
-        return " Relleno de muslos: no se aplicó (el motivo figura en AVISO)." if ss.get("relleno_cadera") else \
-            " Relleno de muslos: no se aplicó."
-    return " Relleno de muslos: " + "; ".join(
-        f"{k} +{r['volumen_muslo_agregado_mm3']:g} mm³, pelvis tallada {r['volumen_pelvis_tallado_mm3']:g} mm³, "
-        f"holgura de pie {r['holgura_de_pie_mm']:g} mm" for k, r in done.items()) + "."
+        return (' ' + tr("controller.relleno_de_muslos_no_se_aplico")) if ss.get("relleno_cadera") else \
+            (' ' + tr("controller.relleno_de_muslos_no_se_aplico_2"))
+    return (' ' + tr("controller.relleno_de_muslos") + ' ') + "; ".join(
+        tr("controller.k_volumen_muslo_agregado_mm3_mm3", k=k, volumen_muslo_agregado_mm3=f"{r['volumen_muslo_agregado_mm3']:g}", volumen_pelvis_tallado_mm3=f"{r['volumen_pelvis_tallado_mm3']:g}", holgura_de_pie_mm=f"{r['holgura_de_pie_mm']:g}") for k, r in done.items()) + "."
 
 
 def _pin_aid_colors() -> dict:
@@ -89,9 +89,9 @@ EXPORT_ONLY_PARAMS = frozenset({"flat_depth"})   # parámetros que no cambian la
 GUIDE_ARM_COLOR = (0.2, 0.9, 1.0, 1.0)         # cian: línea del brazo (o del muslo)
 GUIDE_FOREARM_COLOR = (1.0, 0.35, 0.9, 1.0)    # magenta: línea del antebrazo (o de la pantorrilla)
 TRIM_SHAPES = ("polygon", "sphere", "box", "cylinder")
-TRIM_SHAPE_LABELS = {"polygon": "polígono", "sphere": "esfera", "box": "caja", "cylinder": "cilindro"}
-TRIM_OP_LABELS = {"subtract": "restar", "union": "unir"}
-TRIM_SIZE_LABELS = {"sphere": "Radio de la esfera (mm)", "box": "Arista de la caja (mm)", "cylinder": "Radio del cilindro (mm)"}
+TRIM_SHAPE_LABELS = {"polygon": lz("controller.trim_polygon"), "sphere": lz("controller.trim_sphere"), "box": lz("controller.trim_box"), "cylinder": lz("controller.trim_cylinder")}
+TRIM_OP_LABELS = {"subtract": lz("controller.trim_subtract"), "union": lz("controller.trim_union")}
+TRIM_SIZE_LABELS = {"sphere": lz("common.radio_de_la_esfera_mm"), "box": lz("controller.arista_de_la_caja_mm"), "cylinder": lz("controller.radio_del_cilindro_mm")}
 
 
 def trim_size_label(shape: str) -> str | None:
@@ -138,7 +138,7 @@ SHOW_GROUPS = ("planes", "pins", "contours")     # lo que se puede mostrar / ocu
 FLAT_NUDGE_MM = 0.1            # paso de las flechas al ajustar el plano de corte «sin soportes» (Mayús = 10 veces más)
 NUDGE_MM = 0.1                 # paso de las flechas al ajustar el pasador (Mayús = 10 veces más)
 FLOOR_CUT_NUDGE_MM = 0.1        # paso de las flechas al trasladar el plano paralelo al piso (Mayús = 10 veces más)
-FLOOR_CUT_LABELS = {"head": "de la cabeza (cuello)", "waist": "de la cintura"}
+FLOOR_CUT_PLACES = ("head", "waist")
 
 
 def circle_world(plane: Plane, center, radius: float, n: int = 48) -> np.ndarray:
@@ -151,75 +151,75 @@ def circle_world(plane: Plane, center, radius: float, n: int = 48) -> np.ndarray
 def validation_summary(val: dict, clearance: float) -> str:
     """Texto corto del resultado de `pipeline.validate` para la barra de estado."""
     if val["problems"]:
-        return "La figura se generó pero tiene problemas: " + "; ".join(val["problems"])
-    parts = [f"Figura generada y válida: {len(val['pieces'])} piezas"]
+        return (tr("controller.la_figura_se_genero_pero_tiene") + ' ') + "; ".join(val["problems"])
+    parts = [tr("controller.figura_generada_y_valida_n_piezas", n=len(val['pieces']))]
     if val["gaps"]:
-        parts.append(f"holgura mínima {min(val['gaps'].values()):.3f} mm (objetivo {clearance:.3f})")
+        parts.append(tr("controller.holgura_minima_values_mm_objetivo_clearanc", values=f"{min(val['gaps'].values()):.3f}", clearance=f"{clearance:.3f}"))
     if val["recorrido"]:
-        parts.append("recorrido libre sin interferencias")
+        parts.append(tr("controller.recorrido_libre_sin_interferencias"))
     if val.get("avisos_pasador"):
         parts.append("pasador: " + "; ".join(val["avisos_pasador"]))
     if val["avisos"]:
-        parts.append(f"{len(val['avisos'])} aviso(s) de soldado (el slicer puede avisar de aristas no-variedad)")
+        parts.append(tr("controller.n_aviso_s_de_soldado_el", n=len(val['avisos'])))
     return "; ".join(parts) + "."
 
 
 # Parámetros editables en la GUI: (clave con punto, etiqueta, mínimo, máximo, paso, decimales)
 # Agarre para accesorios (`afm.props`): (clave de GripSpec, rótulo, mínimo, máximo, paso, decimales)
 GRIP_FIELDS = (
-    ("bore_d", "Ø del taladro en el puño (mm)", 1.5, 3.5, 0.1, 1),
-    ("shaft_d", "Ø de la empuñadura (mm)", 1.2, 3.0, 0.1, 1),
-    ("slit_w", "Ranura entre lengüetas (mm)", 0.3, 1.5, 0.1, 1),
-    ("finger_len", "Largo de la lengüeta (mm)", 3.0, 14.0, 0.5, 1),
+    ("bore_d", lz("controller.del_taladro_en_el_puno_mm"), 1.5, 3.5, 0.1, 1),
+    ("shaft_d", lz("controller.de_la_empunadura_mm"), 1.2, 3.0, 0.1, 1),
+    ("slit_w", lz("controller.ranura_entre_lenguetas_mm"), 0.3, 1.5, 0.1, 1),
+    ("finger_len", lz("common.largo_de_la_lengueta_mm"), 3.0, 14.0, 0.5, 1),
 )
 
 
 PARAM_FIELDS = (
-    ("clearance", "Holgura miembro–cavidad (mm)", 0.1, 1.5, 0.05, 2),
-    ("burr", "Rebaba a rebajar en la cara (mm)", 0.0, 3.0, 0.05, 2),
-    ("sit_angle", "Ángulo de pose sentada (°)", 0.0, 180.0, 5.0, 0),
-    ("flat_depth", "Corte con la cama de impresión: altura sobre la cola (mm)", 0.2, 6.0, 0.1, 1),
-    ("torso_mirror", "Torso espejado (1 = sí, 0 = conserva el diseño asimétrico del STL)", 0.0, 1.0, 1.0, 0),
-    ("hip_margin", "Margen del límite de cadera (°)", 0.0, 30.0, 1.0, 0),
-    ("waist_pin.shaft_d", "Cintura: Ø vástago (mm)", 3.0, 14.0, 0.1, 1),
-    ("waist_pin.shaft_len", "Cintura: largo vástago (mm; pared tras la cabeza = largo − 2·holgura)", 1.5, 15.0, 0.1, 1),
-    ("waist_pin.head_d", "Cintura: Ø cabeza (mm)", 5.0, 20.0, 0.1, 1),
-    ("waist_pin.head_h", "Cintura: alto cabeza (mm)", 1.0, 8.0, 0.05, 2),
-    ("waist_twist", "Cintura: giro libre a cada lado a validar (°)", 5.0, 180.0, 5.0, 0),
-    ("shoulder_pin.shaft_d", "Hombro: Ø vástago (mm)", 2.0, 12.0, 0.1, 1),
-    ("shoulder_pin.shaft_len", "Hombro: largo vástago (mm)", 0.5, 15.0, 0.1, 1),
-    ("shoulder_pin.head_d", "Hombro: Ø cabeza (mm)", 3.0, 16.0, 0.1, 1),
-    ("shoulder_pin.head_h", "Hombro: alto cabeza (mm)", 0.5, 8.0, 0.05, 2),
-    ("hand_pin.shaft_d", "Mano articulada: Ø vástago (mm; se achica solo si no entra en la muñeca)", 1.5, 8.0, 0.1, 1),
-    ("hand_pin.shaft_len", "Mano articulada: largo vástago (mm; labio tras la cabeza = largo − 2·holgura)", 1.0, 10.0, 0.1, 1),
-    ("hand_pin.head_d", "Mano articulada: Ø cabeza (mm)", 2.5, 12.0, 0.1, 1),
-    ("hand_pin.head_h", "Mano articulada: alto cabeza (mm)", 0.5, 5.0, 0.05, 2),
-    ("hip_pin.shaft_d", "Cadera: Ø vástago (mm)", 2.0, 12.0, 0.1, 1),
-    ("hip_pin.shaft_len", "Cadera: largo vástago (mm)", 0.5, 15.0, 0.1, 1),
-    ("hip_pin.head_d", "Cadera: Ø cabeza (mm)", 3.0, 16.0, 0.1, 1),
-    ("hip_pin.head_h", "Cadera: alto cabeza (mm)", 0.5, 8.0, 0.05, 2),
-    ("shoulder_detent", "Hombro: mecanismo de clic (1 = sí, 0 = solo hongo)", 0.0, 1.0, 1.0, 0),
-    ("hip_detent", "Cadera: mecanismo de clic (1 = sí, 0 = solo hongo)", 0.0, 1.0, 1.0, 0),
-    ("detent.n_notches", "Clic: cantidad de muescas", 2.0, 8.0, 1.0, 0),
-    ("detent.disc_d", "Clic: Ø del disco (mm)", 5.0, 14.0, 0.1, 1),
-    ("detent.disc_h", "Clic: alto del disco (mm)", 1.0, 5.0, 0.1, 1),
-    ("detent.notch_depth", "Clic: profundidad de la muesca (mm)", 0.3, 2.0, 0.05, 2),
-    ("detent.flank_deg", "Clic: ángulo del flanco (°)", 10.0, 60.0, 1.0, 0),
-    ("detent.tip_r", "Clic: radio de la punta (mm)", 0.3, 2.0, 0.05, 2),
-    ("detent.detent_gap", "Clic: holgura punta/muesca (mm)", 0.1, 0.8, 0.05, 2),
-    ("detent.slit_w", "Clic: ranura de la lengüeta (mm)", 0.2, 1.5, 0.05, 2),
-    ("detent.flex_gap", "Clic: ranura superior = flexión + ranura (mm)", 0.3, 3.0, 0.05, 2),
-    ("detent.finger_t", "Clic: espesor de la lengüeta (mm)", 0.6, 3.0, 0.1, 1),
-    ("detent.finger_len", "Clic: largo de la lengüeta (mm)", 4.0, 20.0, 0.5, 1),
-    ("detent.finger_w", "Clic: ancho de la lengüeta (mm)", 2.0, 10.0, 0.5, 1),
-    ("detent.print_angle", "Clic: ángulo del brazo al imprimir (°; fase de los clics)", 0.0, 90.0, 1.0, 0),
-    ("hinge_pin.pin_d", "Rodilla/codo: Ø bulón (mm)", 2.0, 6.0, 0.1, 1),
-    ("hinge_pin.pin_len", "Rodilla/codo: largo bulón (mm)", 0.5, 4.0, 0.1, 1),
-    ("hinge_pin.tongue_t", "Rodilla/codo: espesor lengüeta (mm)", 1.0, 6.0, 0.1, 1),
-    ("hinge_pin.end_r", "Rodilla/codo: radio lengüeta (mm)", 2.0, 8.0, 0.1, 1),
-    ("hinge_pin.neck", "Rodilla/codo: lengüeta con cuello recto (1 = sí, 0 = disco)", 0.0, 1.0, 1.0, 0),
-    ("hinge_pin.rod", "Rodilla/codo: bastago pasante (1 = sí, 0 = dos bulones)", 0.0, 1.0, 1.0, 0),
-    ("hinge_pin.rod_wall", "Rodilla/codo: pared tras el bastago (mm; 0 = pasante)", 0.0, 4.0, 0.1, 1),
+    ("clearance", lz("controller.holgura_miembrocavidad_mm"), 0.1, 1.5, 0.05, 2),
+    ("burr", lz("controller.rebaba_a_rebajar_en_la_cara"), 0.0, 3.0, 0.05, 2),
+    ("sit_angle", lz("controller.angulo_de_pose_sentada"), 0.0, 180.0, 5.0, 0),
+    ("flat_depth", lz("controller.corte_con_la_cama_de_impresion"), 0.2, 6.0, 0.1, 1),
+    ("torso_mirror", lz("controller.torso_espejado_1_si_0_conserva"), 0.0, 1.0, 1.0, 0),
+    ("hip_margin", lz("controller.margen_del_limite_de_cadera"), 0.0, 30.0, 1.0, 0),
+    ("waist_pin.shaft_d", lz("controller.cintura_vastago_mm"), 3.0, 14.0, 0.1, 1),
+    ("waist_pin.shaft_len", lz("controller.cintura_largo_vastago_mm_pared_tras"), 1.5, 15.0, 0.1, 1),
+    ("waist_pin.head_d", lz("controller.cintura_cabeza_mm"), 5.0, 20.0, 0.1, 1),
+    ("waist_pin.head_h", lz("controller.cintura_alto_cabeza_mm"), 1.0, 8.0, 0.05, 2),
+    ("waist_twist", lz("controller.cintura_giro_libre_a_cada_lado"), 5.0, 180.0, 5.0, 0),
+    ("shoulder_pin.shaft_d", lz("controller.hombro_vastago_mm"), 2.0, 12.0, 0.1, 1),
+    ("shoulder_pin.shaft_len", lz("controller.hombro_largo_vastago_mm"), 0.5, 15.0, 0.1, 1),
+    ("shoulder_pin.head_d", lz("controller.hombro_cabeza_mm"), 3.0, 16.0, 0.1, 1),
+    ("shoulder_pin.head_h", lz("controller.hombro_alto_cabeza_mm"), 0.5, 8.0, 0.05, 2),
+    ("hand_pin.shaft_d", lz("controller.mano_articulada_vastago_mm_se_achica"), 1.5, 8.0, 0.1, 1),
+    ("hand_pin.shaft_len", lz("controller.mano_articulada_largo_vastago_mm_labio"), 1.0, 10.0, 0.1, 1),
+    ("hand_pin.head_d", lz("controller.mano_articulada_cabeza_mm"), 2.5, 12.0, 0.1, 1),
+    ("hand_pin.head_h", lz("controller.mano_articulada_alto_cabeza_mm"), 0.5, 5.0, 0.05, 2),
+    ("hip_pin.shaft_d", lz("controller.cadera_vastago_mm"), 2.0, 12.0, 0.1, 1),
+    ("hip_pin.shaft_len", lz("controller.cadera_largo_vastago_mm"), 0.5, 15.0, 0.1, 1),
+    ("hip_pin.head_d", lz("controller.cadera_cabeza_mm"), 3.0, 16.0, 0.1, 1),
+    ("hip_pin.head_h", lz("controller.cadera_alto_cabeza_mm"), 0.5, 8.0, 0.05, 2),
+    ("shoulder_detent", lz("controller.hombro_mecanismo_de_clic_1_si"), 0.0, 1.0, 1.0, 0),
+    ("hip_detent", lz("controller.cadera_mecanismo_de_clic_1_si"), 0.0, 1.0, 1.0, 0),
+    ("detent.n_notches", lz("controller.clic_cantidad_de_muescas"), 2.0, 8.0, 1.0, 0),
+    ("detent.disc_d", lz("controller.clic_del_disco_mm"), 5.0, 14.0, 0.1, 1),
+    ("detent.disc_h", lz("controller.clic_alto_del_disco_mm"), 1.0, 5.0, 0.1, 1),
+    ("detent.notch_depth", lz("controller.clic_profundidad_de_la_muesca_mm"), 0.3, 2.0, 0.05, 2),
+    ("detent.flank_deg", lz("controller.clic_angulo_del_flanco"), 10.0, 60.0, 1.0, 0),
+    ("detent.tip_r", lz("controller.clic_radio_de_la_punta_mm"), 0.3, 2.0, 0.05, 2),
+    ("detent.detent_gap", lz("controller.clic_holgura_punta_muesca_mm"), 0.1, 0.8, 0.05, 2),
+    ("detent.slit_w", lz("controller.clic_ranura_de_la_lengueta_mm"), 0.2, 1.5, 0.05, 2),
+    ("detent.flex_gap", lz("controller.clic_ranura_superior_flexion_ranura_mm"), 0.3, 3.0, 0.05, 2),
+    ("detent.finger_t", lz("controller.clic_espesor_de_la_lengueta_mm"), 0.6, 3.0, 0.1, 1),
+    ("detent.finger_len", lz("controller.clic_largo_de_la_lengueta_mm"), 4.0, 20.0, 0.5, 1),
+    ("detent.finger_w", lz("controller.clic_ancho_de_la_lengueta_mm"), 2.0, 10.0, 0.5, 1),
+    ("detent.print_angle", lz("controller.clic_angulo_del_brazo_al_imprimir"), 0.0, 90.0, 1.0, 0),
+    ("hinge_pin.pin_d", lz("controller.rodilla_codo_bulon_mm"), 2.0, 6.0, 0.1, 1),
+    ("hinge_pin.pin_len", lz("controller.rodilla_codo_largo_bulon_mm"), 0.5, 4.0, 0.1, 1),
+    ("hinge_pin.tongue_t", lz("controller.rodilla_codo_espesor_lengueta_mm"), 1.0, 6.0, 0.1, 1),
+    ("hinge_pin.end_r", lz("controller.rodilla_codo_radio_lengueta_mm"), 2.0, 8.0, 0.1, 1),
+    ("hinge_pin.neck", lz("controller.rodilla_codo_lengueta_con_cuello_recto"), 0.0, 1.0, 1.0, 0),
+    ("hinge_pin.rod", lz("controller.rodilla_codo_bastago_pasante_1_si"), 0.0, 1.0, 1.0, 0),
+    ("hinge_pin.rod_wall", lz("controller.rodilla_codo_pared_tras_el_bastago"), 0.0, 4.0, 0.1, 1),
 )
 
 
@@ -232,7 +232,7 @@ class Controller:
         self.pending: list[np.ndarray] = []
         self.hover_vertex: np.ndarray | None = None  # vértice bajo el puntero (se pinta de rojo; un clic lo elige)
         self.pending_kind: str | None = None        # "arm" | "leg" mientras se elige el plano de un miembro
-        self.message = "Abrí un STL para empezar."
+        self.message = tr("controller.abri_un_stl_para_empezar")
         self.one_side = False                        # trabajar un solo lado (oculta x < 0)
         self.hidden: set[str] = set()                # ids de planos ocultos
         self.show_groups: dict[str, bool] = {g: False for g in SHOW_GROUPS}   # interruptores generales (planos / pines / contornos)
@@ -243,7 +243,7 @@ class Controller:
         self.defer_history = False                   # la ventana lo activa y registra con `record_history` tras una pausa; sin ventana se registra en cada cambio
         self.plane_faults: dict[str, tuple[str, bytes]] = {}   # id de plano -> (por qué su corte falló, firma del plano): se pinta de rojo hasta que el plano cambie
         self.progress_stages: list | None = None      # pasos esperados de la tarea en curso (`progress.Stage`); None = sin plan
-        self.progress_prefix = "Generando"           # encabezado de los mensajes de progreso de la tarea en curso
+        self.progress_prefix = tr("controller.generando")           # encabezado de los mensajes de progreso de la tarea en curso
         self.show_overhangs = False                  # pintar de rojo los voladizos de impresión
         self.overhang_angle = 45.0                   # grados desde la vertical (como `--max-angle`)
         self.draft: PolygonDraft | None = None      # polígono de silueta en edición (modo POLYGON)
@@ -340,11 +340,11 @@ class Controller:
     def undo_blocked(self) -> str | None:
         """Por qué no se puede deshacer / rehacer ahora (None = se puede)."""
         if not self.loaded:
-            return "Primero abrí un STL (pestaña Figura)."
+            return tr("controller.primero_abri_un_stl_pestana_figura")
         if self.busy:
             return self._WAIT
         if self.session.catalog_origin is not None and not self.session.stl_path:
-            return "En una figura armada solo con piezas de catálogo todavía no se puede deshacer."
+            return tr("controller.en_una_figura_armada_solo_con")
         return None
 
     def undo(self) -> bool:
@@ -364,12 +364,12 @@ class Controller:
             return False
         snap = getattr(self.history, which)(self._project_text())
         if snap is None:
-            self._changed("No hay nada para " + ("deshacer." if which == "undo" else "rehacer."), scene=False)
+            self._changed((tr("controller.no_hay_nada_para") + ' ') + ("deshacer." if which == "undo" else "rehacer."), scene=False)
             return False
         label = snap.label
         self._restore_project(snap.text)
         self.history.settle(self._project_text())
-        verb = "Deshecho" if which == "undo" else "Rehecho"
+        verb = tr("controller.deshecho") if which == "undo" else tr("controller.rehecho")
         # al deshacer se vuelve al estado anterior: el cartel nombra lo que se quitó; al rehacer, lo que se volvió a poner
         shown = self.history.redo_label if which == "undo" else label
         self._changed(f"{verb}: {shown}" if shown else f"{verb}.")
@@ -444,11 +444,11 @@ class Controller:
         if self.busy:
             return None
         self.busy = True
-        self.progress_prefix = "Abriendo"
+        self.progress_prefix = tr("controller.abriendo")
         from ..progress import Stage
 
-        self.progress_stages = [Stage("leyendo el STL", 3), Stage("reparando la malla", 4)]
-        self._changed(f"Abriendo {path.split('/')[-1]}…", scene=False)
+        self.progress_stages = [Stage(tr("controller.leyendo_el_stl"), 3), Stage(tr("controller.reparando_la_malla"), 4)]
+        self._changed(tr("controller.abriendo_v", v=path.split('/')[-1]), scene=False)
 
         def job(progress=None) -> Session:
             session = Session()
@@ -458,17 +458,17 @@ class Controller:
 
     def finish_open_stl(self, path: str, session: Session | None = None, error=None) -> None:
         self.busy = False
-        self.progress_prefix = "Generando"
+        self.progress_prefix = tr("controller.generando")
         if error or session is None:
             if isinstance(error, BaseException):
-                self._changed(f"No se pudo abrir {path.split('/')[-1]}: {error}", scene=False)
+                self._changed(tr("controller.no_se_pudo_abrir_v_error", v=path.split('/')[-1], error=error), scene=False)
             return
         self.session = session
         self.joint_guides = {}
         self.hidden.clear()
         self.hand_extract = self._hand_mesh = None
         self._after_load()
-        msg = f"Cargado {path.split('/')[-1]}"
+        msg = tr("controller.cargado_v", v=path.split('/')[-1])
         msg += self._auto_catalog()
         if session.report.warnings:
             msg += " — " + " ".join(session.report.warnings)
@@ -479,7 +479,7 @@ class Controller:
         inicio: sin STL, parámetros por defecto, cámara de frente, historial vacío. Conserva lo que la ventana engancha
         (refresco, hilos, historial diferido). Devuelve False si hay una tarea en curso."""
         if self.busy:
-            self._changed("Hay una tarea en curso: esperá a que termine para empezar de nuevo.", scene=False)
+            self._changed(tr("controller.hay_una_tarea_en_curso_espera"), scene=False)
             return False
         keep = {k: getattr(self, k) for k in ("on_change", "call_in_main", "defer_history")
                 if hasattr(self, k)}
@@ -506,8 +506,8 @@ class Controller:
         if org is not None and self.session.catalog_root:
             GUI_SETTINGS.remember_catalog(self.session.catalog_name(), self.session.catalog_root)
         self._after_load()
-        what = " (figura armada con piezas de catálogo, sin STL)" if self.session.catalog_origin is not None else ""
-        self._changed(f"Proyecto abierto: {path.split('/')[-1]}{what}" + self._auto_catalog())
+        what = (' ' + tr("controller.figura_armada_con_piezas_de_catalogo")) if self.session.catalog_origin is not None else ""
+        self._changed(tr("controller.proyecto_abierto_v_what", v=path.split('/')[-1], what=what) + self._auto_catalog())
 
     def save_project(self, path: str) -> None:
         self.record_history()                       # lo último hecho entra al historial antes de marcarlo como guardado
@@ -515,19 +515,19 @@ class Controller:
         self.session.project_path = os.path.abspath(path)      # los próximos «Guardar» sobrescriben este archivo
         if self.history.current is not None:
             self._saved_text = self.history.current.text
-        self._changed(f"Proyecto guardado: {path.split('/')[-1]}", scene=False)
+        self._changed(tr("controller.proyecto_guardado_v", v=path.split('/')[-1]), scene=False)
 
     # ---------------------------------------------------------------- modos
     def _busy_for(self, what: str) -> bool:
         """True (y avisa) si hay una tarea en un hilo (revisar, generar…): lo que ella lee no se puede cambiar a mitad."""
         if not self.busy:
             return False
-        self._changed(f"Hay una tarea en curso (revisando o generando): esperá a que termine para cambiar {what}.", scene=False)
+        self._changed(tr("controller.hay_una_tarea_en_curso_revisando", what=what), scene=False)
         return True
 
     def _need_loaded(self) -> bool:
         if not self.loaded:
-            self._changed("Primero abrí un STL.", scene=False)
+            self._changed(tr("controller.primero_abri_un_stl"), scene=False)
             return False
         return True
 
@@ -535,19 +535,18 @@ class Controller:
         if not self._need_loaded():
             return
         if self.session.project.symmetry is not None or self.session.project.limbs:
-            self._changed("La coronilla se marca antes de definir la simetría y los miembros "
-                          "(cambia la escala de la figura).", scene=False)
+            self._changed(tr("controller.la_coronilla_se_marca_antes_de"), scene=False)
             return
         self.cancel(quiet=True)
         self.mode = Mode.CROWN
-        self._changed("Hacé clic en la coronilla (el punto más alto sin sombrero ni orejas).")
+        self._changed(tr("controller.hace_clic_en_la_coronilla_el"))
 
     def start_symmetry(self) -> None:
         if not self._need_loaded():
             return
         self.cancel(quiet=True)
         self.mode = Mode.SYMMETRY
-        self._changed("Plano de simetría: elegí 3 puntos de la línea central (2 en la espalda y 1 en el pecho).")
+        self._changed(tr("controller.plano_de_simetria_elegi_3_puntos"))
 
     def start_limb_plane(self, kind: str) -> None:
         if not self._need_loaded():
@@ -555,33 +554,31 @@ class Controller:
         if kind not in _KIND_BASE:
             raise ValueError(kind)
         if self.session.project.symmetry is None:
-            self._changed("Primero definí el plano de simetría.", scene=False)
+            self._changed(tr("controller.primero_defini_el_plano_de_simetria_3"), scene=False)
             return
         self.cancel(quiet=True)
         self.mode, self.pending_kind = Mode.LIMB_PLANE, kind
-        self._changed(f"Plano del {_KIND_BASE[kind]}: elegí 3 puntos sobre la figura.")
+        self._changed(tr("controller.plano_del_kind_base_elegi_3", kind_base=_KIND_BASE[kind]))
 
     def start_waist_plane(self) -> None:
         if not self._need_loaded():
             return
         if self.session.project.symmetry is None:
-            self._changed("Primero definí el plano de simetría.", scene=False)
+            self._changed(tr("controller.primero_defini_el_plano_de_simetria_3"), scene=False)
             return
         self.cancel(quiet=True)
         self.mode = Mode.WAIST_PLANE
-        self._changed("Plano de la cintura: elegí 3 puntos a la altura de la cintura (2 a cada lado y 1 adelante o atrás). "
-                      "Lo de arriba (pecho, brazos, cabeza) gira sobre un pasador robusto que sale de la pelvis.")
+        self._changed(tr("controller.plano_de_la_cintura_elegi_3"))
 
     def start_neck_plane(self) -> None:
         if not self._need_loaded():
             return
         if self.session.project.symmetry is None:
-            self._changed("Primero definí el plano de simetría.", scene=False)
+            self._changed(tr("controller.primero_defini_el_plano_de_simetria_3"), scene=False)
             return
         self.cancel(quiet=True)
         self.mode = Mode.NECK_PLANE
-        self._changed("Plano del cuello: elegí 3 puntos (2 en la nuca, a cada lado, y 1 bajo el mentón). "
-                      "Lo de arriba es la cabeza; el pasador va en el centro de la cara del plano de separación.")
+        self._changed(tr("controller.plano_del_cuello_elegi_3_puntos"))
 
     # ------------------------------------------------ articulaciones (rodilla / codo)
     def start_joint_plane(self, limb: str) -> None:
@@ -590,17 +587,15 @@ class Controller:
             return
         spec = self.session.limb(limb)
         if spec is None:
-            self._changed(f"No hay un miembro «{limb}».", scene=False)
+            self._changed(tr("controller.no_hay_un_miembro_limb", limb=limb), scene=False)
             return
         if self.session.joint_of_limb(limb) is not None:
-            self._changed(f"«{limb}» ya tiene su articulación: quitala (−) para rehacerla.", scene=False)
+            self._changed(tr("controller.limb_ya_tiene_su_articulacion_quitala", limb=limb), scene=False)
             return
         self.cancel(quiet=True)
         self.mode, self.joint_limb = Mode.JOINT_PLANE, limb
-        what = "de la rodilla" if spec.kind == "leg" else "del codo"
-        self._changed(f"Plano {what}: elegí 3 puntos sobre la figura a la altura donde se dobla. Puede quedar inclinado "
-                      "(un brazo que cuelga en diagonal) mientras no sea más de 60° de la horizontal; el eje de la "
-                      "bisagra sigue esa inclinación. Lo de arriba es el muslo / brazo.")
+        what = tr("controller.de_la_rodilla") if spec.kind == "leg" else tr("controller.del_codo")
+        self._changed(tr("controller.plano_what_elegi_3_puntos_sobre", what=what))
 
     def start_joint_lines(self, limb: str) -> None:
         """Codo (brazo) o rodilla (pierna) siguiendo el miembro: 2 líneas sobre la vista frontal, una arriba y otra abajo
@@ -609,17 +604,16 @@ class Controller:
             return
         spec = self.session.limb(limb)
         if spec is None:
-            self._changed(f"No hay un miembro «{limb}».", scene=False)
+            self._changed(tr("controller.no_hay_un_miembro_limb", limb=limb), scene=False)
             return
         if self.session.joint_of_limb(limb) is not None:
-            self._changed(f"«{limb}» ya tiene su articulación: quitala (−) para rehacerla.", scene=False)
+            self._changed(tr("controller.limb_ya_tiene_su_articulacion_quitala", limb=limb), scene=False)
             return
         self.cancel(quiet=True)
         self.mode, self.joint_limb = Mode.JOINT_LINES, limb
         up, down = self._line_names(spec.kind)
-        joint = "la rodilla" if spec.kind == "leg" else "el codo"
-        self._changed(f"{joint.capitalize()} con 2 líneas (conviene la vista «Frente»): línea del {up}, punto 1/2: clic "
-                      f"arriba, en el centro del {up}. Después {joint} y la línea del {down}. Backspace deshace; Esc cancela.")
+        joint = tr("controller.la_rodilla") if spec.kind == "leg" else tr("controller.el_codo")
+        self._changed(tr("controller.capitalize_con_2_lineas_conviene_la", capitalize=joint.capitalize(), up=up, up2=up, joint=joint, down=down))
 
     def start_joint_lines_for_kind(self, kind: str) -> None:
         """Como `start_joint_plane_for_kind` pero definiendo el corte con dos líneas."""
@@ -628,8 +622,7 @@ class Controller:
         limb = next((l.name for l in self.session.project.limbs
                      if l.kind == kind and self.session.joint_of_limb(l.name) is None), None)
         if limb is None:
-            self._changed(f"No hay un {_KIND_BASE[kind]} sin articulación: agregá primero su plano y silueta "
-                          "(o quitá la articulación que ya tiene).", scene=False)
+            self._changed(tr("controller.no_hay_un_kind_base_sin", kind_base=_KIND_BASE[kind]), scene=False)
             return
         self.start_joint_lines(limb)
 
@@ -640,22 +633,19 @@ class Controller:
     def _joint_lines_hint(self) -> str:
         spec = self.session.limb(self.joint_limb)
         up, down = self._line_names(spec.kind if spec else "arm")
-        joint = "la rodilla" if spec is not None and spec.kind == "leg" else "el codo"
+        joint = tr("controller.la_rodilla") if spec is not None and spec.kind == "leg" else tr("controller.el_codo")
         n = len(self.pending)
         if n == 1:
-            text = (f"Línea del {up} (cian): punto 1/2 listo. Ahora clic en {joint}, en el centro del miembro, "
-                    "donde se dobla.")
+            text = (tr("controller.linea_del_up_cian_punto_1", up=up, joint=joint))
         elif n == 2:
             ang = Session.line_opening_deg(self.pending[0], self.pending[1])
             if ang is None:
-                text = (f"La línea del {up} no sirve (muy corta o casi horizontal vista de frente): Backspace y elegí "
-                        f"otro punto en {joint}.")
+                text = (tr("controller.la_linea_del_up_no_sirve", up=up, joint=joint))
             else:
-                text = (f"Línea del {up} lista (cian): se abre {ang:.1f}° al bajar. Ahora la del {down}: clic en "
-                        f"{joint} otra vez (en el mismo lugar).")
+                text = (tr("controller.linea_del_up_lista_cian_se", up=up, ang=f"{ang:.1f}", down=down, joint=joint))
         else:
-            text = (f"Línea del {down} (magenta): punto 1/2 listo. Ahora clic abajo, en el centro del {down}.")
-        return text + " Backspace deshace el último; Esc cancela."
+            text = (tr("controller.linea_del_down_magenta_punto_1", down=down, down2=down))
+        return text + (' ' + tr("controller.backspace_deshace_el_ultimo_esc_cancela"))
 
     def guide_overlays(self) -> list[tuple]:
         """Guías de las 2 líneas como (tipo, clave, puntos, color) con tipo «lines» | «points»: las que se están eligiendo
@@ -708,15 +698,12 @@ class Controller:
             plane, elbow, a_up, a_down, lift = Session.plane_from_lines((pts[0], pts[1]), (pts[2], pts[3]))
             j = self.session.add_joint(limb, plane, anchor=elbow, lift_dir=lift)
         except (ValueError, KeyError) as e:
-            self._changed(f"No sirve: {e}. Dibujá las 2 líneas de nuevo.")
+            self._changed(tr("controller.no_sirve_e_dibuja_las_2", e=e))
             return
         self.mode, self.joint_limb = Mode.VIEW, None
         self.joint_guides[j.name] = (np.array(pts[:2], float), np.array(pts[2:], float))
         up, down = self._line_names(self.session.limb(limb).kind)
-        self._changed(f"{j.name.capitalize()} definida siguiendo el miembro: el {up} se abre {a_up:.1f}° y el {down} "
-                      f"{a_down:.1f}° (hacia +X al bajar); el plano de separación sigue la bisectriz y el eje quedó inclinado "
-                      f"{self.joint_tilt(j.name):.1f}°. Rango {self.joint_range_text(j.name)}. Las guías se centraron en "
-                      "profundidad: revisalas de costado y, si hace falta, corregilas con «Ajustar guías de costado».")
+        self._changed(tr("controller.capitalize_definida_siguiendo_el_miembro_e", capitalize=j.name.capitalize(), up=up, a_up=f"{a_up:.1f}", down=down, a_down=f"{a_down:.1f}", joint_tilt=f"{self.joint_tilt(j.name):.1f}", joint_range_text=self.joint_range_text(j.name)))
 
     def start_joint_side(self, name: str) -> None:
         """Corrige las 4 guías de una articulación hecha con 2 líneas desde la vista de costado (conviene «Costado»):
@@ -725,18 +712,16 @@ class Controller:
         if not self._need_loaded():
             return
         if self.session.joint(name) is None:
-            self._changed(f"No hay una articulación «{name}».", scene=False)
+            self._changed(tr("controller.no_hay_una_articulacion_name", name=name), scene=False)
             return
         if name not in self.joint_guides:
-            self._changed(f"«{name}» no se hizo con 2 líneas: quitala (−) y rehacela con «codo siguiendo el brazo».",
+            self._changed(tr("controller.name_no_se_hizo_con_2", name=name),
                           scene=False)
             return
         self.cancel(quiet=True)
         self.mode, self.joint_name = Mode.JOINT_SIDE, name
         up, down = self._line_names(self.session.limb(self.session.joint(name).limb).kind)
-        self._changed(f"Guías de {name} de costado (vista «Costado»): clic 1/4 arriba, en el centro del {up}; 2/4 en la "
-                      f"articulación; 3/4 otra vez en la articulación; 4/4 abajo, en el centro del {down}. Se toman la "
-                      "altura y la profundidad de cada clic. Backspace deshace; Esc cancela.")
+        self._changed(tr("controller.guias_de_name_de_costado_vista", name=name, up=up, down=down))
 
     def _finish_joint_side(self) -> None:
         name, pts = self.joint_name, self.pending
@@ -747,13 +732,12 @@ class Controller:
         try:
             self.session.retarget_joint_lines(name, (new[0], new[1]), (new[2], new[3]))
         except (ValueError, KeyError) as e:
-            self._changed(f"No sirve: {e}. Hacé los 4 clics de costado de nuevo.")
+            self._changed(tr("controller.no_sirve_e_hace_los_4", e=e))
             self.mode = Mode.JOINT_SIDE
             return
         self.joint_guides[name] = (new[:2].copy(), new[2:].copy())
         self.mode, self.joint_name = Mode.VIEW, None
-        self._changed(f"Guías de {name} corregidas de costado: el plano de separación y el eje se recalcularon "
-                      f"(inclinación {self.joint_tilt(name):.1f}°). Hay que generar de nuevo.")
+        self._changed(tr("controller.guias_de_name_corregidas_de_costado", name=name, joint_tilt=f"{self.joint_tilt(name):.1f}"))
 
     def start_joint_plane_for_kind(self, kind: str) -> None:
         """Rodilla («leg») o codo («arm»): toma el primer miembro de ese tipo que todavía no tiene articulación."""
@@ -762,8 +746,7 @@ class Controller:
         limb = next((l.name for l in self.session.project.limbs
                      if l.kind == kind and self.session.joint_of_limb(l.name) is None), None)
         if limb is None:
-            self._changed(f"No hay un {_KIND_BASE[kind]} sin articulación: agregá primero su plano y silueta "
-                          "(o quitá la articulación que ya tiene).", scene=False)
+            self._changed(tr("controller.no_hay_un_kind_base_sin", kind_base=_KIND_BASE[kind]), scene=False)
             return
         self.start_joint_plane(limb)
 
@@ -778,61 +761,57 @@ class Controller:
             plane = Session.plane_from_points(pts, "articulación")
             j = self.session.add_joint(limb, plane, anchor=np.mean(pts, axis=0))
         except (ValueError, KeyError) as e:
-            self._changed(f"No sirve: {e}. Elegí 3 puntos de nuevo.")
+            self._changed(tr("controller.no_sirve_e_elegi_3_puntos", e=e))
             return
         self.joint_guides.pop(j.name, None)                  # sin líneas guía: se definió con 3 puntos
         self.mode, self.joint_limb = Mode.VIEW, None
-        self._changed(f"{j.name.capitalize()} definida con rango {self.joint_range_text(j.name)}; el eje quedó "
-                      f"inclinado {self.joint_tilt(j.name):.1f}° siguiendo el plano. Ajustá el eje con «Colocar eje» "
-                      "(clic sobre el lado de la figura) y la inclinación si hace falta.")
+        self._changed(tr("controller.capitalize_definida_con_rango_joint_range", capitalize=j.name.capitalize(), joint_range_text=self.joint_range_text(j.name), joint_tilt=f"{self.joint_tilt(j.name):.1f}"))
 
     def start_joint_axis(self, name: str) -> None:
         if not self._need_loaded():
             return
         if self.session.joint(name) is None:
-            self._changed(f"No hay una articulación «{name}».", scene=False)
+            self._changed(tr("controller.no_hay_una_articulacion_name", name=name), scene=False)
             return
         self.cancel(quiet=True)
         self.mode, self.joint_name = Mode.JOINT_AXIS, name
-        self._changed(f"Eje de la {name}: hacé clic sobre el costado de la figura, en el centro de la bisagra "
-                      "(se toman la altura y la profundidad del clic; el eje atraviesa el miembro).")
+        self._changed(tr("controller.eje_de_la_name_hace_clic", name=name))
 
     def _finish_joint_axis(self, hit: PickResult) -> None:
         name = self.joint_name
         try:
             self.session.set_joint_axis(name, hit.point)
         except ValueError as e:
-            self._changed(f"No sirve: {e}.")
+            self._changed(tr("controller.no_sirve_e", e=e))
             return
         if self.show_joint_preview and self._jp["name"] == name:
             # con la simulación al costado se sigue ajustando: cada clic mueve el eje y la simulación se recalcula
-            self._changed(f"Eje de la {name} movido: la simulación de la derecha se recalcula. Clic otra vez para "
-                          "reajustar; Esc o «Terminar» para salir. Hay que generar de nuevo.")
+            self._changed(tr("controller.eje_de_la_name_movido_la", name=name))
             return
         self.mode, self.joint_name = Mode.VIEW, None
-        self._changed(f"Eje de la {name} movido.")
+        self._changed(tr("controller.eje_de_la_name_movido", name=name))
 
     def set_joint_tilt(self, name: str, tilt_deg: float) -> bool:
         """Inclina el eje de la bisagra vista de frente (° alrededor de Y; 0 = a lo largo de X; positivo = z sube con x).
         La figura de referencia usa ≈ 14° en la rodilla y ≈ 9,5° en el codo."""
         if not -45.0 <= float(tilt_deg) <= 45.0:
-            self._changed("La inclinación tiene que estar entre −45° y 45°.", scene=False)
+            self._changed(tr("controller.la_inclinacion_tiene_que_estar_entre"), scene=False)
             return False
         try:
             self.session.set_joint_axis(name, None, tilt_deg)
         except (ValueError, KeyError) as e:
-            self._changed(f"No sirve: {e}.", scene=False)
+            self._changed(tr("controller.no_sirve_e", e=e), scene=False)
             return False
-        self._changed(f"Eje de la {name} inclinado {float(tilt_deg):g}°. Hay que generar de nuevo.")
+        self._changed(tr("controller.eje_de_la_name_inclinado_tilt", name=name, tilt_deg=f"{float(tilt_deg):g}"))
         return True
 
     def set_joint_range(self, name: str, lo: float | None, hi: float | None) -> bool:
         try:
             self.session.set_joint_range(name, lo, hi)
         except (ValueError, KeyError) as e:
-            self._changed(f"No sirve: {e}.", scene=False)
+            self._changed(tr("controller.no_sirve_e", e=e), scene=False)
             return False
-        self._changed(f"Rango de la {name}: {self.joint_range_text(name)}. Hay que generar de nuevo.")
+        self._changed(tr("controller.rango_de_la_name_joint_range", name=name, joint_range_text=self.joint_range_text(name)))
         return True
 
     # ------------------------------------- vista previa de la articulación (sin generar la figura)
@@ -844,9 +823,9 @@ class Controller:
         try:
             self.session.set_joint_height(name, h)
         except (ValueError, KeyError) as e:
-            self._changed(f"No sirve: {e}.", scene=False)
+            self._changed(tr("controller.no_sirve_e", e=e), scene=False)
             return False
-        self._changed(f"Eje de la {name} a {self.session.joint_height(name):.2f} mm del plano. Hay que generar de nuevo.")
+        self._changed(tr("controller.eje_de_la_name_a_joint", name=name, joint_height=f"{self.session.joint_height(name):.2f}"))
         return True
 
     def joint_plane_side_tilt(self, name: str) -> float:
@@ -866,25 +845,25 @@ class Controller:
         if s.catalog_only():
             err = s.catalog_joint_error()
             if err:
-                return f"No se puede previsualizar: {err}."
-            return "Las piezas de catálogo elegidas no traen rodilla ni codo: no hay articulación para previsualizar."
-        return "No hay ninguna articulación para previsualizar: agregá la rodilla o el codo de un miembro, o una pierna (cadera)."
+                return tr("controller.no_se_puede_previsualizar_err", err=err)
+            return tr("controller.las_piezas_de_catalogo_elegidas_no")
+        return tr("controller.no_hay_ninguna_articulacion_para_previsual")
 
     def set_joint_plane_side_tilt(self, name: str, tilt_deg: float) -> bool:
         """Inclina (o endereza, con 0) de costado el plano de la articulación; el eje no se mueve."""
         try:
             self.session.set_joint_plane_side_tilt(name, tilt_deg)
         except (ValueError, KeyError) as e:
-            self._changed(f"No sirve: {e}.", scene=False)
+            self._changed(tr("controller.no_sirve_e", e=e), scene=False)
             return False
-        self._changed(f"Plano de la {name}: {self.joint_plane_side_tilt(name):.1f}° de costado. Hay que generar de nuevo.")
+        self._changed(tr("controller.plano_de_la_name_joint_plane", name=name, joint_plane_side_tilt=f"{self.joint_plane_side_tilt(name):.1f}"))
         return True
 
     def set_joint_preview(self, name: str | None, on: bool) -> bool:
         """Enciende o apaga la vista previa de una articulación (por omisión, la primera del proyecto)."""
         if not on:
             self.show_joint_preview = False
-            self._changed("Vista previa de la articulación apagada.")
+            self._changed(tr("controller.vista_previa_de_la_articulacion_apagada"))
             return True
         listed = self.session.preview_names()
         if name is None and listed:
@@ -902,14 +881,11 @@ class Controller:
         self.show_joint_preview = True
         if self.is_hip_preview(name):
             hi = self.session.project.params.sit_angle
-            self._changed(f"Vista previa de la {name}: el pasador y el hueco que talla el barrido en la pelvis. Cambiá la flexión "
-                          f"mostrada (0° de pie, {hi:g}° sentada) para ver girar el muslo; el pasador y el barrido se ajustan "
-                          "en «Parámetros» y «Colocar pasador».")
+            self._changed(tr("controller.vista_previa_de_la_name_el", name=name, hi=f"{hi:g}"))
         elif self.joint_editable(name):
-            self._changed(f"Vista previa de la {name}: mové el eje, el plano o el rango y se recalcula sola.")
+            self._changed(tr("controller.vista_previa_de_la_name_move", name=name))
         else:
-            self._changed(f"Vista previa de la {name} de la pieza de catálogo: se ve tal como se catalogó (el eje y el plano no "
-                          "se mueven acá); cambiá la flexión mostrada para verla doblar.")
+            self._changed(tr("controller.vista_previa_de_la_name_de", name=name))
         return True
 
     JOINT_TOOL_MODES = (Mode.JOINT_PLANE, Mode.JOINT_LINES, Mode.JOINT_SIDE, Mode.JOINT_AXIS)
@@ -995,10 +971,10 @@ class Controller:
         if not self.show_joint_preview:
             return ""
         if jp["error"]:
-            return f"No se puede previsualizar: {jp['error']}"
+            return tr("controller.no_se_puede_previsualizar_error", error=jp['error'])
         if jp["pv"] is None:
-            return "Calculando la articulación…"
-        return jp["pv"].summary() + ("\n  (actualizando…)" if jp["busy"] else "")
+            return tr("common.calculando_la_articulacion")
+        return jp["pv"].summary() + (('\n  ' + tr("common.actualizando")) if jp["busy"] else "")
 
     def _request_joint_preview(self, name: str) -> None:
         """Lanza el cálculo si cambió algo desde el último (en un hilo si la ventana puso `call_in_main`)."""
@@ -1109,7 +1085,7 @@ class Controller:
 
     def joint_range_text(self, name: str) -> str:
         lo, hi = self.joint_limits(name)
-        return f"{lo:g}° … {hi:g}° de flexión"
+        return tr("controller.lo_hi_de_flexion", lo=f"{lo:g}", hi=f"{hi:g}")
 
     def cancel(self, quiet: bool = False) -> None:
         was = self.mode
@@ -1130,11 +1106,11 @@ class Controller:
         if was == Mode.FLAT_PLANE and self.pose_view and not self.flat_print:
             self.pose_report = None          # vuelven las rodillas a la flexión de la pose impresa: se recalculan las interferencias
         if not quiet:
-            self._changed("Edición del recorte terminada." if was_trim
-                          else "Edición de silueta terminada." if was == Mode.POLYGON
-                          else "Colocación del pasador terminada." if was in (Mode.PIN, Mode.HEAD_PIN, Mode.WAIST_PIN)
-                          else "Ajuste del corte con la cama de impresión terminado." if was == Mode.FLAT_PLANE
-                          else "Corte paralelo al piso terminado." if was == Mode.FLOOR_CUT else "Cancelado.")
+            self._changed(tr("controller.edicion_del_recorte_terminada") if was_trim
+                          else tr("controller.edicion_de_silueta_terminada") if was == Mode.POLYGON
+                          else tr("controller.colocacion_del_pasador_terminada") if was in (Mode.PIN, Mode.HEAD_PIN, Mode.WAIST_PIN)
+                          else tr("controller.ajuste_del_corte_con_la_cama") if was == Mode.FLAT_PLANE
+                          else tr("controller.corte_paralelo_al_piso_terminado") if was == Mode.FLOOR_CUT else tr("common.cancelado_2"))
 
     def undo_point(self) -> None:
         if self.mode == Mode.POLYGON and self.draft is not None:
@@ -1142,7 +1118,7 @@ class Controller:
             return
         if self.pending:
             self.pending.pop()
-            self._changed(f"Quedan {len(self.pending)} punto(s).")
+            self._changed(tr("controller.quedan_n_punto_s", n=len(self.pending)))
 
     def auto_symmetry(self) -> None:
         if not self._need_loaded():
@@ -1150,7 +1126,7 @@ class Controller:
         self.cancel(quiet=True)
         self.session.auto_symmetry()
         self._rebuild_picker()
-        self._changed("Simetría automática en x = 0 (la figura ya viene centrada).")
+        self._changed(tr("controller.simetria_automatica_en_x_0_la"))
 
     def front_change_loss(self) -> list[str]:
         """Qué trabajo se borraría al cambiar «Frente hacia» (lista vacía = nada que perder, no hace falta confirmar)."""
@@ -1159,15 +1135,15 @@ class Controller:
         pr = self.session.project
         loss = []
         if pr.symmetry is not None:
-            loss.append("el plano de simetría")
+            loss.append(tr("controller.el_plano_de_simetria"))
         if pr.limbs:
-            loss.append(f"{len(pr.limbs)} miembro(s)")
+            loss.append(tr("controller.n_miembro_s", n=len(pr.limbs)))
         if pr.trims:
-            loss.append(f"{len(pr.trims)} recorte(s)")
+            loss.append(tr("controller.n_recorte_s", n=len(pr.trims)))
         if pr.head is not None:
-            loss.append("la cabeza")
+            loss.append(tr("controller.la_cabeza"))
         if pr.waist is not None:
-            loss.append("la cintura")
+            loss.append(tr("controller.la_cintura"))
         return loss
 
     def set_front(self, front: str) -> None:
@@ -1177,7 +1153,7 @@ class Controller:
         self.session.set_front(front)
         self._rebuild_picker()
         self.hidden.clear()
-        self._changed(f"Frente hacia {front}; se borraron simetría y miembros.")
+        self._changed(tr("controller.frente_hacia_front_se_borraron_simetria", front=front))
 
     def set_one_side(self, on: bool) -> None:
         self.one_side = bool(on)
@@ -1223,7 +1199,7 @@ class Controller:
         """Vuelve todos los parámetros de `PARAM_FIELDS` a su valor por defecto (la altura no está entre ellos). Un solo paso de deshacer."""
         keys = self.modified_params()
         if not keys:
-            self._changed("Todos los parámetros ya tienen su valor por defecto.", scene=False)
+            self._changed(tr("controller.todos_los_parametros_ya_tienen_su"), scene=False)
             return 0
         was = self.defer_history
         self.defer_history = True                 # un solo paso de deshacer para todo el lote
@@ -1232,7 +1208,7 @@ class Controller:
                 self.reset_param(k)
         finally:
             self.defer_history = was
-        self._changed(f"Se restauraron {len(keys)} parámetro(s) a su valor por defecto. Hay que generar de nuevo.", scene=False)
+        self._changed(tr("controller.se_restauraron_n_parametro_s_a", n=len(keys)), scene=False)
         if not was:
             self.record_history()
         return len(keys)
@@ -1242,12 +1218,12 @@ class Controller:
         generada. Devuelve False (y deja el motivo en `message`) si la clave o el valor no valen."""
         spec = next((f for f in PARAM_FIELDS if f[0] == key), None)
         if spec is None:
-            self._changed(f"Parámetro desconocido: {key}.", scene=False)
+            self._changed(tr("controller.parametro_desconocido_key", param=key), scene=False)
             return False
         _k, label, lo, hi, _step, _dig = spec
         value = float(value)
         if not (lo - 1e-9 <= value <= hi + 1e-9):
-            self._changed(f"{label}: {value:g} está fuera de rango ({lo:g}–{hi:g}).", scene=False)
+            self._changed(tr("controller.label_value_esta_fuera_de_rango", label=label, value=f"{value:g}", lo=f"{lo:g}", hi=f"{hi:g}"), scene=False)
             return False
         if abs(self.get_param(key) - value) < 1e-12:
             return True
@@ -1260,7 +1236,7 @@ class Controller:
             self._changed(f"{label}: {value:g}.")
             return True
         self.session.outcome = None
-        self._changed(f"{label}: {value:g}. Hay que generar de nuevo.", scene=False)
+        self._changed(tr("controller.label_value_hay_que_generar_de", label=label, value=f"{value:g}"), scene=False)
         return True
 
     def set_ref_height(self, mm: float) -> bool:
@@ -1279,12 +1255,11 @@ class Controller:
             self.camera.frame(self.session.work.bounds)
         pr = self.session.project
         has_geom = pr.symmetry is not None or pr.limbs or pr.trims or pr.joints or pr.head is not None or pr.waist is not None
-        msg = f"Altura de la figura: {pr.params.ref_height:g} mm (×{k:.4g})."
+        msg = tr("controller.altura_de_la_figura_ref_height", ref_height=f"{pr.params.ref_height:g}", k=f"{k:.4g}")
         if has_geom:
-            msg += (" Planos, siluetas y recortes se escalaron con la figura; revisalos. Los pasadores, la holgura y el"
-                    " clic son medidas absolutas y no cambian: ajustalos en Parámetros si hace falta. Hay que generar de nuevo.")
+            msg += ((' ' + tr("controller.planos_siluetas_y_recortes_se_escalaron")))
         elif self.loaded:
-            msg += " Los pasadores, la holgura y el clic son medidas absolutas: revisalos en Parámetros."
+            msg += (' ' + tr("controller.los_pasadores_la_holgura_y_el"))
         self.joint_guides = {n: (up * k, low * k) for n, (up, low) in self.joint_guides.items()}
         self.cancel(quiet=True)             # sale de cualquier edición a medias (estaba en la escala anterior)
         self._changed(msg)
@@ -1300,9 +1275,9 @@ class Controller:
         try:
             path = profile.save_profile(name, self.session.project.params, directory)
         except ValueError as e:
-            self._changed(f"No se guardó el perfil: {e}.", scene=False)
+            self._changed(tr("controller.no_se_guardo_el_perfil_e", e=e), scene=False)
             return None
-        self._changed(f"Perfil «{name}» guardado en {path}.", scene=False)
+        self._changed(tr("controller.perfil_name_guardado_en_path", name=name, path=path), scene=False)
         return path
 
     def load_profile(self, name: str, directory: str | None = None) -> bool:
@@ -1311,12 +1286,12 @@ class Controller:
         try:
             params = profile.load_profile(name, directory)
         except (OSError, ValueError, TypeError) as e:
-            self._changed(f"No se pudo cargar el perfil «{name}»: {e}.", scene=False)
+            self._changed(tr("controller.no_se_pudo_cargar_el_perfil", name=name, e=e), scene=False)
             return False
         params.ref_height = self.session.project.params.ref_height   # la altura es de la figura abierta, no del perfil
         self.session.project.params = params
         self.session.outcome = None
-        self._changed(f"Perfil «{name}» cargado (holgura {params.clearance:g} mm). Hay que generar de nuevo.",
+        self._changed(tr("controller.perfil_name_cargado_holgura_clearance_mm", name=name, clearance=f"{params.clearance:g}"),
                       scene=False)
         return True
 
@@ -1327,7 +1302,7 @@ class Controller:
         if self.busy:
             return None
         self.busy = True
-        self._changed("Generando las probetas… puede tardar.", scene=False)
+        self._changed(tr("controller.generando_las_probetas_puede_tardar"), scene=False)
         p = self.session.project.params
 
         def job(progress=None) -> dict:
@@ -1361,11 +1336,10 @@ class Controller:
                              error: Exception | None = None) -> dict | None:
         self.busy = False
         if error is not None:
-            self._changed(f"Falló la generación de probetas: {error}", scene=False)
+            self._changed(tr("controller.fallo_la_generacion_de_probetas_error", error=error), scene=False)
             return None
-        kind = {"hip": "cadera", "shoulder": "hombro", "hinge": "bisagra de rodilla/codo"}.get(which, which)
-        self._changed(f"Probetas ({info['celdas']} articulaciones, pasador de {kind}) "
-                      f"en {outdir}. Imprimilas, cargá en «Parámetros» la combinación elegida y guardala en el perfil.",
+        kind = {"hip": "cadera", "shoulder": "hombro", "hinge": tr("controller.bisagra_de_rodilla_codo")}.get(which, which)
+        self._changed(tr("controller.probetas_celdas_articulaciones_pasador_de", celdas=info['celdas'], kind=kind, outdir=outdir),
                       scene=False)
         return info
 
@@ -1386,7 +1360,7 @@ class Controller:
         from .. import profile
         self.session.project.params = profile.apply_probe_result(self.session.project.params, clearance, shaft_d, which)
         self.session.outcome = None
-        self._changed(f"Probetas: holgura {clearance:g} mm y vástago Ø{shaft_d:g} mm. Hay que generar de nuevo.",
+        self._changed(tr("controller.probetas_holgura_clearance_mm_y_vastago", clearance=f"{clearance:g}", shaft_d=f"{shaft_d:g}"),
                       scene=False)
 
     # ------------------------------------------------------------ siluetas
@@ -1400,27 +1374,24 @@ class Controller:
             return
         limb = self.session.limb(name)
         if limb is None:
-            self._changed(f"No existe el plano «{name}».", scene=False)
+            self._changed(tr("controller.no_existe_el_plano_name", name=name), scene=False)
             return
         keep_sim = self.show_joint_preview and self.polygon_hip_name() is not None     # de la silueta a la 2.ª (y al revés) sigue la simulación
         self.cancel(quiet=True)
         if cross:
             plane = self.session.cross_plane(name)
             poly = limb.cross.polygon if limb.cross is not None else np.zeros((0, 3))
-            what = f"2.ª silueta de «{name}» (sobre el plano «{plane.name}»)"
+            what = tr("controller.2_a_silueta_de_name_sobre", name=name, name2=plane.name)
         else:
-            plane, poly, what = limb.plane, limb.polygon, f"Silueta de «{name}»"
+            plane, poly, what = limb.plane, limb.polygon, tr("controller.silueta_de_name", name=name)
         if len(poly) >= 3:
             self.draft = PolygonDraft.from_world(plane, poly)
-            msg = (f"{what}: clic cerca de un vértice para elegirlo y otro clic para moverlo; "
-                   "clic sobre un borde agrega un vértice; Retroceso borra el elegido; Esc termina.")
+            msg = (tr("controller.what_clic_cerca_de_un_vertice", what=what))
         else:
             self.draft = PolygonDraft(plane)
-            msg = (f"{what}: hacé clic para poner vértices sobre el plano (mirá el plano de frente, "
-                   "vista Frente/Izquierda). Cerrá con un clic en el primero o con «Cerrar polígono».")
+            msg = (tr("controller.what_hace_clic_para_poner_vertices", what=what))
             if cross:
-                msg += (" Cubrí el miembro visto de frente; en una pierna incluí la columna del muslo desde la "
-                        "simetría y el escalón de la cadera.")
+                msg += ((' ' + tr("controller.cubri_el_miembro_visto_de_frente")))
         self.mode, self.edit_limb, self.edit_cross = Mode.POLYGON, name, cross
         if keep_sim and self.polygon_hip_name() == self._jp["name"]:
             self.show_joint_preview = True
@@ -1433,47 +1404,46 @@ class Controller:
         escalón de la cadera no limite la altura de la cara de contacto (ni la del hueco y el pasador)."""
         d = self.draft
         if self.mode != Mode.POLYGON or d is None or not self.edit_cross or not d.closed:
-            self._changed("Abrí la 2.ª silueta de un miembro (botón «2.ª») y cerrá su polígono.", scene=False)
+            self._changed(tr("controller.abri_la_2_a_silueta_de"), scene=False)
             return
         spec = self.session.limb(self.edit_limb)
         top = self.session._other_top(spec, cross=True)
         if top is None:
-            self._changed("Falta la silueta principal del miembro: es la que marca hasta dónde sube.", scene=False)
+            self._changed(tr("controller.falta_la_silueta_principal_del_miembro"), scene=False)
             return
         from .session import _raise_top
         w = d.world()
         new = _raise_top(w, top)
         if np.allclose(new, w):
-            self._changed("El borde superior ya llega hasta el de la silueta principal.", scene=False)
+            self._changed(tr("controller.el_borde_superior_ya_llega_hasta"), scene=False)
             return
         self.draft = PolygonDraft.from_world(d.plane, new)
-        self._commit_polygon(f"Borde superior subido a z = {top:.1f} mm")
+        self._commit_polygon(tr("controller.borde_superior_subido_a_z_top", top=f"{top:.1f}"))
 
     def remove_silhouette(self, name: str) -> None:
         """Quita la silueta principal de `name` (el miembro vuelve a figurar como pendiente de silueta)."""
         if self.edit_limb == name and not self.edit_cross:
             self.cancel(quiet=True)
         if self.session.clear_limb_polygon(name):
-            self._changed(f"Silueta de «{name}» quitada. Falta dibujarla de nuevo para poder generar.")
+            self._changed(tr("controller.silueta_de_name_quitada_falta_dibujarla", name=name))
         else:
-            self._changed(f"«{name}» no tiene silueta.", scene=False)
+            self._changed(tr("controller.name_no_tiene_silueta", name=name), scene=False)
 
     def remove_cross(self, name: str) -> None:
         """Quita la 2.ª silueta de `name`."""
         if self.edit_limb == name and self.edit_cross:
             self.cancel(quiet=True)
         if self.session.clear_limb_cross(name):
-            self._changed(f"2.ª silueta de «{name}» quitado.")
+            self._changed(tr("controller.2_a_silueta_de_name_quitado", name=name))
         else:
-            self._changed(f"«{name}» no tiene 2.ª silueta.", scene=False)
+            self._changed(tr("controller.name_no_tiene_2_a_silueta", name=name), scene=False)
 
     def _click_polygon(self, px: float, py: float, width: float, height: float) -> None:
         d = self.draft
         origin, direction = self.camera.ray(px, py, width, height)
         uv = ray_plane_uv(d.plane, origin, direction)
         if uv is None:
-            self._changed("El plano se ve de canto (o queda atrás) desde esta vista: girá la cámara "
-                          "hasta verlo de frente.", scene=False)
+            self._changed(tr("controller.el_plano_se_ve_de_canto"), scene=False)
             return
         screen = self.camera.project(d.world(), width, height)[:, :2] if d.pts else np.zeros((0, 2))
         click = (px, py)
@@ -1482,26 +1452,26 @@ class Controller:
             if near == 0 and len(d.pts) >= 3:
                 self.close_polygon()
             elif near is not None:
-                self._changed("Ya hay un vértice ahí.", scene=False)
+                self._changed(tr("controller.ya_hay_un_vertice_ahi"), scene=False)
             else:
                 d.add(uv)
-                self._changed(f"Vértice {len(d.pts)}. Retroceso deshace el último; clic en el primero cierra.")
+                self._changed(tr("controller.vertice_n_retroceso_deshace_el_ultimo", n=len(d.pts)))
             return
         if near is not None:
             d.selected = None if d.selected == near else near
-            self._changed(f"Vértice {near + 1} elegido: clic en el plano para moverlo." if d.selected is not None
-                          else "Vértice soltado.")
+            self._changed(tr("controller.vertice_v_elegido_clic_en_el", v=near + 1) if d.selected is not None
+                          else tr("controller.vertice_soltado"))
         elif d.selected is not None:
             d.move(d.selected, uv)
             d.selected = None
-            self._commit_polygon("Vértice movido")
+            self._commit_polygon(tr("controller.vertice_movido"))
         else:
             edge = d.nearest_edge(screen, click, EDGE_PX)
             if edge is None:
-                self._changed("Clic cerca de un vértice para elegirlo, o sobre un borde para agregar uno.", scene=False)
+                self._changed(tr("controller.clic_cerca_de_un_vertice_para"), scene=False)
             else:
                 d.insert(edge, uv)
-                self._commit_polygon("Vértice agregado")
+                self._commit_polygon(tr("controller.vertice_agregado"))
 
     def _commit_polygon(self, what: str = "Silueta guardada") -> bool:
         """Guarda el polígono cerrado en el proyecto (solo si es válido)."""
@@ -1512,14 +1482,14 @@ class Controller:
             return self._commit_trim(what)
         err = d.validity_error()
         if err:
-            self._changed(f"{what}, pero la silueta {err}: corregila (no se guardó en el proyecto).")
+            self._changed(tr("controller.what_pero_la_silueta_err_corregila", what=what, err=err))
             return False
         if self.edit_cross:
             self.session.set_limb_cross(self.edit_limb, d.world())
-            self._changed(f"{what}. 2.ª silueta de «{self.edit_limb}»: {len(d.pts)} vértices.")
+            self._changed(tr("controller.what_2_a_silueta_de_edit", what=what, edit_limb=self.edit_limb, n=len(d.pts)))
         else:
             self.session.set_limb_polygon(self.edit_limb, d.world())
-            self._changed(f"{what}. Silueta de «{self.edit_limb}»: {len(d.pts)} vértices.")
+            self._changed(tr("controller.what_silueta_de_edit_limb_n", what=what, edit_limb=self.edit_limb, n=len(d.pts)))
         return True
 
     def close_polygon(self) -> None:
@@ -1527,30 +1497,30 @@ class Controller:
         if self.mode != Mode.POLYGON or d is None:
             return
         if not d.close():
-            self._changed("Hacen falta al menos 3 vértices para cerrar.", scene=False)
+            self._changed(tr("controller.hacen_falta_al_menos_3_vertices"), scene=False)
             return
-        self._commit_polygon("Polígono cerrado")
+        self._commit_polygon(tr("controller.poligono_cerrado"))
 
     def _polygon_backspace(self) -> None:
         d = self.draft
         if not d.closed:
             if d.pts:
                 d.pts.pop()
-                self._changed(f"Quedan {len(d.pts)} vértice(s).")
+                self._changed(tr("controller.quedan_n_vertice_s", n=len(d.pts)))
         elif d.selected is not None:
             if len(d.pts) <= 3:
-                self._changed("Un polígono necesita al menos 3 vértices.", scene=False)
+                self._changed(tr("controller.un_poligono_necesita_al_menos_3"), scene=False)
             else:
                 d.delete(d.selected)
-                self._commit_polygon("Vértice borrado")
+                self._commit_polygon(tr("controller.vertice_borrado"))
         else:
-            self._changed("Elegí un vértice (clic cerca) para borrarlo.", scene=False)
+            self._changed(tr("controller.elegi_un_vertice_clic_cerca_para"), scene=False)
 
     def clear_polygon(self) -> None:
         """Vacía el borrador para dibujar de nuevo (la silueta guardada se reemplaza al cerrar el nuevo polígono)."""
         if self.mode == Mode.POLYGON and self.draft is not None:
             self.draft.clear()
-            self._changed("Silueta vaciada: dibujá los vértices de nuevo.")
+            self._changed(tr("controller.silueta_vaciada_dibuja_los_vertices_de"))
 
     def guide_outline(self, plane: Plane) -> list[dict]:
         """Contornos de la figura (lado de trabajo) proyectados sobre `plane`, para calcar encima."""
@@ -1571,11 +1541,11 @@ class Controller:
         shapes = [Polygon(g["exterior"]) for g in self.guide_outline(d.plane)]
         shapes = [g for g in shapes if g.is_valid and g.area > 1.0]
         if not shapes:
-            self._changed("No hay contorno de la figura sobre este plano.", scene=False)
+            self._changed(tr("controller.no_hay_contorno_de_la_figura"), scene=False)
             return
         ring = np.asarray(max(shapes, key=lambda g: g.area).simplify(0.6).exterior.coords)[:-1]
         d.pts, d.closed, d.selected = [p.copy() for p in ring], True, None
-        self._commit_polygon("Contorno de la figura usado como base; recortalo moviendo/borrando vértices")
+        self._commit_polygon(tr("controller.contorno_de_la_figura_usado_como"))
 
     def propose_silhouette(self, crotch_z: float | None = None) -> None:
         """Reemplaza el borrador por la silueta que propone el programa para el miembro en edición."""
@@ -1583,7 +1553,7 @@ class Controller:
         if self.mode != Mode.POLYGON or d is None:
             return
         if self.edit_limb is None:
-            self._changed("La propuesta automática es para la silueta de un miembro, no para un recorte.", scene=False)
+            self._changed(tr("controller.la_propuesta_automatica_es_para_la"), scene=False)
             return
         try:
             poly = self.session.propose_silhouette(self.edit_limb, crotch_z, cross=self.edit_cross)
@@ -1591,8 +1561,7 @@ class Controller:
             self._changed(str(e), scene=False)
             return
         self.draft = PolygonDraft.from_world(d.plane, poly)
-        self._changed("Silueta propuesta: revisala y corregí los vértices que haga falta (en piernas con abrigo o "
-                      "faldón largo suele convenir subir la cadera).")
+        self._changed(tr("controller.silueta_propuesta_revisala_y_corregi_los"))
 
     # -------------------------------------------------------------- pasador
     def start_pin(self, name: str) -> None:
@@ -1604,14 +1573,14 @@ class Controller:
         if not self._need_loaded():
             return
         if self.session.limb(name) is None:
-            self._changed(f"No existe el plano «{name}».", scene=False)
+            self._changed(tr("controller.no_existe_el_plano_name", name=name), scene=False)
             return
         self.cancel(quiet=True)
         fixed = self.session.fix_limb_extrude(name)
         try:
             prev = self.session.pin_preview(name)
         except (ValueError, KeyError) as e:
-            self._changed(f"No se puede colocar el pasador de «{name}»: {e}.", scene=False)
+            self._changed(tr("controller.no_se_puede_colocar_el_pasador", name=name, e=e), scene=False)
             return
         self.mode, self.pin_limb, self.pin_prev = Mode.PIN, name, prev
         self.pin_aid, self.pin_aim = self._make_pin_aid(name, prev), None
@@ -1619,10 +1588,9 @@ class Controller:
         half = float(max(np.ptp(prev.plane.to_uv(r), axis=0).max() for r in prev.rings_world())) * 0.65 or 10.0
         self.camera.look_along(face.outward, face.center, max(half, 8.0))
         self.hidden.discard(name)
-        note = (f"«{name}» tiene el plano de costado: ahora se extruye hacia afuera (el plano es la cara del plano de separación) "
-                "y se descartó el pasador anterior. ") if fixed else ""
-        self._changed(note + f"Pasador de «{name}»: " + self._pin_status(name) + self._reach_warning(name)
-                      + " Clic = mover; flechas 0,1 mm (Mayús 1 mm); Esc termina.")
+        note = ((tr("controller.name_tiene_el_plano_de_costado", name=name) + ' ')) if fixed else ""
+        self._changed(note + (tr("controller.pasador_de_name", name=name) + ' ') + self._pin_status(name) + self._reach_warning(name)
+                      + (' ' + tr("controller.clic_mover_flechas_0_1_mm")))
 
     def _make_pin_aid(self, name: str, prev):
         """La mira asistida del pasador (`pin_aid.PinAid`) contra el catálogo abierto. None si no hay catálogo, no se puede abrir
@@ -1651,7 +1619,7 @@ class Controller:
         reach = self.session.pin_reach_margin(name)
         if reach is None or reach >= 0:
             return ""
-        return f" Aviso: cruza con el del otro lado por {-reach:.1f} mm (acortá shaft_len / head_h o usá un plano más afuera)."
+        return (' ' + tr("controller.aviso_cruza_con_el_del_otro", v=f"{-reach:.1f}"))
 
     def _pin_status(self, name: str) -> str:
         """Una línea corta: qué posición se usa y el margen al borde. Es informativa: no impide elegir ningún punto
@@ -1661,21 +1629,21 @@ class Controller:
         pin = self.session.pin_spec(name)
         inside, margin = prev.fit(uv, pin.shaft_d)
         user = self.session.limb(name).pin_center is not None
-        txt = "posición elegida" if user else "posición automática"
+        txt = tr("controller.posicion_elegida") if user else tr("controller.posicion_automatica")
         if not inside:
-            return txt + f"; centro fuera de la cara (vástago Ø{pin.shaft_d:g} apoya {max(margin + pin.shaft_d / 2, 0):.1f} mm)."
+            return txt + tr("controller.centro_fuera_de_la_cara_vastago", shaft_d=f"{pin.shaft_d:g}", v=f"{max(margin + pin.shaft_d / 2, 0):.1f}")
         if margin < 0:
-            return txt + f"; el vástago sobresale {-margin:.1f} mm del borde." + self._aim_note(uv)
+            return txt + tr("controller.el_vastago_sobresale_v_mm_del", v=f"{-margin:.1f}") + self._aim_note(uv)
         if margin < self.session.project.params.min_wall:
-            return txt + f"; margen al borde {margin:.1f} mm (< {self.session.project.params.min_wall:g})." + self._aim_note(uv)
-        return txt + f"; margen al borde {margin:.1f} mm." + self._aim_note(uv)
+            return txt + tr("controller.margen_al_borde_margin_mm_min", margin=f"{margin:.1f}", min_wall=f"{self.session.project.params.min_wall:g}") + self._aim_note(uv)
+        return txt + tr("controller.margen_al_borde_margin_mm", margin=f"{margin:.1f}") + self._aim_note(uv)
 
     def _aim_note(self, uv) -> str:
         """« Catálogo: torsos 3/4 · brazos 17/21.» con la mira asistida, o nada si no hay catálogo contra el cual medir."""
         if self.pin_aid is None:
             return ""
         c = self.pin_aid.evaluate(uv).contador()
-        return f" Catálogo: {c}." if c else ""
+        return (' ' + tr("controller.catalogo_c", c=c)) if c else ""
 
     def _joint_mode(self) -> str | None:
         """«cuello» / «cintura» mientras se coloca su pasador de costado (HEAD_PIN / WAIST_PIN), si no None."""
@@ -1713,7 +1681,7 @@ class Controller:
             return False
         self.pin_aim = r
         motivo = r.peor_motivo() if r.nivel != "ok" else None
-        self.message = "Mira: " + r.texto() + (f" · {motivo}" if motivo else "")
+        self.message = (tr("controller.mira") + ' ') + r.texto() + (f" · {motivo}" if motivo else "")
         self.scene_dirty = True                      # la ventana refresca solo la barra de estado y el recuadro (no toda la interfaz)
         return True
 
@@ -1737,13 +1705,13 @@ class Controller:
         if self.mode != Mode.PIN or self.pin_prev is None:
             return
         if self.pin_aid is None:
-            self._changed("El imán necesita un catálogo abierto para saber qué posición acepta más piezas.", scene=False)
+            self._changed(tr("controller.el_iman_necesita_un_catalogo_abierto"), scene=False)
             return
         best = self.pin_aid.best_near(self.pin_prev.project(self._pin_center(self.pin_limb)))
         if best is None:
-            self._changed("El imán no encontró ningún punto sobre la cara a menos de 2 mm del pasador.", scene=False)
+            self._changed(tr("controller.el_iman_no_encontro_ningun_punto"), scene=False)
             return
-        self._place_pin(best.uv, "Imán")
+        self._place_pin(best.uv, tr("common.iman"))
 
     def _place_pin(self, uv, what: str = "Pasador movido") -> bool:
         name = self.pin_limb
@@ -1751,7 +1719,7 @@ class Controller:
         try:
             self.session.set_limb_pin(name, world)
         except ValueError as e:
-            self._changed(f"No se movió: {e}.", scene=False)
+            self._changed(tr("controller.no_se_movio_e", e=e), scene=False)
             return False
         self._changed(f"{what}: " + self._pin_status(name))
         return True
@@ -1760,7 +1728,7 @@ class Controller:
         origin, direction = self.camera.ray(px, py, width, height)
         uv = ray_plane_uv(self.pin_prev.plane, origin, direction)
         if uv is None:
-            self._changed("La cara de contacto se ve de canto desde esta vista: usá «Mirar la cara de frente».",
+            self._changed(tr("controller.la_cara_de_contacto_se_ve"),
                           scene=False)
             return
         self._place_pin(uv)
@@ -1771,14 +1739,14 @@ class Controller:
             return
         step = NUDGE_MM * (10.0 if big else 1.0)
         uv = self.pin_prev.project(self._pin_center(self.pin_limb)) + np.array([du, dv], float) * step
-        self._place_pin(uv, "Pasador ajustado")
+        self._place_pin(uv, tr("controller.pasador_ajustado"))
 
     def reset_pin(self) -> None:
         """Descarta la posición elegida y vuelve a la que propone el programa."""
         if self.mode != Mode.PIN or self.pin_prev is None:
             return
         self.session.set_limb_pin(self.pin_limb, None)
-        self._changed("Pasador restablecido: " + self._pin_status(self.pin_limb))
+        self._changed((tr("controller.pasador_restablecido") + ' ') + self._pin_status(self.pin_limb))
 
     # ------------------------------------------------- pasador del cuello (vista de costado)
     def start_head_pin(self) -> None:
@@ -1787,20 +1755,20 @@ class Controller:
         if not self._need_loaded():
             return
         if self.session.project.head is None:
-            self._changed("Primero definí el plano del cuello (Planos → Cabeza).", scene=False)
+            self._changed(tr("controller.primero_defini_el_plano_del_cuello"), scene=False)
             return
         try:
             prev = self.session.head_pin_preview()
         except ValueError as e:
-            self._changed(f"No se puede colocar el pasador del cuello: {e}.", scene=False)
+            self._changed(tr("controller.no_se_puede_colocar_el_pasador_2", e=e), scene=False)
             return
         self.cancel(quiet=True)
         self.mode, self.head_pin_prev = Mode.HEAD_PIN, prev
         self.pin_aid, self.joint_prev = self._joint_pin_aid("cuello")
         self.pin_aim = None
         self.camera.look_along((1.0, 0.0, 0.0), self._head_pin_center(), 0.35 * self.session.project.params.ref_height)
-        self._changed("Pasador del cuello (vista de costado): " + self._head_pin_status()
-                      + " Clic = mover; flechas ←/↓ atrás y →/↑ adelante 0,1 mm (Mayús 1 mm); Esc termina.")
+        self._changed((tr("controller.pasador_del_cuello_vista_de_costado") + ' ') + self._head_pin_status()
+                      + (' ' + tr("controller.clic_mover_flechas_atras_y_adelante")))
 
     def _head_pin_center(self) -> np.ndarray:
         """Centro del pasador que se usaría ahora: el elegido, o el automático."""
@@ -1812,31 +1780,32 @@ class Controller:
         c, shaft = self._head_pin_center(), self.session.project.params.neck_pin.shaft_d
         inside, margin = prev.fit(c, shaft)
         off = float((c - prev.default_center) @ prev.along)
-        txt = "posición automática" if spec.pin_center is None else (
-            f"posición elegida ({abs(off):.1f} mm {'adelante' if off > 0 else 'atrás'} de la automática)"
-            if abs(off) >= 0.05 else "posición elegida (igual a la automática)")
+        txt = tr("controller.posicion_automatica") if spec.pin_center is None else (
+            tr("controller.posicion_elegida_off_mm_v_de", off=f"{abs(off):.1f}", v='adelante' if off > 0 else 'atrás')
+            if abs(off) >= 0.05 else tr("controller.posicion_elegida_igual_a_la_automatica"))
         if not inside:
-            return txt + f"; centro fuera de la cara (vástago Ø{shaft:g} apoya {max(margin + shaft / 2, 0):.1f} mm)."
+            return txt + tr("controller.centro_fuera_de_la_cara_vastago_2", shaft=f"{shaft:g}", v=f"{max(margin + shaft / 2, 0):.1f}")
         if margin < 0:
-            return txt + f"; el vástago sobresale {-margin:.1f} mm del borde."
+            return txt + tr("controller.el_vastago_sobresale_v_mm_del", v=f"{-margin:.1f}")
         if margin < self.session.project.params.min_wall:
-            return txt + f"; margen al borde {margin:.1f} mm (< {self.session.project.params.min_wall:g})."
-        return txt + f"; margen al borde {margin:.1f} mm." + self._joint_note(self._head_pin_center())
+            return txt + tr("controller.margen_al_borde_margin_mm_min", margin=f"{margin:.1f}", min_wall=f"{self.session.project.params.min_wall:g}")
+        return txt + tr("controller.margen_al_borde_margin_mm", margin=f"{margin:.1f}") + self._joint_note(self._head_pin_center())
 
-    def _place_head_pin(self, point, what: str = "Pasador del cuello movido") -> bool:
+    def _place_head_pin(self, point, what: str | None = None) -> bool:
+        what = what or tr("controller.pasador_del_cuello_movido")
         try:
             self.session.set_head_pin(point)
         except ValueError as e:
-            self._changed(f"No se movió: {e}.", scene=False)
+            self._changed(tr("controller.no_se_movio_e", e=e), scene=False)
             return False
-        self._changed(f"{what}: " + self._head_pin_status() + " Hay que generar de nuevo.")
+        self._changed(f"{what}: " + self._head_pin_status() + (' ' + tr("controller.hay_que_generar_de_nuevo")))
         return True
 
     def _click_head_pin(self, px: float, py: float, width: float, height: float) -> None:
         """El clic se lleva al plano de simetría (x = 0), donde está el pasador, y de ahí al plano del cuello."""
         origin, direction = self.camera.ray(px, py, width, height)
         if abs(direction[0]) < 1e-6:
-            self._changed("Esta vista mira de canto el plano de simetría: usá «Derecha» o «Izquierda» (vista de costado).",
+            self._changed(tr("controller.esta_vista_mira_de_canto_el"),
                           scene=False)
             return
         self._place_head_pin(origin - origin[0] / direction[0] * direction)
@@ -1847,20 +1816,20 @@ class Controller:
             return
         step = NUDGE_MM * (10.0 if big else 1.0)
         c = self._head_pin_center() + self.head_pin_prev.along * (du + dv) * step
-        self._place_head_pin(c, "Pasador del cuello ajustado")
+        self._place_head_pin(c, tr("controller.pasador_del_cuello_ajustado"))
 
     def reset_head_pin(self) -> None:
         """Descarta la posición elegida del pasador del cuello y vuelve a la automática."""
         if self.session.project.head is None or self.session.project.head.pin_center is None:
-            self._changed("El pasador del cuello ya está en la posición automática.", scene=False)
+            self._changed(tr("controller.el_pasador_del_cuello_ya_esta"), scene=False)
             return
         self.session.set_head_pin(None)
         if self.mode != Mode.HEAD_PIN:
             self.start_head_pin()                  # vuelve a la vista de costado para ver y reposicionar el pasador
-            self._changed("Pasador del cuello restablecido: " + self._head_pin_status()
-                          + " Clic = mover; flechas ←/↓ atrás y →/↑ adelante; Esc termina. Hay que generar de nuevo.")
+            self._changed((tr("controller.pasador_del_cuello_restablecido") + ' ') + self._head_pin_status()
+                          + (' ' + tr("controller.clic_mover_flechas_atras_y_adelante_3")))
             return
-        self._changed("Pasador del cuello restablecido: " + self._head_pin_status() + " Hay que generar de nuevo.")
+        self._changed((tr("controller.pasador_del_cuello_restablecido") + ' ') + self._head_pin_status() + (' ' + tr("controller.hay_que_generar_de_nuevo")))
 
     # ------------------------------------------------- mira del pasador del cuello y de la cintura (de costado)
     def _joint_pin_aid(self, lugar: str):
@@ -1884,42 +1853,42 @@ class Controller:
         if self.pin_aid is None or self.joint_prev is None or self._joint_mode() is None:
             return ""
         c = self.pin_aid.evaluate(self.joint_prev.project(center)).contador()
-        return f" Catálogo: {c}." if c else ""
+        return (' ' + tr("controller.catalogo_c", c=c)) if c else ""
 
     def _snap_joint_pin(self, lugar: str) -> None:
         if self.pin_aid is None:
-            self._changed("El imán necesita un catálogo abierto para saber qué posición acepta más piezas.", scene=False)
+            self._changed(tr("controller.el_iman_necesita_un_catalogo_abierto"), scene=False)
             return
         c = self._head_pin_center() if lugar == "cuello" else self._waist_pin_center()
         best = self.pin_aid.best_near(self.joint_prev.project(c))
         if best is None:
-            self._changed("El imán no encontró ningún punto sobre la cara a menos de 2 mm del pasador.", scene=False)
+            self._changed(tr("controller.el_iman_no_encontro_ningun_punto"), scene=False)
             return
         world = self.joint_prev.plane.to_world(np.asarray(best.uv, float)[None])[0]
         if lugar == "cuello":
-            self._place_head_pin(world, "Imán")
+            self._place_head_pin(world, tr("common.iman"))
         else:
-            self._place_waist_pin(world, "Imán")
+            self._place_waist_pin(world, tr("common.iman"))
 
     def start_waist_pin(self) -> None:
         """Elegir dónde va el pasador de la cintura mirando la figura de costado (como el del cuello): siempre en x = 0."""
         if not self._need_loaded():
             return
         if self.session.project.waist is None:
-            self._changed("Primero definí el plano de la cintura (Planos → Cintura).", scene=False)
+            self._changed(tr("controller.primero_defini_el_plano_de_la"), scene=False)
             return
         try:
             prev = self.session.waist_pin_preview()
         except ValueError as e:
-            self._changed(f"No se puede colocar el pasador de la cintura: {e}.", scene=False)
+            self._changed(tr("controller.no_se_puede_colocar_el_pasador_3", e=e), scene=False)
             return
         self.cancel(quiet=True)
         self.mode, self.waist_pin_prev = Mode.WAIST_PIN, prev
         self.pin_aid, self.joint_prev = self._joint_pin_aid("cintura")
         self.pin_aim = None
         self.camera.look_along((1.0, 0.0, 0.0), self._waist_pin_center(), 0.35 * self.session.project.params.ref_height)
-        self._changed("Pasador de la cintura (vista de costado): " + self._waist_pin_status()
-                      + " Clic = mover; flechas ←/↓ atrás y →/↑ adelante 0,1 mm (Mayús 1 mm); M imán; Esc termina.")
+        self._changed((tr("controller.pasador_de_la_cintura_vista_de") + ' ') + self._waist_pin_status()
+                      + (' ' + tr("controller.clic_mover_flechas_atras_y_adelante_2")))
 
     def _waist_pin_center(self) -> np.ndarray:
         spec, prev = self.session.project.waist, self.waist_pin_prev
@@ -1930,32 +1899,33 @@ class Controller:
         c, shaft = self._waist_pin_center(), self.session.project.params.waist_pin.shaft_d
         inside, margin = prev.fit(prev.project(c), shaft)
         off = float((c - prev.default_center) @ prev.along)
-        txt = "posición automática" if spec.pin_center is None else (
-            f"posición elegida ({abs(off):.1f} mm {'adelante' if off > 0 else 'atrás'} de la automática)"
-            if abs(off) >= 0.05 else "posición elegida (igual a la automática)")
+        txt = tr("controller.posicion_automatica") if spec.pin_center is None else (
+            tr("controller.posicion_elegida_off_mm_v_de", off=f"{abs(off):.1f}", v='adelante' if off > 0 else 'atrás')
+            if abs(off) >= 0.05 else tr("controller.posicion_elegida_igual_a_la_automatica"))
         if not inside:
-            return txt + f"; centro fuera de la cara (vástago Ø{shaft:g} apoya {max(margin + shaft / 2, 0):.1f} mm)."
+            return txt + tr("controller.centro_fuera_de_la_cara_vastago_2", shaft=f"{shaft:g}", v=f"{max(margin + shaft / 2, 0):.1f}")
         if margin < 0:
-            txt += f"; el vástago sobresale {-margin:.1f} mm del borde."
+            txt += tr("controller.el_vastago_sobresale_v_mm_del", v=f"{-margin:.1f}")
         elif margin < self.session.project.params.min_wall:
-            txt += f"; margen al borde {margin:.1f} mm (< {self.session.project.params.min_wall:g})."
+            txt += tr("controller.margen_al_borde_margin_mm_min", margin=f"{margin:.1f}", min_wall=f"{self.session.project.params.min_wall:g}")
         else:
-            txt += f"; margen al borde {margin:.1f} mm."
+            txt += tr("controller.margen_al_borde_margin_mm", margin=f"{margin:.1f}")
         return txt + self._joint_note(c)
 
-    def _place_waist_pin(self, point, what: str = "Pasador de la cintura movido") -> bool:
+    def _place_waist_pin(self, point, what: str | None = None) -> bool:
+        what = what or tr("controller.pasador_de_la_cintura_movido")
         try:
             self.session.set_waist_pin(point)
         except ValueError as e:
-            self._changed(f"No se movió: {e}.", scene=False)
+            self._changed(tr("controller.no_se_movio_e", e=e), scene=False)
             return False
-        self._changed(f"{what}: " + self._waist_pin_status() + " Hay que generar de nuevo.")
+        self._changed(f"{what}: " + self._waist_pin_status() + (' ' + tr("controller.hay_que_generar_de_nuevo")))
         return True
 
     def _click_waist_pin(self, px: float, py: float, width: float, height: float) -> None:
         origin, direction = self.camera.ray(px, py, width, height)
         if abs(direction[0]) < 1e-6:
-            self._changed("Esta vista mira de canto el plano de simetría: usá «Derecha» o «Izquierda» (vista de costado).",
+            self._changed(tr("controller.esta_vista_mira_de_canto_el"),
                           scene=False)
             return
         self._place_waist_pin(origin - origin[0] / direction[0] * direction)
@@ -1965,18 +1935,18 @@ class Controller:
             return
         step = NUDGE_MM * (10.0 if big else 1.0)
         self._place_waist_pin(self._waist_pin_center() + self.waist_pin_prev.along * (du + dv) * step,
-                              "Pasador de la cintura ajustado")
+                              tr("controller.pasador_de_la_cintura_ajustado"))
 
     def reset_waist_pin(self) -> None:
         """Descarta la posición elegida del pasador de la cintura (el puerto «cintura» vuelve al centroide de la cara)."""
         if self.session.project.waist is None or self.session.project.waist.pin_center is None:
-            self._changed("El pasador de la cintura ya está en la posición automática.", scene=False)
+            self._changed(tr("controller.el_pasador_de_la_cintura_ya"), scene=False)
             return
         self.session.set_waist_pin(None)
         if self.mode != Mode.WAIST_PIN:
             self.start_waist_pin()
             return
-        self._changed("Pasador de la cintura restablecido: " + self._waist_pin_status() + " Hay que generar de nuevo.")
+        self._changed((tr("controller.pasador_de_la_cintura_restablecido") + ' ') + self._waist_pin_status() + (' ' + tr("controller.hay_que_generar_de_nuevo")))
 
     def aim_box(self) -> dict | None:
         """Datos del recuadro de la mira (`pin_aid_view.aim_box_data`) del pasador que se coloca (miembro, cuello o cintura)."""
@@ -2014,14 +1984,14 @@ class Controller:
         generada, que se arma con un solo lado y su espejo. Al activarlo se pasa a trabajar un solo lado."""
         if on and (not self._need_loaded() or self.session.project.symmetry is None):
             if self.loaded:
-                self._changed("Primero definí el plano de simetría: el espejo se hace respecto de él.", scene=False)
+                self._changed(tr("controller.primero_defini_el_plano_de_simetria_4"), scene=False)
             self.mirror_live = False
             return
         self.mirror_live = bool(on)
         if self.mirror_live:
             self.one_side = True
-        self._changed("Espejo en vivo: lo que hacés en el lado +X se ve reflejado en el otro." if self.mirror_live
-                      else "Espejo en vivo desactivado.")
+        self._changed(tr("controller.espejo_en_vivo_lo_que_haces") if self.mirror_live
+                      else tr("controller.espejo_en_vivo_desactivado"))
 
     # ----------------------------------------------- pose sentada (vista previa y colisiones)
     def pose_active(self) -> bool:
@@ -2070,7 +2040,7 @@ class Controller:
         soportes». Cambia la fase de los clics: invalida la figura y hay que generar de nuevo."""
         adv = {n: a for n, a in self.flat_click_advice().items() if a["angulo_apoyo"] is not None}
         if not adv:
-            self._changed("Ningún brazo con clic necesita otro ángulo para apoyar en el plano del corte.", scene=False)
+            self._changed(tr("controller.ningun_brazo_con_clic_necesita_otro"), scene=False)
             return False
         angle = max(a["angulo_apoyo"] for a in adv.values())            # hoy hay un solo brazo con clic: el parámetro es global
         return self.set_param("detent.print_angle", round(angle))
@@ -2081,15 +2051,14 @@ class Controller:
             return ""
         a = next(iter(adv.values()))
         if a["angulo_apoyo"] is None:
-            return f" El brazo con clic cuelga {a['cuelga_mm']:.1f} mm bajo el plano y no llega a apoyar."
-        return (f" El brazo con clic cuelga {a['cuelga_mm']:.1f} mm bajo el plano: para que apoye, el clic tiene que quedar a "
-                f"{a['angulo_apoyo']:.0f}° (ahora {a['angulo_actual']:.0f}°): usá «Ajustar el clic del brazo» y generá de nuevo.")
+            return (' ' + tr("controller.el_brazo_con_clic_cuelga_cuelga_2", cuelga_mm=f"{a['cuelga_mm']:.1f}"))
+        return ((' ' + tr("controller.el_brazo_con_clic_cuelga_cuelga", cuelga_mm=f"{a['cuelga_mm']:.1f}", angulo_apoyo=f"{a['angulo_apoyo']:.0f}", angulo_actual=f"{a['angulo_actual']:.0f}")))
 
     def set_flat_fill_hip(self, on: bool) -> None:
         """Casilla «Rellenar los muslos hasta la pelvis recortada»: solo cambia la exportación sin soportes (no invalida la figura)."""
         self.session.project.params.flat_fill_hip = bool(on)
-        self._changed("Muslos rellenos hasta la pelvis recortada al exportar sin soportes." if on
-                      else "Los muslos se exportan sin relleno.", scene=False)
+        self._changed(tr("controller.muslos_rellenos_hasta_la_pelvis_recortada") if on
+                      else tr("controller.los_muslos_se_exportan_sin_relleno"), scene=False)
 
     def set_flat_print(self, on: bool) -> None:
         """Casilla «Modificar para imprimir sin soportes»: al activarla la figura generada se muestra sentada y con las
@@ -2136,18 +2105,18 @@ class Controller:
     @staticmethod
     def pose_message(r: dict) -> str:
         if r["ok"]:
-            txt = f"Pose a {r['angle']:.0f}°: sin colisiones"
+            txt = tr("controller.pose_a_angle_sin_colisiones", angle=f"{r['angle']:.0f}")
         else:
             parts = []
             if r["torso"]:
-                parts.append("choca con el torso: " + ", ".join(f"{n} ({v:.2f} mm³)" for n, v in r["torso"].items()))
+                parts.append((tr("controller.choca_con_el_torso") + ' ') + ", ".join(f"{n} ({v:.2f} mm³)" for n, v in r["torso"].items()))
             if r["pairs"]:
-                parts.append("se cruzan " + ", ".join(f"{a} con {b} ({v:.2f} mm³)" for (a, b), v in r["pairs"].items()))
-            txt = f"Pose a {r['angle']:.0f}°: " + "; ".join(parts)
+                parts.append((tr("controller.se_cruzan") + ' ') + ", ".join(tr("controller.a_con_b_v_mm3", a=a, b=b, v=f"{v:.2f}") for (a, b), v in r["pairs"].items()))
+            txt = (tr("controller.pose_a_angle", angle=f"{r['angle']:.0f}") + ' ') + "; ".join(parts)
         if r["limit"] is not None and r["angle"] > r["limit"] + 1e-6:
-            txt += f" (pasa del límite de cadera tallado en el torso, {r['limit']:.0f}°)"
+            txt += (' ' + tr("controller.pasa_del_limite_de_cadera_tallado", limit=f"{r['limit']:.0f}"))
         if r.get("estiradas"):
-            txt += " (piernas estiradas, como se imprimen sin soportes)"
+            txt += (' ' + tr("controller.piernas_estiradas_como_se_imprimen_sin"))
         return txt + "."
 
     def _pose_update(self) -> None:
@@ -2160,11 +2129,11 @@ class Controller:
         if not on:
             was = self.pose_view
             self.pose_view, self.pose_report = False, None
-            self._changed("Vista previa de la pose terminada." if was else None)
+            self._changed(tr("controller.vista_previa_de_la_pose_terminada") if was else None)
             return
         if self.session.outcome is None:
             self.pose_view = False
-            self._changed("Primero generá la figura: la vista previa de la pose usa las piezas generadas.", scene=False)
+            self._changed(tr("controller.primero_genera_la_figura_la_vista"), scene=False)
             return
         self.cancel(quiet=True)
         self.pose_view = True
@@ -2193,7 +2162,7 @@ class Controller:
         if not self._need_loaded():
             return
         if self.session.outcome is None:
-            self._changed("Primero generá la figura: el corte con la cama de impresión se ajusta sobre la figura generada y sentada.",
+            self._changed(tr("controller.primero_genera_la_figura_el_corte"),
                           scene=False)
             return
         self.set_pose_view(True)
@@ -2202,10 +2171,10 @@ class Controller:
         self.camera.frame(self.session.work.bounds)
         self.camera.set_view("derecha")
         self._changed(self.flat_message(self.session.project.params.flat_depth) +
-                      " Hacé clic a la altura que querés (o ↑ ↓, Mayús = 1 mm); Esc termina.")
+                      (' ' + tr("controller.hace_clic_a_la_altura_que")))
 
     def flat_message(self, depth: float) -> str:
-        return f"Corte con la cama de impresión: {depth:.1f} mm sobre la cola (z = {self.flat_base_z() + depth:.1f} mm)."
+        return tr("controller.corte_con_la_cama_de_impresion_2", depth=f"{depth:.1f}", v=f"{self.flat_base_z() + depth:.1f}")
 
     def set_flat_depth(self, depth: float) -> float | None:
         """Fija la altura del corte (mm sobre la cola), dentro del rango de `Parámetros`. No invalida la figura."""
@@ -2216,7 +2185,7 @@ class Controller:
         self.session.project.params.flat_depth = round(d, 3)
         note = ""
         if abs(d - wanted) > 1e-9:
-            note = f" (el rango es {lo:g}–{hi:g} mm)"
+            note = (' ' + tr("controller.el_rango_es_lo_hi_mm", lo=f"{lo:g}", hi=f"{hi:g}"))
         self._changed(self.flat_message(d) + note)
         return d
 
@@ -2234,7 +2203,7 @@ class Controller:
             return
         origin, direction = self.camera.ray(px, py, width, height)
         if abs(direction[0]) < 0.2:
-            self._changed("Mirá la figura de costado (botón Derecha o Izquierda) para fijar la altura con un clic.",
+            self._changed(tr("controller.mira_la_figura_de_costado_boton"),
                           scene=False)
             return
         t = (0.0 - origin[0]) / direction[0]
@@ -2254,20 +2223,20 @@ class Controller:
         out = []
         for i, t in enumerate(self.session.project.trims):
             out.append({"index": i, "target": t.target, "shape": t.shape, "op": t.op,
-                        "label": f"{i + 1}. {TRIM_OP_LABELS.get(t.op, t.op).capitalize()} {TRIM_SHAPE_LABELS.get(t.shape, t.shape)}"
-                                 f" en «{t.target}»"})
+                        "label": tr("controller.trim_entry_label", n=i + 1, op=loc(TRIM_OP_LABELS.get(t.op, t.op)).capitalize(),
+                                    shape=loc(TRIM_SHAPE_LABELS.get(t.shape, t.shape)), target=t.target)})
         return out
 
     def _check_trim_args(self, target: str, op: str, length: float) -> str | None:
         """Motivo por el que los datos de un recorte no sirven, o None."""
         if self.session.project.symmetry is None:
-            return "Primero definí el plano de simetría: los recortes se hacen sobre el lado de trabajo"
+            return tr("controller.primero_defini_el_plano_de_simetria")
         if target not in self.trim_targets():
-            return f"No existe la pieza «{target}» (usá «torso», «cabeza» o el nombre de un miembro)"
+            return tr("controller.no_existe_la_pieza_target_usa", target=target)
         if op not in TRIM_OP_LABELS:
-            return "La operación debe ser «subtract» (restar) o «union» (unir)"
+            return tr("controller.la_operacion_debe_ser_subtract_restar")
         if not (0.1 <= float(length) <= 500.0):
-            return "La distancia de extrusión tiene que estar entre 0,1 y 500 mm"
+            return tr("controller.la_distancia_de_extrusion_tiene_que")
         return None
 
     def start_trim(self, target: str = "torso", op: str = "subtract", distance: float = 25.0,
@@ -2280,11 +2249,11 @@ class Controller:
         trims = self.session.project.trims
         if index is not None:
             if not (0 <= index < len(trims)):
-                self._changed(f"No existe el recorte {index + 1}.", scene=False)
+                self._changed(tr("controller.no_existe_el_recorte_v", v=index + 1), scene=False)
                 return
             t = trims[index]
             if t.shape != "polygon":
-                self._changed("Solo los recortes de polígono se editan con vértices; quitalo y colocá otro.", scene=False)
+                self._changed(tr("controller.solo_los_recortes_de_poligono_se"), scene=False)
                 return
             target, op, distance, symmetric = t.target, t.op, t.distance, t.symmetric
             plane, poly = t.plane, np.asarray(t.polygon, float)
@@ -2300,29 +2269,28 @@ class Controller:
         self.draft = PolygonDraft.from_world(plane, poly) if len(poly) >= 3 else PolygonDraft(plane)
         self.mode = Mode.POLYGON
         self.camera.look_along(plane.normal, target=self.session.work.bounds.mean(axis=0))
-        what = f"{TRIM_OP_LABELS[op]} en «{target}»"
-        self._changed(f"Recorte ({what}): " + (
-            "clic en un vértice para elegirlo y otro clic para moverlo; clic sobre un borde agrega uno; Retroceso borra."
+        what = tr("controller.op_en_target", op=TRIM_OP_LABELS[op], target=target)
+        self._changed((tr("controller.recorte_what", what=what) + ' ') + (
+            tr("controller.clic_en_un_vertice_para_elegirlo")
             if len(poly) >= 3 else
-            "hacé clic para poner vértices sobre el plano de simetría (vista de costado); cerrá con un clic en el "
-            "primero o con Intro. Se extruye " + ("hacia ambos lados" if symmetric else "hacia +X") + f" {distance:g} mm."))
+            (tr("controller.hace_clic_para_poner_vertices_sobre") + ' ') + (tr("controller.hacia_ambos_lados") if symmetric else tr("controller.hacia_x")) + f" {distance:g} mm."))
 
     def _commit_trim(self, what: str) -> bool:
         d, cfg = self.draft, self.trim_cfg
         err = d.validity_error()
         if err:
-            self._changed(f"{what}, pero el polígono {err}: corregilo (no se guardó el recorte).")
+            self._changed(tr("controller.what_pero_el_poligono_err_corregilo", what=what, err=err))
             return False
         world = d.world()
         trims = self.session.project.trims
         if self.edit_trim is None:
             self.session.add_trim(Trim(cfg["target"], d.plane, world, cfg["distance"], cfg["symmetric"], cfg["op"]))
             self.edit_trim = len(trims) - 1
-            self._changed(f"{what}. Recorte {self.edit_trim + 1} guardado: {TRIM_OP_LABELS[cfg['op']]} en «{cfg['target']}».")
+            self._changed(tr("controller.what_recorte_v_guardado_trim_op", what=what, v=self.edit_trim + 1, trim_op_labels=TRIM_OP_LABELS[cfg['op']], target=cfg['target']))
         else:
             trims[self.edit_trim].polygon = world
             self.session.outcome = None
-            self._changed(f"{what}. Recorte {self.edit_trim + 1} actualizado.")
+            self._changed(tr("controller.what_recorte_v_actualizado", what=what, v=self.edit_trim + 1))
         return True
 
     def add_trim_primitive(self, target: str, shape: str, center, size, op: str = "subtract",
@@ -2331,12 +2299,12 @@ class Controller:
         de arista `size` (o de 3 aristas x, y, z) o cilindro de radio `size` con el eje en X y `length` de largo.
         Devuelve su índice, o None (con el motivo en `message`) si no sirve."""
         if shape not in ("sphere", "box", "cylinder"):
-            self._changed("Forma desconocida: usá esfera, caja o cilindro (o «Dibujar recorte» para un polígono).",
+            self._changed(tr("controller.forma_desconocida_usa_esfera_caja_o"),
                           scene=False)
             return None
         err = self._check_trim_args(target, op, length)
         if err is None and not np.all(np.asarray(size, float) > 0):
-            err = "El tamaño tiene que ser positivo"
+            err = tr("controller.el_tamano_tiene_que_ser_positivo")
         if err:
             self._changed(err + ".", scene=False)
             return None
@@ -2350,7 +2318,7 @@ class Controller:
             pts = np.array([c - half, c + half])
         self.session.add_trim(Trim(target, plane, pts, float(length), True, op, shape))
         idx = len(self.session.project.trims) - 1
-        self._changed(f"Recorte {idx + 1} agregado: {TRIM_OP_LABELS[op]} {TRIM_SHAPE_LABELS[shape]} en «{target}».")
+        self._changed(tr("controller.recorte_v_agregado_trim_op_labels", v=idx + 1, trim_op_labels=TRIM_OP_LABELS[op], trim_shape_labels=TRIM_SHAPE_LABELS[shape], target=target))
         return idx
 
     def start_trim_pick(self, target: str, shape: str, size, op: str = "subtract", length: float = 25.0) -> None:
@@ -2359,7 +2327,7 @@ class Controller:
         if not self._need_loaded():
             return
         if shape not in ("sphere", "box", "cylinder"):
-            self._changed("Elegí esfera, caja o cilindro.", scene=False)
+            self._changed(tr("controller.elegi_esfera_caja_o_cilindro"), scene=False)
             return
         err = self._check_trim_args(target, op, length)
         if err:
@@ -2369,8 +2337,7 @@ class Controller:
         self.mode = Mode.TRIM_PICK
         self.trim_cfg = {"target": target, "op": op, "distance": float(length), "symmetric": True,
                          "shape": shape, "size": size}
-        self._changed(f"Recorte {TRIM_SHAPE_LABELS[shape]} en «{target}»: hacé clic en la figura donde va el centro "
-                      "(en el lado +X); Esc cancela.")
+        self._changed(tr("controller.recorte_trim_shape_labels_en_target", trim_shape_labels=TRIM_SHAPE_LABELS[shape], target=target))
 
     def _sync_joints(self, scene) -> None:
         """Dibuja el eje de cada bisagra como una línea amarilla (sin prueba de profundidad)."""
@@ -2392,26 +2359,26 @@ class Controller:
         idx = self.add_trim_primitive(cfg["target"], cfg["shape"], center, cfg["size"], cfg["op"], cfg["distance"])
         if idx is not None:
             self.cancel(quiet=True)
-            self._changed(self.message + " Generá de nuevo para ver el resultado.")
+            self._changed(self.message + (' ' + tr("controller.genera_de_nuevo_para_ver_el")))
 
     def remove_trim(self, index: int) -> None:
         if not (0 <= index < len(self.session.project.trims)):
-            self._changed(f"No existe el recorte {index + 1}.", scene=False)
+            self._changed(tr("controller.no_existe_el_recorte_v", v=index + 1), scene=False)
             return
         if self.trim_cfg is not None:
             self.cancel(quiet=True)
         self.session.remove_trim(index)
-        self._changed(f"Recorte {index + 1} quitado. Generá de nuevo.")
+        self._changed(tr("controller.recorte_v_quitado_genera_de_nuevo", v=index + 1))
 
     def set_trim_op(self, index: int, op: str) -> None:
         trims = self.session.project.trims
         if not (0 <= index < len(trims)) or op not in TRIM_OP_LABELS:
-            self._changed("Recorte u operación inválidos.", scene=False)
+            self._changed(tr("controller.recorte_u_operacion_invalidos"), scene=False)
             return
         if trims[index].op != op:
             trims[index].op = op
             self.session.outcome = None
-        self._changed(f"Recorte {index + 1}: {TRIM_OP_LABELS[op]}. Generá de nuevo.")
+        self._changed(tr("controller.recorte_v_trim_op_labels_genera", v=index + 1, trim_op_labels=TRIM_OP_LABELS[op]))
 
     @staticmethod
     def trim_wires(t: Trim) -> list[np.ndarray]:
@@ -2466,16 +2433,12 @@ class Controller:
     def _overhang_message(self) -> str:
         found = self.overhang_faces()
         if found is None:
-            return "Primero abrí un STL."
+            return tr("controller.primero_abri_un_stl")
         _mask, res = found
         if self.pose_active():
             area = sum(float(m.area_faces[mk].sum()) for m, mk in self._pose_overhang_cache())
-            return (f"Voladizos en rojo (pared a más de {self.overhang_angle:.0f}° de la vertical) sobre la figura "
-                    f"generada en la pose de cadera ({self._pose_angle():.0f}°), cabeza arriba, como se exporta: "
-                    f"{area:.0f} mm².")
-        return (f"Voladizos en rojo (pared a más de {self.overhang_angle:.0f}° de la vertical): "
-                f"{res.overhang_area:.0f} mm² con la figura vista de frente, cabeza arriba. Referencia sobre la figura "
-                "entera; generala y mirala en la pose de cadera para ver los de las piezas.")
+            return (tr("controller.voladizos_en_rojo_pared_a_mas_2", overhang_angle=f"{self.overhang_angle:.0f}", pose_angle=f"{self._pose_angle():.0f}", area=f"{area:.0f}"))
+        return (tr("controller.voladizos_en_rojo_pared_a_mas", overhang_angle=f"{self.overhang_angle:.0f}", overhang_area=f"{res.overhang_area:.0f}"))
 
     @staticmethod
     def _torso_meshes(out) -> dict:
@@ -2560,7 +2523,7 @@ class Controller:
             hit = PickResult(v[1], base.hit.copy(), base.face, base.normal.copy(), True)    # el vértice en rojo es el punto elegido
             self.clear_hover()
         if hit is None:
-            self._changed("El clic no tocó la figura.", scene=False)
+            self._changed(tr("controller.el_clic_no_toco_la_figura"), scene=False)
             return None
         if self.mode == Mode.CROWN:
             self._finish_crown(hit)
@@ -2577,9 +2540,9 @@ class Controller:
                 if self.mode == Mode.JOINT_LINES:
                     self._changed(self._joint_lines_hint())
                 elif self.mode == Mode.JOINT_SIDE:
-                    self._changed(f"Guía de costado: punto {len(self.pending)}/4. Backspace deshace el último; Esc cancela.")
+                    self._changed(tr("controller.guia_de_costado_punto_n_4", n=len(self.pending)))
                 else:
-                    self._changed(f"Punto {len(self.pending)}/3. Backspace deshace el último; Esc cancela.")
+                    self._changed(tr("controller.punto_n_3_backspace_deshace_el", n=len(self.pending)))
             elif self.mode == Mode.JOINT_LINES:
                 self._finish_joint_lines()
             elif self.mode == Mode.JOINT_SIDE:
@@ -2614,7 +2577,7 @@ class Controller:
         self._rebuild_picker()
         self.camera.frame(self.session.work.bounds)
         self.cancel(quiet=True)
-        self._changed(f"Coronilla marcada a {z:.1f} mm: la figura se reescaló a {self.session.project.params.ref_height:g} mm.")
+        self._changed(tr("controller.coronilla_marcada_a_z_mm_la", z=f"{z:.1f}", ref_height=f"{self.session.project.params.ref_height:g}"))
 
     def _finish_symmetry(self) -> None:
         pts, self.pending = self.pending, []
@@ -2622,32 +2585,31 @@ class Controller:
             plane = Session.plane_from_points(pts, "simetría")
             self.session.set_symmetry(plane)
         except ValueError as e:
-            self._changed(f"No sirve: {e}. Elegí 3 puntos de nuevo.")
+            self._changed(tr("controller.no_sirve_e_elegi_3_puntos", e=e))
             return
         self._rebuild_picker()
         self.mode = Mode.VIEW
-        self._changed("Plano de simetría definido; la figura quedó centrada en él (x = 0).")
+        self._changed(tr("controller.plano_de_simetria_definido_la_figura"))
 
     def _finish_neck_plane(self) -> None:
         pts, self.pending = self.pending, []
         try:
             self.session.set_head(Session.plane_from_points(pts, HEAD_NAME))
         except ValueError as e:
-            self._changed(f"No sirve: {e}. Elegí 3 puntos de nuevo.")
+            self._changed(tr("controller.no_sirve_e_elegi_3_puntos", e=e))
             return
         self.mode = Mode.VIEW
-        self._changed("Plano del cuello definido: la cabeza se separa y gira libre sobre un pasador en el cuello.")
+        self._changed(tr("controller.plano_del_cuello_definido_la_cabeza"))
 
     def _finish_waist_plane(self) -> None:
         pts, self.pending = self.pending, []
         try:
             self.session.set_waist(Session.plane_from_points(pts, WAIST_NAME))
         except ValueError as e:
-            self._changed(f"No sirve: {e}. Elegí 3 puntos de nuevo.")
+            self._changed(tr("controller.no_sirve_e_elegi_3_puntos", e=e))
             return
         self.mode = Mode.VIEW
-        self._changed("Plano de la cintura definido: el torso se corta en pecho y pelvis, unidos por un pasador robusto; "
-                      "la figura gira a los costados sobre la cintura.")
+        self._changed(tr("controller.plano_de_la_cintura_definido_el"))
 
     # ------------------------------------------- corte paralelo al piso (cabeza / cintura)
     def start_floor_cut(self, place: str) -> None:
@@ -2655,26 +2617,28 @@ class Controller:
         que el plano de simetría trasladado («Corte a») para brazos y piernas, pero tomando el piso: el plano nace a una
         altura razonable (o conserva la que ya tenía) y se traslada en paralelo con «Altura sobre el piso», con un clic sobre
         la figura o con ↑ ↓. Si ya había un plano de 3 puntos inclinado, lo reemplaza."""
-        if place not in FLOOR_CUT_LABELS:
+        if place not in FLOOR_CUT_PLACES:
             raise ValueError(place)
         if not self._need_loaded():
             return
         if self.session.project.symmetry is None:
-            self._changed("Primero definí el plano de simetría.", scene=False)
+            self._changed(tr("controller.primero_defini_el_plano_de_simetria_3"), scene=False)
             return
         self.cancel(quiet=True)
         try:
             if self.session.floor_cut_height(place) is None:
                 self.session.set_floor_cut(place, self.session.default_floor_cut_height(place))
         except ValueError as e:
-            self._changed(f"No sirve: {e}.")
+            self._changed(tr("controller.no_sirve_error", error=e))
             return
         self.mode, self.pending_kind = Mode.FLOOR_CUT, place
-        self._changed(self.floor_cut_message(place) + " Hacé clic sobre la figura a la altura que querés (o ↑ ↓, Mayús = 1 mm); Esc termina.")
+        self._changed(self.floor_cut_message(place) + " " + tr("controller.hace_clic_sobre_la_figura_a_la_altura"))
 
     def floor_cut_message(self, place: str) -> str:
         h = self.session.floor_cut_height(place)
-        return f"Corte {FLOOR_CUT_LABELS[place]}: plano paralelo al piso a {h:.1f} mm sobre él."
+        if place == "head":
+            return tr("controller.corte_de_la_cabeza_cuello_plano_paralelo", h=f"{h:.1f}")
+        return tr("controller.corte_de_la_cintura_plano_paralelo_al", h=f"{h:.1f}")
 
     def set_floor_cut_height(self, place: str, mm: float) -> None:
         """Traslada en paralelo el plano de corte de `place` a `mm` mm sobre el piso (la cara del corte se mueve: el pasador vuelve a su posición automática)."""
@@ -2683,7 +2647,7 @@ class Controller:
         except ValueError as e:
             self._changed(f"{e}.", scene=False)
             return
-        self._changed(self.floor_cut_message(place) + " Revisá el pasador.")
+        self._changed(self.floor_cut_message(place) + " " + tr("controller.revisa_el_pasador"))
 
     def nudge_floor_cut(self, direction: int, big: bool = False) -> None:
         """↑ sube el plano, ↓ lo baja `FLOOR_CUT_NUDGE_MM` (Mayús = 10 veces más), sin salirse del rango de la figura."""
@@ -2707,14 +2671,12 @@ class Controller:
         if not self._need_loaded():
             return
         if self.session.project.symmetry is None:
-            self._changed("Primero definí el plano de simetría.", scene=False)
+            self._changed(tr("controller.primero_defini_el_plano_de_simetria_3"), scene=False)
             return
         self.cancel(quiet=True)
         self.hand_extract = self._hand_mesh = None
         self.mode = Mode.HAND_EXTRACT
-        self._changed("Mano estándar: elegí 3 puntos en la muñeca IZQUIERDA (+X). Marcá el punto 1 siempre en el mismo "
-                      "lugar (p. ej. el lado del pulgar) y los otros dos a ambos lados de la muñeca: así la mano queda "
-                      "orientada igual en todos los modelos. Lo de la mano se corta y se guarda aparte.")
+        self._changed(tr("controller.mano_estandar_elegi_3_puntos_en"))
 
     def _finish_hand_extract(self) -> None:
         pts, self.pending = self.pending, []
@@ -2726,37 +2688,36 @@ class Controller:
         except ValueError as e:
             self.mode = Mode.VIEW
             self.hand_extract = self._hand_mesh = None
-            self._changed(f"No sirve: {e}. Probá de nuevo con «Extraer mano estándar».")
+            self._changed(tr("controller.no_sirve_e_proba_de_nuevo", e=e))
             return False
         self.hand_extract = {"hand": hand, "split": split, "points": points, "invert": invert}
         self._hand_mesh = None
         self.mode = Mode.VIEW
         side = "izquierda" if split.frame.center[0] > 0 else "derecha"
-        self._changed(f"Mano {side} cortada (verde): muñeca Ø{2 * split.face_radius:.1f} mm, "
-                      f"{split.hand_volume:.0f} mm³. Si no es la mano, usá «Invertir lado»; si está bien, «Guardar mano estándar…».")
+        self._changed(tr("controller.mano_side_cortada_verde_muneca_v", side=side, v=f"{2 * split.face_radius:.1f}", hand_volume=f"{split.hand_volume:.0f}"))
         return True
 
     def invert_hand_extract(self) -> None:
         """Vuelve a cortar con los mismos 3 puntos tomando el otro lado del plano como mano."""
         if self.hand_extract is None:
-            self._changed("Primero extraé una mano.", scene=False)
+            self._changed(tr("controller.primero_extrae_una_mano"), scene=False)
             return
         self._run_hand_extract(self.hand_extract["points"], invert=not self.hand_extract["invert"])
 
     def discard_hand_extract(self) -> None:
         self.hand_extract = self._hand_mesh = None
-        self._changed("Mano extraída descartada.")
+        self._changed(tr("controller.mano_extraida_descartada"))
 
     def save_hand_extract(self, path: str) -> dict | None:
         """Guarda la mano extraída como mano estándar (STL + `.mano.json` al lado)."""
         if self.hand_extract is None:
-            self._changed("Primero extraé una mano.", scene=False)
+            self._changed(tr("controller.primero_extrae_una_mano"), scene=False)
             return None
         meta = self.session.save_hand(path, self.hand_extract["hand"], self.hand_extract["split"])
-        msg = f"Mano estándar guardada: {path.split('/')[-1]} (figura a {meta['altura_figura_mm']:g} mm)."
+        msg = tr("controller.mano_estandar_guardada_v_figura_a", v=path.split('/')[-1], altura_figura_mm=f"{meta['altura_figura_mm']:g}")
         from ..hand import LINE_HEIGHT_MM
         if abs(float(meta["altura_figura_mm"]) - LINE_HEIGHT_MM) > 0.5:
-            msg += f" AVISO: la línea usa figuras de {LINE_HEIGHT_MM:g} mm."
+            msg += (' ' + tr("controller.aviso_la_linea_usa_figuras_de", line_height_mm=f"{LINE_HEIGHT_MM:g}"))
         self._changed(msg, scene=False)
         return meta
 
@@ -2777,7 +2738,7 @@ class Controller:
         try:
             self.grip_barbs = parse_barbs(text)
         except ValueError as e:
-            self._changed(f"Dentados: {e}", scene=False)
+            self._changed(tr("controller.dentados_e", e=e), scene=False)
             return False
         self._changed(scene=False)
         return True
@@ -2793,8 +2754,8 @@ class Controller:
         if self.busy:
             return None
         self.busy = True
-        self.progress_prefix = "Taladrando la mano"
-        self._changed("Taladrando la mano estándar… busca el canal y puede tardar un minuto.", scene=False)
+        self.progress_prefix = tr("controller.taladrando_la_mano")
+        self._changed(tr("controller.taladrando_la_mano_estandar_busca_el"), scene=False)
         spec = self.grip_spec
 
         def job(progress=None):
@@ -2807,7 +2768,7 @@ class Controller:
     def finish_grip(self, result, error: Exception | None = None) -> bool:
         self.busy = False
         if error is not None:
-            self._changed(f"No se pudo taladrar la mano: {error}", scene=False)
+            self._changed(tr("controller.no_se_pudo_taladrar_la_mano", error=error), scene=False)
             return False
         self.grip = result
         self._changed(self.grip_summary(), scene=False)
@@ -2832,19 +2793,16 @@ class Controller:
 
         g = self.grip
         if g is None:
-            return f"No se puede dibujar la espada: {self._grip_prop_error}" if self.grip_show and self._grip_prop_error else ""
+            return tr("controller.no_se_puede_dibujar_la_espada", grip_prop_error=self._grip_prop_error) if self.grip_show and self._grip_prop_error else ""
         f = g.fit
-        lines = [f"Taladro Ø{f.bore_d:g} mm (canal natural Ø{g.channel.free_d:.1f}) · largo {f.length:.1f} mm · "
-                 f"pared mín. {f.wall_min:.1f} mm · el dentado apoya en ≈ {f.support_deg:.0f}° del contorno"]
-        lines += [f"Dentado Ø{v['dentado_mm']:g}: interferencia {v['interferencia_mm']:.2f} mm/lado · lengüeta ε ≈ "
-                  f"{v['deformacion_pct']:.2f} %" for v in grip_variants(g.spec, self.grip_barbs)]
+        lines = [tr("controller.taladro_bore_d_mm_canal_natural", bore_d=f"{f.bore_d:g}", free_d=f"{g.channel.free_d:.1f}", length=f"{f.length:.1f}", wall_min=f"{f.wall_min:.1f}", support_deg=f"{f.support_deg:.0f}")]
+        lines += [tr("controller.dentado_dentado_mm_interferencia_interfere", dentado_mm=f"{v['dentado_mm']:g}", interferencia_mm=f"{v['interferencia_mm']:.2f}", deformacion_pct=f"{v['deformacion_pct']:.2f}") for v in grip_variants(g.spec, self.grip_barbs)]
         if f.support_deg < 270:
-            lines.append("AVISO: el hombro apoya solo en parte del taladro; importa cómo gira la espada al entrar y el agarre "
-                         "es más flojo que con un tubo completo.")
+            lines.append(tr("controller.aviso_el_hombro_apoya_solo_en"))
         if self.grip_stale:
-            lines.append("El Ø del taladro cambió: volvé a taladrar para guardar la mano con ese valor (la placa usa el taladro ya hecho).")
+            lines.append(tr("controller.el_del_taladro_cambio_volve_a"))
         if self.grip_show and self._grip_prop_error:
-            lines.append(f"No se puede dibujar la espada: {self._grip_prop_error}")
+            lines.append(tr("controller.no_se_puede_dibujar_la_espada", grip_prop_error=self._grip_prop_error))
         return "\n".join(lines)
 
     def _hand_grip_fit(self):
@@ -2875,8 +2833,7 @@ class Controller:
         """Muestra u oculta una espada de prueba en el puño de la mano pegada (necesita una mano con agarre)."""
         if on and self._hand_grip_fit() is None:
             self.grip_show = False
-            self._changed("La mano pegada no tiene agarre: guardá la mano con agarre (sección «Agarre para accesorios») y "
-                          "pegala con «Mano de reemplazo (STL)…».", scene=False)
+            self._changed(tr("controller.la_mano_pegada_no_tiene_agarre"), scene=False)
             return False
         self.grip_show = bool(on)
         self._grip_prop_error = ""
@@ -2924,7 +2881,7 @@ class Controller:
             self._changed(str(exc), scene=False)
             return False
         self.weapon, self.weapon_catalog = ws, root
-        self._changed(f"Catálogo «{ws.catalog.name}»: las armas llevan la empuñadura de la mano {ws.hand.ref}.", scene=bool(self.weapon_active))
+        self._changed(tr("controller.catalogo_name_las_armas_llevan_la", name=ws.catalog.name, ref=ws.hand.ref), scene=bool(self.weapon_active))
         return True
 
     def open_weapon(self, path: str) -> bool:
@@ -2932,7 +2889,7 @@ class Controller:
         from ..weapon import WeaponError
         from .weapon_session import WeaponSession
 
-        if self._busy_for("el arma"):
+        if self._busy_for(tr("controller.el_arma")):
             return False
         ws = self.weapon or WeaponSession()
         root = self.weapon_catalog or self.session.catalog_root or GUI_SETTINGS.last_catalog()
@@ -2945,13 +2902,13 @@ class Controller:
         try:
             ws.load(path)
         except WeaponError as exc:
-            self._changed(f"No se pudo cargar el arma: {exc}", scene=False)
+            self._changed(tr("controller.no_se_pudo_cargar_el_arma", exc=exc), scene=False)
             return False
         self.cancel(quiet=True)
         self.weapon, self.weapon_active = ws, True
         self.camera.frame(ws.scaled.bounds)
         self.camera.set_view("frente")
-        self._changed(f"Arma cargada: {ws.summary().splitlines()[0]}. Ajustá la escala y elegí el plano de corte (3 clics sobre el mango).")
+        self._changed(tr("controller.arma_cargada_v_ajusta_la_escala", v=ws.summary().splitlines()[0]))
         return True
 
     def close_weapon(self) -> None:
@@ -2960,13 +2917,13 @@ class Controller:
         self.weapon_active = False
         if self.session.work is not None:
             self.camera.frame(self.session.work.bounds)
-        self._changed("Se volvió a la figura.")
+        self._changed(tr("controller.se_volvio_a_la_figura"))
 
     def set_weapon_scale(self, factor: float | None = None, length_mm: float | None = None) -> bool:
         from ..weapon import WeaponError
 
         if self.weapon is None or not self.weapon.loaded:
-            self._changed("Primero cargá un arma (STL).", scene=False)
+            self._changed(tr("controller.primero_carga_un_arma_stl"), scene=False)
             return False
         try:
             if factor is not None:
@@ -2984,20 +2941,19 @@ class Controller:
         from .picking import Picker
 
         if self.weapon is None or not self.weapon.loaded:
-            self._changed("Primero cargá un arma (STL).", scene=False)
+            self._changed(tr("controller.primero_carga_un_arma_stl"), scene=False)
             return
         self.cancel(quiet=True)
         self.mode = Mode.WEAPON_CUT_PLANE
         self.picker = Picker(self.weapon.scaled)                  # los clics caen sobre el arma, no sobre la figura
-        self._changed("Corte del mango: elegí 3 puntos sobre el arma, en el mango, donde querés cortar (2 a los lados y 1 al frente). "
-                      "Se descarta el lado hacia el que apunta la normal; «Invertir lado» lo cambia. Retroceso deshace el último punto, Esc cancela.")
+        self._changed(tr("controller.corte_del_mango_elegi_3_puntos"))
 
     def _finish_weapon_cut_plane(self) -> None:
         pts, self.pending = self.pending, []
         try:
             self.weapon.set_cut(pts)
         except Exception as e:                                    # noqa: BLE001
-            self._changed(f"No sirve: {e}. Elegí 3 puntos de nuevo.")
+            self._changed(tr("controller.no_sirve_e_elegi_3_puntos", e=e))
             return
         self.mode = Mode.VIEW
         self.picker = None
@@ -3005,7 +2961,7 @@ class Controller:
 
     def flip_weapon_cut(self) -> None:
         if self.weapon is None or not self.weapon.loaded or not self.weapon.spec.cut_points:
-            self._changed("Primero elegí el plano de corte.", scene=False)
+            self._changed(tr("controller.primero_elegi_el_plano_de_corte"), scene=False)
             return
         self.weapon.flip()
         self._changed(self.weapon.summary().replace("\n", " · "))
@@ -3026,14 +2982,14 @@ class Controller:
         from ..weapon import WeaponError
 
         if self.weapon is None or not self.weapon.loaded:
-            self._changed("Primero cargá un arma (STL).", scene=False)
+            self._changed(tr("controller.primero_carga_un_arma_stl"), scene=False)
             return False
         try:
             meta, warns = self.weapon.save(piece_id or None, new_version)
         except (WeaponError, CatalogError, ValueError) as exc:
-            self._changed(f"No se pudo guardar el arma: {exc}", scene=False)
+            self._changed(tr("controller.no_se_pudo_guardar_el_arma", exc=exc), scene=False)
             return False
-        self._changed(f"Arma guardada en el catálogo como {meta.ref}." + "".join(f" AVISO: {w}" for w in warns), scene=False)
+        self._changed(tr("controller.arma_guardada_en_el_catalogo_como", ref=meta.ref) + "".join((' ' + tr("common.aviso_w", w=w)) for w in warns), scene=False)
         return True
 
     def _sync_weapon(self, scene) -> None:
@@ -3081,7 +3037,7 @@ class Controller:
         from ..accessories import project_accessory_fit
         from .figure_builder import FIT_TEXT
 
-        return {m.ref: FIT_TEXT.get(project_accessory_fit(self.session.project, m)["nivel"], "") for m in self.accessory_pieces()}
+        return {m.ref: loc(FIT_TEXT.get(project_accessory_fit(self.session.project, m)["nivel"], "")) for m in self.accessory_pieces()}
 
     def set_project_accessory(self, ref: str, on: bool = True) -> bool:
         """Agrega o quita un accesorio del proyecto: sale con la figura al exportar y queda guardado en el `.proyecto`.
@@ -3093,7 +3049,7 @@ class Controller:
         if on:
             cat = self._accessory_catalog()
             if cat is None:
-                self._changed("Primero abrí o elegí el catálogo de la línea.", scene=False)
+                self._changed(tr("controller.primero_abri_o_elegi_el_catalogo"), scene=False)
                 return False
             try:
                 meta = cat.meta(ref)
@@ -3101,44 +3057,42 @@ class Controller:
                 self._changed(str(exc), scene=False)
                 return False
             if meta.tipo != "accesorio":
-                self._changed(f"«{meta.ref}» es una pieza «{meta.tipo}», no un accesorio.", scene=False)
+                self._changed(tr("controller.ref_es_una_pieza_tipo_no", ref=meta.ref, tipo=meta.tipo), scene=False)
                 return False
             keep = [a for a in self.session.project.accesorios if a.pieza.split("@")[0] != meta.id]
             self.session.project.accesorios = keep + [AccessoryRef(os.path.abspath(cat.root), meta.ref, meta.sha256)]
-            self._changed(f"«{meta.ref}» viaja con la figura: sale en piezas/ y al lado de la figura en el ensamblado.", scene=False)
+            self._changed(tr("controller.ref_viaja_con_la_figura_sale", ref=meta.ref), scene=False)
         else:
             pid = ref.split("@")[0]
             self.session.project.accesorios = [a for a in self.session.project.accesorios if a.pieza.split("@")[0] != pid]
-            self._changed(f"«{pid}» ya no viaja con la figura.", scene=False)
+            self._changed(tr("controller.pid_ya_no_viaja_con_la", pid=pid), scene=False)
         return True
 
     def save_grip_hand(self, path: str) -> bool:
         from ..props import write_grip_hand
 
         if self.grip is None:
-            self._changed("Primero taladrá una mano estándar.", scene=False)
+            self._changed(tr("controller.primero_taladra_una_mano_estandar"), scene=False)
             return False
         if self.grip_stale:
-            self._changed("El Ø del taladro cambió desde que se taladró la mano: volvé a taladrar antes de guardarla.", scene=False)
+            self._changed(tr("controller.el_del_taladro_cambio_desde_que"), scene=False)
             return False
         write_grip_hand(self.grip, path)
-        self._changed(f"Mano con agarre guardada: {path.split('/')[-1]} (eje y Ø del taladro en el .mano.json). "
-                      f"Pegala con «Mano de reemplazo (STL)…».", scene=False)
+        self._changed(tr("controller.mano_con_agarre_guardada_v_eje", v=path.split('/')[-1]), scene=False)
         return True
 
     def save_grip_plate(self, path: str) -> bool:
         from ..props import GripError, write_grip_plate
 
         if self.grip is None:
-            self._changed("Primero taladrá una mano estándar.", scene=False)
+            self._changed(tr("controller.primero_taladra_una_mano_estandar"), scene=False)
             return False
         try:
             write_grip_plate(self.grip, path, self.grip_spec, self.grip_barbs)
         except GripError as e:
-            self._changed(f"No se pudo generar la placa: {e}", scene=False)
+            self._changed(tr("controller.no_se_pudo_generar_la_placa", e=e), scene=False)
             return False
-        self._changed(f"Placa de espadas de prueba guardada: {path.split('/')[-1]} ({len(self.grip_barbs)} dentados). "
-                      f"Imprimila acostada, de preferencia en PETG.", scene=False)
+        self._changed(tr("controller.placa_de_espadas_de_prueba_guardada", v=path.split('/')[-1], n=len(self.grip_barbs)), scene=False)
         return True
 
     def hand_preview(self):
@@ -3156,20 +3110,18 @@ class Controller:
         if not self._need_loaded():
             return
         if self.session.project.symmetry is None:
-            self._changed("Primero definí el plano de simetría.", scene=False)
+            self._changed(tr("controller.primero_defini_el_plano_de_simetria_3"), scene=False)
             return
         from ..hand import load_standard_hand
         try:
             load_standard_hand(path)
         except Exception as e:                                  # archivo ilegible, no es una malla, JSON de otra versión…
-            self._changed(f"No se pudo leer esa mano estándar: {e}", scene=False)
+            self._changed(tr("controller.no_se_pudo_leer_esa_mano", e=e), scene=False)
             return
         self.cancel(quiet=True)
         self._hand_path_pending = path
         self.mode = Mode.HAND_PLACE
-        self._changed("Mano de reemplazo: elegí 3 puntos en la muñeca de este modelo (vale cualquiera de los dos brazos). "
-                      "Marcá el punto 1 en el mismo lugar que al extraer la mano (p. ej. el lado del pulgar) y los otros dos a "
-                      "ambos lados de la muñeca. Se descarta la mano del modelo y se pega la estándar, sin escalarla.")
+        self._changed(tr("controller.mano_de_reemplazo_elegi_3_puntos"))
 
     def _finish_hand_place(self) -> None:
         pts, self.pending = self.pending, []
@@ -3178,20 +3130,19 @@ class Controller:
         try:
             info = self.session.set_hand(path, [tuple(map(float, q)) for q in pts])
         except ValueError as e:
-            self._changed(f"No sirve: {e}. Probá de nuevo con «Mano de reemplazo (STL)…».")
+            self._changed(tr("controller.no_sirve_e_proba_de_nuevo_2", e=e))
             return
         self._changed(self._hand_fit_message(info))
 
     @staticmethod
     def _hand_fit_message(info: dict) -> str:
-        msg = (f"Mano estándar pegada (turquesa): muñeca del modelo Ø{2 * info['radio_brazo_mm']:.1f} mm, de la mano "
-               f"Ø{2 * info['radio_mano_mm']:.1f} mm. Si no cae bien usá «Invertir lado» o el giro.")
+        msg = (tr("controller.mano_estandar_pegada_turquesa_muneca_del", v=f"{2 * info['radio_brazo_mm']:.1f}", v2=f"{2 * info['radio_mano_mm']:.1f}"))
         pin = info.get("pasador")
         if pin:
-            msg += (f" Articulada: pieza aparte con pasador (vástago Ø{pin['vastago_mm']:.1f}, cabeza Ø{pin['cabeza_mm']:.1f} mm"
-                    + (f", ×{pin['escala']:.2f}" if pin["escala"] < 1 else "") + ") que gira libre dentro del brazo.")
+            msg += ((' ' + tr("controller.articulada_pieza_aparte_con_pasador_vastag", vastago_mm=f"{pin['vastago_mm']:.1f}", cabeza_mm=f"{pin['cabeza_mm']:.1f}"))
+                    + (f", ×{pin['escala']:.2f}" if pin["escala"] < 1 else "") + tr("controller.que_gira_libre_dentro_del_brazo"))
         for a in info["avisos"]:
-            msg += f" AVISO: {a}."
+            msg += (' ' + tr("controller.aviso_a", a=a))
         return msg
 
     def set_hand_adjust(self, yaw: float | None = None, invert: bool | None = None, join: str | None = None) -> bool:
@@ -3202,7 +3153,7 @@ class Controller:
         try:
             info = self.session.adjust_hand(yaw, invert, join)
         except ValueError as e:
-            self._changed(f"No sirve: {e}", scene=False)
+            self._changed(tr("controller.no_sirve_e_2", e=e), scene=False)
             return False
         self._changed(self._hand_fit_message(info))
         return True
@@ -3226,7 +3177,7 @@ class Controller:
         GUI_SETTINGS.remember_catalog(cat.name, cat.root)
         n = len(cat.list())
         warns = self.session.catalog_warnings()
-        self._changed(f"Catálogo «{cat.name}»: {n} pieza(s)." + "".join(f" AVISO: {w}." for w in warns), scene=False)
+        self._changed(tr("controller.catalogo_name_n_pieza_s", name=cat.name, n=n) + "".join((' ' + tr("controller.aviso_w", w=w)) for w in warns), scene=False)
         return True
 
     def default_catalog_line(self) -> tuple[str, float]:
@@ -3243,8 +3194,7 @@ class Controller:
             return False
         GUI_SETTINGS.remember_catalog(cat.name, cat.root)
         warns = self.session.catalog_warnings()
-        self._changed(f"Catálogo «{cat.name}» creado en {cat.root} (altura {cat.height_mm:g} mm). Está vacío: usá «Catalogar "
-                      "esta figura…» para guardar sus piezas." + "".join(f" AVISO: {w}." for w in warns), scene=False)
+        self._changed(tr("controller.catalogo_name_creado_en_root_altura", name=cat.name, root=cat.root, height_mm=f"{cat.height_mm:g}") + "".join((' ' + tr("controller.aviso_w", w=w)) for w in warns), scene=False)
         return True
 
     def _auto_catalog(self) -> str:
@@ -3260,20 +3210,19 @@ class Controller:
             root = GUI_SETTINGS.last_catalog()
         if root is None:
             return ("" if not lines else
-                    f" — AVISO: el proyecto usa piezas de la línea «{', '.join(lines)}» y no sé dónde está su catálogo: "
-                    "abrilo con «Abrir catálogo de la línea…».")
+                    (' ' + tr("controller.aviso_el_proyecto_usa_piezas_de", join=', '.join(lines))))
         try:
             cat = sess.open_catalog(root)
         except ValueError:
             return ""
-        return f" — Catálogo «{cat.name}» reabierto ({root})."
+        return (' ' + tr("controller.catalogo_name_reabierto_root", name=cat.name, root=root))
 
     def forget_catalog(self) -> None:
         """«Olvidar catálogo»: cierra el de esta sesión y borra lo recordado (no toca la carpeta ni el proyecto)."""
         GUI_SETTINGS.forget_catalog()
         self.session.catalog_root = None
         self.session._part_preview = None
-        self._changed("Catálogo olvidado: la próxima vez hay que abrirlo a mano.", scene=False)
+        self._changed(tr("controller.catalogo_olvidado_la_proxima_vez_hay"), scene=False)
 
     # ---- revisión previa de las piezas (sin generar)
     def begin_preview_parts(self):
@@ -3284,20 +3233,20 @@ class Controller:
         if not self._need_loaded():
             return None
         if not self.session.project.parts and not self.session.project.part_scales:
-            self._changed("No hay piezas elegidas ni divididas: nada que revisar.", scene=False)
+            self._changed(tr("controller.no_hay_piezas_elegidas_ni_divididas"), scene=False)
             return None
         self.busy = True
-        self.progress_prefix = "Revisando"
+        self.progress_prefix = tr("controller.revisando")
         self.progress_stages = self.session.progress_plan("preview")
-        self._changed("Revisando cómo acoplan las piezas elegidas (sin generar)…", scene=False)
+        self._changed(tr("controller.revisando_como_acoplan_las_piezas_elegidas"), scene=False)
         return lambda progress=None: self.session.preview_parts(progress)
 
     def finish_preview_parts(self, items: dict | None = None, error: Exception | None = None) -> None:
         self.busy = False
-        self.progress_prefix = "Generando"
+        self.progress_prefix = tr("controller.generando")
         if error is not None or items is None:
             self._register_plane_fault(error)
-            self._changed(f"No se pudo revisar: {error}{self._fault_hint()}")
+            self._changed(tr("controller.no_se_pudo_revisar_error_fault", error=error, fault_hint=self._fault_hint()))
             return
         self.plane_faults = {}
         self._changed(self.preview_message(items))
@@ -3319,8 +3268,7 @@ class Controller:
     def preview_message(items: dict) -> str:
         bad = [pv for pv in items.values() if pv.nivel == "no"]
         warn = [pv for pv in items.values() if pv.nivel == "aviso"]
-        head = (f"Revisadas {len(items)} pieza(s) sin generar: "
-                f"{len(items) - len(bad) - len(warn)} bien, {len(warn)} con aviso, {len(bad)} con problema.")
+        head = (tr("controller.revisadas_n_pieza_s_sin_generar", n=len(items), v=len(items) - len(bad) - len(warn), n2=len(warn), n3=len(bad)))
         detail = "".join(f" {pv.place}: {pv.problems()[0]}." for pv in bad + warn if pv.problems())
         return head + detail
 
@@ -3381,7 +3329,7 @@ class Controller:
         except ValueError as e:
             self._changed(str(e), scene=False)
             return False
-        self._changed(msg + " Volvé a revisar las piezas.")
+        self._changed(msg + (' ' + tr("controller.volve_a_revisar_las_piezas")))
         return True
 
     # ---- escalar la figura a la altura de la línea del catálogo
@@ -3396,7 +3344,7 @@ class Controller:
         """«Escalar a la altura de la línea»: la figura pasa a medir lo que la línea del catálogo (ver `set_ref_height`)."""
         h = self.session.line_height()
         if h is None:
-            self._changed("Primero abrí el catálogo de la línea: de ahí sale la altura.", scene=False)
+            self._changed(tr("controller.primero_abri_el_catalogo_de_la"), scene=False)
             return False
         return self.set_ref_height(h)
 
@@ -3417,18 +3365,18 @@ class Controller:
         if self.busy or not self._need_loaded():
             return None
         if not self.session.catalog_root:
-            self._changed("Primero abrí el catálogo de la línea: de ahí sale la figura patrón.", scene=False)
+            self._changed(tr("controller.primero_abri_el_catalogo_de_la_2"), scene=False)
             return None
         self.busy = True
-        self._changed("Armando la comparación de proporciones…", scene=False)
+        self._changed(tr("controller.armando_la_comparacion_de_proporciones"), scene=False)
         return lambda progress=None: self.session.proportions_snapshot(figura, progress)
 
     def finish_proportions(self, error: Exception | None = None) -> None:
         self.busy = False
         if error is not None:
-            self._changed(f"No se pudo armar la comparación: {error}", scene=False)
+            self._changed(tr("controller.no_se_pudo_armar_la_comparacion", error=error), scene=False)
         else:
-            self._changed("Comparación de proporciones lista.", scene=False)
+            self._changed(tr("controller.comparacion_de_proporciones_lista"), scene=False)
 
     def divide_model(self) -> bool:
         if self.busy or not self._need_loaded():
@@ -3436,9 +3384,9 @@ class Controller:
         try:
             self.session.divide_model()
         except ValueError as exc:
-            self._changed(f"No se pudo dividir: {exc}", scene=False)
+            self._changed(tr("controller.no_se_pudo_dividir_exc", exc=exc), scene=False)
             return False
-        self._changed("Figura dividida: ajustá la escala de cada pieza y revisá los acoples antes de generar.")
+        self._changed(tr("controller.figura_dividida_ajusta_la_escala_de"))
         return True
 
     def set_part_scale(self, place: str, factor) -> bool:
@@ -3452,7 +3400,7 @@ class Controller:
             return False
         sx, sy, sz = self.session.part_scale(place)
         txt = f"×{sx:.3f}" if sx == sy == sz else f"X ×{sx:.3f}, Y ×{sy:.3f}, Z ×{sz:.3f}"
-        self._changed(f"{place}: escala {txt}. Volvé a revisar las piezas y generar.")
+        self._changed(tr("controller.place_escala_txt_volve_a_revisar", place=place, txt=txt))
         return True
 
     def reset_part_scales(self) -> None:
@@ -3461,7 +3409,7 @@ class Controller:
         self.session.project.part_scales.clear()
         self.session._part_preview = None
         self.session.outcome = None
-        self._changed("Escalas por pieza restablecidas; se usa el modelo original.")
+        self._changed(tr("controller.escalas_por_pieza_restablecidas_se_usa"))
 
     def host_piece_for(self, place: str) -> str:
         """Pieza del MODELO que lleva la unión de `place` y que se escala para que la cara encaje: las piernas van en la pelvis
@@ -3473,7 +3421,7 @@ class Controller:
         """Ajusta, de forma uniforme, sólo la pieza del modelo que recibe la unión de `place` (torso o pelvis)."""
         pv = self.part_preview(place)
         if pv is None or pv.scale_hint is None:
-            self._changed("Primero revisá las piezas para medir sus caras.", scene=False)
+            self._changed(tr("controller.primero_revisa_las_piezas_para_medir"), scene=False)
             return False
         target = self.host_piece_for(place)
         k = self.session.part_scale(target)[0] * pv.scale_hint
@@ -3484,7 +3432,7 @@ class Controller:
         sin tocar el espesor ni las demás piezas."""
         pv = self.part_preview(place)
         if pv is None or pv.scale_xyz is None:
-            self._changed("Primero revisá las piezas para medir sus caras.", scene=False)
+            self._changed(tr("controller.primero_revisa_las_piezas_para_medir"), scene=False)
             return False
         target = self.host_piece_for(place)
         k = np.asarray(self.session.part_scale(target)) * np.asarray(pv.scale_xyz)
@@ -3494,7 +3442,7 @@ class Controller:
         """Escala TODA la figura por el factor que iguala la cara de corte de ese lugar con la de la pieza (`scale_hint`)."""
         pv = self.part_preview(place)
         if pv is None or pv.scale_hint is None:
-            self._changed(f"Primero revisá las piezas: no hay factor de escala para «{place}».", scene=False)
+            self._changed(tr("controller.primero_revisa_las_piezas_no_hay", place=place), scene=False)
             return False
         return self.set_ref_height(self.session.project.params.ref_height * pv.scale_hint)
 
@@ -3534,15 +3482,15 @@ class Controller:
         if not self._need_loaded():
             return False
         if not ref:
-            self._changed(f"«{place}» vuelve a usar la pieza del modelo." if self.session.clear_part(place)
-                          else f"«{place}» ya usaba la pieza del modelo.", scene=False)
+            self._changed(tr("controller.place_vuelve_a_usar_la_pieza", place=place) if self.session.clear_part(place)
+                          else tr("controller.place_ya_usaba_la_pieza_del", place=place), scene=False)
             return True
         try:
             pr = self.session.set_part(place, ref)
         except ValueError as e:
-            self._changed(f"No sirve: {e}", scene=False)
+            self._changed(tr("controller.no_sirve_e_2", e=e), scene=False)
             return False
-        self._changed(f"«{place}»: pieza {pr.ref}. Generá la figura para ver cómo acopla.", scene=False)
+        self._changed(tr("controller.place_pieza_ref_genera_la_figura", place=place, ref=pr.ref), scene=False)
         return True
 
     def catalog_rows(self) -> list[dict]:
@@ -3565,25 +3513,25 @@ class Controller:
         """Texto de una fila para la lista: «brazo: original» o «pierna: pierna-01@2 — aviso (IoU 0,71, escalón 1,07 mm)».
         `labels` = {ref: nombre para mostrar} (ver `catalog_manager.piece_label`): si la pieza tiene nombre, se muestra."""
         if row["pieza"] is None:
-            return f"{row['lugar']}: la del modelo"
+            return tr("controller.lugar_la_del_modelo", lugar=row['lugar'])
         shown = (labels or {}).get(row["pieza"], row["pieza"])
         c = row.get("compat")
         if not c:
             return f"{row['lugar']}: {shown}"
         extra = []
         if c.get("iou") is not None:
-            extra.append(f"IoU {c['iou']:.2f}".replace(".", ","))
+            extra.append(tr("controller.iou_iou", iou=f"{c['iou']:.2f}").replace(".", ","))
         if c.get("escalon_mm") is not None:
-            extra.append(f"escalón {c['escalon_mm']:.2f} mm".replace(".", ","))
+            extra.append(tr("controller.escalon_escalon_mm_mm", escalon_mm=f"{c['escalon_mm']:.2f}").replace(".", ","))
         return f"{row['lugar']}: {shown} — {c.get('nivel', '?')}" + (f" ({', '.join(extra)})" if extra else "")
 
     def catalog_add_done(self, res: dict | None, err: Exception | None) -> bool:
         """Cierra «Catalogar esta figura»: mensaje con las piezas guardadas (o el error)."""
         if err is not None or res is None:
-            self._changed(f"No se pudo catalogar: {err}", scene=False)
+            self._changed(tr("controller.no_se_pudo_catalogar_err", err=err), scene=False)
             return False
         refs = ", ".join(m.ref for m in res["piezas"])
-        self._changed(f"Catalogadas {len(res['piezas'])} pieza(s): {refs}." + "".join(f" AVISO: {w}" for w in res["avisos"]),
+        self._changed(tr("controller.catalogadas_n_pieza_s_refs", n=len(res['piezas']), refs=refs) + "".join((' ' + tr("common.aviso_w", w=w)) for w in res["avisos"]),
                       scene=False)
         return True
 
@@ -3592,7 +3540,7 @@ class Controller:
         if not self._need_loaded():
             return None
         if not self.session.catalog_root:
-            self._changed("Primero abrí un catálogo de piezas.", scene=False)
+            self._changed(tr("common.primero_abri_un_catalogo_de_piezas"), scene=False)
             return None
         return self.session.catalog_add_options()
 
@@ -3603,7 +3551,7 @@ class Controller:
         try:
             res = self.session.catalog_add(prefix, places, wrist_points, labels, new_version)
         except ValueError as e:
-            self._changed(f"No se pudo catalogar: {e}", scene=False)
+            self._changed(tr("controller.no_se_pudo_catalogar_e", e=e), scene=False)
             return False
         return self.catalog_add_done(res, None)
 
@@ -3614,7 +3562,7 @@ class Controller:
         try:
             return self.session.cut_guide()
         except ValueError as e:
-            self._changed(f"No se pudo medir los cortes: {e}", scene=False)
+            self._changed(tr("controller.no_se_pudo_medir_los_cortes", e=e), scene=False)
             return None
 
     def cut_guide_lines(self, all_fits: bool = False) -> list | None:
@@ -3625,9 +3573,8 @@ class Controller:
         if cuts is None:
             return None
         if not cuts:
-            return ["El proyecto no define miembros ni cuello: no hay cortes que medir."]
-        lines = [] if self.session.catalog_root else ["Sin catálogo abierto: solo se miden los cortes. Abrí el catálogo de la línea "
-                                                       "para ver cuánto de él los acepta."]
+            return [tr("controller.el_proyecto_no_define_miembros_ni")]
+        lines = [] if self.session.catalog_root else [tr("controller.sin_catalogo_abierto_solo_se_miden")]
         for m in cuts:
             lines += format_measure(m, all_fits) + [""]
         return lines[:-1]
@@ -3639,7 +3586,7 @@ class Controller:
         try:
             return self.session.cut_fit()
         except ValueError as e:
-            self._changed(f"No se pudo ajustar al estándar: {e}", scene=False)
+            self._changed(tr("controller.no_se_pudo_ajustar_al_estandar", e=e), scene=False)
             return None
 
     def cut_fit_lines(self) -> list | None:
@@ -3650,7 +3597,7 @@ class Controller:
         if res is None:
             return None
         if not res:
-            return ["El proyecto no define brazos ni piernas: no hay cortes que ajustar."]
+            return [tr("controller.el_proyecto_no_define_brazos_ni")]
         return [l for r in res for l in format_fit_cut(r)]
 
     def apply_cut_fit(self) -> bool:
@@ -3661,12 +3608,12 @@ class Controller:
         try:
             n = self.session.apply_cut_fit(res)
         except ValueError as e:
-            self._changed(f"No se aplicó el ajuste: {e}", scene=False)
+            self._changed(tr("controller.no_se_aplico_el_ajuste_e", e=e), scene=False)
             return False
         if not n:
-            self._changed("Ningún corte necesita cambios para entrar en el contrato.", scene=False)
+            self._changed(tr("controller.ningun_corte_necesita_cambios_para_entrar"), scene=False)
             return False
-        self._changed(f"Ajustado al estándar: {n} corte(s). Revisá la guía y el pasador.")
+        self._changed(tr("controller.ajustado_al_estandar_n_corte_s", n=n))
         return True
 
     def new_from_pattern_job(self, patron: str, stl: str, out: str, corona: float | None = None, entrepierna: float | None = None):
@@ -3674,27 +3621,27 @@ class Controller:
         `job(progress)` -> `(proyecto, imagen, avisos)`. Valida las rutas antes."""
         from ..patron import crear_desde_patron
 
-        for label, path in (("el proyecto del patrón", patron), ("el STL del héroe", stl)):
+        for label, path in ((tr("controller.el_proyecto_del_patron"), patron), (tr("controller.el_stl_del_heroe"), stl)):
             if not path or not os.path.isfile(path):
-                raise ValueError(f"No existe {label}: «{path}»")
+                raise ValueError(tr("controller.no_existe_label_path", label=label, path=path))
         if not out:
-            raise ValueError("Elegí dónde guardar el proyecto del héroe.")
+            raise ValueError(tr("common.elegi_donde_guardar_el_proyecto_del"))
         return lambda progress: crear_desde_patron(patron, stl, out, corona, None, entrepierna, None, progress=progress)
 
     def finish_new_from_pattern(self, res, err, stl: str) -> str | None:
         """Cierra «Nuevo héroe desde el patrón»: abre el proyecto creado (con su STL) y devuelve la imagen de revisión, o None si falló."""
         self.busy = False
         if err is not None or res is None:
-            self._changed(f"No se pudo crear el héroe desde el patrón: {err}", scene=False)
+            self._changed(tr("controller.no_se_pudo_crear_el_heroe", err=err), scene=False)
             return None
         out, image, notes = res
         try:
             self.open_project(out, stl)
         except Exception as e:  # noqa: BLE001
-            self._changed(f"El proyecto se guardó en {out} pero no se pudo abrir: {e}", scene=False)
+            self._changed(tr("controller.el_proyecto_se_guardo_en_out", out=out, e=e), scene=False)
             return image
-        extra = (" Avisos: " + "; ".join(notes)) if notes else ""
-        self._changed(f"Héroe creado desde el patrón: {os.path.basename(out)}. Revisá la imagen y los planos en el visor.{extra}", scene=False)
+        extra = ((' ' + tr("common.avisos") + ' ') + "; ".join(notes)) if notes else ""
+        self._changed(tr("controller.heroe_creado_desde_el_patron_basename", basename=os.path.basename(out), extra=extra), scene=False)
         return image
 
     def waist_wrist_options(self) -> dict:
@@ -3711,7 +3658,7 @@ class Controller:
         try:
             return self.session.waist_wrist_fit(pelvis, mano)
         except ValueError as e:
-            self._changed(f"No se pudo ajustar cintura y muñeca: {e}", scene=False)
+            self._changed(tr("controller.no_se_pudo_ajustar_cintura_y", e=e), scene=False)
             return None
 
     def waist_wrist_fit_lines(self, pelvis: str | None = None, mano: str | None = None) -> list | None:
@@ -3732,13 +3679,13 @@ class Controller:
         try:
             n = self.session.apply_waist_wrist_fit(res, escalar_pelvis)
         except ValueError as e:
-            self._changed(f"No se aplicó el ajuste: {e}", scene=False)
+            self._changed(tr("controller.no_se_aplico_el_ajuste_e", e=e), scene=False)
             return False
         if not n:
-            self._changed("Ni la cintura ni la muñeca necesitan moverse.", scene=False)
+            self._changed(tr("controller.ni_la_cintura_ni_la_muneca"), scene=False)
             return False
         self.hand_extract = self._hand_mesh = None
-        self._changed(f"Ajustado al patrón: {n} cambio(s) (planos movidos / escala de la pelvis). Revisá la cintura y la muñeca en el visor.")
+        self._changed(tr("controller.ajustado_al_patron_n_cambio_s", n=n))
         return True
 
     # ---- gestor del catálogo: ver y eliminar piezas
@@ -3764,7 +3711,7 @@ class Controller:
                 raise
             return None
         if cat is None and required:
-            raise ValueError("No hay un catálogo abierto.")
+            raise ValueError(tr("common.no_hay_un_catalogo_abierto"))
         return cat
 
     def begin_catalog_task(self, label: str, run):
@@ -3772,48 +3719,48 @@ class Controller:
         o None si no se puede (hay otra tarea, o no hay catálogo). `run(root, progress)` abre su propio `Catalog` desde `root`.
         Después hay que llamar `finish_catalog_task`."""
         if self.busy:
-            self._changed("Esperá a que termine la tarea en curso.", scene=False)
+            self._changed(tr("common.espera_a_que_termine_la_tarea"), scene=False)
             return None
         root = self.session.catalog_root
         if not root:
-            self._changed("No hay un catálogo abierto.", scene=False)
+            self._changed(tr("common.no_hay_un_catalogo_abierto"), scene=False)
             return None
         self.busy = True
         self.progress_prefix = label
         self.progress_stages = None
-        self._changed(f"{label}… puede tardar (minutos por pieza al armar).", scene=False)
+        self._changed(tr("controller.label_puede_tardar_minutos_por_pieza", label=label), scene=False)
         return lambda progress=None: run(root, progress)
 
     def finish_catalog_task(self, label: str, error: Exception | None = None, cancelled: bool = False) -> None:
         self.busy = False
-        self.progress_prefix = "Generando"
+        self.progress_prefix = tr("controller.generando")
         if cancelled:
-            self._changed(f"{label}: cancelado. Lo ya terminado quedó guardado.", scene=False)
+            self._changed(tr("controller.label_cancelado_lo_ya_terminado_quedo", label=label), scene=False)
         elif error is not None:
-            self._changed(f"{label}: falló — {error}", scene=False)
+            self._changed(tr("controller.label_fallo_error", label=label, error=error), scene=False)
         else:
-            self._changed(f"{label}: terminado.", scene=False)
+            self._changed(tr("controller.label_terminado", label=label), scene=False)
 
     def catalog_delete(self, refs) -> bool:
         """Elimina del catálogo abierto esas versiones (`id@n`). Los lugares de la figura que las usaban vuelven a la pieza
         del modelo. No se puede deshacer: la ventana pide confirmación antes."""
         refs = list(refs)
         if self.busy:
-            self._changed("Esperá a que termine la tarea en curso para eliminar piezas.", scene=False)
+            self._changed(tr("controller.espera_a_que_termine_la_tarea"), scene=False)
             return False
         if not refs:
-            self._changed("No hay ninguna pieza elegida para eliminar.", scene=False)
+            self._changed(tr("controller.no_hay_ninguna_pieza_elegida_para"), scene=False)
             return False
         try:
             res = self.session.catalog_delete(refs)
         except ValueError as e:
-            self._changed(f"No se eliminó nada: {e}", scene=False)
+            self._changed(tr("controller.no_se_elimino_nada_e", e=e), scene=False)
             return False
-        msg = f"Eliminadas {len(res['eliminadas'])} pieza(s): {', '.join(res['eliminadas'])}."
+        msg = tr("controller.eliminadas_n_pieza_s_join", n=len(res['eliminadas']), join=', '.join(res['eliminadas']))
         if res["quitadas"]:
-            msg += f" Vuelven a la pieza del modelo: {', '.join(res['quitadas'])} (hay que volver a generar la figura)."
+            msg += (' ' + tr("controller.vuelven_a_la_pieza_del_modelo", join=', '.join(res['quitadas'])))
         if res["errores"]:
-            msg += " ERRORES: " + "; ".join(res["errores"])
+            msg += (' ' + tr("controller.errores") + ' ') + "; ".join(res["errores"])
         self._changed(msg, scene=bool(res["quitadas"]))
         return not res["errores"]
 
@@ -3821,14 +3768,14 @@ class Controller:
         """Cambia el estado de las versiones `refs` (`id@n`) del catálogo abierto."""
         refs = list(refs)
         if self.busy:
-            self._changed("Esperá a que termine la tarea en curso para cambiar el estado.", scene=False)
+            self._changed(tr("controller.espera_a_que_termine_la_tarea_2"), scene=False)
             return False
         try:
             metas = self.session.catalog_set_state(refs, state)
         except ValueError as e:
-            self._changed(f"No se cambió el estado: {e}", scene=False)
+            self._changed(tr("controller.no_se_cambio_el_estado_e", e=e), scene=False)
             return False
-        self._changed(f"Estado «{state}»: {', '.join(m.ref for m in metas)}.", scene=False)
+        self._changed(tr("controller.estado_state_join", state=state, join=', '.join(m.ref for m in metas)), scene=False)
         return True
 
     def catalog_trash_count(self) -> int:
@@ -3843,31 +3790,31 @@ class Controller:
         """«Recuperar lo eliminado»: devuelve al catálogo el último lote de piezas eliminadas. Los lugares de la figura que las
         usaban ya habían vuelto a la pieza del modelo: hay que elegirlas de nuevo."""
         if self.busy:
-            self._changed("Esperá a que termine la tarea en curso para recuperar piezas.", scene=False)
+            self._changed(tr("controller.espera_a_que_termine_la_tarea_3"), scene=False)
             return False
         try:
             restored, errors = self.session.catalog_undo_delete()
         except ValueError as e:
-            self._changed(f"No se recuperó nada: {e}", scene=False)
+            self._changed(tr("controller.no_se_recupero_nada_e", e=e), scene=False)
             return False
-        msg = f"Recuperadas {len(restored)} pieza(s): {', '.join(m.ref for m in restored) or '—'}."
+        msg = tr("controller.recuperadas_n_pieza_s_v", n=len(restored), v=', '.join(m.ref for m in restored) or '—')
         if errors:
-            msg += " NO se recuperaron: " + "; ".join(errors)
+            msg += (' ' + tr("controller.no_se_recuperaron") + ' ') + "; ".join(errors)
         self._changed(msg, scene=False)
         return bool(restored) and not errors
 
     def catalog_rename(self, ref: str, nombre: str) -> bool:
         """Renombra (nombre para mostrar) la pieza `ref` del catálogo abierto. El `id` y las referencias no cambian."""
         if self.busy:
-            self._changed("Esperá a que termine la tarea en curso para renombrar piezas.", scene=False)
+            self._changed(tr("controller.espera_a_que_termine_la_tarea_4"), scene=False)
             return False
         try:
             metas = self.session.catalog_rename(ref, nombre)
         except ValueError as e:
-            self._changed(f"No se renombró: {e}", scene=False)
+            self._changed(tr("controller.no_se_renombro_e", e=e), scene=False)
             return False
         name = metas[0].display_name
-        self._changed(f"«{metas[0].id}» ahora se muestra como «{name}»." if metas[0].nombre else f"«{metas[0].id}» vuelve a mostrarse con su id.",
+        self._changed(tr("controller.id_ahora_se_muestra_como_name", id=metas[0].id, name=name) if metas[0].nombre else tr("controller.id_vuelve_a_mostrarse_con_su", id=metas[0].id),
                       scene=False)
         return True
 
@@ -3875,16 +3822,16 @@ class Controller:
         """«Cortar la mano…» del gestor del catálogo: guarda el brazo `ref` sin mano (versión nueva) y la mano como pieza aparte.
         Devuelve el `WristCut` o None si no se pudo (el motivo queda en el mensaje). No toca la figura abierta."""
         if self.busy:
-            self._changed("Esperá a que termine la tarea en curso para cortar la mano.", scene=False)
+            self._changed(tr("controller.espera_a_que_termine_la_tarea_5"), scene=False)
             return None
         try:
             res = self.session.catalog_wrist_cut(ref, points, invert, hand_id, new_hand_version)
         except ValueError as e:
-            self._changed(f"No se cortó la mano: {e}", scene=False)
+            self._changed(tr("controller.no_se_corto_la_mano_e", e=e), scene=False)
             return None
-        msg = f"Brazo sin mano: {res.arm.ref}; mano: {res.hand.ref} (muñeca Ø{2 * res.wrist_radius_mm:.1f} mm). {res.from_ref} no se tocó."
+        msg = tr("controller.brazo_sin_mano_ref_mano_ref2", ref=res.arm.ref, ref2=res.hand.ref, v=f"{2 * res.wrist_radius_mm:.1f}", from_ref=res.from_ref)
         if res.warnings:
-            msg += " Avisos: " + "; ".join(res.warnings)
+            msg += (' ' + tr("common.avisos") + ' ') + "; ".join(res.warnings)
         self._changed(msg, scene=False)
         return res
 
@@ -3892,22 +3839,22 @@ class Controller:
         """«Reajustar articulación…» del gestor del catálogo: guarda la articulación `joint` de la pieza `ref` como versión nueva.
         Devuelve la meta nueva o None (el motivo queda en el mensaje). La versión original y la figura abierta no se tocan."""
         if self.busy:
-            self._changed("Esperá a que termine la tarea en curso para guardar la articulación.", scene=False)
+            self._changed(tr("controller.espera_a_que_termine_la_tarea_6"), scene=False)
             return None
         try:
             meta, warns = self.session.catalog_retune_joint(ref, joint)
         except ValueError as e:
-            self._changed(f"No se guardó la articulación: {e}", scene=False)
+            self._changed(tr("controller.no_se_guardo_la_articulacion_e", e=e), scene=False)
             return None
-        msg = f"Articulación «{joint.name}» reajustada: versión nueva {meta.ref} (borrador). {ref} no se tocó."
+        msg = tr("controller.articulacion_name_reajustada_version_nueva", name=joint.name, ref=meta.ref, ref2=ref)
         if warns:
-            msg += " Avisos: " + "; ".join(warns)
+            msg += (' ' + tr("common.avisos") + ' ') + "; ".join(warns)
         self._changed(msg, scene=False)
         return meta
 
     def clear_hand(self) -> None:
-        self._changed("Se vuelve a usar la mano original del modelo." if self.session.clear_hand()
-                      else "No había mano de reemplazo.")
+        self._changed(tr("controller.se_vuelve_a_usar_la_mano") if self.session.clear_hand()
+                      else tr("controller.no_habia_mano_de_reemplazo"))
 
     def hand_fit(self):
         """{"figure", "hand", "info"} de la mano de reemplazo para dibujarla, o None si no hay."""
@@ -3921,7 +3868,7 @@ class Controller:
         Controles (None = conservar el valor actual): `up` (eje «arriba»), `rx`/`ry`/`yaw` (giros en °) y `scale`
         (factor manual sobre la escala automática). `cut_points` es el plano de corte de la base (3 puntos en
         coordenadas del STL): «keep» conserva el actual, None lo quita."""
-        if self._busy_for("la cabeza") or not self._need_loaded():
+        if self._busy_for(tr("controller.la_cabeza")) or not self._need_loaded():
             return False
         cur = self.session.project.head
 
@@ -3936,23 +3883,22 @@ class Controller:
         try:
             info = self.session.set_head_replacement(path, yaw, up, rx, ry, scale, cut_points)
         except Exception as e:                     # archivo ilegible, malla irreparable, plano sin cabeza…
-            self._changed(f"No se pudo usar esa cabeza: {e}", scene=False)
+            self._changed(tr("controller.no_se_pudo_usar_esa_cabeza", e=e), scene=False)
             return False
         self._changed(self._head_fit_message(info))
         return True
 
     @staticmethod
     def _head_fit_message(info: dict) -> str:
-        msg = (f"Cabeza de reemplazo lista (se ve en naranja, apoyada en el cuello): escala ×{info['escala']:.4g} "
-               f"(uniforme), alto {info['alto_mm']:.1f} mm, base coincide {100 * info['coincidencia_base']:.0f} %.")
+        msg = (tr("controller.cabeza_de_reemplazo_lista_se_ve", escala=f"{info['escala']:.4g}", alto_mm=f"{info['alto_mm']:.1f}", v=f"{100 * info['coincidencia_base']:.0f}"))
         if info["corte_plano"]:
-            msg += " La base se cortó con el plano de 3 puntos."
+            msg += (' ' + tr("controller.la_base_se_corto_con_el"))
         elif info["base_cortada"]:
-            msg += " No traía base plana: se cortó una fracción baja para apoyarla."
+            msg += (' ' + tr("controller.no_traia_base_plana_se_corto"))
         if info.get("cavidad_rellenada"):
-            msg += " La cabeza era hueca (cáscara abierta por la base): se rellenó por dentro para que la base sea maciza."
+            msg += (' ' + tr("controller.la_cabeza_era_hueca_cascara_abierta"))
         if info["coincidencia_base"] < MIN_BASE_IOU:
-            msg += " AVISO: la base se parece poco a la del cuello; probá otro giro, eje «arriba», escala o plano de separación (Planos → Cabeza)."
+            msg += (' ' + tr("controller.aviso_la_base_se_parece_poco"))
         return msg
 
     def set_head_adjust(self, up: str | None = None, yaw: float | None = None, rx: float | None = None,
@@ -3962,7 +3908,7 @@ class Controller:
         nada y deja el motivo en `message`."""
         cur = self.session.project.head
         if cur is None or not cur.replacement_path:
-            self._changed("Primero cargá una cabeza de reemplazo (STL).", scene=False)
+            self._changed(tr("controller.primero_carga_una_cabeza_de_reemplazo"), scene=False)
             return False
         return self.set_head_replacement(cur.replacement_path, yaw, up, rx, ry, scale)
 
@@ -3971,30 +3917,29 @@ class Controller:
         """Pide 3 puntos sobre la cabeza de reemplazo (la naranja) que definen el plano que corta su base."""
         prev = self.head_preview()
         if prev is None:
-            self._changed("Primero cargá una cabeza de reemplazo (STL).", scene=False)
+            self._changed(tr("controller.primero_carga_una_cabeza_de_reemplazo"), scene=False)
             return
         self.cancel(quiet=True)
         self.mode = Mode.HEAD_CUT_PLANE
         self.picker = Picker(prev[0])                # los clics caen sobre la cabeza nueva, no sobre la figura
-        self._changed("Corte de la base: elegí 3 puntos sobre la cabeza naranja (2 a los lados y 1 al frente, a la altura donde "
-                      "querés cortar). Se descarta lo de abajo del plano; Retroceso deshace el último punto, Esc cancela.")
+        self._changed(tr("controller.corte_de_la_base_elegi_3"))
 
     def _finish_head_cut_plane(self) -> None:
         pts, self.pending = self.pending, []
         try:
             info = self.session.set_head_cut_plane(pts)
         except Exception as e:
-            self._changed(f"No sirve: {e}. Elegí 3 puntos de nuevo.")
+            self._changed(tr("controller.no_sirve_e_elegi_3_puntos", e=e))
             return
         self.mode = Mode.VIEW
         self._rebuild_picker()
         self._changed(self._head_fit_message(info))
 
     def clear_head_cut_plane(self) -> None:
-        if self._busy_for("la cabeza"):
+        if self._busy_for(tr("controller.la_cabeza")):
             return
-        self._changed("Se quitó el plano de corte de la base de la cabeza." if self.session.clear_head_cut_plane()
-                      else "La cabeza no tenía plano de corte.")
+        self._changed(tr("controller.se_quito_el_plano_de_corte") if self.session.clear_head_cut_plane()
+                      else tr("controller.la_cabeza_no_tenia_plano_de"))
 
     def set_head_orientation(self, up: str | None = None, yaw: float | None = None) -> bool:
         """Cambia el eje «arriba» y/o el giro de la cabeza de reemplazo ya cargada y la vuelve a ajustar."""
@@ -4005,10 +3950,10 @@ class Controller:
         return self.session.head_replacement_preview() if self.loaded else None
 
     def clear_head_replacement(self) -> None:
-        if self._busy_for("la cabeza"):
+        if self._busy_for(tr("controller.la_cabeza")):
             return
-        self._changed("Se vuelve a usar la cabeza original del modelo." if self.session.clear_head_replacement()
-                      else "No había cabeza de reemplazo.")
+        self._changed(tr("controller.se_vuelve_a_usar_la_cabeza") if self.session.clear_head_replacement()
+                      else tr("controller.no_habia_cabeza_de_reemplazo"))
 
     def _finish_limb_plane(self) -> None:
         pts, self.pending = self.pending, []
@@ -4018,10 +3963,10 @@ class Controller:
             plane = Session.plane_from_points(pts, name)
             self.session.add_limb(name, kind, plane)      # rechaza planos de canto
         except ValueError as e:
-            self._changed(f"No sirve: {e}. Elegí 3 puntos de nuevo.")
+            self._changed(tr("controller.no_sirve_e_elegi_3_puntos", e=e))
             return
         self.mode, self.pending_kind = Mode.VIEW, None
-        self._changed(f"Plano «{name}» agregado. Falta dibujar su silueta (y, si hace falta, su 2.ª silueta de frente con el botón «2.ª»).")
+        self._changed(tr("controller.plano_name_agregado_falta_dibujar_su", name=name))
 
     def offset_limb(self) -> str | None:
         """Miembro activo cuyo desplazamiento de corte se puede editar (el del pasador o el de la silueta)."""
@@ -4044,8 +3989,7 @@ class Controller:
         if self.mode == Mode.PIN and self.pin_limb == name:
             self.start_pin(name)             # la cara de contacto se movió: recalcular y volver a mirarla
             return
-        self._changed(f"Corte de «{name}» a {mm:g} mm del plano de simetría (plano blanco en el visor; el de color es donde se dibuja la silueta). "
-                      "Revisá el pasador.")
+        self._changed(tr("controller.corte_de_name_a_mm_mm", name=name, mm=f"{mm:g}"))
 
     def unique_name(self, kind: str) -> str:
         base = _KIND_BASE[kind]
@@ -4087,7 +4031,7 @@ class Controller:
         if not self.plane_faults:
             return ""
         names = {e.id: e.label for e in self.plane_entries()}
-        return " — el plano «" + "», «".join(names.get(k, k) for k in self.plane_faults) + "» está pintado de rojo en el visor."
+        return (' ' + tr("controller.el_plano")) + "», «".join(names.get(k, k) for k in self.plane_faults) + tr("controller.esta_pintado_de_rojo_en_el")
 
     def plane_tilt_deg(self, place: str) -> float | None:
         """Cuánto está girado (grados) el plano lateral de un miembro respecto de la cara de la pieza de catálogo elegida
@@ -4122,9 +4066,9 @@ class Controller:
                 if t is None:
                     continue
                 if t >= TILT_OK_DEG:
-                    out[e.id] = ("aviso", f"girado {t:.1f}° respecto del corte de la pieza elegida".replace(".", ","))
+                    out[e.id] = ("aviso", tr("controller.girado_t_respecto_del_corte_de", t=f"{t:.1f}").replace(".", ","))
                 else:
-                    out[e.id] = ("ok", "coincide con el corte de la pieza elegida")
+                    out[e.id] = ("ok", tr("controller.coincide_con_el_corte_de_la"))
         return out
 
     def cut_plane_to_draw(self, e: "PlaneEntry") -> Plane | None:
@@ -4146,17 +4090,17 @@ class Controller:
     def plane_entries(self) -> list[PlaneEntry]:
         out = []
         if self.session.project.symmetry is not None:
-            out.append(PlaneEntry(SYMMETRY_ID, "Simetría",
+            out.append(PlaneEntry(SYMMETRY_ID, tr("controller.simetria"),
                                   Plane.from_normal((0, 0, 0), (1, 0, 0), "simetría"), "symmetry",
                                   SYMMETRY_ID not in self.hidden))
         for l in self.session.project.limbs:
             out.append(PlaneEntry(l.name, l.name.capitalize(), l.plane, l.kind, l.name not in self.hidden))
         head = self.session.project.head
         if head is not None:
-            out.append(PlaneEntry(HEAD_NAME, "Cabeza (cuello)", head.plane, "head", HEAD_NAME not in self.hidden))
+            out.append(PlaneEntry(HEAD_NAME, tr("controller.cabeza_cuello"), head.plane, "head", HEAD_NAME not in self.hidden))
         waist = self.session.project.waist
         if waist is not None:
-            out.append(PlaneEntry(WAIST_NAME, "Cintura (giro)", waist.plane, "waist", WAIST_NAME not in self.hidden))
+            out.append(PlaneEntry(WAIST_NAME, tr("controller.cintura_giro"), waist.plane, "waist", WAIST_NAME not in self.hidden))
         for j in self.session.project.joints:
             jid = JOINT_PREFIX + j.name
             out.append(PlaneEntry(jid, j.name.capitalize(), j.plane, "joint", jid not in self.hidden))
@@ -4184,15 +4128,15 @@ class Controller:
         """«2 · Pierna — corte a 7,00 mm (la línea corta a 7,66: +0,66)»."""
         t = f"{row['n']} · {row['etiqueta']}"
         if row.get("nivel") == "no":
-            t += " — ✗ FALLÓ: " + row["estado"].split("— ")[-1]
+            t += (' ' + tr("controller.fallo") + ' ') + row["estado"].split("— ")[-1]
         elif row.get("nivel") == "aviso":
             t += " — ⚠ " + row["estado"]
         if row["corte_mm"] is None:
             return t
-        t += f" — corte a {row['corte_mm']:.2f} mm".replace(".", ",")
+        t += (' ' + tr("controller.corte_a_corte_mm_mm", corte_mm=f"{row['corte_mm']:.2f}")).replace(".", ",")
         if row["linea_mm"] is not None:
             d = row["dif_mm"]
-            t += (f" (la línea corta a {row['linea_mm']:.2f}: {'alineado' if abs(d) < 0.05 else f'{d:+.2f}'})").replace(".", ",")
+            t += ((' ' + tr("controller.la_linea_corta_a_linea_mm", linea_mm=f"{row['linea_mm']:.2f}", v='alineado' if abs(d) < 0.05 else f'{d:+.2f}'))).replace(".", ",")
         return t
 
     def align_cut_to_line(self, place: str) -> bool:
@@ -4202,9 +4146,9 @@ class Controller:
         try:
             x = self.session.align_cut_to_line(place)
         except (ValueError, KeyError) as e:
-            self._changed(f"No se pudo alinear «{place}»: {e}.", scene=False)
+            self._changed(tr("controller.no_se_pudo_alinear_place_e", place=place, e=e), scene=False)
             return False
-        self._changed(f"Corte de «{place}» alineado a la línea: {x:.2f} mm del plano de simetría. Volvé a revisar las piezas.")
+        self._changed(tr("controller.corte_de_place_alineado_a_la", place=place, x=f"{x:.2f}"))
         return True
 
     def align_cuts_to_line(self) -> int:
@@ -4221,10 +4165,10 @@ class Controller:
                     moved.append(r["id"])
                 except (ValueError, KeyError) as e:
                     skipped.append(f"{r['id']} ({e})")
-        msg = (f"Alineados a la línea: {', '.join(moved)}." if moved else "No había cortes para alinear.")
+        msg = (tr("controller.alineados_a_la_linea_join", join=', '.join(moved)) if moved else tr("controller.no_habia_cortes_para_alinear"))
         if skipped:
-            msg += " Sin alinear: " + "; ".join(skipped) + "."
-        self._changed(msg + (" Volvé a revisar las piezas." if moved else ""))
+            msg += (' ' + tr("controller.sin_alinear") + ' ') + "; ".join(skipped) + "."
+        self._changed(msg + ((' ' + tr("controller.volve_a_revisar_las_piezas")) if moved else ""))
         return len(moved)
 
     def set_show_cut_numbers(self, on: bool) -> None:
@@ -4281,7 +4225,7 @@ class Controller:
             self.session.project.waist = None
             self._rebuild_picker()
             self.hidden.clear()
-            self._changed("Simetría quitada (también los miembros: dependen de ella).")
+            self._changed(tr("controller.simetria_quitada_tambien_los_miembros_depe"))
             return
         if plane_id.startswith(JOINT_PREFIX):
             self.cancel(quiet=True)
@@ -4294,13 +4238,13 @@ class Controller:
         else:
             self.session.remove_limb(plane_id)
         self.hidden.discard(plane_id)
-        self._changed(f"Plano «{plane_id}» quitado.")
+        self._changed(tr("controller.plano_plane_id_quitado", plane_id=plane_id))
 
     def problems(self) -> list[str]:
         return self.session.problems()
 
     # ------------------------------------------------- motivos de botón apagado
-    _WAIT = "Esperá a que termine la tarea en curso."
+    _WAIT = lz("common.espera_a_que_termine_la_tarea")
 
     def blocked(self, what: str) -> str | None:
         """Por qué está apagado el control `what` (None = se puede usar); lo muestran los tooltips de la ventana.
@@ -4319,55 +4263,55 @@ class Controller:
         if what == "sym":
             return self._why_sym()
         if what == "limbs":
-            return self._why_sym() or (None if proj.limbs else "Agregá primero un brazo o una pierna (pestaña Planos).")
+            return self._why_sym() or (None if proj.limbs else tr("controller.agrega_primero_un_brazo_o_una"))
         if what == "head":
-            return self._why_stl() or (None if proj.head is not None else "Agregá primero el plano del cuello / cabeza (pestaña Planos).")
+            return self._why_stl() or (None if proj.head is not None else tr("controller.agrega_primero_el_plano_del_cuello"))
         if what == "head_pin_reset":
-            return self.blocked("head") or (None if proj.head.pin_center is not None else "El pasador del cuello ya está en su lugar por defecto.")
+            return self.blocked("head") or (None if proj.head.pin_center is not None else tr("controller.el_pasador_del_cuello_ya_esta_2"))
         if what == "head_replacement":
-            return self.blocked("head") or (None if proj.head.replacement_path is not None else "Primero elegí una cabeza de reemplazo (STL).")
+            return self.blocked("head") or (None if proj.head.replacement_path is not None else tr("controller.primero_elegi_una_cabeza_de_reemplazo"))
         if what == "head_replacement_cut":
-            return self.blocked("head_replacement") or (None if proj.head.replacement_cut_points is not None else "La cabeza de reemplazo no tiene un corte propio.")
+            return self.blocked("head_replacement") or (None if proj.head.replacement_cut_points is not None else tr("controller.la_cabeza_de_reemplazo_no_tiene"))
         if what in ("floor_cut_head", "floor_cut_waist"):
             place = what.split("_")[-1]
             return self._why_sym() or (None if self.session.floor_cut_height(place) is not None else
-                                       "Primero agregá el corte paralelo al piso (botón de arriba): el plano actual es de 3 puntos o no existe.")
+                                       tr("controller.primero_agrega_el_corte_paralelo_al_piso"))
         if what == "waist":
-            return self._why_stl() or (None if proj.waist is not None else "Agregá primero la cintura (pestaña Planos).")
+            return self._why_stl() or (None if proj.waist is not None else tr("controller.agrega_primero_la_cintura_pestana_planos"))
         if what == "waist_pin_reset":
-            return self.blocked("waist") or (None if proj.waist.pin_center is not None else "El pasador de la cintura ya está en su lugar por defecto.")
+            return self.blocked("waist") or (None if proj.waist.pin_center is not None else tr("controller.el_pasador_de_la_cintura_ya_2"))
         if what == "hand_extract":
-            return self._why_stl() or (None if self.hand_extract is not None else "Primero extraé la mano estándar (3 puntos en la muñeca).")
+            return self._why_stl() or (None if self.hand_extract is not None else tr("controller.primero_extrae_la_mano_estandar_3"))
         if what == "hand_placed":
-            return self._why_stl() or (None if proj.hand is not None else "Primero elegí una mano de reemplazo (STL).")
+            return self._why_stl() or (None if proj.hand is not None else tr("common.primero_elegi_una_mano_de_reemplazo"))
         if what == "outcome":
             if self.busy:
                 return self._WAIT
             if self.session.outcome is not None:
                 return None
-            return ("La figura generada quedó desactualizada: generala de nuevo (botón «Generar figura»)."
-                    if self.generated_once else "Generá la figura primero (pestaña Generar).")
+            return (tr("controller.la_figura_generada_quedo_desactualizada_ge")
+                    if self.generated_once else tr("controller.genera_la_figura_primero_pestana_generar"))
         if what == "grip":
             return self._WAIT if self.busy else None
         if what == "grip_plate":
-            return None if self.grip is not None else "Primero taladrá una mano estándar (STL)."
+            return None if self.grip is not None else tr("controller.primero_taladra_una_mano_estandar_stl")
         if what == "grip_hand":
             if self.grip is None:
-                return "Primero taladrá una mano estándar (STL)."
-            return "El agarre quedó desactualizado: volvé a taladrar la mano." if self.grip_stale else None
+                return tr("controller.primero_taladra_una_mano_estandar_stl")
+            return tr("controller.el_agarre_quedo_desactualizado_volve_a") if self.grip_stale else None
         if what == "drawing":
-            return None if self.mode == Mode.POLYGON else "Se activa mientras dibujás una silueta (lápiz en la lista de planos)."
+            return None if self.mode == Mode.POLYGON else tr("controller.se_activa_mientras_dibujas_una_silueta")
         if what == "raise":
-            return self.blocked("drawing") or (None if self.edit_cross else "Solo vale para la 2.ª silueta de un miembro.")
+            return self.blocked("drawing") or (None if self.edit_cross else tr("controller.solo_vale_para_la_2_a"))
         if what == "pin":
-            return None if self.mode == Mode.PIN else "Se activa mientras colocás un pasador (ícono de pasador en la lista de planos)."
+            return None if self.mode == Mode.PIN else tr("controller.se_activa_mientras_colocas_un_pasador")
         if what == "pin_any":
             ok = self.mode in (Mode.PIN, Mode.HEAD_PIN, Mode.WAIST_PIN)
-            return None if ok else "Se activa mientras colocás un pasador (hombro, cadera, cuello o cintura)."
+            return None if ok else tr("controller.se_activa_mientras_colocas_un_pasador_2")
         if what == "weapon":
             ws = self.weapon
             if ws is None or not ws.loaded:
-                return "Primero abrí un arma (STL)."
+                return tr("controller.primero_abri_un_arma_stl")
             return self._WAIT if self.busy else None
         raise KeyError(what)
 
@@ -4377,12 +4321,12 @@ class Controller:
         return self.generated_once and self.loaded and not self.busy and self.session.outcome is None
 
     def _why_stl(self) -> str | None:
-        return None if self.loaded else "Primero abrí un STL (pestaña Figura)."
+        return None if self.loaded else tr("controller.primero_abri_un_stl_pestana_figura")
 
     def _why_sym(self) -> str | None:
         if not self.loaded:
             return self._why_stl()
-        return None if self.session.project.symmetry is not None else "Primero definí el plano de simetría (pestaña Figura)."
+        return None if self.session.project.symmetry is not None else tr("controller.primero_defini_el_plano_de_simetria_2")
 
     # ---------------------------------------------------------------- generar
     def begin_generate(self):
@@ -4396,11 +4340,11 @@ class Controller:
             return None
         probs = self.session.problems()
         if probs:
-            self._changed("Todavía no se puede generar: " + "; ".join(probs) + ".", scene=False)
+            self._changed((tr("controller.todavia_no_se_puede_generar") + ' ') + "; ".join(probs) + ".", scene=False)
             return None
         self.cancel(quiet=True)
         self.busy = True
-        self._changed("Generando la figura… puede tardar varios minutos.", scene=False)
+        self._changed(tr("controller.generando_la_figura_puede_tardar_varios"), scene=False)
         self.progress_stages = self.session.progress_plan("build")
         return lambda progress=None: self.session.build(progress)
 
@@ -4411,11 +4355,11 @@ class Controller:
         self.busy = False
         self.pose_view, self.pose_report = False, None      # la figura nueva reemplaza a la de la vista previa
         if isinstance(error, TaskCancelled):                 # no es una falla de la figura: no se marca ningún plano
-            self._changed("Generación cancelada. La figura anterior quedó como estaba.")
+            self._changed(tr("controller.generacion_cancelada_la_figura_anterior_qu"))
             return
         if error is not None:
             self._register_plane_fault(error)
-            self._changed(f"Falló la generación: {error}{self._fault_hint()}")
+            self._changed(tr("controller.fallo_la_generacion_error_fault_hint", error=error, fault_hint=self._fault_hint()))
         else:
             self.plane_faults = {}
             self.generated_once = True
@@ -4441,10 +4385,10 @@ class Controller:
         if self.busy:
             return None
         if self.session.outcome is None:
-            self._changed("Primero generá la figura (los cambios posteriores invalidan el resultado).", scene=False)
+            self._changed(tr("controller.primero_genera_la_figura_los_cambios"), scene=False)
             return None
         self.busy = True
-        self._changed("Exportando las piezas… puede tardar.", scene=False)
+        self._changed(tr("controller.exportando_las_piezas_puede_tardar"), scene=False)
         sess, angle = self.session, self.overhang_angle
         self.progress_stages = self.session.progress_plan("export", orient=orient, flat=flat)
         return lambda progress=None: sess.export(outdir, orient=orient, max_angle=angle, flat=flat, progress=progress)
@@ -4452,21 +4396,21 @@ class Controller:
     def finish_export(self, info: dict | None, outdir: str, error: Exception | None = None) -> dict | None:
         self.busy = False
         if error is not None:
-            self._changed(f"Falló la exportación: {error}", scene=False)
+            self._changed(tr("controller.fallo_la_exportacion_error", error=error), scene=False)
             return None
         files = info["archivos"]
-        msg = f"Exportado en {outdir}: ensamblada + {len(files['piezas'])} piezas."
+        msg = tr("controller.exportado_en_outdir_ensamblada_n_piezas", outdir=outdir, n=len(files['piezas']))
         ori = files.get("orientacion")
         if ori:
-            msg += f" Orientación: {ori['etiqueta']}, voladizo {ori['voladizo_mm2']} mm², base {ori['base_mm2']} mm²."
+            msg += (' ' + tr("controller.orientacion_etiqueta_voladizo_voladizo_mm2", etiqueta=ori['etiqueta'], voladizo_mm2=ori['voladizo_mm2'], base_mm2=ori['base_mm2']))
         ss = files.get("sin_soportes")
         if ss:
             giro = ss["giro_brazos_grados"]
-            msg += (f" Corte con la cama de impresión: {ss['corte_sobre_cola_mm']:g} mm sobre la cola, brazos girados "
-                    + (", ".join(f"{a:.0f}°" for a in giro.values()) or "0°") + " hacia adelante.")
+            msg += ((' ' + tr("controller.corte_con_la_cama_de_impresion_4", corte_sobre_cola_mm=f"{ss['corte_sobre_cola_mm']:g}") + ' ')
+                    + (", ".join(f"{a:.0f}°" for a in giro.values()) or "0°") + (' ' + tr("controller.hacia_adelante")))
             msg += fill_hip_message(ss, self.session.project.params.flat_fill_hip)
             if ss["avisos"]:
-                msg += " AVISO: " + "; ".join(ss["avisos"])
+                msg += (' ' + tr("controller.aviso") + ' ') + "; ".join(ss["avisos"])
         self._changed(msg, scene=False)
         return info
 
@@ -4680,7 +4624,7 @@ class Controller:
         hi = np.max([m.bounds[1] for m in meshes.values()], axis=0)
         center = (lo + hi) / 2
         hs = float(np.linalg.norm(hi - lo)) * 0.5
-        plane = Plane.from_normal((center[0], center[1], z), (0.0, 0.0, 1.0), "corte con la cama de impresión")
+        plane = Plane.from_normal((center[0], center[1], z), (0.0, 0.0, 1.0), tr("controller.corte_con_la_cama_de_impresion_3"))
         scene.set_plane("plano_sin_soportes", plane, hs, center=(center[0], center[1], z), color=(1.0, 0.55, 0.1, 0.25))
         x = float(hi[0]) + 1.0
         line = np.array([[x, lo[1] - 0.15 * hs, z], [x, hi[1] + 0.15 * hs, z]])
@@ -4810,7 +4754,7 @@ class Controller:
 
     def toggle_cut_aim(self) -> None:
         self.cut_aim_visible = not self.cut_aim_visible
-        self._changed("Mira del corte " + ("visible." if self.cut_aim_visible else "oculta."))
+        self._changed((tr("controller.mira_del_corte") + ' ') + ("visible." if self.cut_aim_visible else "oculta."))
 
     def cut_aim(self) -> dict | None:
         """Lo que la mira del corte muestra para el miembro cuyo desplazamiento se edita: `{limb, reading, strip, best, improves}`,
@@ -4834,7 +4778,7 @@ class Controller:
         except (ValueError, KeyError, OSError) as e:
             out = {"limb": name, "note": str(e)}
         except Exception as e:  # noqa: BLE001
-            out = {"limb": name, "note": f"no se pudo medir el corte ({e})"}
+            out = {"limb": name, "note": tr("controller.no_se_pudo_medir_el_corte", e=e)}
         if "note" not in out:
             self._cut_aim_cache = (key, out)
         return out
@@ -4847,17 +4791,17 @@ class Controller:
         if aim is None:
             return ""
         if "note" in aim:
-            return "Mira del corte: " + aim["note"]
+            return (tr("controller.mira_del_corte_2") + ' ') + aim["note"]
         txt = aim["reading"].texto()
         best = aim["best"]
         if best is not None and aim["improves"]:
-            txt += f" — mejor cerca: {best.offset_mm:.2f} mm ({best.contador()})".replace(".", ",")
+            txt += (' ' + tr("controller.mejor_cerca_offset_mm_mm_contador", offset_mm=f"{best.offset_mm:.2f}", contador=best.contador())).replace(".", ",")
         elif best is not None:
-            txt += " — es la mejor posición de la cinta"
+            txt += (' ' + tr("controller.es_la_mejor_posicion_de_la"))
         cs = self._cut_seated_now(aim)
         if cs is not None:
-            txt += (" · ⚠ choca sentado: " + f"{len(cs['choques'])} de {cs['total']} piezas" if cs["choca"]
-                    else f" · sentado: sin choque ({cs['total']} piezas)")
+            txt += ((' ' + tr("controller.choca_sentado") + ' ') + tr("controller.n_de_total_piezas", n=len(cs['choques']), total=cs['total']) if cs["choca"]
+                    else (' ' + tr("controller.sentado_sin_choque_total_piezas", total=cs['total'])))
         return txt
 
     def _sync_cut_aim(self, scene) -> None:
@@ -4937,11 +4881,11 @@ class Controller:
         if figura == self.cut_ref_name:
             return
         self.cut_ref_name = figura
-        self._changed(f"Referencia del corte: {self.cut_ref_figure() or 'ninguna'}.")
+        self._changed(tr("controller.referencia_del_corte_v", v=self.cut_ref_figure() or 'ninguna'))
 
     def toggle_cut_ref(self) -> None:
         self.cut_ref_visible = not self.cut_ref_visible
-        self._changed("Guía de la referencia " + ("visible." if self.cut_ref_visible else "oculta."))
+        self._changed((tr("controller.guia_de_la_referencia") + ' ') + ("visible." if self.cut_ref_visible else "oculta."))
 
     def cut_ref_rows(self) -> list[dict]:
         """Un renglón por brazo / pierna sobre el plano de simetría que tenga corte de referencia: `{id, kind, label, corte_mm, ref,
@@ -4978,12 +4922,12 @@ class Controller:
         except KeyError:
             return ""
         if not self.session.catalog_root:
-            return "Referencia del corte: abrí un catálogo para ver a cuántos mm corta una figura ya cortada."
+            return tr("controller.referencia_del_corte_abri_un_catalogo")
         if not self.cut_ref_figures():
-            return "Referencia del corte: el catálogo no tiene piezas de brazo o pierna con corte lateral."
+            return tr("controller.referencia_del_corte_el_catalogo_no")
         rows = self.cut_ref_rows()
         if not rows:
-            return "Referencia del corte: la figura elegida no tiene corte de brazo / pierna que aplique."
+            return tr("controller.referencia_del_corte_la_figura_elegida")
         active = self.offset_limb()
         return "\n".join((("▶ " if r["id"] == active else "") if len(rows) > 1 else "") + r["texto"] for r in rows)
 
@@ -4993,7 +4937,7 @@ class Controller:
         name = name or self.offset_limb()
         row = next((r for r in self.cut_ref_rows() if r["id"] == name), None)
         if row is None:
-            self._changed("No hay una referencia de corte para ese miembro (hace falta un catálogo abierto y un miembro sobre la simetría).",
+            self._changed(tr("controller.no_hay_una_referencia_de_corte"),
                           scene=False)
             return False
         self.set_limb_offset(name, row["ref"].mm)
@@ -5055,16 +4999,16 @@ class Controller:
         se escala: usa los mm de la referencia, igual que la guía)."""
         self.cut_ghost_visible = not self.cut_ghost_visible
         if not self.cut_ghost_visible:
-            self._changed("Fantasma de la referencia oculto.")
+            self._changed(tr("controller.fantasma_de_la_referencia_oculto"))
             return
-        msg = f"Fantasma de la referencia ({self.cut_ref_figure() or 'ninguna'}) visible."
+        msg = tr("controller.fantasma_de_la_referencia_v_visible", v=self.cut_ref_figure() or 'ninguna')
         placed = self._cut_ghost_meshes()
         if not placed:
-            msg += " No hay piezas de esa figura que mostrar (hace falta un catálogo abierto)."
+            msg += (' ' + tr("controller.no_hay_piezas_de_esa_figura"))
         else:
             ref_h, my_h = CR.body_height(placed), float(self.session.work.bounds[1][2] - self.session.work.bounds[0][2])
             if my_h > 0 and abs(ref_h - my_h) / my_h > 0.03:
-                msg += f" Ojo: la referencia mide {ref_h:.0f} mm y tu figura {my_h:.0f} mm; el fantasma no se escala."
+                msg += (' ' + tr("controller.ojo_la_referencia_mide_ref_h", ref_h=f"{ref_h:.0f}", my_h=f"{my_h:.0f}"))
         self._changed(msg)
 
     def _sync_cut_ghost(self, scene) -> None:
@@ -5100,18 +5044,18 @@ class Controller:
         aim = self.cut_aim() if self.cut_aim_visible else None
         if aim is None or "note" in aim:
             if not quiet:
-                self._changed("El imán del corte necesita la mira del corte: un miembro sobre el plano de simetría, un catálogo abierto y la casilla encendida.", scene=False)
+                self._changed(tr("controller.el_iman_del_corte_necesita_la"), scene=False)
             return False
         best = aim["best"]
         if best is None or not aim["improves"]:
             if not quiet:
-                self._changed("El corte ya está en la mejor posición de la cinta (±3 mm).", scene=False)
+                self._changed(tr("controller.el_corte_ya_esta_en_la"), scene=False)
             return False
         name, mm = aim["limb"], round(float(best.offset_mm), 2)
         self.set_limb_offset(name, mm)
         if abs((self.session.limb_offset(name) or 0.0) - mm) > 1e-6:                     # `set_limb_offset` lo rechazó: ya dejó el motivo
             return False
-        self._changed(f"Imán del corte: «{name}» a {mm:.2f} mm ({best.contador()}). Revisá el pasador.".replace(".", ",", 1))
+        self._changed(tr("controller.iman_del_corte_name_a_mm", name=name, mm=f"{mm:.2f}", contador=best.contador()).replace(".", ",", 1))
         return True
 
     def cut_aim_box(self) -> dict | None:
@@ -5135,14 +5079,14 @@ class Controller:
     def cut_seated_blocked(self) -> str | None:
         """Por qué no se puede medir el choque sentado del corte que se mira (None = se puede); lo usa el botón de la ventana."""
         name = self.offset_limb()
-        return "Elegí un miembro con corte sobre la simetría." if name is None else self.session.cut_seated_blocked(name)
+        return tr("controller.elegi_un_miembro_con_corte_sobre") if name is None else self.session.cut_seated_blocked(name)
 
     def cut_seated_job(self):
         """Prepara el choque en pose sentada del corte actual: `(clave, trabajo)`; `trabajo(progreso)` va en un hilo y `finish_cut_seated`
         guarda el resultado. Es la parte lenta de la mira (mallas de todo el catálogo), por eso se pide sobre una posición elegida."""
         aim = self.cut_aim() if self.cut_aim_visible else None
         if aim is None or "note" in aim:
-            self._changed("El choque en pose sentada necesita la mira del corte (un miembro sobre la simetría y un catálogo abierto).", scene=False)
+            self._changed(tr("controller.el_choque_en_pose_sentada_necesita"), scene=False)
             return None
         key, name, off = self._cut_seated_key(aim), aim["limb"], float(aim["reading"].offset_mm)
         return key, (lambda _progress: self.session.cut_seated(name, off))
@@ -5150,7 +5094,7 @@ class Controller:
     def finish_cut_seated(self, key, res, err) -> None:
         if err is not None:
             self.cut_seated = None
-            self._changed(f"No se pudo medir el choque en pose sentada: {err}.", scene=False)
+            self._changed(tr("controller.no_se_pudo_medir_el_choque", err=err), scene=False)
             return
         self.cut_seated = dict(res, key=key)
         self._changed(res["texto"])
@@ -5165,7 +5109,7 @@ class Controller:
 
     def toggle_heat(self) -> None:
         self.heat_visible = not self.heat_visible
-        self._changed("Mapa de calor del pasador " + ("visible." if self.heat_visible else "oculto."))
+        self._changed((tr("controller.mapa_de_calor_del_pasador") + ' ') + ("visible." if self.heat_visible else "oculto."))
 
     HEAT_KEYS = ("ok", "aviso", "no")
 
@@ -5303,7 +5247,7 @@ class Controller:
             self._joint_aim_cache = (id(aid), out)
             return out
         except Exception as e:  # noqa: BLE001 — la ayuda nunca debe romper la edición
-            return {"lugar": lugar, "note": f"no se pudo medir ({e})"}
+            return {"lugar": lugar, "note": tr("controller.no_se_pudo_medir_e", e=e)}
 
     def joint_aim_text(self) -> str:
         """Una línea para la sección del cuello / la cintura: el nivel de hoy y la mejor posición de la cinta."""
@@ -5317,9 +5261,9 @@ class Controller:
         cur, best = aim["reading"], aim["best"]
         txt = cur.texto()
         if best is not None and aim["improves"]:
-            txt += f" · mejor: {best.offset_mm:+.1f} mm ({best.contador()})".replace(".", ",")
+            txt += (' ' + tr("controller.mejor_offset_mm_mm_contador", offset_mm=f"{best.offset_mm:+.1f}", contador=best.contador())).replace(".", ",")
         elif best is not None:
-            txt += " · ya está en la mejor posición de la cinta"
+            txt += (' ' + tr("controller.ya_esta_en_la_mejor_posicion"))
         return txt
 
     def joint_aim_box(self) -> dict | None:
@@ -5339,12 +5283,12 @@ class Controller:
         try:
             self.session.shift_plane(lugar, delta)
         except ValueError as e:
-            self._changed(f"No se movió el plano: {e}.", scene=False)
+            self._changed(tr("controller.no_se_movio_el_plano_e", e=e), scene=False)
             return False
         if self.mode in (Mode.HEAD_PIN, Mode.WAIST_PIN):
             self.cancel(quiet=True)
-        self._changed(f"Plano {'del cuello' if lugar == 'cuello' else 'de la cintura'} corrido {delta:+.2f} mm".replace(".", ",")
-                      + (" (se descartó el pasador elegido)." if had_pin else ".") + " Hay que generar de nuevo.")
+        self._changed(tr("controller.plano_v_corrido_delta_mm", v=tr("controller.del_cuello") if lugar == "cuello" else tr("controller.de_la_cintura"), delta=f"{delta:+.2f}").replace(".", ",")
+                      + ((' ' + tr("controller.se_descarto_el_pasador_elegido")) if had_pin else ".") + (' ' + tr("controller.hay_que_generar_de_nuevo")))
         return True
 
     def _joint_pin_chosen(self, lugar: str) -> bool:
@@ -5356,13 +5300,13 @@ class Controller:
         aim = self.joint_aim() if self.cut_aim_visible else None
         if aim is None or "note" in aim:
             if not quiet:
-                self._changed("El imán del plano necesita la mira (un plano de cuello o cintura, un catálogo abierto y la casilla encendida).",
+                self._changed(tr("controller.el_iman_del_plano_necesita_la"),
                               scene=False)
             return False
         best = aim["best"]
         if best is None or not aim["improves"]:
             if not quiet:
-                self._changed("El plano ya está en la mejor posición de la cinta (±4 mm).", scene=False)
+                self._changed(tr("controller.el_plano_ya_esta_en_la"), scene=False)
             return False
         return self.shift_joint_plane(aim["lugar"], float(best.offset_mm) - float(aim["reading"].offset_mm))
 

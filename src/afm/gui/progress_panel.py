@@ -1,6 +1,7 @@
 """Barra de progreso con porcentaje, tarea en curso, tareas pendientes y tiempo estimado (compartida por la ventana
 principal y «Armar desde catálogo»). La cuenta está en `afm.progress`; esto solo la dibuja."""
 from __future__ import annotations
+from ..i18n import tr
 
 import gi
 
@@ -35,7 +36,7 @@ class ProgressPanel(Gtk.Box):
         self._t0 = time.monotonic()
         self._tracker = ProgressTracker(stages) if stages else None
         self.bar.set_fraction(0.0)
-        self.bar.set_text("0 %" if self._tracker else "Trabajando…")
+        self.bar.set_text("0 %" if self._tracker else tr("progress_panel.trabajando"))
         self.lbl_now.set_text(text)
         self.lbl_pending.set_text("")
         self.set_visible(True)
@@ -54,14 +55,14 @@ class ProgressPanel(Gtk.Box):
             GLib.source_remove(self._timer)
             self._timer = 0
         if self._tracker is not None and ok:
-            self._tracker.finish(text or "Listo")
+            self._tracker.finish(text or tr("progress_panel.listo"))
             self._render()
         elif not ok:
-            self.bar.set_text(f"Falló · {fmt_duration(self._elapsed())}")
+            self.bar.set_text(tr("progress_panel.fallo_fmt_duration", fmt_duration=fmt_duration(self._elapsed())))
             self.lbl_pending.set_text("")
         else:
             self.bar.set_fraction(1.0)
-            self.bar.set_text(f"Terminado en {fmt_duration(self._elapsed())}")
+            self.bar.set_text(tr("progress_panel.terminado_en_fmt_duration", fmt_duration=fmt_duration(self._elapsed())))
             self.lbl_pending.set_text("")
 
     def hide_panel(self) -> None:
@@ -83,10 +84,10 @@ class ProgressPanel(Gtk.Box):
     def _render(self) -> None:
         if self._tracker is None:
             self.bar.pulse()
-            self.bar.set_text(f"Trabajando… {fmt_duration(self._elapsed())}")
+            self.bar.set_text(tr("progress_panel.trabajando_fmt_duration", fmt_duration=fmt_duration(self._elapsed())))
             last = getattr(self, "_last", "")
             if last:
-                self.lbl_now.set_text(f"Ahora: {last}")
+                self.lbl_now.set_text(tr("progress_panel.ahora_last", last=last))
             return
         snap = self._tracker.snapshot()
         text, now, pend = describe(snap)

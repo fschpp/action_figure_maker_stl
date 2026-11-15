@@ -1,5 +1,6 @@
 """Ayudas de construcción de widgets GTK4 compartidas por la ventana principal y los módulos de `gui/steps`."""
 from __future__ import annotations
+from ..i18n import tr
 
 import gi
 
@@ -63,13 +64,13 @@ def help_note(parent: Gtk.Box, text: str) -> None:
         more_lab = Gtk.Label(label=rest, xalign=0, wrap=True, hexpand=True)
         more_lab.add_css_class("afm-help-text")
         revealer = Gtk.Revealer(child=more_lab, reveal_child=False)
-        btn = Gtk.Button(label="Más ▾", halign=Gtk.Align.START)
+        btn = Gtk.Button(label=tr("widgets.mas"), halign=Gtk.Align.START)
         btn.add_css_class("flat")
 
         def toggle(*_):
             on = not revealer.get_reveal_child()
             revealer.set_reveal_child(on)
-            btn.set_label("Menos ▴" if on else "Más ▾")
+            btn.set_label(tr("widgets.menos") if on else tr("widgets.mas"))
 
         btn.connect("clicked", toggle)
         col.append(revealer)

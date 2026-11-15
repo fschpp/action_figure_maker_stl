@@ -10,6 +10,7 @@ de cairo y se prueba sin pantalla. `draw` solo usa los métodos del contexto de 
 Convención de ejes (la misma que `OrbitCamera.set_view`): Z arriba, frente = +Y, «Der.» = mirar desde +X.
 """
 from __future__ import annotations
+from ..i18n import lz, loc
 
 import math
 from dataclasses import dataclass
@@ -18,12 +19,12 @@ import numpy as np
 
 # (etiqueta, normal exterior). El orden fija el índice de cara que usan `Hit` y `draw`.
 FACES = (
-    ("Frente", (0.0, 1.0, 0.0)),
-    ("Espalda", (0.0, -1.0, 0.0)),
-    ("Der.", (1.0, 0.0, 0.0)),
-    ("Izq.", (-1.0, 0.0, 0.0)),
-    ("Arriba", (0.0, 0.0, 1.0)),
-    ("Abajo", (0.0, 0.0, -1.0)),
+    (lz("common.frente"), (0.0, 1.0, 0.0)),
+    (lz("viewcube.espalda"), (0.0, -1.0, 0.0)),
+    (lz("viewcube.der"), (1.0, 0.0, 0.0)),
+    (lz("viewcube.izq"), (-1.0, 0.0, 0.0)),
+    (lz("common.arriba"), (0.0, 0.0, 1.0)),
+    (lz("viewcube.abajo"), (0.0, 0.0, -1.0)),
 )
 
 SCALE = 0.27                  # semiarista del cubo = SCALE * lado del widget (deja lugar a las esquinas en diagonal)
@@ -162,6 +163,7 @@ class ViewCube:
         import cairo
 
         name, n = FACES[k]
+        name = loc(name)
         n = np.asarray(n, float)
         u, v = face_basis(n)
         o = self.project(rot, n)

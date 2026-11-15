@@ -20,6 +20,7 @@ dependencies = [
     "scikit-image",
     "fast-simplification",
     "pymeshfix",
+    "python-i18n",
 ]
 
 [project.optional-dependencies]
@@ -36,6 +37,9 @@ Repository = "https://github.com/fschpp/action_figure_maker_stl"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+afm = ["locales/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
