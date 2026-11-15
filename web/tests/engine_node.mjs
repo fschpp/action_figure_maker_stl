@@ -32,6 +32,13 @@ const packed = eng.py.runPython(`_pack({"zip": b"PK-prueba", "archivos": ["a.stl
 check(packed.zip instanceof Uint8Array && packed.zip.length === 9, `_pack: zip llega como ${packed.zip?.constructor?.name} de ${packed.zip?.length} bytes`);
 check(Array.isArray(packed.archivos) && packed.archivos[0] === "a.stl" && JSON.parse(packed.informe).ok === true, "_pack: archivos e informe");
 
-try { eng.demo({ onMessage: () => {} }); check(true, "demo: terminó (hay manifold3d)"); }
-catch (e) { check(/manifold3d/.test(String(e)), `demo: falla esperada sin manifold3d → ${String(e.message || e).split("\n").filter(Boolean).pop()}`); }
+try {
+  const t0 = performance.now();
+  const d = eng.demo({ onMessage: () => {} });
+  const seg = ((performance.now() - t0) / 1000).toFixed(1);
+  check(true, `demo: terminó en ${seg} s con manifold3d → ${d.archivos.length} archivos, zip ${d.zip.length} bytes`);
+  const inf = JSON.parse(d.informe);
+  check(d.archivos.some((a) => a.endsWith(".stl")), "demo: el ZIP trae STL");
+  console.log("  informe (claves):", Object.keys(inf).join(", "));
+} catch (e) { check(/manifold3d/.test(String(e)), `demo: falla esperada sin manifold3d → ${String(e.message || e).split("\n").filter(Boolean).pop()}`); }
 process.exit(fails ? 1 : 0);
