@@ -36,3 +36,70 @@ def test_demo_returns_a_zip_with_the_parts_and_the_report():
     assert json.loads(z.read("muneco_informe.json"))["validacion"]["ok"] is True
     assert r["informe"]["validacion"]["ok"] is True
     s.close()
+
+
+# --- M2: puntos elegidos sobre el STL crudo → marco de la figura; miembros desde 3 puntos --------------------------
+def _odd_doll(tmp_path):
+    """Muñeco en otras unidades (÷100) y fuera del origen: el caso en que el marco del archivo ≠ el de la figura."""
+    from afm.testfigure import make_doll
+
+    m = make_doll()
+    m.apply_scale(0.01)
+    m.apply_translation([5, 3, 2])
+    p = tmp_path / "odd.stl"
+    m.export(str(p))
+    return p, m
+
+
+def test_figure_frame_maps_file_points_into_the_normalized_figure(tmp_path):
+    import numpy as np
+
+    from afm.webapi import EngineSession
+
+    p, m = _odd_doll(tmp_path)
+    s = EngineSession()
+    info = s.load_stl(p.read_bytes())
+    assert info["z_arriba"] and not info["avisos"]
+    fr = s.figure_frame()
+    q = np.asarray(fr["k"]) * m.bounds + np.asarray(fr["offset"])
+    # la caja del archivo cae sobre la de la figura normalizada: pies en z=0, coronilla en 100, centrada en X e Y
+    assert np.allclose(q[:, 2], [0.0, 100.0], atol=1e-6)
+    assert np.allclose(q[:, :2].sum(axis=0), 0.0, atol=1e-6)
+
+
+def test_figure_frame_refuses_a_file_that_is_not_z_up(tmp_path):
+    import numpy as np
+    import pytest
+
+    from afm.testfigure import make_doll
+    from afm.webapi import EngineSession
+
+    m = make_doll()
+    m.apply_transform(np.array([[1, 0, 0, 0], [0, 0, -1, 0], [0, 1, 0, 0], [0, 0, 0, 1]], float))   # Y arriba
+    p = tmp_path / "yup.stl"
+    m.export(str(p))
+    s = EngineSession()
+    info = s.load_stl(p.read_bytes())
+    assert info["z_arriba"] is False and info["avisos"]
+    with pytest.raises(ValueError, match="Z arriba"):
+        s.figure_frame()
+
+
+def test_new_limb_defaults_and_collinear_points():
+    import pytest
+
+    from afm.limbs import LimbSpec
+    from afm.webapi import EngineSession
+
+    arm = EngineSession.new_limb("brazo", "arm", [0, 3, 0], [1, 3, 0], [0, 3, 1])
+    leg = EngineSession.new_limb("pierna", "leg", [0, 3, 0], [1, 3, 0], [0, 3, 1])
+    assert arm["extrude"] == "outward" and abs(arm["thickness"] - 12 * 1.653) < 1e-9
+    assert leg["extrude"] == "symmetric" and leg["thickness"] == 100.0       # plano frontal: prisma simétrico
+    assert arm["polygon"] == [] and arm["auto"] is True
+    LimbSpec.from_dict(arm)                                                  # el JSON vuelve a leerse como LimbSpec
+    side = EngineSession.new_limb("pierna", "leg", [7, 0, 0], [7, 1, 0], [7, 0, 1])
+    assert side["extrude"] == "outward"                                       # plano de costado = la cara de contacto
+    with pytest.raises(ValueError, match="colineales"):
+        EngineSession.new_limb("x", "leg", [0, 0, 0], [1, 1, 1], [2, 2, 2])
+    with pytest.raises(ValueError, match="arm"):
+        EngineSession.new_limb("x", "head", [0, 0, 0], [1, 0, 0], [0, 1, 0])

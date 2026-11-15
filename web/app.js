@@ -1,4 +1,4 @@
-import { planeFromPoints, mergeProject } from "./planes.js";
+import { planeFromPoints, mergeProject, toFigure } from "./planes.js";
 const $ = (s) => document.querySelector(s);
 const log = (t) => { $("#log").textContent += t + "\n"; };
 
@@ -57,7 +57,8 @@ $("#stl").addEventListener("change", async (ev) => {
   stlBytes = new Uint8Array(await f.arrayBuffer()); $("#stlinfo").textContent = "";
   showInViewer(stlBytes);
   await run(async () => {
-    const info = await call("load_stl", { bytes: stlBytes.slice() });   // copia: la original queda disponible en la página
+    const info = stlInfo = await call("load_stl", { bytes: stlBytes.slice() });   // copia: la original queda disponible en la página
+    for (const a of info.avisos ?? []) log("Aviso: " + a);
     $("#stlinfo").textContent = `${info.triangulos} triángulos, ${info.alto_mm.toFixed(1)} mm de alto, ${info.estanca ? "estanca" : "NO estanca"}`;
   });
 });
@@ -67,10 +68,30 @@ $("#proj").addEventListener("change", async (ev) => {
   try { JSON.parse(projText); } catch { projText = null; log("El proyecto no es un JSON válido."); }
   sync();
 });
-$("#build").addEventListener("click", () => run(async () => showResult(await call("build", { project: mergeProject(projText, edits), name: "figura" }))));
+$("#build").addEventListener("click", () => run(async () => showResult(await call("build", { project: await projectWithPicks(), name: "figura" }))));
+
+// Lo elegido en el visor está en coordenadas del STL crudo; los planos del proyecto, en el marco de la figura
+// normalizada (escala, pies en z=0, centrada). El motor da la transformación (frame) y el miembro por defecto (new_limb).
+async function projectWithPicks() {
+  const base = JSON.parse(projText);
+  const picked = edits.symPts || edits.limbs.size;
+  if (!picked && edits.crown_z == null && !edits.front) return projText;
+  if (stlInfo && stlInfo.z_arriba === false) throw new Error("El STL no tiene Z arriba: los puntos del visor no se pueden usar.");
+  const crown = edits.crown_z ?? base.crown_z ?? null;
+  const fr = await call("frame", { crown_z: crown, ref_height: base.params?.ref_height ?? 100 });
+  const out = { crown_z: crown };
+  if (edits.front) out.front = edits.front;
+  if (edits.symPts) out.symmetry = planeFromPoints(...toFigure(edits.symPts, fr), "simetría");
+  const limbs = (base.limbs ?? []).filter((l) => !edits.limbs.has(l.name));
+  for (const [name, { kind, pts }] of edits.limbs) limbs.push(await call("new_limb", { name, kind, points: toFigure(pts, fr) }));
+  const merged = JSON.parse(mergeProject(base, out));
+  if (edits.limbs.size) merged.limbs = limbs;
+  return JSON.stringify(merged);
+}
 
 // --- Visor (M2): se carga solo al abrir un STL, para que un fallo de three.js no impida la demo ---
-const edits = {};          // lo elegido en el visor: symmetry, crown_z, front
+const edits = { symPts: null, crown_z: null, front: null, limbs: new Map() };   // puntos crudos elegidos en el visor
+let stlInfo = null;
 let viewer = null;
 async function showInViewer(bytes) {
   try {
@@ -88,7 +109,7 @@ $("#pick-sym").addEventListener("click", () => {
   if (!viewer) return;
   $("#pickinfo").textContent = "Hacé clic en 3 puntos de la línea central (2 en la espalda y 1 en el pecho).";
   viewer.startPicking(3, (pts) => {
-    try { edits.symmetry = planeFromPoints(...pts, "simetría"); viewer.showPlane(edits.symmetry); $("#pickinfo").textContent = "Plano de simetría definido."; }
+    try { viewer.showPlane(planeFromPoints(...pts, "simetría")); edits.symPts = pts; $("#pickinfo").textContent = "Plano de simetría definido."; }
     catch (e) { $("#pickinfo").textContent = e.message; }
   });
 });
@@ -97,5 +118,16 @@ $("#pick-crown").addEventListener("click", () => {
   $("#pickinfo").textContent = "Hacé clic en la coronilla (sin sombrero ni orejas).";
   viewer.startPicking(1, ([p]) => { edits.crown_z = p[2]; $("#pickinfo").textContent = `Coronilla en Z = ${p[2].toFixed(2)}.`; });
 });
+for (const [id, kind, name] of [["pick-arm", "arm", "brazo"], ["pick-leg", "leg", "pierna"]]) {
+  $("#" + id).addEventListener("click", () => {
+    if (!viewer) return;
+    $("#pickinfo").textContent = kind === "arm" ? "3 clics no alineados sobre la cara chata del hombro (donde se une el brazo)."
+      : "3 clics no alineados sobre un plano que atraviese la pierna y la cadera (p. ej. el plano medio frente/espalda).";
+    viewer.startPicking(3, (pts) => {
+      try { viewer.showPlane(planeFromPoints(...pts, name), 0xf5a83f); edits.limbs.set(name, { kind, pts }); $("#pickinfo").textContent = `Plano del ${name} definido (la silueta la propone el motor al generar).`; }
+      catch (e) { $("#pickinfo").textContent = e.message; }
+    });
+  });
+}
 $("#front").addEventListener("change", (e) => { edits.front = e.target.value; });
 sync();

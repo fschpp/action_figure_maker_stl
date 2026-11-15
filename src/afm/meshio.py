@@ -21,6 +21,18 @@ class LoadReport:
     repaired: bool = False
     remeshed: bool = False
     zmin_file: float = 0.0          # z mínimo de la malla orientada, en unidades del archivo
+    center_xy: tuple = (0.0, 0.0)   # centro (x, y) de la caja, en mm de la figura, que `normalize` resta
+
+    def to_figure(self, points) -> "np.ndarray":
+        """Puntos del archivo (con Z arriba) → marco de la figura normalizada (mm, pies en z=0, centrada en X e Y):
+        el mismo escalado y traslado que `normalize`. Sirve para llevar planos elegidos sobre el STL crudo al marco
+        en que se guardan en el proyecto."""
+        p = np.atleast_2d(np.asarray(points, float))
+        out = self.scale * p
+        out[:, 2] -= self.scale * self.zmin_file
+        out[:, 0] -= self.center_xy[0]
+        out[:, 1] -= self.center_xy[1]
+        return out
     warnings: list[str] = field(default_factory=list)
 
 
@@ -322,6 +334,7 @@ def normalize(mesh: trimesh.Trimesh, ref_height: float = 100.0, crown_z: float |
     mesh.apply_scale(report.scale)
     c = mesh.bounds.mean(axis=0)
     mesh.apply_translation([-c[0], -c[1], 0.0])
+    report.center_xy = (float(c[0]), float(c[1]))
     return mesh
 
 

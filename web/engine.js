@@ -36,6 +36,16 @@ def _pack(r):
       g.set("_proj", projectText); g.set("_name", name); withProgress(onMessage);
       return py.runPython("_pack(_s.build(_proj, progress_cb=_pcb, name=_name))");
     },
+    // Transformación del STL crudo al marco de la figura: figura = k·archivo + offset (afm.webapi.figure_frame).
+    figureFrame(crownZ, refHeight) {
+      g.set("_arg", JSON.stringify({ crown_z: crownZ ?? null, ref_height: refHeight ?? 100 }));
+      return JSON.parse(py.runPython("json.dumps(_s.figure_frame(**json.loads(_arg)))"));
+    },
+    // Miembro (brazo/pierna) con el plano por 3 puntos YA en el marco de la figura (afm.webapi.new_limb).
+    newLimb(name, kind, points) {
+      g.set("_arg", JSON.stringify({ name, kind, p0: points[0], p1: points[1], p2: points[2] }));
+      return JSON.parse(py.runPython("json.dumps(_s.new_limb(**json.loads(_arg)))"));
+    },
     demo({ onMessage } = {}) {
       withProgress(onMessage);
       return py.runPython("_pack(_s.demo(progress_cb=_pcb))");

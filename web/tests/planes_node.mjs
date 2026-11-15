@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { planeFromPoints, mergeProject } from "../planes.js";
+import { planeFromPoints, mergeProject, toFigure } from "../planes.js";
 
 const cases = [[[0, 0, 0], [1, 0, 0], [0, 1, 0]], [[1, 2, 3], [4, -1, 2], [0.5, 7, 9]], [[0, 0, 0], [0, 5, 0], [0, 0, 5]]];
 const py = (c) => JSON.parse(execFileSync("python3", ["-c", `
@@ -15,4 +15,6 @@ for (const c of cases) {
 assert.throws(() => planeFromPoints([0, 0, 0], [1, 1, 1], [2, 2, 2]), /colineales/);
 const out = JSON.parse(mergeProject({ version: 1, symmetry: null, crown_z: null, front: "+Y", limbs: [] }, { symmetry: planeFromPoints(...cases[2], "simetría"), crown_z: 98.5, front: "-Y" }));
 assert.deepEqual(out.symmetry.normal, [1, 0, 0]); assert.equal(out.crown_z, 98.5); assert.equal(out.front, "-Y");
+const q = toFigure([[1, 2, 3]], { k: 100, offset: [-500, -300, -200] });
+assert.deepEqual(q, [[-400, -100, 100]]);
 console.log("planes_node: OK");

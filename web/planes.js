@@ -22,3 +22,7 @@ export function mergeProject(base, edits) {
   if (edits.front) p.front = edits.front;
   return JSON.stringify(p, null, 2);
 }
+
+// Lleva puntos del STL crudo al marco de la figura: figura = k·archivo + offset (`figure_frame` del motor).
+// Los planos del .proyecto están en ese marco; los puntos que se eligen en el visor, en el del archivo.
+export const toFigure = (pts, { k, offset }) => pts.map((p) => p.map((x, i) => k * x + offset[i]));
