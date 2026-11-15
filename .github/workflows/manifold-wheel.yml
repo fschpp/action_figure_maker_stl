@@ -1,6 +1,7 @@
 # Plan A del port a Pyodide (docs/PLAN_port_pyodide.md §4.1): compilar manifold3d para Pyodide.
 #
-# ESTADO: SIN PROBAR. Se escribió sin poder ejecutarlo (el entorno de desarrollo no puede bajar emscripten).
+# ESTADO: 1.ª corrida (2026-11-15) falló: el upstream excluye los bindings de Python bajo Emscripten (CMakeLists.txt y bindings/CMakeLists.txt) y JSBIND buscaba bindings/wasm, ausente del sdist; este workflow los parchea. SIN PROBAR tras el parche.
+# Antes: Se escribió sin poder ejecutarlo (el entorno de desarrollo no puede bajar emscripten).
 # Los puntos marcados [I] son supuestos a validar en la primera corrida; el plazo de G1 son 5 días hábiles.
 #   [I] el identificador de cibuildwheel para Python 3.14 en Pyodide es "cp314-pyodide_wasm32"
 #   [I] cibuildwheel acepta el sdist como argumento de entrada
@@ -16,7 +17,7 @@ on:
 env:
   CIBW_PLATFORM: pyodide
   CIBW_BUILD: "cp314-pyodide_wasm32"
-  CIBW_ENVIRONMENT: 'CMAKE_ARGS="-DMANIFOLD_PAR=OFF -DMANIFOLD_TEST=OFF -DMANIFOLD_CBIND=OFF"'
+  CIBW_ENVIRONMENT: 'CMAKE_ARGS="-DMANIFOLD_PAR=OFF -DMANIFOLD_TEST=OFF -DMANIFOLD_CBIND=OFF -DMANIFOLD_JSBIND=OFF -DMANIFOLD_PYBIND=ON"'
   # Prueba mínima dentro del runtime de Pyodide: importar y hacer una booleana.
   CIBW_TEST_COMMAND: >-
     python -c "import manifold3d as m; a=m.Manifold.cube((2,2,2)); b=m.Manifold.cube((2,2,2)).translate((1,0,0));
@@ -39,8 +40,24 @@ jobs:
           url = next(u["url"] for u in d["urls"] if u["packagetype"] == "sdist")
           urllib.request.urlretrieve(url, f"manifold3d-{v}.tar.gz")
           PY
+      - name: Extraer y parchear el CMake (el upstream excluye los bindings de Python bajo Emscripten)
+        run: |
+          tar xzf "manifold3d-${{ inputs.manifold_version }}.tar.gz"
+          cd "manifold3d-${{ inputs.manifold_version }}"
+          python - <<'PY'
+          import re, pathlib
+          p = pathlib.Path("CMakeLists.txt"); s = p.read_text()
+          s2 = s.replace("  set(MANIFOLD_PYBIND OFF)\n  set(BUILD_SHARED_LIBS OFF)", "  set(BUILD_SHARED_LIBS OFF)")
+          assert s2 != s, "no se encontro set(MANIFOLD_PYBIND OFF) en el bloque EMSCRIPTEN"
+          p.write_text(s2)
+          p = pathlib.Path("bindings/CMakeLists.txt"); s = p.read_text()
+          s2 = s.replace("if(NOT EMSCRIPTEN AND MANIFOLD_PYBIND)", "if(MANIFOLD_PYBIND)")
+          assert s2 != s, "no se encontro la condicion de bindings/CMakeLists.txt"
+          p.write_text(s2)
+          PY
+          git diff --no-index --stat /dev/null CMakeLists.txt >/dev/null || true
       - run: pip install cibuildwheel==4.3.5
-      - run: cibuildwheel --output-dir wheelhouse "manifold3d-${{ inputs.manifold_version }}.tar.gz"
+      - run: cibuildwheel --output-dir wheelhouse "manifold3d-${{ inputs.manifold_version }}"
       - uses: actions/upload-artifact@v4
         with:
           name: manifold3d-pyodide-wheel
