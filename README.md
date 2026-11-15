@@ -169,3 +169,7 @@ alcanza, aviso si sobran menos de 0,5 mm. Una toma sin el dato (pieza vieja) no 
 
 Podés conservar el torso del proyecto al importar una pelvis, dividir la figura actual y escalar sus piezas originales
 por separado antes de regenerar las uniones. Ver [uso en GUI y CLI](docs/ajustes_piezas.md).
+
+## Licencia
+
+GPL-3.0-or-later (ver `LICENSE`). Usa manifold3d (Apache-2.0), three.js (MIT) y Pyodide (MPL-2.0).

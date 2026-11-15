@@ -2,6 +2,15 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — Licencia GPL-3.0 (2026-11-15, rama `licencia_gpl3` sobre main 448e63b)
+`LICENSE` reemplazado por el texto oficial de la GPL-3.0 (el de GPL-2.0 contradecía a `pyproject.toml`, que ya decía `GPL-3.0-or-later`); `docs/PLAN_port_pyodide.md` §11 y R9 cerrados; sección «Licencia» en el README. Pendiente menor: `THIRD_PARTY.md` con las licencias de manifold3d (Apache-2.0), three.js y Pyodide. El dueño dijo que ya probó el sitio en Firefox; falta saber qué anduvo y qué no.
+
+### Todo List
+- [x] Licencia GPL-3.0 (LICENSE, plan, README).
+- [ ] Resultado de la prueba en Firefox (visor, clics, demo, cuello, cintura, mitad atenuada) → corregir lo que falle.
+- [ ] `THIRD_PARTY.md`.
+- [ ] `preview_pose`; `engine_node.mjs` para `frame` / `new_limb` / `new_head` / `new_waist`; G0 y G3.
+
 ## Current Focus — Port a Pyodide, M2 cuarta rebanada: planos juntos y mitad atenuada (2026-11-15, rama `port_m2_planos_visor` sobre main 1c8c6ac)
 **Hecho (solo JS, sin probar en navegador):** `viewer.showPlane(pl, color, key)` guarda un plano por clave (simetría, brazo, pierna, cuello, cintura), así que se ven todos a la vez (antes el último borraba al anterior). `viewer.setHalf(plano, "+"|"-"|null)` + botón «Atenuar una mitad»: la mitad elegida del plano de simetría queda opaca y la otra se dibuja como fantasma translúcido (planos de recorte de three.js, `localClippingEnabled`); es solo la vista, el motor espeja solo. Verificado: `node --check` de todos los `.js` / `.mjs`. **No verificado:** el render (no hay WebGL en la sesión de desarrollo); falta ver en Chrome qué lado «+» corresponde a cada figura.
 
