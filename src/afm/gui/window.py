@@ -7,6 +7,7 @@ from __future__ import annotations
 from ..i18n import LANGUAGES, get_language, loc, lz, set_language, tr
 
 import os
+import sys
 import threading
 import time
 
@@ -107,6 +108,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self._joint_names: list[str] = []
         self.mgl = None
         self.scene: SceneRenderer | None = None
+        self._gl_retry_logged = False
         self._updating = False
         self._base_tips: dict = {}              # tooltip original de cada control que `_gate` apaga con un motivo
         self._trim_names: list[str] = []
@@ -930,24 +932,48 @@ class MainWindow(Gtk.ApplicationWindow):
                 self.planes_box.append(item)
 
     # --------------------------------------------------------------------- GL
-    def _on_realize(self, area: Gtk.GLArea) -> None:
+    def _ensure_gl(self, area: Gtk.GLArea) -> bool:
+        """Crea el contexto moderngl y la escena si todavía no existen (con el contexto del `GLArea` ya activo). Si falla
+        no tira: devuelve False y se reintenta en el siguiente dibujo (al cambiar de idioma la ventana nueva puede
+        no tener todavía el contexto activo en `realize`, y sin escena el visor mostraba memoria sin inicializar)."""
+        if self.scene is not None:
+            return True
         area.make_current()
         if area.get_error() is not None:
-            return
+            return False
         import moderngl
 
-        self.mgl = moderngl.create_context()
-        self.scene = SceneRenderer(self.mgl)
+        try:
+            self.mgl = moderngl.create_context()
+            self.scene = SceneRenderer(self.mgl)
+        except Exception as e:  # noqa: BLE001 — se reintenta en el próximo render
+            self.mgl, self.scene = None, None
+            if not self._gl_retry_logged:
+                self._gl_retry_logged = True
+                print(f"afm: no se pudo crear el contexto OpenGL todavía ({e}); se reintenta al dibujar.", file=sys.stderr)
+            return False
         self.ctrl.scene_dirty = True
+        return True
+
+    def _on_realize(self, area: Gtk.GLArea) -> None:
+        self._ensure_gl(area)
 
     def _on_unrealize(self, area: Gtk.GLArea) -> None:
         area.make_current()
-        if self.scene is not None:
-            self.scene.clear()
-        self.scene, self.mgl = None, None
+        try:
+            if self.scene is not None:
+                self.scene.clear()
+        finally:
+            # se libera con SU contexto activo: si lo recogiera el recolector más tarde podría tocar el de la ventana nueva
+            if self.mgl is not None:
+                try:
+                    self.mgl.release()
+                except Exception:  # noqa: BLE001
+                    pass
+            self.scene, self.mgl = None, None
 
     def _on_render(self, area: Gtk.GLArea, _gl_context) -> bool:
-        if self.scene is None:
+        if self.scene is None and not self._ensure_gl(area):
             return False
         scale = area.get_scale_factor()
         w, h = area.get_width() * scale, area.get_height() * scale
@@ -2385,8 +2411,12 @@ class Application(Gtk.Application):
         if was_max:
             new.maximize()
         self.win = new
-        new.present()
+        # primero se destruye la ventana vieja (libera SU contexto GL) y recién después se muestra la nueva: así nunca
+        # conviven dos contextos y el de la ventana nueva queda como el activo al crearse (`new` ya está registrada
+        # en la aplicación, por eso destruir la anterior no cierra el programa)
         old.destroy()
+        new.present()
+        GLib.idle_add(lambda: (new.gl.queue_render(), False)[1])
 
     def do_activate(self) -> None:
         ctrl = Controller()
