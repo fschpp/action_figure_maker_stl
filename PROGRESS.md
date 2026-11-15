@@ -2,7 +2,28 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
-## Current Focus — Decimación del torso en el navegador: wheel de fast-simplification (2026-11-15, rama `fastsimp_pages` sobre main ca8d6aa)
+## Current Focus — G3 (tiempo en el navegador) y G0 (Python 3.14): mediciones (2026-11-15, rama `g3_min_gap_recorte` sobre main 3dc03d9)
+**Objetivo inmediato:** saber DÓNDE se van los 231,6 s que tardó la demo en el navegador (tope de G3: 60 s) antes de optimizar nada.
+
+### Todo List
+- [x] Revisar el `figura.zip` del dueño (demo `muneco` generada en el navegador tras mergear el wheel de fast-simplification).
+- [x] Perfil nativo de la demo y A/B de la hipótesis «`min_gap` sobre el torso completo es el cuello de botella» → **descartada**.
+- [x] G0 en Python 3.14.6 con las versiones de Pyodide (subconjunto de tests).
+- [x] `web/app.js`: el log anota el instante de cada etapa del motor (`+12.3 s  Separando brazo…`).
+- [ ] El dueño genera la demo otra vez y pega el log con las etapas: es el dato que falta para atacar G3.
+- [ ] Suite no-GUI completa en 3.14 (no terminó: 1 CPU, ~34 tests en 5 min).
+- [ ] G3 con Sucre; `preview_pose`; `engine_node.mjs` para `frame` / `new_limb` / `new_head` / `new_waist`.
+
+### Latest Blockers/Discoveries
+- **El wheel de fast-simplification FUNCIONÓ en el navegador.** `figura.zip` (demo): torso STL de 1,2 MB y 23 590 caras (antes 120 066 y 6 MB), 0 aristas no-variedad en el torso (antes 188), validación correcta. Quedan 1 arista no-variedad en cada pierna, el mismo aviso que da el nativo. `torso_triangulos` del informe: web [123 632 → 49 166], nativo 3.14 [124 078 → 49 308] (0,4 % de diferencia; `num_tri` del motor cuenta distinto que las caras del STL).
+- **G3 sigue sin cumplirse:** 231,6 s en el navegador del dueño (112 s en el runner de Actions con Node; 23–30 s nativo en este sandbox, ~7–10 veces menos).
+- **Manifold es PEREZOSO** (descubrimiento que cambia cómo medir): las booleanas, `trim_by_plane` y `^` devuelven al instante y el cómputo ocurre en la primera consulta que necesita la malla (`num_tri`, `min_gap`, `to_mesh`…). Por eso el perfil atribuye 5,5 s a `min_gap` dentro de `_decimate_keeping_clearance`, pero `min_gap` suelto sobre el torso ya evaluado cuesta ~200 ms: lo demás es el cómputo diferido de las cavidades. **El mensaje «Reduciendo triángulos…» agrupa trabajo de etapas anteriores.** Para atribuir bien hay que forzar la evaluación (`num_tri()`) en los límites de etapa.
+- **Hipótesis descartada con A/B** (mismo proceso, 2 rondas): recortar el torso a la caja de cada miembro antes de `min_gap` da el mismo valor (20 tests de equivalencia) pero es MÁS lento (decimación 10,2 s contra 8,1 s; `validate` 3,7 contra 3,1) porque el recorte también paga la evaluación del torso. No se integró.
+- **Perfil nativo (23 s, cProfile; atribución imprecisa por la pereza):** `dilate` (Minkowski) 5,8 s en 3 llamadas, `drop_small_components` (decompose) 4,7 s en 2, `validate` 3,1 s, `_decimate_keeping_clearance` 8,2 s (en su mayoría deuda diferida), `fast_simplification.simplify` solo 0,27 s.
+- **G0 (3.14.6, numpy 2.4.6, scipy 1.18.0, shapely 2.1.2, scikit-image 0.26.0, sin pymeshfix ni mapbox-earcut):** subconjunto de 125 tests: 121 pasan, 1 saltado, 3 fallan (`test_export_clean::test_export_pieces_are_clean`, `test_assembly::test_built_only_from_parts_matches_direct` y `::test_unmirrored_torso_from_parts`). Los 3 fallan SOLO por no tener `fast_simplification` (torso de 145 k caras y aristas no-variedad); con la 0.2.0 instalada pasan. Pyodide ya lo tiene vía wheel propio, así que no es un problema de 3.14.
+- **Medir en este sandbox:** 1 CPU y 3 GB; correr dos cosas a la vez (p. ej. pytest y la demo) deforma los tiempos (una demo de 25 s pasó de 290 s).
+
+## Current Focus (anterior) — Decimación del torso en el navegador: wheel de fast-simplification (2026-11-15, rama `fastsimp_pages` sobre main ca8d6aa)
 **Hallazgo (el ZIP que bajó el dueño era la demo `muneco_*`, no Sucre):** el torso salía con **120 066 triángulos** (STL de 6 MB, 188 aristas no-variedad) contra ~24 000 del `afm demo` nativo. Causa: sin `fast_simplification` en Pyodide, `S.decimate` devuelve la malla original. **Arreglo:** `fastsimp-wheel.yml` compila fast-simplification 0.2.0 (nanobind) para Pyodide. Hizo falta fijar `CIBW_ARCHS=wasm32` y `CIBW_TEST_REQUIRES=""` (el sdist trae su propia config de cibuildwheel), `CXXFLAGS="-include cstdio"` (nanobind usa `stderr` sin incluirlo) y `GH_REPO` para publicar el Release `fast-simplification-pyodide-0.2.0` (ya publicado). Esta rama conecta `pages.yml` y el `verify` de `manifold-wheel.yml` a ese wheel y quita el disparo temporal por push. **Verificado en Actions (run 43757412045, Pyodide 314.0.8 en Node):** el wheel pasa su prueba dentro de Pyodide; `torso_triangulos` = `[123632, 49166]` en wasm contra `[124078, 49308]` en nativo; paridad Δvolumen **0,000 %** y Δcaja 0,000 mm en las 7 salidas (antes ≤ 0,28 %).
 **Costo:** la demo pasó de 54 s a **112 s** en el runner de Actions (pico 1,21 GB, igual): «Reduciendo triángulos…» 81 s, «Cavidad del cuello…» 14 s. Supera el tope de 60 s de G3 (una PC real puede ser más rápida). Candidato: `_decimate_keeping_clearance` mide 5 `min_gap` por miembro por cada intensidad que prueba. **No verificado:** el sitio publicado con el wheel nuevo (falta mergear y esperar el despliegue); Sucre.
 

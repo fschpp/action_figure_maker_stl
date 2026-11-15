@@ -8,12 +8,15 @@ let nextId = 1;
 const pending = new Map();
 let ready = null;          // promesa de init (se inicia con el primer uso)
 let stlBytes = null, projText = null;
+let runT0 = null;          // inicio de la acción en curso (tras cargar Pyodide), para cronometrar etapas
 
 worker.onmessage = ({ data }) => {
   if (data.type === "progress") {
     $("#bar").hidden = false;
     if (data.pct != null) $("#bar").value = data.pct;
     $("#stage").textContent = data.stage;
+    // Mensajes del motor (pct == null): se anota el instante de cada etapa para ver dónde se va el tiempo (G3).
+    if (data.pct == null && runT0 != null) log(`+${((performance.now() - runT0) / 1000).toFixed(1)} s  ${data.stage}`);
     return;
   }
   const p = pending.get(data.id);
@@ -45,9 +48,13 @@ function showResult(r) {
 
 async function run(fn) {
   busy(true); $("#result").hidden = true; $("#log").textContent = "";
-  try { const t0 = performance.now(); await init(); await fn(); log(`Listo en ${((performance.now() - t0) / 1000).toFixed(1)} s`); }
+  try {
+    const t0 = performance.now(); await init();
+    runT0 = performance.now();      // las etapas se miden desde aquí; «Listo en» sigue incluyendo la carga de Pyodide
+    await fn(); log(`Listo en ${((performance.now() - t0) / 1000).toFixed(1)} s`);
+  }
   catch (e) { log("Error: " + e.message); }
-  finally { busy(false); sync(); }
+  finally { runT0 = null; busy(false); sync(); }
 }
 
 $("#demo").addEventListener("click", () => run(async () => showResult(await call("demo"))));
