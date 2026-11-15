@@ -3,10 +3,10 @@
 // `demo`/`build` necesitan manifold3d: sin su wheel de Pyodide se espera el fallo de import (se informa, no se oculta).
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { createEngine } from "../engine.js";
 
-const [dir, stlPath] = process.argv.slice(2);
+const [dir, stlPath, zipOut] = process.argv.slice(2);
 const base = resolve(dir);
 const { loadPyodide } = await import(pathToFileURL(resolve(base, "pyodide.mjs")).href);
 const wheelsDir = resolve(import.meta.dirname, "../wheels");
@@ -34,7 +34,11 @@ check(Array.isArray(packed.archivos) && packed.archivos[0] === "a.stl" && JSON.p
 
 try {
   const t0 = performance.now();
-  const d = eng.demo({ onMessage: () => {} });
+  const laps = []; let last = performance.now(), cur = "inicio";
+  const d = eng.demo({ onMessage: (m) => { const n = performance.now(); laps.push([cur, (n - last) / 1000]); cur = String(m); last = n; } });
+  laps.push([cur, (performance.now() - last) / 1000]);
+  console.log("  etapas (s):"); laps.sort((a, b) => b[1] - a[1]).slice(0, 8).forEach(([k, v]) => console.log(`    ${v.toFixed(1).padStart(6)}  ${k}`));
+  if (zipOut) writeFileSync(zipOut, d.zip);
   const seg = ((performance.now() - t0) / 1000).toFixed(1);
   check(true, `demo: terminó en ${seg} s con manifold3d → ${d.archivos.length} archivos, zip ${d.zip.length} bytes`);
   const inf = JSON.parse(d.informe);
