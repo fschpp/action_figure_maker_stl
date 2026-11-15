@@ -112,7 +112,7 @@ $("#pick-sym").addEventListener("click", () => {
   if (!viewer) return;
   $("#pickinfo").textContent = "Hacé clic en 3 puntos de la línea central (2 en la espalda y 1 en el pecho).";
   viewer.startPicking(3, (pts) => {
-    try { viewer.showPlane(planeFromPoints(...pts, "simetría")); edits.symPts = pts; $("#pickinfo").textContent = "Plano de simetría definido."; }
+    try { viewer.showPlane(planeFromPoints(...pts, "simetría"), 0x3fa9f5, "sim"); edits.symPts = pts; applyHalf(); $("#pickinfo").textContent = "Plano de simetría definido."; }
     catch (e) { $("#pickinfo").textContent = e.message; }
   });
 });
@@ -127,7 +127,7 @@ for (const [id, kind, name] of [["pick-arm", "arm", "brazo"], ["pick-leg", "leg"
     $("#pickinfo").textContent = kind === "arm" ? "3 clics no alineados sobre la cara chata del hombro (donde se une el brazo)."
       : "3 clics no alineados sobre un plano que atraviese la pierna y la cadera (p. ej. el plano medio frente/espalda).";
     viewer.startPicking(3, (pts) => {
-      try { viewer.showPlane(planeFromPoints(...pts, name), 0xf5a83f); edits.limbs.set(name, { kind, pts }); $("#pickinfo").textContent = `Plano del ${name} definido (la silueta la propone el motor al generar).`; }
+      try { viewer.showPlane(planeFromPoints(...pts, name), 0xf5a83f, name); edits.limbs.set(name, { kind, pts }); $("#pickinfo").textContent = `Plano del ${name} definido (la silueta la propone el motor al generar).`; }
       catch (e) { $("#pickinfo").textContent = e.message; }
     });
   });
@@ -139,10 +139,19 @@ for (const [id, key, label, hint, color] of [
     if (!viewer) return;
     $("#pickinfo").textContent = hint;
     viewer.startPicking(3, (pts) => {
-      try { viewer.showPlane(planeFromPoints(...pts, label), color); edits[key] = pts; $("#pickinfo").textContent = `Plano del ${label} definido (se valida al generar).`; }
+      try { viewer.showPlane(planeFromPoints(...pts, label), color, key); edits[key] = pts; $("#pickinfo").textContent = `Plano del ${label} definido (se valida al generar).`; }
       catch (e) { $("#pickinfo").textContent = e.message; }
     });
   });
 }
+// Atenuar la mitad opuesta al plano de simetría: no → «+» → «−» → no. Solo es la vista; el motor espeja solo.
+let half = null;
+function applyHalf() {
+  if (!viewer) return;
+  if (half && !edits.symPts) { half = null; $("#pickinfo").textContent = "Primero definí el plano de simetría."; }
+  viewer.setHalf(edits.symPts ? planeFromPoints(...edits.symPts, "simetría") : null, half);
+  $("#half").textContent = "Atenuar una mitad: " + (half === "+" ? "lado +" : half === "-" ? "lado −" : "no");
+}
+$("#half").addEventListener("click", () => { half = half === null ? "+" : half === "+" ? "-" : null; applyHalf(); });
 $("#front").addEventListener("change", (e) => { edits.front = e.target.value; });
 sync();

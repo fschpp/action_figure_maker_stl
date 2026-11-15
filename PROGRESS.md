@@ -2,6 +2,16 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — Port a Pyodide, M2 cuarta rebanada: planos juntos y mitad atenuada (2026-11-15, rama `port_m2_planos_visor` sobre main 1c8c6ac)
+**Hecho (solo JS, sin probar en navegador):** `viewer.showPlane(pl, color, key)` guarda un plano por clave (simetría, brazo, pierna, cuello, cintura), así que se ven todos a la vez (antes el último borraba al anterior). `viewer.setHalf(plano, "+"|"-"|null)` + botón «Atenuar una mitad»: la mitad elegida del plano de simetría queda opaca y la otra se dibuja como fantasma translúcido (planos de recorte de three.js, `localClippingEnabled`); es solo la vista, el motor espeja solo. Verificado: `node --check` de todos los `.js` / `.mjs`. **No verificado:** el render (no hay WebGL en la sesión de desarrollo); falta ver en Chrome qué lado «+» corresponde a cada figura.
+
+### Todo List
+- [x] Un plano por clave en el visor; atenuar una mitad.
+- [ ] Probar en Chrome (visor, clics, demo, cuello, cintura, mitad atenuada) y extender `engine_node.mjs` a `frame` / `new_limb` / `new_head` / `new_waist`.
+- [ ] `preview_pose` con slider (motor + visor).
+- [ ] Probar `_fill_silhouettes` con Güemes / Belgrano / Azurduy.
+- [ ] G0 (Python 3.14), G3 (figura real ≤ 60 s y ≤ 1,5 GB) y licencia (decide el dueño).
+
 ## Current Focus — Port a Pyodide, M2 tercera rebanada: planos de cuello y cintura (2026-11-15, rama `port_m2_cuello_cintura` sobre main 7c3edbf)
 **Hecho:** `EngineSession.new_head(p0, p1, p2)` y `new_waist(p0, p1, p2)` (mismas validaciones que `Session.set_head` / `set_waist`: plano casi vertical, de costado o colineal → `ValueError`; el pasador lo propone el motor), puente `newHead` / `newWaist` en `web/engine.js`, mensajes `new_head` / `new_waist` en `web/worker.js`, botones «Plano del cuello / de la cintura (3 clics)» y fusión en `projectWithPicks` (conserva lo que ya traía el proyecto —pasador, cabeza de reemplazo— y solo cambia el plano). El «corte al medio» del tutorial de Onshape no es un plano aparte en el motor: es el plano de la pierna (`new_limb`, ya hecho). Verificado (nativo, venv con las dependencias de `pyproject`): `tests/test_webapi.py` + `test_engine_portability.py` = 9 pasan (+1 test nuevo); `node --check` de todos los `.js` / `.mjs`. **No verificado:** nada corre aún en un navegador ni bajo Pyodide (el sitio publicado no se pudo abrir desde la sesión de desarrollo: `github.io` fuera de la allowlist).
 **Estado de Pages:** `pages.yml` pasó en sus últimas 6 corridas sobre main (la API de Pages no es consultable desde la sesión, pero `has_pages` es true). Falta abrir el sitio en Chrome.

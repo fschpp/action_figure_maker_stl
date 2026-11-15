@@ -7,6 +7,7 @@ const SNAP_PX = 14;   // radio de ajuste al vértice, en píxeles de pantalla
 
 export function createViewer(canvas, { onPick = () => {} } = {}) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer.localClippingEnabled = true;   // para atenuar una mitad (setHalf)
   renderer.setPixelRatio(window.devicePixelRatio);
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x15181c);
@@ -18,7 +19,7 @@ export function createViewer(canvas, { onPick = () => {} } = {}) {
   const controls = new OrbitControls(cam, canvas);
   controls.enableDamping = false;
 
-  let mesh = null, markers = [], planeMesh = null, picking = null, bboxSize = 100;
+  let mesh = null, ghost = null, markers = [], planes = new Map(), picking = null, bboxSize = 100;
   const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
 
   function resize() {
@@ -43,6 +44,7 @@ export function createViewer(canvas, { onPick = () => {} } = {}) {
   function loadStl(bytes) {
     const geo = new STLLoader().parse(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
     if (mesh) { scene.remove(mesh); mesh.geometry.dispose(); }
+    if (ghost) { scene.remove(ghost); ghost.material.dispose(); ghost = null; }
     clearMarkers();
     mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0xc8ccd2, roughness: 0.8, metalness: 0, side: THREE.DoubleSide }));
     scene.add(mesh);
@@ -90,16 +92,34 @@ export function createViewer(canvas, { onPick = () => {} } = {}) {
     if (picking.pts.length === picking.n) { const { pts, onDone } = picking; cancelPicking(); onDone(pts); }
   });
 
-  // Plano translucente (cuadrado de lado ~ tamaño del modelo) a partir de {origin, normal}.
-  function showPlane(pl, color = 0x3fa9f5) {
-    if (planeMesh) { scene.remove(planeMesh); planeMesh.geometry.dispose(); planeMesh = null; }
+  // Plano translucente (cuadrado de lado ~ tamaño del modelo) a partir de {origin, normal}. Uno por `key`
+  // (simetría, brazo, pierna, cuello, cintura…): volver a llamar con la misma clave lo reemplaza; pl = null lo quita.
+  function showPlane(pl, color = 0x3fa9f5, key = "plano") {
+    const old = planes.get(key);
+    if (old) { scene.remove(old); old.geometry.dispose(); old.material.dispose(); planes.delete(key); }
     if (!pl) return;
-    planeMesh = new THREE.Mesh(new THREE.PlaneGeometry(bboxSize * 1.2, bboxSize * 1.2),
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(bboxSize * 1.2, bboxSize * 1.2),
       new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.25, side: THREE.DoubleSide, depthWrite: false }));
-    planeMesh.position.fromArray(pl.origin);
-    planeMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(...pl.normal));
-    scene.add(planeMesh);
+    m.position.fromArray(pl.origin);
+    m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(...pl.normal));
+    scene.add(m); planes.set(key, m);
   }
 
-  return { loadStl, setView, startPicking, cancelPicking, showPlane, clearMarkers, addMarker };
+  // Trabajo en un lado: la mitad que `side` ("+" = hacia donde apunta la normal, "-" = la opuesta) queda opaca y la
+  // otra se ve como fantasma translúcido. side = null o plano null → todo opaco. Solo cambia la vista (el motor espeja).
+  function setHalf(pl, side) {
+    if (!mesh) return;
+    if (ghost) { scene.remove(ghost); ghost.material.dispose(); ghost = null; }
+    if (!pl || !side) { mesh.material.clippingPlanes = null; mesh.material.needsUpdate = true; return; }
+    const n = new THREE.Vector3(...pl.normal).normalize(), o = new THREE.Vector3(...pl.origin);
+    if (side === "-") n.negate();
+    const keep = new THREE.Plane(n.clone(), -n.dot(o)), drop = new THREE.Plane(n.clone().negate(), n.dot(o));
+    mesh.material.clippingPlanes = [keep]; mesh.material.needsUpdate = true;
+    ghost = new THREE.Mesh(mesh.geometry, new THREE.MeshStandardMaterial({
+      color: 0xc8ccd2, roughness: 0.8, metalness: 0, side: THREE.DoubleSide, transparent: true, opacity: 0.12,
+      depthWrite: false, clippingPlanes: [drop] }));
+    scene.add(ghost);
+  }
+
+  return { loadStl, setView, startPicking, cancelPicking, showPlane, setHalf, clearMarkers, addMarker };
 }
