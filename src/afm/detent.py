@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-import manifold3d as m3
+from .solids import m3  # único punto de importación de manifold3d: solids.py (el port a Pyodide lo cambia ahí)
 import numpy as np
 from shapely import affinity
 from shapely.geometry import Point, Polygon, box as shp_box

@@ -168,10 +168,10 @@ def build_weapon(mesh: trimesh.Trimesh, spec: WeaponSpec, grip: GripSpec, hole_l
     (cx, cy), area = _section_centroid(polys)
     local = local.translate((-cx, -cy, 0.0))
     # sección vs vástago: el arma tiene que rodearlo con pared suficiente
-    from manifold3d import CrossSection
+    from .solids import m3
 
     r = grip.shaft_d / 2
-    need = CrossSection.circle(r + float(spec.margin), 48).translate((0.0, 0.0))
+    need = m3.CrossSection.circle(r + float(spec.margin), 48).translate((0.0, 0.0))
     cs0 = local.slice(-0.05)
     short = float((need - cs0).area())
     warnings: list[str] = []

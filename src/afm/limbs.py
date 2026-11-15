@@ -314,7 +314,7 @@ def _footprint_slab(face: ContactFace, depth: float) -> S.Manifold:
     from shapely.geometry import Polygon
     from shapely.ops import unary_union
     from shapely.geometry.polygon import orient
-    import manifold3d as m3
+    from .solids import m3
 
     plane = Plane.from_normal(face.center, face.outward)
     polys = []

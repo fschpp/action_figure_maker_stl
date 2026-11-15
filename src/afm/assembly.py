@@ -109,7 +109,10 @@ def _face_triangles(port_face: PortFace, frame: PortFrame) -> np.ndarray:
         for g in (poly.geoms if hasattr(poly, "geoms") else [poly]):
             if g.is_empty or g.area < 1e-9:
                 continue
-            verts, faces = trimesh.creation.triangulate_polygon(g, engine="earcut")
+            try:
+                verts, faces = trimesh.creation.triangulate_polygon(g, engine="earcut")
+            except ImportError:      # sin mapbox_earcut (p. ej. Pyodide): triangula manifold3d
+                verts, faces = trimesh.creation.triangulate_polygon(g, engine="manifold")
             w = frame.center + verts[:, :1] * frame.ref + verts[:, 1:2] * y
             out.append(w[faces])
     if not out:

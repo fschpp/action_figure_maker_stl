@@ -349,7 +349,7 @@ def _cavity_plug(mf: S.Manifold, z_base: float, z_top: float, tol: float, wall: 
     con cortes horizontales (solo los que continúan el hueco del corte anterior) y arma un sólido que los llena,
     levemente solapado con la pared. Se une a la malla: la superficie exterior queda intacta y la cabeza pasa a ser
     maciza. Devuelve None si la base no tiene huecos apreciables. `wall` es el espesor estimado de la pared."""
-    import manifold3d as m3
+    from .solids import m3
     from shapely.ops import unary_union
 
     filled0, parts = _cavity_parts(_section_shape(mf, z_base + 2 * tol))
