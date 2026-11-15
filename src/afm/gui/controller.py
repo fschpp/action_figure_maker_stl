@@ -34,24 +34,13 @@ from .polygon_editor import EDGE_PX, VERTEX_PX, PolygonDraft, ray_plane_uv
 from ..progress import TaskCancelled
 from .history import History
 from .session import Session, json_sig
+from ..messages import fill_hip_message   # noqa: F401  (se mantiene importable desde aquí; vive fuera de gui/ para que la CLI y el motor no dependan de la GUI)
 
 SYMMETRY_ID = "simetria"
 _KIND_BASE = {"arm": "brazo", "leg": "pierna"}
 
 
 HOVER_RADIUS_PX = 12.0       # distancia en pantalla a la que un vértice se marca en rojo al pasar el puntero
-
-
-def fill_hip_message(ss: dict, wanted: bool) -> str:
-    """Resultado del relleno de muslos de la exportación sin soportes (vacío si no se pidió)."""
-    if not wanted:
-        return ""
-    done = {k: r for k, r in (ss.get("relleno_cadera") or {}).items() if "aviso" not in r}
-    if not done:
-        return (' ' + tr("controller.relleno_de_muslos_no_se_aplico")) if ss.get("relleno_cadera") else \
-            (' ' + tr("controller.relleno_de_muslos_no_se_aplico_2"))
-    return (' ' + tr("controller.relleno_de_muslos") + ' ') + "; ".join(
-        tr("controller.k_volumen_muslo_agregado_mm3_mm3", k=k, volumen_muslo_agregado_mm3=f"{r['volumen_muslo_agregado_mm3']:g}", volumen_pelvis_tallado_mm3=f"{r['volumen_pelvis_tallado_mm3']:g}", holgura_de_pie_mm=f"{r['holgura_de_pie_mm']:g}") for k, r in done.items()) + "."
 
 
 def _pin_aid_colors() -> dict:

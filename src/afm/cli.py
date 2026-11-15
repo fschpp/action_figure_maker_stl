@@ -521,7 +521,7 @@ def main(argv=None) -> int:
         giro = ", ".join(f"{k} {v:g}°" for k, v in ss["giro_brazos_grados"].items())
         print(f"Corte con la cama de impresión: {ss['corte_sobre_cola_mm']:g} mm sobre la cola (z = {ss['altura_corte_z']}); "
               f"brazos girados hacia adelante: {giro or '0°'}")
-        from .gui.controller import fill_hip_message
+        from .messages import fill_hip_message
         if args.rellenar_muslos:
             print(fill_hip_message(ss, True).strip())
         for av in ss["avisos"]:
