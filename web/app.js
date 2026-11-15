@@ -51,6 +51,7 @@ async function run(fn) {
   busy(true); $("#result").hidden = true; $("#log").textContent = "";
   try {
     const t0 = performance.now(); await init();
+    log(`Motor cargado en ${((performance.now() - t0) / 1000).toFixed(1)} s (Pyodide, paquetes y wheels; se paga una vez por pestaña)`);
     runT0 = performance.now();      // las etapas se miden desde aquí; «Listo en» sigue incluyendo la carga de Pyodide
     await fn(); log(`Listo en ${((performance.now() - t0) / 1000).toFixed(1)} s`);
   }

@@ -168,6 +168,7 @@ class EngineSession:
         shutil.rmtree(out, ignore_errors=True)
         os.makedirs(out)
         info = cli.run(stl_path, project, out, name, progress=_progress(progress_cb), orient=orient)
+        _progress(progress_cb)("Comprimiendo el ZIP…")
         buf = io.BytesIO()
         names: list[str] = []
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:

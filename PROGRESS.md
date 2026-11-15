@@ -2,7 +2,21 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
-## Current Focus — Etiqueta y botón de versión en el sitio (2026-11-15, rama `web_version_check` sobre main 4da0813)
+## Current Focus — G3: marcas de etapa para atribuir los ~200 s del navegador (2026-11-15, rama `g3_marcas_de_etapa` sobre main 3af024f)
+**Dato del dueño (sitio `3af024f`, demo `muneco`, 236,3 s):** etapas a +6,1 / 10,3 / 15,1 / 23,4 / 37,9 s y después solo «Reduciendo triángulos…» hasta el final. `Listo en` incluye la carga de Pyodide (no medida aparte). El label de versión anduvo en el navegador real («3af024f · publicada 15/11/26 7:28 p. m.», «✓ última versión»). Validación correcta, torso 49 166 tri (≈ nativo 49 308), 2 aristas no-variedad (una por pierna, igual que el nativo).
+**Hecho:** mensajes nuevos «Evaluando las piezas…» (fuerza `num_tri()` de cada pieza antes de decimar), «Validando la figura…» y «Exportando las piezas…» en `cli.run`, «Comprimiendo el ZIP…» en `webapi._run`; paso «Evaluando las piezas» en `progress.build_plan` (el test `test_armar_plan_matches_what_the_engine_announces` exige plan para cada mensaje); `web/app.js` registra «Motor cargado en X s». Tests: `test_progress` + `test_webapi` + `test_engine_portability` = 15 pasan.
+**Nativo con las marcas (1 CPU):** +11,1 Pose sentada → +11,1 Evaluando (0,2 s: la pereza de Manifold NO esconde trabajo ahí) → +11,3 Reduciendo (7,2 s) → +18,5 Validando (2,9 s) → +21,4 Exportando (0,1 s) → 21,6 s total. Comparación: etapas hasta «Pose sentada» ×3 más lentas en el navegador (31,8 s contra 10,5 s); el resto (nativo ≈ 10,5 s) ocupó en el navegador el tramo entre +37,9 s y el final menos la carga de Pyodide: probablemente ≥ 150 s (×15), muy desproporcionado.
+
+### Todo List
+- [x] Marcas de etapa nuevas + log de carga del motor.
+- [ ] El dueño genera la demo otra vez en el sitio nuevo y pega el log: dirá cuánto fue Pyodide y si el tramo lento es «Reduciendo triángulos», «Validando» o «Exportando».
+- [ ] Según eso: `min_gap` / decimación (¿wheel de fast-simplification sin optimizar?), `validate` (¿proximidad de trimesh/scipy?).
+- [ ] Suite no-GUI completa en 3.14; G3 con Sucre; `preview_pose`.
+
+### Latest Blockers/Discoveries
+- Hipótesis a descartar con el próximo log: que la decimación del wheel WASM sea mucho más lenta que la nativa (compilado sin optimización o sin SIMD); el nativo gasta solo 0,27 s en `fast_simplification.simplify`.
+
+## Current Focus (anterior) — Etiqueta y botón de versión en el sitio (2026-11-15, rama `web_version_check` sobre main 4da0813)
 **Objetivo:** saber si la pestaña usa la última versión publicada o una vieja de la caché del navegador. **Hecho:** `scripts/build_web.sh` estampa `web/build-info.js` (versión cargada en la pestaña) y `web/version.json` (versión publicada, con la lista de archivos); ambos van en `.gitignore` y los genera el CI en cada push. `web/version.js`: `compareBuilds` (current / outdated / ahead / unknown), `fetchRemote` (pide `version.json` con `cache: "no-store"` y `?t=` para saltear navegador y CDN), `refreshFiles` (`cache: "reload"` por archivo) e `initVersionUI`. Pie de página con «Versión: <commit> · publicada <fecha>», botón «Buscar actualización» (se comprueba solo al abrir, en silencio) que pasa a «Actualizar ahora» si hay una versión más nueva: re-descarga todo saltando la caché y recarga. `pages.yml` corre `web/tests/version_node.mjs` antes de construir.
 **Verificado:** `web/tests/version_node.mjs` (estados, `fetch` simulado, DOM simulado); `build_web.sh` real genera ambos archivos; chequeo con HTTP real contra `python -m http.server` (misma versión → «última»; commit viejo → «Actualizar ahora» y descarga de los 12 archivos). **No verificado:** en un navegador real tras el despliegue (no hay Chrome en la sesión; `github.io` fuera de la allowlist).
 

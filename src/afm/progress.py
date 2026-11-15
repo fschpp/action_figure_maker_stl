@@ -190,6 +190,7 @@ def build_plan(limbs, p, *, parts=None, head=None, waist=None, hand=None, joints
     out.append(Stage("Pose sentada y espejado", 8))
     if not p.torso_mirror:
         out.append(Stage("Torso sin espejar", 4))
+    out.append(Stage("Evaluando las piezas", 4))      # Manifold es perezoso: acá se paga el cómputo diferido de las etapas anteriores
     if p.decimate > 0:
         out.append(Stage("Reduciendo triángulos", 4))
     if any(DT.detent_spec_for(s, p) is not None for s in limbs):

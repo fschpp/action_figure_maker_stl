@@ -365,6 +365,11 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
         if head_build.pin_margin is not None:
             report["head"]["pin_margin_mm"] = round(float(head_build.pin_margin), 3)
         res_motion[HEAD_NAME] = (head_build.head, head_build.face.center, head_build.axis, (0.0, 90.0))   # giro libre sobre el cuello: se valida 0–90°
+    # Manifold es perezoso: las booleanas devuelven al instante y el cómputo ocurre en la primera consulta de la malla.
+    # Se fuerza acá (el resultado se necesita igual más abajo) para que «Reduciendo triángulos» mida solo la decimación.
+    say("Evaluando las piezas…")
+    for _m in pieces.values():
+        _m.num_tri()
     if p.decimate > 0:
         say("Reduciendo triángulos…")
         n0 = pieces["torso"].num_tri()

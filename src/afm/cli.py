@@ -29,15 +29,18 @@ def run(stl_path: str, project: Project, outdir: str, name: str, progress=print,
     from .customize import needed, build_model
     if needed(project):
         res, limbs = build_model(body, project, parts, progress)
+        progress("Validando la figura…")
         val = P.validate(res, project.params, limbs, joints=res.joint_specs)
     else:
         res = P.build(body, project.limbs, project.params, project.symmetry, progress=progress,
                       trims=project.trims, head=project.head, joints=project.joints, waist=project.waist,
                       hand=project.hand, parts=parts)
+        progress("Validando la figura…")
         val = P.validate(res, project.params, project.limbs, joints=project.joints)
     from .accessories import finish_export, load_project_items
 
     items = load_project_items(project, progress=print)
+    progress("Exportando las piezas…")
     files = P.export(res, outdir, name, orient=orient, max_angle=max_angle, flat=flat, params=project.params,
                      extras=[i["mesh"] for i in items])
     acc_info = finish_export(items, outdir, name, progress=print)
