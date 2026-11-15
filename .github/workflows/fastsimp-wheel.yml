@@ -15,6 +15,8 @@ env:
   CIBW_BUILD: "cp314-pyodide_wasm32"
   # El sdist trae su propia configuración de cibuildwheel (archs vacío, pyvista como dependencia de prueba): se pisa por entorno.
   CIBW_ARCHS: "wasm32"
+  # nanobind usa `stderr` sin incluir <cstdio>; con Emscripten 5 no llega por otro include: se fuerza.
+  CIBW_ENVIRONMENT: 'CXXFLAGS="-include cstdio" CFLAGS="-include stdio.h"'
   CIBW_TEST_REQUIRES: ""
   # Prueba dentro del runtime de Pyodide: decimar una grilla con relieve y comprobar que bajan las caras.
   CIBW_TEST_COMMAND: >-
