@@ -2,7 +2,23 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
-## Current Focus — G3: marcas de etapa para atribuir los ~200 s del navegador (2026-11-15, rama `g3_marcas_de_etapa` sobre main 3af024f)
+## Current Focus — G3: radio de búsqueda de `min_gap` acotado (2026-11-15, rama `g3_min_gap_radio` sobre main fb2f0dc)
+**Log del dueño con las marcas (sitio `fb2f0dc`, demo `muneco`, «Listo en» 211,1 s):** Pyodide 30,8 s; +6,0 Separando la cabeza; +24,0 Cavidad del cuello; +58,1 Pose sentada y espejado; +58,1 Evaluando (2,5 s); +60,6 Reduciendo triángulos (**99,3 s**); +159,9 Validando (19,9 s); +179,8 Exportando; +180,2 ZIP. Contra nativo (1 CPU): cuello→pose 34 s contra 4,5 (×7,5), reducir 99,3 contra 7,2 (×14), validar 19,9 contra 2,9 (×7).
+**Causa:** el motor llama a `min_gap` 15 veces por build (5 antes de decimar, 5 después, 5 en `validate`), siempre con radio 5 mm; las holguras reales rondan 0,5 mm. Nativo, 5 miembros contra el torso (49 308 tri): radio 5 = 2,16 s; 3 = 0,86; 2 = 0,53; 1 = 0,27; 0,75 = 0,19 s, con holguras idénticas (0,4772 / 0,4806 / 0,4737). En `validate`, `min_gap` es 2,2 de los 2,8 s. El wheel de manifold3d sale en Release (scikit-build-core compila en Release; manifold agrega -O3): no es un problema de optimización.
+**Hecho:** `_gap_search(clearance) = max(1.0, 2·clearance)` para la decimación (base y candidatos) y radio `min(5, max(2, 3·need_gap))` en `validate`. **Verificado (nativo):** demo con el mismo resultado (torso `[124078, 49308]`, holguras iguales, sin problemas) y total 21,6 s → 14,1 s (reducir 7,2 → 1,4 s; validar 2,9 → 1,4 s). Tests: 31 pasan y 4 saltados en `test_pipeline`, `test_export_cap`, `test_export_clean`, `test_golden`, `test_head`, `test_hip_pin`; 24 pasan sin fallos en `test_assembly` / `test_compat` / `test_detent` / `test_waist` / `test_joints` (el lote quedó clavado >9 min en `test_assembly::test_pelvis_alone_in_its_own_port_rebuilds_the_direct_figure`, 1 CPU; no se sabe si es igual de lento sin este cambio). **No verificado:** el efecto en el navegador (estimado ~211 s → ~120 s); la suite completa.
+
+### Todo List
+- [x] Atribuir el tiempo del navegador por etapa (marcas + carga del motor).
+- [x] Acotar el radio de `min_gap` (decimación y validación).
+- [ ] El dueño genera la demo en el sitio nuevo y pega el log: confirma cuánto baja «Reduciendo» y «Validando».
+- [ ] Atacar lo que queda: etapas previas a la pose (58 s; «Cavidad del cuello» 34 s) y carga de Pyodide (30,8 s).
+- [ ] Averiguar si `test_pelvis_alone_in_its_own_port_rebuilds_the_direct_figure` es igual de lento en main (comparar tiempos).
+
+### Latest Blockers/Discoveries
+- Efecto en el informe: una pieza más lejos que el radio informa el radio en `gaps` en vez de su holgura exacta (con las holguras reales de ~0,5 mm no cambia nada).
+- La decimación solo compara base contra candidato: con holguras mayores que el radio (2·clearance) ambas quedan topadas y la decimación se acepta; protege la holgura pedida, no una mayor.
+
+## Current Focus (anterior) — G3: marcas de etapa para atribuir los ~200 s del navegador (2026-11-15, rama `g3_marcas_de_etapa` sobre main 3af024f)
 **Dato del dueño (sitio `3af024f`, demo `muneco`, 236,3 s):** etapas a +6,1 / 10,3 / 15,1 / 23,4 / 37,9 s y después solo «Reduciendo triángulos…» hasta el final. `Listo en` incluye la carga de Pyodide (no medida aparte). El label de versión anduvo en el navegador real («3af024f · publicada 15/11/26 7:28 p. m.», «✓ última versión»). Validación correcta, torso 49 166 tri (≈ nativo 49 308), 2 aristas no-variedad (una por pierna, igual que el nativo).
 **Hecho:** mensajes nuevos «Evaluando las piezas…» (fuerza `num_tri()` de cada pieza antes de decimar), «Validando la figura…» y «Exportando las piezas…» en `cli.run`, «Comprimiendo el ZIP…» en `webapi._run`; paso «Evaluando las piezas» en `progress.build_plan` (el test `test_armar_plan_matches_what_the_engine_announces` exige plan para cada mensaje); `web/app.js` registra «Motor cargado en X s». Tests: `test_progress` + `test_webapi` + `test_engine_portability` = 15 pasan.
 **Nativo con las marcas (1 CPU):** +11,1 Pose sentada → +11,1 Evaluando (0,2 s: la pereza de Manifold NO esconde trabajo ahí) → +11,3 Reduciendo (7,2 s) → +18,5 Validando (2,9 s) → +21,4 Exportando (0,1 s) → 21,6 s total. Comparación: etapas hasta «Pose sentada» ×3 más lentas en el navegador (31,8 s contra 10,5 s); el resto (nativo ≈ 10,5 s) ocupó en el navegador el tramo entre +37,9 s y el final menos la carga de Pyodide: probablemente ≥ 150 s (×15), muy desproporcionado.

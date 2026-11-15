@@ -495,6 +495,13 @@ def _detent_sweep(spec: LimbSpec, p: Params):
     return (0.0, p.sit_angle + p.hip_margin) if spec.kind == "leg" else None
 
 
+def _gap_search(clearance: float) -> float:
+    """Radio de búsqueda de `min_gap` para proteger la holgura. El costo crece muy rápido con el radio (demo nativa, 5 miembros
+    contra el torso: 5 mm = 2,16 s; 3 mm = 0,86 s; 2 mm = 0,53 s; 1 mm = 0,27 s) y las holguras reales rondan 0,5 mm: con
+    1 mm salen los mismos valores. Más allá del radio `min_gap` devuelve el radio, que ya es «holgura de sobra»."""
+    return max(1.0, 2.0 * clearance)
+
+
 def _decimate_keeping_clearance(pieces: dict, p: Params, tol: float = 0.02) -> S.Manifold:
     """Decima el torso bajando la intensidad hasta que la holgura mínima con cada miembro
     no caiga más de `tol` mm respecto de la original."""
@@ -502,14 +509,15 @@ def _decimate_keeping_clearance(pieces: dict, p: Params, tol: float = 0.02) -> S
     if not S.can_decimate():       # sin fast_simplification (Pyodide) `S.decimate` no hace nada: no medir holguras en vano
         return torso
     limbs = [m for n, m in pieces.items() if n != "torso"]
-    base = [m.min_gap(torso, 5.0) for m in limbs]
+    sl = _gap_search(p.clearance)
+    base = [m.min_gap(torso, sl) for m in limbs]
     for red in (p.decimate, 0.45, 0.3, 0.15):
         if red > p.decimate:
             continue
         cand = S.decimate(torso, red)
         if cand is torso:
             continue
-        if all(m.min_gap(cand, 5.0) >= g - tol for m, g in zip(limbs, base)):
+        if all(m.min_gap(cand, sl) >= g - tol for m, g in zip(limbs, base)):
             return cand
     return torso
 
@@ -632,9 +640,9 @@ def validate(res: BuildResult, p: Params, limbs: list[LimbSpec], sit: bool = Tru
         if name in ("torso", PELVIS_NAME):
             continue
         inter = (mf ^ torso).volume()
-        gap = mf.min_gap(torso, 5.0)
-        out["gaps"][name] = round(float(gap), 4)
         need_gap = clearance_of.get(name, p.clearance)
+        gap = mf.min_gap(torso, min(5.0, max(2.0, 3.0 * need_gap)))     # radio acotado (ver `_gap_search`); lejos del torso informa el radio
+        out["gaps"][name] = round(float(gap), 4)
         if inter > 1e-6:
             out["problems"].append(f"{name}: interpenetra el torso ({inter:.4f} mm³)")
         elif gap < need_gap - 0.1 * need_gap - 1e-6 and gap < 5.0:
