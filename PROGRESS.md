@@ -2,8 +2,8 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
-## Current Focus — Port a Pyodide / GitHub Pages (2026-11-15, rama `port_manifold_wheel`; plan: `docs/PLAN_port_pyodide.md`)
-**G1 SUPERADA (2026-11-15):** el wheel de manifold3d para Pyodide (`manifold3d-3.5.5-cp314-cp314-pyemscripten_2026_0_wasm32.whl`, 391 KB) se compila en Actions (`manifold-wheel.yml`, ~1 min) y está publicado en el Release `manifold3d-pyodide-3.5.5`. Con él, `afm demo` corre COMPLETO bajo Pyodide 314.0.8 en Node (job `verify`): **85 s, pico 1,23 GB**, ZIP de 9 archivos / 4,5 MB, informe con `carga, construccion, validacion, archivos`. **Falta:** habilitar Pages en el repo (deploy da 404; Settings → Pages → Source: GitHub Actions), probar la página en un navegador real, y comparar contra la referencia dorada nativa (G2). G3 (≤ 60 s, ≤ 1,5 GB): memoria OK; el tiempo (85 s) excede, pero es Node en un runner compartido con el muñeco sintético: medir en Chrome y perfilar etapas.
+## Current Focus — Port a Pyodide / GitHub Pages (2026-11-15, rama `port_g2_paridad` sobre main 415c81e; plan: `docs/PLAN_port_pyodide.md`)
+**G1 y G2 superadas.** Job `verify` de `manifold-wheel.yml`: `afm demo` bajo Pyodide 314.0.8 en Node = **54 s, pico 1,24 GB** (antes 82 s) y paridad con el nativo en las 7 salidas (`tools/parity_wasm_native.py`: Δ volumen ≤ 0,28 %, Δ caja 0,000 mm; criterio del plan §8: 0,3 mm). Optimización: sin `fast_simplification` (Pyodide) `_decimate_keeping_clearance` calculaba 5 `min_gap` para nada (−28 s) → `solids.can_decimate()`. Etapas más pesadas (wasm, tras el cambio): la etapa que sigue a «Reduciendo triángulos…» ≈ 36 s (agrupa lo que corre hasta el siguiente aviso: falta separar), «Cavidad del cuello…» 8 s, «Cavidad de pierna…» 4,5 s, «Cavidad de brazo…» 3 s. **Falta:** habilitar Pages (el `build` pasa y baja el wheel del Release; `deploy` da 404 hasta que el dueño active Settings → Pages → Source: GitHub Actions), probar la página en Chrome, medir con una figura real (G3), y la licencia.
 
 ### Todo List
 **Fase 0**
@@ -11,6 +11,7 @@ _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic
 - [x] Inventario de imports nativos y funciones usadas (ver «Discoveries»)
 - [x] Verificar §3 del plan contra el `pyodide-lock.json` real de 314.0.8
 - [/] Línea base: `pytest` en el entorno nativo (Python 3.12.3, numpy 2.5.4, scipy 1.18.1, shapely 2.2.0, scikit-image 0.26.0, trimesh 5.2.1, manifold3d 3.5.5), sin `tests/test_gui_window_build.py` (necesita GTK). **Fallo previo en `main`:** `tests/test_catalog_import.py::test_parse_builds_the_arguments_of_catalog_ops` (`KeyError: 'bore_d'`); no lo causó este trabajo. Segundo fallo previo en `main`: `tests/test_head_neck_ref.py::test_armed_head_matches_the_port_to_port_placement[-24.0]` (distancia 1,66 mm, tope 1,5; igual con y sin los cambios de este trabajo). Con los cambios de Fase 3: 181 pasan, 1 saltado, solo ese falla, en detent/weapon/head/limbs/assembly. Suite completa lentísima (~50 de 1337 en 40 min con CPU compartida): falta una corrida entera.
+- [x] G2: paridad wasm vs nativo del `afm demo` (ver Current Focus).
 - [ ] G0: mismo `pytest` con Python 3.14 y las versiones de Pyodide (numpy 2.4.6, shapely 2.1.2)
 - [ ] Perfilar `afm build` por etapa (tiempo y memoria) y guardar referencia dorada de `afm demo`
 - [ ] Resolver licencia (GitHub dice GPL-2.0, `pyproject` dice GPL-3.0-or-later)
