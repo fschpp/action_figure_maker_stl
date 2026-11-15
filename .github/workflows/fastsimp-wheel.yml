@@ -1,0 +1,58 @@
+# Compila fast-simplification (decimación cuádrica, extensión Cython) para Pyodide.
+# Motivo: sin ella el navegador no decima el torso: la demo da 120 066 triángulos en el torso (STL de 6 MB) contra
+# 23 958 en el motor de escritorio (hallazgo del 2026-11-15). Mismo mecanismo que manifold-wheel.yml.
+# ESTADO: sin ejecutar. Supuesto [I]: el sdist de 0.2.0 compila bajo Emscripten con cibuildwheel (Cython + numpy).
+name: fastsimp-wheel
+on:
+  push: { branches: [fastsimp_wheel] }     # temporal: probar antes de mergear (un workflow nuevo solo se puede lanzar a mano desde main)
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Versión de fast-simplification en PyPI (se compila desde su sdist)"
+        default: "0.2.0"
+env:
+  CIBW_PLATFORM: pyodide
+  CIBW_BUILD: "cp314-pyodide_wasm32"
+  # El sdist trae su propia configuración de cibuildwheel (archs vacío, pyvista como dependencia de prueba): se pisa por entorno.
+  CIBW_ARCHS: "wasm32"
+  # nanobind usa `stderr` sin incluir <cstdio>; con Emscripten 5 no llega por otro include: se fuerza.
+  CIBW_ENVIRONMENT: 'CXXFLAGS="-include cstdio" CFLAGS="-include stdio.h"'
+  CIBW_TEST_REQUIRES: ""
+  # Prueba dentro del runtime de Pyodide: decimar una grilla con relieve y comprobar que bajan las caras.
+  CIBW_TEST_COMMAND: >-
+    python -c "import numpy as np, fast_simplification as fs;
+    n=40; x,y=np.meshgrid(np.linspace(0,1,n),np.linspace(0,1,n));
+    v=np.c_[x.ravel(),y.ravel(),0.2*np.sin(6*x.ravel())*np.cos(5*y.ravel())].astype(np.float32);
+    i=(np.arange(n-1)[:,None]*n+np.arange(n-1)[None,:]).ravel();
+    f=np.r_[np.c_[i,i+1,i+n],np.c_[i+1,i+n+1,i+n]].astype(np.int32);
+    v2,f2=fs.simplify(v,f,target_reduction=0.5); assert 0<len(f2)<len(f); print('ok',len(f),'->',len(f2))"
+permissions: { contents: write }
+jobs:
+  wheel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.14" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - name: Bajar el sdist fijado de PyPI
+        run: |
+          python - <<'PY'
+          import json, urllib.request
+          v = "${{ inputs.version || '0.2.0' }}"
+          d = json.load(urllib.request.urlopen(f"https://pypi.org/pypi/fast-simplification/{v}/json"))
+          url = next(u["url"] for u in d["urls"] if u["packagetype"] == "sdist")
+          urllib.request.urlretrieve(url, f"fast_simplification-{v}.tar.gz")
+          PY
+          tar xzf "fast_simplification-${{ inputs.version || '0.2.0' }}.tar.gz"
+          ls
+      - run: pip install cibuildwheel==4.3.5
+      - run: cibuildwheel --output-dir wheelhouse "fast_simplification-${{ inputs.version || '0.2.0' }}"
+      - uses: actions/upload-artifact@v4
+        with: { name: fastsimp-pyodide-wheel, path: wheelhouse/*.whl }
+      - name: Publicar el wheel en un Release
+        env: { GH_TOKEN: "${{ github.token }}", GH_REPO: "${{ github.repository }}" }
+        run: |
+          tag="fast-simplification-pyodide-${{ inputs.version || '0.2.0' }}"
+          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --title "$tag" --notes "fast-simplification ${{ inputs.version || '0.2.0' }} para Pyodide 314 (pyemscripten_2026_0_wasm32), compilado con fastsimp-wheel.yml"
+          gh release upload "$tag" wheelhouse/*.whl --clobber
