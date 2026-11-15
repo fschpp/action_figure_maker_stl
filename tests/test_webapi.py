@@ -103,3 +103,25 @@ def test_new_limb_defaults_and_collinear_points():
         EngineSession.new_limb("x", "leg", [0, 0, 0], [1, 1, 1], [2, 2, 2])
     with pytest.raises(ValueError, match="arm"):
         EngineSession.new_limb("x", "head", [0, 0, 0], [1, 0, 0], [0, 1, 0])
+
+
+def test_new_head_and_new_waist_from_three_points():
+    import pytest
+
+    from afm.head import HeadSpec
+    from afm.waist import WaistSpec
+    from afm.webapi import EngineSession
+
+    # cuello: 2 puntos en la nuca y 1 bajo el mentón (plano casi horizontal, algo inclinado)
+    head = EngineSession.new_head([-5, -5, 80], [5, -5, 80], [0, 5, 82])
+    assert head["auto"] is True and head["pin_center"] is None and head["replacement_path"] is None
+    assert HeadSpec.from_dict(head).plane.normal[2] > 0.9
+    waist = EngineSession.new_waist([-8, 0, 50], [8, 0, 50], [0, 6, 50])
+    assert WaistSpec.from_dict(waist).plane.normal[2] > 0.99 and waist["pin_on"] == "lower"
+    # los mismos rechazos que la GUI de escritorio: plano vertical, de costado o con puntos colineales
+    with pytest.raises(ValueError, match="vertical"):
+        EngineSession.new_head([0, 0, 0], [1, 0, 0], [0, 0, 1])
+    with pytest.raises(ValueError, match="costado"):
+        EngineSession.new_waist([0, 0, 50], [0, 1, 50], [1, 0, 53])
+    with pytest.raises(ValueError, match="colineales"):
+        EngineSession.new_waist([0, 0, 0], [1, 1, 1], [2, 2, 2])

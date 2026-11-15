@@ -97,6 +97,30 @@ class EngineSession:
                         extrude="outward" if outward else "symmetric")
         return spec.to_dict()
 
+    # ------------------------------------------------------------------ cuello y cintura
+    @staticmethod
+    def new_head(p0, p1, p2, name: str = "cabeza cuerpo") -> dict:
+        """Cabeza articulada cuyo plano del cuello pasa por 3 puntos (2 en la nuca y 1 bajo el mentón), ya en el marco
+        de la figura. Misma validación que `Session.set_head` (plano casi vertical o girado de costado → ValueError);
+        el pasador lo propone el motor. Devuelve `HeadSpec.to_dict()`."""
+        from .head import HeadSpec, neck_plane
+        from .planes import Plane
+
+        spec = HeadSpec(Plane.from_points(p0, p1, p2, name))
+        neck_plane(spec)
+        return spec.to_dict()
+
+    @staticmethod
+    def new_waist(p0, p1, p2, name: str = "cintura") -> dict:
+        """Cintura articulada cuyo plano de corte pasa por 3 puntos, ya en el marco de la figura. Misma validación que
+        `Session.set_waist`; el pasador lo propone el motor. Devuelve `WaistSpec.to_dict()`."""
+        from .planes import Plane
+        from .waist import WaistSpec, waist_plane
+
+        spec = WaistSpec(Plane.from_points(p0, p1, p2, name))
+        waist_plane(spec)
+        return spec.to_dict()
+
     # ------------------------------------------------------------------ salida
     def build(self, project: str | dict, progress_cb: ProgressCb | None = None, name: str = "figura",
               orient: bool | str = False) -> dict:
