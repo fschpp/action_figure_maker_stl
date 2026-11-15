@@ -2,6 +2,16 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — Decimación del torso en el navegador: wheel de fast-simplification (2026-11-15, rama `fastsimp_pages` sobre main ca8d6aa)
+**Hallazgo (el ZIP que bajó el dueño era la demo `muneco_*`, no Sucre):** el torso salía con **120 066 triángulos** (STL de 6 MB, 188 aristas no-variedad) contra ~24 000 del `afm demo` nativo. Causa: sin `fast_simplification` en Pyodide, `S.decimate` devuelve la malla original. **Arreglo:** `fastsimp-wheel.yml` compila fast-simplification 0.2.0 (nanobind) para Pyodide. Hizo falta fijar `CIBW_ARCHS=wasm32` y `CIBW_TEST_REQUIRES=""` (el sdist trae su propia config de cibuildwheel), `CXXFLAGS="-include cstdio"` (nanobind usa `stderr` sin incluirlo) y `GH_REPO` para publicar el Release `fast-simplification-pyodide-0.2.0` (ya publicado). Esta rama conecta `pages.yml` y el `verify` de `manifold-wheel.yml` a ese wheel y quita el disparo temporal por push. **Verificado en Actions (run 43757412045, Pyodide 314.0.8 en Node):** el wheel pasa su prueba dentro de Pyodide; `torso_triangulos` = `[123632, 49166]` en wasm contra `[124078, 49308]` en nativo; paridad Δvolumen **0,000 %** y Δcaja 0,000 mm en las 7 salidas (antes ≤ 0,28 %).
+**Costo:** la demo pasó de 54 s a **112 s** en el runner de Actions (pico 1,21 GB, igual): «Reduciendo triángulos…» 81 s, «Cavidad del cuello…» 14 s. Supera el tope de 60 s de G3 (una PC real puede ser más rápida). Candidato: `_decimate_keeping_clearance` mide 5 `min_gap` por miembro por cada intensidad que prueba. **No verificado:** el sitio publicado con el wheel nuevo (falta mergear y esperar el despliegue); Sucre.
+
+### Todo List
+- [x] Wheel de fast-simplification para Pyodide: compilado, probado y publicado; paridad exacta con el nativo.
+- [ ] Mergear esta rama y volver a generar la demo en el navegador: el torso debería salir con ~24 000 triángulos y sin los 188 avisos de aristas.
+- [ ] Bajar el tiempo de «Reduciendo triángulos…» (G3 ≤ 60 s).
+- [ ] Probar «Generar» con Sucre y «Atenuar una mitad».
+
 ## Current Focus — THIRD_PARTY.md y prueba en Firefox (2026-11-15, rama `third_party` sobre main f448b1b)
 `THIRD_PARTY.md` con las licencias verificadas en PyPI / npm (manifold3d Apache-2.0, trimesh MIT, numpy/scipy/shapely/scikit-image/networkx BSD, pillow MIT-CMU, python-i18n MIT, Pyodide y micropip MPL-2.0, three.js MIT): todas compatibles con GPL-3.0. **Prueba del dueño en Firefox (STL de Sucre): el visor carga, los clics marcan puntos en rojo y los planos andan.** No informó aún: «Generar» con esa figura, la demo, «Atenuar una mitad» ni cuello/cintura por separado.
 
