@@ -27,7 +27,8 @@ def main(zip_path: str) -> int:
     wasm = {n: z.read(n) for n in z.namelist() if n.lower().endswith(".stl")}
     with tempfile.TemporaryDirectory() as d:
         subprocess.run([sys.executable, "-m", "afm.cli", "demo", "--out", d], check=True, capture_output=True)
-        native = {str(p.relative_to(d)): p.read_bytes() for p in Path(d).rglob("*.stl")}
+        # el CLI nativo copia el STL de entrada a la raíz de la salida; el ZIP de webapi no: no es un resultado
+        native = {str(p.relative_to(d)): p.read_bytes() for p in Path(d).rglob("*.stl") if p.parent != Path(d) or "ensamblada" in p.name}
     print(f"nativo: {len(native)} STL · wasm: {len(wasm)} STL")
     bad = 0
     for name in sorted(set(native) | set(wasm)):
