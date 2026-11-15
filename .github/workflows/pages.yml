@@ -1,7 +1,6 @@
 # Publica web/ en GitHub Pages (plan §9). Requiere: Settings → Pages → Source: GitHub Actions.
-# ESTADO: SIN PROBAR. Mientras no exista el wheel de manifold3d para Pyodide (workflow manifold-wheel), el motor
-# se instala pero "Generar" falla al importar manifold3d. Cuando exista, bajarlo de Releases a un directorio y
-# pasarlo como argumento de scripts/build_web.sh.
+# El wheel de manifold3d para Pyodide sale del Release `manifold3d-pyodide-<ver>` (lo publica el workflow manifold-wheel).
+# Pages todavía no está habilitado en el repo (deploy da 404): Settings → Pages → Source: GitHub Actions.
 name: pages
 on:
   push: { branches: [main] }
@@ -16,7 +15,10 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.14" }
       - run: pip install setuptools wheel
-      - run: scripts/build_web.sh
+      - name: Wheel de manifold3d para Pyodide (Release)
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: gh release download manifold3d-pyodide-3.5.5 --pattern '*.whl' --dir extra
+      - run: scripts/build_web.sh extra
       - uses: actions/upload-pages-artifact@v3
         with: { path: web }
   deploy:
