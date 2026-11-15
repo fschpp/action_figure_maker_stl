@@ -1,3 +1,4 @@
+import { planeFromPoints, mergeProject } from "./planes.js";
 const $ = (s) => document.querySelector(s);
 const log = (t) => { $("#log").textContent += t + "\n"; };
 
@@ -54,6 +55,7 @@ $("#demo").addEventListener("click", () => run(async () => showResult(await call
 $("#stl").addEventListener("change", async (ev) => {
   const f = ev.target.files[0]; if (!f) return;
   stlBytes = new Uint8Array(await f.arrayBuffer()); $("#stlinfo").textContent = "";
+  showInViewer(stlBytes);
   await run(async () => {
     const info = await call("load_stl", { bytes: stlBytes.slice() });   // copia: la original queda disponible en la página
     $("#stlinfo").textContent = `${info.triangulos} triángulos, ${info.alto_mm.toFixed(1)} mm de alto, ${info.estanca ? "estanca" : "NO estanca"}`;
@@ -65,5 +67,35 @@ $("#proj").addEventListener("change", async (ev) => {
   try { JSON.parse(projText); } catch { projText = null; log("El proyecto no es un JSON válido."); }
   sync();
 });
-$("#build").addEventListener("click", () => run(async () => showResult(await call("build", { project: projText, name: "figura" }))));
+$("#build").addEventListener("click", () => run(async () => showResult(await call("build", { project: mergeProject(projText, edits), name: "figura" }))));
+
+// --- Visor (M2): se carga solo al abrir un STL, para que un fallo de three.js no impida la demo ---
+const edits = {};          // lo elegido en el visor: symmetry, crown_z, front
+let viewer = null;
+async function showInViewer(bytes) {
+  try {
+    if (!viewer) {
+      const { createViewer } = await import("./viewer.js");
+      $("#vista").hidden = false;
+      viewer = createViewer($("#canvas"), { onPick: (p, i, n) => { $("#pickinfo").textContent = `Punto ${i} de ${n}: (${p.map((x) => x.toFixed(2)).join(", ")})`; } });
+    }
+    const info = viewer.loadStl(bytes);
+    $("#pickinfo").textContent = `Visor: ${info.triangles} triángulos.`;
+  } catch (e) { log("No se pudo abrir el visor 3D: " + e.message); }
+}
+document.querySelectorAll("[data-view]").forEach((b) => b.addEventListener("click", () => viewer?.setView(b.dataset.view)));
+$("#pick-sym").addEventListener("click", () => {
+  if (!viewer) return;
+  $("#pickinfo").textContent = "Hacé clic en 3 puntos de la línea central (2 en la espalda y 1 en el pecho).";
+  viewer.startPicking(3, (pts) => {
+    try { edits.symmetry = planeFromPoints(...pts, "simetría"); viewer.showPlane(edits.symmetry); $("#pickinfo").textContent = "Plano de simetría definido."; }
+    catch (e) { $("#pickinfo").textContent = e.message; }
+  });
+});
+$("#pick-crown").addEventListener("click", () => {
+  if (!viewer) return;
+  $("#pickinfo").textContent = "Hacé clic en la coronilla (sin sombrero ni orejas).";
+  viewer.startPicking(1, ([p]) => { edits.crown_z = p[2]; $("#pickinfo").textContent = `Coronilla en Z = ${p[2].toFixed(2)}.`; });
+});
+$("#front").addEventListener("change", (e) => { edits.front = e.target.value; });
 sync();

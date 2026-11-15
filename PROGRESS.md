@@ -2,6 +2,17 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — Port a Pyodide, M2 primera rebanada: visor y planos (2026-11-15, rama `port_m2_visor` sobre main 5aebc5c)
+**Hecho (sin probar en navegador):** `web/planes.js` (plano por 3 puntos = `Plane.from_points`, y `mergeProject` que pone `symmetry` / `crown_z` / `front` en un proyecto base), `web/viewer.js` (three.js 0.186.1 fijado por importmap, cámara **ortográfica**, Z arriba, vistas frente/espalda/derecha/izquierda/arriba, selección por Raycaster con ajuste al vértice más cercano ≤ 14 px, plano translucente) y cableado en `index.html` / `app.js` (el visor se importa al abrir un STL, así que un fallo de three.js no rompe la demo). «Generar» fusiona lo elegido con el `.proyecto` cargado. Verificado: `web/tests/planes_node.mjs` compara `planeFromPoints` con `afm.planes.Plane.from_points` (3 casos + colineales) y `STLLoader` de three 0.186.1 parsea `examples/mickey_reescalado.stl` (6447 triángulos). **No verificado:** el render y el clic en un navegador real; las siluetas de brazos y piernas siguen viniendo del `.proyecto` (editor 2D = M3).
+
+### Todo List
+- [x] Matemática de planos y fusión de proyecto, con test en Node.
+- [x] Visor ortográfico con selección de puntos y plano de simetría / coronilla / frente.
+- [ ] Probar el visor en Chrome (clic, ajuste al vértice, vista de frente) y la demo en Pages.
+- [ ] Planos de brazo, pierna y corte al medio por 3 puntos (el motor los pide dentro de cada `LimbSpec`).
+- [ ] Atenuar la mitad opuesta; `preview_pose` con slider.
+- [ ] G3: una figura real ≤ 60 s y ≤ 1,5 GB.
+
 ## Current Focus — Port a Pyodide / GitHub Pages (2026-11-15, rama `port_g2_paridad` sobre main 415c81e; plan: `docs/PLAN_port_pyodide.md`)
 **G1 y G2 superadas.** Job `verify` de `manifold-wheel.yml`: `afm demo` bajo Pyodide 314.0.8 en Node = **54 s, pico 1,24 GB** (antes 82 s) y paridad con el nativo en las 7 salidas (`tools/parity_wasm_native.py`: Δ volumen ≤ 0,28 %, Δ caja 0,000 mm; criterio del plan §8: 0,3 mm). Optimización: sin `fast_simplification` (Pyodide) `_decimate_keeping_clearance` calculaba 5 `min_gap` para nada (−28 s) → `solids.can_decimate()`. Etapas más pesadas (wasm, tras el cambio): la etapa que sigue a «Reduciendo triángulos…» ≈ 36 s (agrupa lo que corre hasta el siguiente aviso: falta separar), «Cavidad del cuello…» 8 s, «Cavidad de pierna…» 4,5 s, «Cavidad de brazo…» 3 s. **Falta:** habilitar Pages (el `build` pasa y baja el wheel del Release; `deploy` da 404 hasta que el dueño active Settings → Pages → Source: GitHub Actions), probar la página en Chrome, medir con una figura real (G3), y la licencia.
 

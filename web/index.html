@@ -5,6 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Action Figure Maker — articulá tu figura en el navegador</title>
   <link rel="stylesheet" href="styles.css">
+  <script type="importmap">
+  {"imports": {"three": "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.module.js",
+               "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.1/examples/jsm/"}}
+  </script>
 </head>
 <body>
   <main>
@@ -18,6 +22,21 @@
       <label>Proyecto (.proyecto / .json) <input id="proj" type="file" accept=".proyecto,.json"></label>
       <button id="build" disabled>Generar</button>
       <p id="stlinfo" aria-live="polite"></p>
+    </section>
+
+    <section id="vista" hidden>
+      <h2>Vista del modelo</h2>
+      <div class="barra">
+        <button data-view="front">Frente</button><button data-view="back">Espalda</button>
+        <button data-view="right">Derecha</button><button data-view="left">Izquierda</button><button data-view="top">Arriba</button>
+      </div>
+      <canvas id="canvas" width="640" height="480"></canvas>
+      <div class="barra">
+        <button id="pick-sym">Plano de simetría (3 clics)</button>
+        <button id="pick-crown">Marcar coronilla (1 clic)</button>
+        <label>Frente de la figura <select id="front"><option value="+Y">+Y</option><option value="-Y">−Y</option></select></label>
+      </div>
+      <p id="pickinfo" aria-live="polite"></p>
     </section>
 
     <progress id="bar" max="100" value="0" hidden></progress>

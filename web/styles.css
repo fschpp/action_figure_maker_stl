@@ -10,3 +10,5 @@ pre { white-space: pre-wrap; max-height: 20rem; overflow: auto; }
 section { display: flex; flex-direction: column; gap: .6rem; align-items: flex-start; }
 label { display: flex; gap: .5rem; align-items: center; }
 #download { font-weight: 600; }
+.barra { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
+#canvas { width: 100%; max-width: 640px; aspect-ratio: 4 / 3; background: #15181c; touch-action: none; }
