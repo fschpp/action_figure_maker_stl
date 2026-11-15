@@ -5,7 +5,7 @@ y devuelve una figura **articulada, sentada y armada en una sola impresión** (p
 al estilo de las Kenner de los 80: torso en una pieza, brazos y piernas atrapados en cavidades
 sobre pasadores tipo hongo.
 
-Versión online: (fschpp.github.io/action_figure_maker_stl/)
+[Versión online](fschpp.github.io/action_figure_maker_stl/)
 
 Documentación de diseño: [`docs/PLAN_herramienta_stl_articulable.md`](docs/PLAN_herramienta_stl_articulable.md).
 Proceso manual de referencia (Onshape): [`docs/tutorial_onshape.md`](docs/tutorial_onshape.md).
