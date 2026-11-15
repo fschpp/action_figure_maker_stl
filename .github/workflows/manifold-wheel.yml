@@ -17,7 +17,7 @@ on:
 env:
   CIBW_PLATFORM: pyodide
   CIBW_BUILD: "cp314-pyodide_wasm32"
-  CIBW_ENVIRONMENT: 'CMAKE_ARGS="-DMANIFOLD_PAR=OFF -DMANIFOLD_TEST=OFF -DMANIFOLD_CBIND=OFF -DMANIFOLD_JSBIND=OFF -DMANIFOLD_PYBIND=ON"'
+  CIBW_ENVIRONMENT: 'CMAKE_ARGS="-DMANIFOLD_PAR=OFF -DMANIFOLD_TEST=OFF -DMANIFOLD_CBIND=OFF -DMANIFOLD_JSBIND=OFF -DMANIFOLD_PYBIND=ON -DCMAKE_CXX_FLAGS=-Wno-c++11-narrowing"'
   # Prueba mínima dentro del runtime de Pyodide: importar y hacer una booleana.
   CIBW_TEST_COMMAND: >-
     python -c "import manifold3d as m; a=m.Manifold.cube((2,2,2)); b=m.Manifold.cube((2,2,2)).translate((1,0,0));
