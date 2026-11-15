@@ -1,10 +1,9 @@
 # Compila fast-simplification (decimación cuádrica, extensión Cython) para Pyodide.
 # Motivo: sin ella el navegador no decima el torso: la demo da 120 066 triángulos en el torso (STL de 6 MB) contra
 # 23 958 en el motor de escritorio (hallazgo del 2026-11-15). Mismo mecanismo que manifold-wheel.yml.
-# ESTADO: sin ejecutar. Supuesto [I]: el sdist de 0.2.0 compila bajo Emscripten con cibuildwheel (Cython + numpy).
+# ESTADO: probado (2026-11-15): compila con cibuildwheel (nanobind; hace falta `-include cstdio`), pasa la prueba dentro de Pyodide y publica el Release.
 name: fastsimp-wheel
 on:
-  push: { branches: [fastsimp_wheel] }     # temporal: probar antes de mergear (un workflow nuevo solo se puede lanzar a mano desde main)
   workflow_dispatch:
     inputs:
       version:
