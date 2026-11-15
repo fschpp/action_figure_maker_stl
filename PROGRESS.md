@@ -2,6 +2,18 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — Port a Pyodide, M2 tercera rebanada: planos de cuello y cintura (2026-11-15, rama `port_m2_cuello_cintura` sobre main 7c3edbf)
+**Hecho:** `EngineSession.new_head(p0, p1, p2)` y `new_waist(p0, p1, p2)` (mismas validaciones que `Session.set_head` / `set_waist`: plano casi vertical, de costado o colineal → `ValueError`; el pasador lo propone el motor), puente `newHead` / `newWaist` en `web/engine.js`, mensajes `new_head` / `new_waist` en `web/worker.js`, botones «Plano del cuello / de la cintura (3 clics)» y fusión en `projectWithPicks` (conserva lo que ya traía el proyecto —pasador, cabeza de reemplazo— y solo cambia el plano). El «corte al medio» del tutorial de Onshape no es un plano aparte en el motor: es el plano de la pierna (`new_limb`, ya hecho). Verificado (nativo, venv con las dependencias de `pyproject`): `tests/test_webapi.py` + `test_engine_portability.py` = 9 pasan (+1 test nuevo); `node --check` de todos los `.js` / `.mjs`. **No verificado:** nada corre aún en un navegador ni bajo Pyodide (el sitio publicado no se pudo abrir desde la sesión de desarrollo: `github.io` fuera de la allowlist).
+**Estado de Pages:** `pages.yml` pasó en sus últimas 6 corridas sobre main (la API de Pages no es consultable desde la sesión, pero `has_pages` es true). Falta abrir el sitio en Chrome.
+
+### Todo List
+- [x] `new_head` / `new_waist` + puente + botones + test.
+- [ ] Probar en Chrome (visor, clics, demo, cuello y cintura) y extender `engine_node.mjs` a `frame` / `new_limb` / `new_head` / `new_waist`.
+- [ ] Atenuar la mitad opuesta del modelo; `preview_pose` con slider.
+- [ ] El visor muestra un solo plano a la vez: mostrar los planos elegidos juntos (colores por tipo).
+- [ ] Probar `_fill_silhouettes` con Güemes / Belgrano / Azurduy.
+- [ ] G0 (Python 3.14), G3 (figura real ≤ 60 s y ≤ 1,5 GB) y licencia (LICENSE = GPL-2.0, `pyproject` = GPL-3.0-or-later: decide el dueño).
+
 ## Current Focus — Port a Pyodide, M2 segunda rebanada: planos de brazo y pierna + corrección del marco (2026-11-15, rama `port_m2_planos` sobre main d66bfe3)
 **Defecto corregido en lo ya mergeado (PR del visor):** los planos del proyecto están en el marco de la **figura normalizada** (escala a `ref_height`, pies en z=0, centrada en X e Y por la caja), y `crown_z` en unidades del archivo; el visor elige puntos sobre el STL **crudo**. Con un STL ya en mm y centrado coincidía de casualidad; en otro caso (Belgrano ≈1,16 de alto, un STL fuera del origen) el plano de simetría quedaba corrido. Arreglo: `LoadReport.center_xy` + `LoadReport.to_figure(puntos)` (mismo escalado y traslado que `normalize`), `EngineSession.figure_frame(crown_z, ref_height)` → `{k, offset}` con `figura = k·archivo + offset` (usa `meshio.load_figure`, así que el centro coincide con el del motor) y `toFigure()` en `web/planes.js`. `load_stl` informa `z_arriba` (si no, avisa: `orient_z_up` giraría el modelo y los puntos del visor no valdrían).
 **Planos de brazo y pierna:** `EngineSession.new_limb(name, kind, p0, p1, p2)` crea el `LimbSpec` con los mismos valores por defecto que `Session.add_limb` (losa «outward» 12 × 1,653 mm en brazos y planos de costado; prisma simétrico de 100 mm en el resto), sin polígono. Al generar, `build` completa las siluetas vacías con `autosil` (`_fill_silhouettes`, usa `gui.session.Session`, sin GTK). En la página: botones «Plano del brazo / de la pierna (3 clics)»; al generar se arma el proyecto (`projectWithPicks`: `frame` + `new_limb` en el worker).

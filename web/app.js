@@ -74,7 +74,7 @@ $("#build").addEventListener("click", () => run(async () => showResult(await cal
 // normalizada (escala, pies en z=0, centrada). El motor da la transformación (frame) y el miembro por defecto (new_limb).
 async function projectWithPicks() {
   const base = JSON.parse(projText);
-  const picked = edits.symPts || edits.limbs.size;
+  const picked = edits.symPts || edits.limbs.size || edits.headPts || edits.waistPts;
   if (!picked && edits.crown_z == null && !edits.front) return projText;
   if (stlInfo && stlInfo.z_arriba === false) throw new Error("El STL no tiene Z arriba: los puntos del visor no se pueden usar.");
   const crown = edits.crown_z ?? base.crown_z ?? null;
@@ -86,11 +86,14 @@ async function projectWithPicks() {
   for (const [name, { kind, pts }] of edits.limbs) limbs.push(await call("new_limb", { name, kind, points: toFigure(pts, fr) }));
   const merged = JSON.parse(mergeProject(base, out));
   if (edits.limbs.size) merged.limbs = limbs;
+  // Cuello y cintura: se conserva lo que ya tenía el proyecto (pasador, cabeza de reemplazo…) y solo cambia el plano.
+  if (edits.headPts) { const h = await call("new_head", { points: toFigure(edits.headPts, fr) }); merged.head = { ...(base.head ?? h), plane: h.plane, pin_center: null }; }
+  if (edits.waistPts) { const w = await call("new_waist", { points: toFigure(edits.waistPts, fr) }); merged.waist = { ...(base.waist ?? w), plane: w.plane, pin_center: null }; }
   return JSON.stringify(merged);
 }
 
 // --- Visor (M2): se carga solo al abrir un STL, para que un fallo de three.js no impida la demo ---
-const edits = { symPts: null, crown_z: null, front: null, limbs: new Map() };   // puntos crudos elegidos en el visor
+const edits = { symPts: null, crown_z: null, front: null, limbs: new Map(), headPts: null, waistPts: null };   // puntos crudos elegidos en el visor
 let stlInfo = null;
 let viewer = null;
 async function showInViewer(bytes) {
@@ -125,6 +128,18 @@ for (const [id, kind, name] of [["pick-arm", "arm", "brazo"], ["pick-leg", "leg"
       : "3 clics no alineados sobre un plano que atraviese la pierna y la cadera (p. ej. el plano medio frente/espalda).";
     viewer.startPicking(3, (pts) => {
       try { viewer.showPlane(planeFromPoints(...pts, name), 0xf5a83f); edits.limbs.set(name, { kind, pts }); $("#pickinfo").textContent = `Plano del ${name} definido (la silueta la propone el motor al generar).`; }
+      catch (e) { $("#pickinfo").textContent = e.message; }
+    });
+  });
+}
+for (const [id, key, label, hint, color] of [
+  ["pick-head", "headPts", "cuello", "3 clics: 2 en la nuca y 1 bajo el mentón.", 0x6fb7ff],
+  ["pick-waist", "waistPts", "cintura", "3 clics a una misma altura alrededor de la cintura (2 a los costados y 1 adelante o atrás).", 0x7bd88f]]) {
+  $("#" + id).addEventListener("click", () => {
+    if (!viewer) return;
+    $("#pickinfo").textContent = hint;
+    viewer.startPicking(3, (pts) => {
+      try { viewer.showPlane(planeFromPoints(...pts, label), color); edits[key] = pts; $("#pickinfo").textContent = `Plano del ${label} definido (se valida al generar).`; }
       catch (e) { $("#pickinfo").textContent = e.message; }
     });
   });

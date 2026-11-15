@@ -46,6 +46,13 @@ def _pack(r):
       g.set("_arg", JSON.stringify({ name, kind, p0: points[0], p1: points[1], p2: points[2] }));
       return JSON.parse(py.runPython("json.dumps(_s.new_limb(**json.loads(_arg)))"));
     },
+    // Cabeza (plano del cuello) y cintura por 3 puntos YA en el marco de la figura (afm.webapi.new_head / new_waist).
+    newHead(points) { return this._plane3("new_head", points); },
+    newWaist(points) { return this._plane3("new_waist", points); },
+    _plane3(fn, points) {
+      g.set("_arg", JSON.stringify({ p0: points[0], p1: points[1], p2: points[2] }));
+      return JSON.parse(py.runPython(`json.dumps(_s.${fn}(**json.loads(_arg)))`));
+    },
     demo({ onMessage } = {}) {
       withProgress(onMessage);
       return py.runPython("_pack(_s.demo(progress_cb=_pcb))");
