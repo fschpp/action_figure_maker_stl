@@ -13,13 +13,17 @@ on:
 env:
   CIBW_PLATFORM: pyodide
   CIBW_BUILD: "cp314-pyodide_wasm32"
-  # Prueba dentro del runtime de Pyodide: decimar una esfera y comprobar que baja el número de caras.
+  # El sdist trae su propia configuración de cibuildwheel (archs vacío, pyvista como dependencia de prueba): se pisa por entorno.
+  CIBW_ARCHS: "wasm32"
+  CIBW_TEST_REQUIRES: ""
+  # Prueba dentro del runtime de Pyodide: decimar una grilla con relieve y comprobar que bajan las caras.
   CIBW_TEST_COMMAND: >-
     python -c "import numpy as np, fast_simplification as fs;
-    t=np.linspace(0,np.pi,30); p=np.linspace(0,2*np.pi,60,endpoint=False);
-    v=np.array([[np.sin(a)*np.cos(b),np.sin(a)*np.sin(b),np.cos(a)] for a in t[1:-1] for b in p]+[[0,0,1],[0,0,-1]],dtype=np.float32);
-    from scipy.spatial import ConvexHull; f=ConvexHull(v).simplices.astype(np.int32);
-    v2,f2=fs.simplify(v,f,target_reduction=0.5); assert len(f2)<len(f); print('ok',len(f),'->',len(f2))"
+    n=40; x,y=np.meshgrid(np.linspace(0,1,n),np.linspace(0,1,n));
+    v=np.c_[x.ravel(),y.ravel(),0.2*np.sin(6*x.ravel())*np.cos(5*y.ravel())].astype(np.float32);
+    i=(np.arange(n-1)[:,None]*n+np.arange(n-1)[None,:]).ravel();
+    f=np.r_[np.c_[i,i+1,i+n],np.c_[i+1,i+n+1,i+n]].astype(np.int32);
+    v2,f2=fs.simplify(v,f,target_reduction=0.5); assert 0<len(f2)<len(f); print('ok',len(f),'->',len(f2))"
 permissions: { contents: write }
 jobs:
   wheel:
