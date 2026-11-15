@@ -494,6 +494,8 @@ def _decimate_keeping_clearance(pieces: dict, p: Params, tol: float = 0.02) -> S
     """Decima el torso bajando la intensidad hasta que la holgura mínima con cada miembro
     no caiga más de `tol` mm respecto de la original."""
     torso = pieces["torso"]
+    if not S.can_decimate():       # sin fast_simplification (Pyodide) `S.decimate` no hace nada: no medir holguras en vano
+        return torso
     limbs = [m for n, m in pieces.items() if n != "torso"]
     base = [m.min_gap(torso, 5.0) for m in limbs]
     for red in (p.decimate, 0.45, 0.3, 0.15):

@@ -223,6 +223,15 @@ def mirror_x(mf: Manifold) -> Manifold:
 
 
 # ------------------------------------------------------------------ decimación
+def can_decimate() -> bool:
+    """True si hay con qué decimar (`fast_simplification`). En Pyodide no está: `decimate` devuelve el original."""
+    try:
+        import fast_simplification  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
 def decimate(mf: Manifold, reduction: float = 0.6, max_vol_change: float = 0.002) -> Manifold:
     """Reduce triángulos con decimación cuadrática (fast_simplification), conservando la forma.
 
