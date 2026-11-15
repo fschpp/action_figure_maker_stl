@@ -10,7 +10,7 @@ _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic
 - [x] Clonar el repo, rama `port_pyodide`, copiar el plan a `docs/`
 - [x] Inventario de imports nativos y funciones usadas (ver «Discoveries»)
 - [x] Verificar §3 del plan contra el `pyodide-lock.json` real de 314.0.8
-- [/] Línea base: `pytest` en el entorno nativo (Python 3.12.3, numpy 2.5.4, scipy 1.18.1, shapely 2.2.0, scikit-image 0.26.0, trimesh 5.2.1, manifold3d 3.5.5), sin `tests/test_gui_window_build.py` (necesita GTK). **Fallo previo en `main`:** `tests/test_catalog_import.py::test_parse_builds_the_arguments_of_catalog_ops` (`KeyError: 'bore_d'`); no lo causó este trabajo. Suite completa en curso (lenta).
+- [/] Línea base: `pytest` en el entorno nativo (Python 3.12.3, numpy 2.5.4, scipy 1.18.1, shapely 2.2.0, scikit-image 0.26.0, trimesh 5.2.1, manifold3d 3.5.5), sin `tests/test_gui_window_build.py` (necesita GTK). **Fallo previo en `main`:** `tests/test_catalog_import.py::test_parse_builds_the_arguments_of_catalog_ops` (`KeyError: 'bore_d'`); no lo causó este trabajo. Segundo fallo previo en `main`: `tests/test_head_neck_ref.py::test_armed_head_matches_the_port_to_port_placement[-24.0]` (distancia 1,66 mm, tope 1,5; igual con y sin los cambios de este trabajo). Con los cambios de Fase 3: 181 pasan, 1 saltado, solo ese falla, en detent/weapon/head/limbs/assembly. Suite completa lentísima (~50 de 1337 en 40 min con CPU compartida): falta una corrida entera.
 - [ ] G0: mismo `pytest` con Python 3.14 y las versiones de Pyodide (numpy 2.4.6, shapely 2.1.2)
 - [ ] Perfilar `afm build` por etapa (tiempo y memoria) y guardar referencia dorada de `afm demo`
 - [ ] Resolver licencia (GitHub dice GPL-2.0, `pyproject` dice GPL-3.0-or-later)
