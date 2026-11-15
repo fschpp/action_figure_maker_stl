@@ -7,3 +7,6 @@ table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
 th, td { border: 1px solid color-mix(in srgb, currentColor 30%, transparent); padding: .3rem .5rem; text-align: left; }
 td.ok { color: #1a7f37; } td.fail { color: #cf222e; }
 pre { white-space: pre-wrap; max-height: 20rem; overflow: auto; }
+section { display: flex; flex-direction: column; gap: .6rem; align-items: flex-start; }
+label { display: flex; gap: .5rem; align-items: center; }
+#download { font-weight: 600; }

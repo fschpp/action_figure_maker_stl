@@ -1,49 +1,43 @@
 // Web Worker: carga Pyodide y atiende mensajes {id, type, ...}.
-// Protocolo (plan M1): init, probe, (más adelante load_stl, build) → progress / result / error.
-import { PYODIDE_BASE, PYODIDE_PACKAGES, MICROPIP_PACKAGES, NATIVE_PROBES } from "./config.js";
+// Protocolo (M1): init, load_stl, build, demo → progress / result / error.
+import { PYODIDE_BASE, PYODIDE_PACKAGES, MICROPIP_PACKAGES, WHEELS_MANIFEST } from "./config.js";
+import { createEngine } from "./engine.js";
 
 // Worker de tipo "module" (ver app.js): Pyodide se importa con su build ESM.
 const { loadPyodide } = await import(PYODIDE_BASE + "pyodide.mjs");
-let pyodide = null;
+let engine = null;
 
-const post = (msg) => self.postMessage(msg);
+const post = (msg, transfer = []) => self.postMessage(msg, transfer);
 const progress = (stage, pct) => post({ type: "progress", stage, pct });
 
 async function init() {
-  progress("Pyodide", 5);
-  pyodide = await loadPyodide({ indexURL: PYODIDE_BASE });
-  progress("Paquetes", 25);
-  await pyodide.loadPackage(PYODIDE_PACKAGES);
-  progress("Paquetes de PyPI", 60);
-  const micropip = pyodide.pyimport("micropip");
-  for (const name of MICROPIP_PACKAGES) await micropip.install(name);
-  progress("Listo", 100);
+  const man = await (await fetch(new URL(WHEELS_MANIFEST, import.meta.url))).json();
+  const wheelUrls = [...(man.extra ?? []), man.engine].map((f) => new URL(`./wheels/${f}`, import.meta.url).href);
+  engine = await createEngine({
+    loadPyodide, indexURL: PYODIDE_BASE, pyodidePackages: PYODIDE_PACKAGES, pypiPackages: MICROPIP_PACKAGES,
+    wheelUrls, progress,
+  });
 }
 
-async function probe() {
-  const code = `
-import importlib, json, sys, time
-out = []
-for name in ${JSON.stringify([...PYODIDE_PACKAGES.filter(p => p !== "micropip"), ...MICROPIP_PACKAGES, ...NATIVE_PROBES])}:
-    mod = {"scikit-image": "skimage", "pillow": "PIL", "python-i18n": "i18n"}.get(name, name.replace("-", "_"))
-    t = time.time()
-    try:
-        m = importlib.import_module(mod)
-        out.append({"name": name, "ok": True, "detail": getattr(m, "__version__", "") + f" ({time.time()-t:.2f} s)"})
-    except Exception as e:
-        out.append({"name": name, "ok": False, "detail": f"{type(e).__name__}: {e}"})
-json.dumps({"python": sys.version, "deps": out})
-`;
-  return JSON.parse(await pyodide.runPythonAsync(code));
+// Convierte el resultado Python (objeto JS con PyProxy) en algo transferible y libera los proxies.
+function unpack(r) {
+  const zip = r.zip.slice();        // copia a un ArrayBuffer propio, transferible
+  const out = { zip, archivos: r.archivos.toJs ? r.archivos.toJs() : r.archivos, informe: JSON.parse(r.informe) };
+  return out;
 }
 
 self.onmessage = async (ev) => {
   const { id, type } = ev.data;
   try {
     if (type === "init") { await init(); post({ id, type: "result", value: "ok" }); }
-    else if (type === "probe") { post({ id, type: "result", value: await probe() }); }
-    else throw new Error(`mensaje desconocido: ${type}`);
+    else if (type === "load_stl") { post({ id, type: "result", value: engine.loadStl(ev.data.bytes) }); }
+    else if (type === "build" || type === "demo") {
+      const onMessage = (m) => post({ type: "progress", stage: String(m), pct: null });
+      const r = type === "demo" ? engine.demo({ onMessage }) : engine.build(ev.data.project, { onMessage, name: ev.data.name });
+      const v = unpack(r);
+      post({ id, type: "result", value: v }, [v.zip.buffer]);
+    } else throw new Error(`mensaje desconocido: ${type}`);
   } catch (e) {
-    post({ id, type: "error", message: String(e && e.message || e) });
+    post({ id, type: "error", message: String((e && e.message) || e) });
   }
 };

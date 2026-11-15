@@ -3,20 +3,28 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Action Figure Maker — prueba de humo (Pyodide)</title>
+  <title>Action Figure Maker — articulá tu figura en el navegador</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <main>
-    <h1>Action Figure Maker STL — prueba de humo</h1>
-    <p>Fase 1 del plan de port a Pyodide. Todo corre en tu navegador; ningún archivo sale de tu equipo.</p>
-    <button id="run">Ejecutar prueba</button>
+    <h1>Action Figure Maker STL</h1>
+    <p>Cargá un STL de una pieza y un proyecto, y descargá la figura articulada. Todo se calcula en tu navegador: ningún archivo sale de tu equipo.</p>
+
+    <section>
+      <button id="demo">Probar con la figura de demostración</button>
+      <hr>
+      <label>STL de la figura <input id="stl" type="file" accept=".stl"></label>
+      <label>Proyecto (.proyecto / .json) <input id="proj" type="file" accept=".proyecto,.json"></label>
+      <button id="build" disabled>Generar</button>
+      <p id="stlinfo" aria-live="polite"></p>
+    </section>
+
     <progress id="bar" max="100" value="0" hidden></progress>
     <p id="stage" aria-live="polite"></p>
-    <table id="report" hidden>
-      <thead><tr><th>Dependencia</th><th>Estado</th><th>Detalle</th></tr></thead>
-      <tbody></tbody>
-    </table>
+    <p id="result" hidden><a id="download" download="figura.zip">Descargar ZIP</a></p>
+    <h2 id="reph" hidden>Informe de validación</h2>
+    <pre id="report" hidden></pre>
     <pre id="log"></pre>
   </main>
   <script type="module" src="app.js"></script>

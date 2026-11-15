@@ -2,8 +2,8 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
-## Current Focus — Port a Pyodide / GitHub Pages (2026-11-15, rama `port_pyodide`, sobre main 2da29dc; plan: `docs/PLAN_port_pyodide.md`)
-**Objetivo inmediato:** Fase 0 (línea base e inventario) y Fase 1 (prueba de humo en el navegador) del plan; el motor `afm` sin `gui` debe correr en Pyodide 314.0.8.
+## Current Focus — Port a Pyodide / GitHub Pages (2026-11-15, ramas `port_pyodide` → `port_pyodide_fase2`, sobre main 2da29dc; plan: `docs/PLAN_port_pyodide.md`)
+**Objetivo inmediato:** el bloqueante es el wheel de manifold3d para Pyodide (G1). Hecho el resto del camino al M1: API `afm.webapi.EngineSession` (bytes in/out), puente JS `web/engine.js`, worker y página del M1 (Demo, STL + proyecto, Generar, ZIP, informe), workflow de Pages. Falta correr `manifold-wheel` en Actions y probar la página en un navegador real.
 
 ### Todo List
 **Fase 0**
@@ -14,9 +14,14 @@ _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic
 - [ ] G0: mismo `pytest` con Python 3.14 y las versiones de Pyodide (numpy 2.4.6, shapely 2.1.2)
 - [ ] Perfilar `afm build` por etapa (tiempo y memoria) y guardar referencia dorada de `afm demo`
 - [ ] Resolver licencia (GitHub dice GPL-2.0, `pyproject` dice GPL-3.0-or-later)
+**Fase 2 (hecha en lo mínimo)**
+- [x] `fill_hip_message` pasa a `afm/messages.py` (se sigue importando desde `gui.controller`): la CLI ya no importa la GUI. Con `gi`/`moderngl`/`cairo`/`afm.gui` bloqueados, todos los módulos fuera de `gui/` importan (script en la sesión; los imports de GUI en el motor son perezosos).
+- [x] `afm/webapi.py` `EngineSession` (`load_stl`, `build`, `demo`): envuelve `cli.run` usando el FS en memoria de Pyodide, así que NO hizo falta reescribir el motor para «sin disco». `tests/test_webapi.py` (3) + `test_flat_print.py` pasan en nativo (18).
+- [ ] `afm.gui.session.Session` (sin GTK) ya es una sesión con estado: base para `set_plane` / `preview_pose` / `suggest_outline` en M2.
+- [ ] Interfaz de backend de booleanos (solo si G1 falla y hay que ir al Plan B).
 **Fase 1**
 - [x] Andamiaje `web/` (index.html, worker.js módulo ES con `pyodide.mjs`, app.js, config.js con versiones fijas): sintaxis validada con Node
-- [x] Prueba de humo en Node con el release oficial de Pyodide 314.0.8 (`web/tests/smoke_node.mjs`): importan numpy 2.4.6, scipy 1.18.0, shapely 2.1.2, scikit-image 0.26.0, networkx, PIL, trimesh 5.2.1 y python-i18n (PyPI vía micropip) y el wheel del motor (`afm 0.2.1`, 682 KB, `deps=False`). Fallan los 4 nativos y por eso `afm.solids` / `afm.pipeline` (usan manifold3d). **Falta** correr el mismo worker en un navegador real (`web/index.html` sirviéndose por HTTP).
+- [x] Prueba de humo en Node con el release oficial de Pyodide 314.0.8 (`web/tests/smoke_node.mjs`): importan numpy 2.4.6, scipy 1.18.0, shapely 2.1.2, scikit-image 0.26.0, networkx, PIL, trimesh 5.2.1 y python-i18n (PyPI vía micropip) y el wheel del motor (`afm 0.2.1`, 682 KB, `deps=False`). Fallan los 4 nativos y por eso `afm.solids` / `afm.pipeline` (usan manifold3d). `web/tests/engine_node.mjs` verifica el puente JS↔Python bajo Pyodide: `load_stl` con bytes JS, ZIP de vuelta como `Uint8Array`, instalación con `callKwargs`; `demo` falla solo por `manifold3d`. **Falta** abrir `web/` en un navegador real (el sitio se sirve bien por HTTP: index, worker y manifest dan 200).
 - [/] Plan A, wheel de manifold3d para Pyodide: `.github/workflows/manifold-wheel.yml` escrito (cibuildwheel 4.3.5, `cp314-pyodide_wasm32`, `MANIFOLD_PAR=OFF`, sdist 3.5.5 de PyPI) pero **sin ejecutar**. Reloj de G1 (5 días hábiles) corre desde la primera corrida en GitHub Actions.
 
 ### Latest Blockers/Discoveries
@@ -27,7 +32,7 @@ _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic
 - **GUI:** `gi`/`moderngl`/`cairo` solo se importan dentro de `afm/gui/`. Los módulos del motor que tocan `gui`: `cli.py:524` (`fill_hip_message`) y `patron.py:28` (`gui.session.Session`) → separar en la Fase 2.
 - **Entorno de desarrollo sin acceso a emscripten:** `storage.googleapis.com` está bloqueado, así que `pyodide build` / `cibuildwheel --platform pyodide` no pueden correr acá; GitHub, PyPI y npm sí. El wheel de manifold3d hay que compilarlo en Actions. jsDelivr tampoco es accesible, de ahí que la prueba local use el tarball de GitHub Releases (337 MB).
 - **PyPI (13-nov-2026):** manifold3d 3.5.5 sigue sin wheel Emscripten (62 archivos, solo escritorio) pero tiene sdist; micropip confirma que no puede resolver `manifold3d`, `mapbox-earcut`, `pymeshfix` ni `fast-simplification` (por eso el motor se instala con `deps=False`).
-- **JS ↔ micropip:** `micropip.install(x, { deps: false })` NO pasa el kwarg; hay que usar `micropip.install.callKwargs(x, { deps: false })`. Pendiente aplicarlo en `web/worker.js` cuando instale el wheel del motor.
+- **JS ↔ micropip:** `micropip.install(x, { deps: false })` NO pasa el kwarg; se usa `micropip.install.callKwargs(x, { deps: false })` (ya aplicado en `web/engine.js`).
 - **Nombre del wheel del motor:** sale como `action_figure_maker_stl-0.2.1-py3-none-any.whl`, no `afm-*.whl` como dice el plan (§D4); ajustar el plan o el nombre del proyecto.
 - **Pyodide 314.0.8 verificado** en el lock: Python 3.14.2, Emscripten 5.0.3, ABI `pyemscripten_2026_0_wasm32`; numpy 2.4.6, scipy 1.18.0, shapely 2.1.2, scikit-image 0.26.0, networkx 3.6.1, pillow 12.2.0, pytest 9.0.2. No están: trimesh, manifold3d, mapbox-earcut, pymeshfix, fast-simplification, python-i18n, rtree.
 

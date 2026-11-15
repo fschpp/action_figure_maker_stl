@@ -5,10 +5,14 @@ const log = (t) => { $("#log").textContent += t + "\n"; };
 const worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
 let nextId = 1;
 const pending = new Map();
+let ready = null;          // promesa de init (se inicia con el primer uso)
+let stlBytes = null, projText = null;
 
 worker.onmessage = ({ data }) => {
   if (data.type === "progress") {
-    $("#bar").hidden = false; $("#bar").value = data.pct; $("#stage").textContent = data.stage;
+    $("#bar").hidden = false;
+    if (data.pct != null) $("#bar").value = data.pct;
+    $("#stage").textContent = data.stage;
     return;
   }
   const p = pending.get(data.id);
@@ -18,29 +22,48 @@ worker.onmessage = ({ data }) => {
 };
 worker.onerror = (e) => log("Error del worker: " + e.message);
 
-const call = (type, extra = {}) => new Promise((resolve, reject) => {
+const call = (type, extra = {}, transfer = []) => new Promise((resolve, reject) => {
   const id = nextId++;
   pending.set(id, { resolve, reject });
-  worker.postMessage({ id, type, ...extra });
+  worker.postMessage({ id, type, ...extra }, transfer);
 });
+const init = () => (ready ??= call("init"));
 
-$("#run").addEventListener("click", async () => {
-  $("#run").disabled = true;
-  try {
-    const t0 = performance.now();
-    await call("init");
-    log(`init: ${((performance.now() - t0) / 1000).toFixed(1)} s`);
-    const r = await call("probe");
-    log("Python: " + r.python);
-    const tb = $("#report tbody"); tb.replaceChildren();
-    for (const d of r.deps) {
-      const tr = document.createElement("tr");
-      for (const [txt, cls] of [[d.name], [d.ok ? "OK" : "FALLA", d.ok ? "ok" : "fail"], [d.detail]]) {
-        const td = document.createElement("td"); td.textContent = txt; if (cls) td.className = cls; tr.append(td);
-      }
-      tb.append(tr);
-    }
-    $("#report").hidden = false;
-  } catch (e) { log("Error: " + e.message); }
-  finally { $("#run").disabled = false; }
+function busy(on) { for (const b of document.querySelectorAll("button")) b.disabled = on || (b.id === "build" && !(stlBytes && projText)); }
+function sync() { $("#build").disabled = !(stlBytes && projText); }
+
+function showResult(r) {
+  const url = URL.createObjectURL(new Blob([r.zip], { type: "application/zip" }));
+  $("#download").href = url;
+  $("#download").textContent = `Descargar ZIP (${r.archivos.length} archivos, ${(r.zip.byteLength / 1048576).toFixed(1)} MB)`;
+  $("#result").hidden = false;
+  const v = r.informe.validacion ?? {};
+  $("#reph").hidden = $("#report").hidden = false;
+  $("#report").textContent = (v.ok ? "✓ validación correcta\n" : "✗ la validación encontró problemas\n") + JSON.stringify(v, null, 2);
+}
+
+async function run(fn) {
+  busy(true); $("#result").hidden = true; $("#log").textContent = "";
+  try { const t0 = performance.now(); await init(); await fn(); log(`Listo en ${((performance.now() - t0) / 1000).toFixed(1)} s`); }
+  catch (e) { log("Error: " + e.message); }
+  finally { busy(false); sync(); }
+}
+
+$("#demo").addEventListener("click", () => run(async () => showResult(await call("demo"))));
+
+$("#stl").addEventListener("change", async (ev) => {
+  const f = ev.target.files[0]; if (!f) return;
+  stlBytes = new Uint8Array(await f.arrayBuffer()); $("#stlinfo").textContent = "";
+  await run(async () => {
+    const info = await call("load_stl", { bytes: stlBytes.slice() });   // copia: la original queda disponible en la página
+    $("#stlinfo").textContent = `${info.triangulos} triángulos, ${info.alto_mm.toFixed(1)} mm de alto, ${info.estanca ? "estanca" : "NO estanca"}`;
+  });
 });
+$("#proj").addEventListener("change", async (ev) => {
+  const f = ev.target.files[0]; if (!f) return;
+  projText = await f.text();
+  try { JSON.parse(projText); } catch { projText = null; log("El proyecto no es un JSON válido."); }
+  sync();
+});
+$("#build").addEventListener("click", () => run(async () => showResult(await call("build", { project: projText, name: "figura" }))));
+sync();

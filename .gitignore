@@ -11,3 +11,5 @@ out/
 # resultados generados del catálogo (afm armar / afm catalogo compat)
 catalogo/*/compat.json
 catalogo/*/COMPATIBILIDAD.md
+web/wheels/*.whl
+web/wheels/manifest.json
