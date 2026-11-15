@@ -192,7 +192,7 @@ make_test_coupons(params)            → bytes                                  
 - [ ] Inventario de imports: `grep -rn "^import\|^from" src/afm`; una tabla módulo → dependencias. Separar `engine` / `cli` / `gui`.
 - [ ] Listar **qué funciones** de manifold3d, earcut, fast-simplification y pymeshfix se usan realmente (nombre + archivo).
 - [ ] **G0:** crear un entorno nativo con Python 3.14 y las versiones de §3; correr `pytest`. Corregir lo que falle por numpy 2.x / shapely 2.x / scikit-image 0.26.
-- [ ] Resolver la licencia (§11).
+- [x] Resolver la licencia (§11): GPL-3.0.
 
 ### Fase 1 — Prueba de humo en el navegador (1–3 días)
 - [ ] Página mínima con Pyodide 314.0.x en un Worker.
@@ -316,8 +316,8 @@ Job adicional (Plan A): `cibuildwheel` para el wheel `pyemscripten` de manifold3
 
 ## 11. Licencias y contenido de terceros
 
-- **Inconsistencia de licencia en el repo [V]:** GitHub muestra GPL-2.0, y `pyproject.toml` declara `GPL-3.0-or-later`. Resolver antes de publicar; el sitio distribuye el código.
-- **Apache-2.0 y GPL-2.0:** manifold3d es Apache-2.0. Esa licencia es compatible con GPL-3.0, pero no con GPL-2.0-only; si la intención es "solo 2.0", hay un conflicto al distribuir un wheel de manifold junto al motor. **[I]** revisar con la licencia final.
+- **Licencia [V], resuelta (2026-11-15):** el dueño eligió GPL-3.0. `LICENSE` pasó del texto GPL-2.0 al de la GPL-3.0, que coincide con `pyproject.toml` (`GPL-3.0-or-later`).
+- **Apache-2.0 y GPL-3.0:** manifold3d es Apache-2.0, compatible con GPL-3.0; distribuir su wheel junto al motor no genera conflicto. **[V]** (el conflicto solo existía con GPL-2.0-only).
 - **Verificar licencias** de cada wheel propio y de las librerías JS (three.js, etc.) y listarlas en un `THIRD_PARTY.md`.
 - **Modelos de ejemplo:** el plan del repo menciona figuras de personajes de terceros como casos de estudio (por ejemplo, Mickey). No incluirlas en el sitio público; usar la figura sintética.
 
@@ -335,7 +335,7 @@ Job adicional (Plan A): `cibuildwheel` para el wheel `pyemscripten` de manifold3
 | R6 | Primera carga pesada | Alta | Bajo/Medio | Etapas visibles, caché HTTP, medir y reportar |
 | R7 | Safari/móvil con poca memoria | Media | Bajo | Escritorio primero; advertencia en móvil |
 | R8 | Diferencias numéricas entre nativo y WASM | Baja | Medio | Pruebas de paridad con tolerancia (§8) |
-| R9 | Conflicto de licencias | Baja | Alto | Resolver en Fase 0 (§11) |
+| R9 | Conflicto de licencias | — | — | Cerrado: GPL-3.0 (§11) |
 | R10 | Editor de polígonos 2D más laborioso de lo previsto | Media | Medio | Postergado a M3; M1 funciona con `proyecto.json` |
 
 ---
@@ -346,7 +346,7 @@ Job adicional (Plan A): `cibuildwheel` para el wheel `pyemscripten` de manifold3
 2. **[P]** ¿Cuál es la etapa más pesada en tiempo y memoria del motor nativo? (Fase 0)
 3. **[P]** ¿El formato de `proyecto.json` está documentado/estable? Es la interfaz del MVP.
 4. **[P]** ¿Se quiere modo offline (PWA)? Cambia el esquema de hosting de Pyodide.
-5. **[P]** ¿Licencia objetivo: GPL-2.0 o GPL-3.0+?
+5. ~~¿Licencia objetivo?~~ Cerrada: GPL-3.0.
 6. **[P]** ¿El alcance web incluye todo el flujo del cliente (≈20 personajes) o solo una demo pública?
 
 ---
