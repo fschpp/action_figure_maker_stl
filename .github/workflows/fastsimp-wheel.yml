@@ -51,8 +51,8 @@ jobs:
       - uses: actions/upload-artifact@v4
         with: { name: fastsimp-pyodide-wheel, path: wheelhouse/*.whl }
       - name: Publicar el wheel en un Release
-        env: { GH_TOKEN: "${{ github.token }}" }
+        env: { GH_TOKEN: "${{ github.token }}", GH_REPO: "${{ github.repository }}" }
         run: |
           tag="fast-simplification-pyodide-${{ inputs.version || '0.2.0' }}"
-          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --repo "$GITHUB_REPOSITORY" --title "$tag" --notes "fast-simplification ${{ inputs.version || '0.2.0' }} para Pyodide 314 (pyemscripten_2026_0_wasm32), compilado con fastsimp-wheel.yml"
+          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --title "$tag" --notes "fast-simplification ${{ inputs.version || '0.2.0' }} para Pyodide 314 (pyemscripten_2026_0_wasm32), compilado con fastsimp-wheel.yml"
           gh release upload "$tag" wheelhouse/*.whl --clobber
