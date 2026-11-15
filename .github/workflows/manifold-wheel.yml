@@ -22,6 +22,7 @@ env:
   CIBW_TEST_COMMAND: >-
     python -c "import manifold3d as m; a=m.Manifold.cube((2,2,2)); b=m.Manifold.cube((2,2,2)).translate((1,0,0));
     assert abs((a+b).volume()-12)<1e-6 and abs((a^b).volume()-4)<1e-6 and abs((a-b).volume()-4)<1e-6; print('ok')"
+permissions: { contents: write }
 jobs:
   wheel:
     runs-on: ubuntu-latest
@@ -66,3 +67,29 @@ jobs:
         with:
           name: manifold3d-pyodide-wheel
           path: wheelhouse/*.whl
+      - name: Publicar el wheel en un Release (descargable desde Pages y desde la sesion de desarrollo)
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          tag="manifold3d-pyodide-${{ inputs.manifold_version }}"
+          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --title "$tag" --notes "manifold3d ${{ inputs.manifold_version }} para Pyodide 314 (pyemscripten_2026_0_wasm32), compilado con manifold-wheel.yml"
+          gh release upload "$tag" wheelhouse/*.whl --clobber
+  verify:
+    needs: wheel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.14" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - uses: actions/download-artifact@v4
+        with: { name: manifold3d-pyodide-wheel, path: extra }
+      - run: pip install setuptools wheel
+      - run: scripts/build_web.sh extra
+      - name: Pyodide 314.0.8 (release oficial) y prueba del motor completo
+        run: |
+          curl -sSL -o pyodide.tar.bz2 https://github.com/pyodide/pyodide/releases/download/314.0.8/pyodide-314.0.8.tar.bz2
+          tar xjf pyodide.tar.bz2
+          python -c "from afm.testfigure import make_doll; make_doll().export('muneco.stl')"
+          /usr/bin/time -v node --max-old-space-size=4096 web/tests/engine_node.mjs pyodide muneco.stl 2>&1 | tee verify.log | grep -E "✓|✗|informe|Maximum resident|Elapsed"
+          ! grep -q "✗" verify.log
