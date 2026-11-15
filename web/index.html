@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Action Figure Maker — prueba de humo (Pyodide)</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main>
+    <h1>Action Figure Maker STL — prueba de humo</h1>
+    <p>Fase 1 del plan de port a Pyodide. Todo corre en tu navegador; ningún archivo sale de tu equipo.</p>
+    <button id="run">Ejecutar prueba</button>
+    <progress id="bar" max="100" value="0" hidden></progress>
+    <p id="stage" aria-live="polite"></p>
+    <table id="report" hidden>
+      <thead><tr><th>Dependencia</th><th>Estado</th><th>Detalle</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <pre id="log"></pre>
+  </main>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+:root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+body { margin: 0; }
+main { max-width: 52rem; margin: 2rem auto; padding: 0 1rem; }
+button { font: inherit; padding: .5rem 1rem; }
+progress { width: 100%; margin-top: 1rem; }
+table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
+th, td { border: 1px solid color-mix(in srgb, currentColor 30%, transparent); padding: .3rem .5rem; text-align: left; }
+td.ok { color: #1a7f37; } td.fail { color: #cf222e; }
+pre { white-space: pre-wrap; max-height: 20rem; overflow: auto; }

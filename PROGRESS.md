@@ -2,7 +2,36 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
-## Current Focus — Internacionalización (es / en / pt) con python-i18n (2026-11-14, rama `i18n`; parche rehecho sobre main a324526)
+## Current Focus — Port a Pyodide / GitHub Pages (2026-11-15, rama `port_pyodide`, sobre main 2da29dc; plan: `docs/PLAN_port_pyodide.md`)
+**Objetivo inmediato:** Fase 0 (línea base e inventario) y Fase 1 (prueba de humo en el navegador) del plan; el motor `afm` sin `gui` debe correr en Pyodide 314.0.8.
+
+### Todo List
+**Fase 0**
+- [x] Clonar el repo, rama `port_pyodide`, copiar el plan a `docs/`
+- [x] Inventario de imports nativos y funciones usadas (ver «Discoveries»)
+- [x] Verificar §3 del plan contra el `pyodide-lock.json` real de 314.0.8
+- [/] Línea base: `pytest` en el entorno nativo (Python 3.12.3, numpy 2.5.4, scipy 1.18.1, shapely 2.2.0, scikit-image 0.26.0, trimesh 5.2.1, manifold3d 3.5.5), sin `tests/test_gui_window_build.py` (necesita GTK). **Fallo previo en `main`:** `tests/test_catalog_import.py::test_parse_builds_the_arguments_of_catalog_ops` (`KeyError: 'bore_d'`); no lo causó este trabajo. Suite completa en curso (lenta).
+- [ ] G0: mismo `pytest` con Python 3.14 y las versiones de Pyodide (numpy 2.4.6, shapely 2.1.2)
+- [ ] Perfilar `afm build` por etapa (tiempo y memoria) y guardar referencia dorada de `afm demo`
+- [ ] Resolver licencia (GitHub dice GPL-2.0, `pyproject` dice GPL-3.0-or-later)
+**Fase 1**
+- [x] Andamiaje `web/` (index.html, worker.js módulo ES con `pyodide.mjs`, app.js, config.js con versiones fijas): sintaxis validada con Node
+- [x] Prueba de humo en Node con el release oficial de Pyodide 314.0.8 (`web/tests/smoke_node.mjs`): importan numpy 2.4.6, scipy 1.18.0, shapely 2.1.2, scikit-image 0.26.0, networkx, PIL, trimesh 5.2.1 y python-i18n (PyPI vía micropip) y el wheel del motor (`afm 0.2.1`, 682 KB, `deps=False`). Fallan los 4 nativos y por eso `afm.solids` / `afm.pipeline` (usan manifold3d). **Falta** correr el mismo worker en un navegador real (`web/index.html` sirviéndose por HTTP).
+- [/] Plan A, wheel de manifold3d para Pyodide: `.github/workflows/manifold-wheel.yml` escrito (cibuildwheel 4.3.5, `cp314-pyodide_wasm32`, `MANIFOLD_PAR=OFF`, sdist 3.5.5 de PyPI) pero **sin ejecutar**. Reloj de G1 (5 días hábiles) corre desde la primera corrida en GitHub Actions.
+
+### Latest Blockers/Discoveries
+- **Dependencias nativas ya son opcionales en el código:** `fast_simplification` (`solids.decimate`, ImportError → devuelve la malla sin decimar) y `pymeshfix` (`meshio._meshfix`, ImportError → None, cae a los otros métodos de curado). No hacen falta wheels propios para ellos; solo medir el efecto de no tenerlos (§4.3, §4.4).
+- **earcut:** el único uso es `assembly._face_triangles` → `trimesh.creation.triangulate_polygon(g, engine="earcut")`; hay que probar el engine alternativo de trimesh (§4.2).
+- **manifold3d** (el bloqueante real): `solids.py` es el envoltorio, pero `detent.py`, `limbs.py`, `head.py` y `weapon.py` también importan `manifold3d` directo (Plan B exigiría pasar todo por `solids`). API usada: `Manifold` (`cube`, `cylinder`, `sphere`, `extrude`, `batch_boolean`, `trim_by_plane`, `project`, `slice`, `decompose`, `simplify`, `minkowski_sum`, `volume`, `bounding_box`, `status`, `to_mesh`), `CrossSection`, `Mesh`, `OpType`, `FillRule`, `Error`. `minkowski_sum` aparece solo en `solids.dilate` y `joints.dilate_anisotropic`.
+- **Offset barrido (`solids.swept_offset`)** usa trimesh `voxelized().fill()` + `scipy.ndimage` + `skimage.measure.marching_cubes`: todo disponible en Pyodide, pero es la etapa a vigilar en memoria (R2).
+- **GUI:** `gi`/`moderngl`/`cairo` solo se importan dentro de `afm/gui/`. Los módulos del motor que tocan `gui`: `cli.py:524` (`fill_hip_message`) y `patron.py:28` (`gui.session.Session`) → separar en la Fase 2.
+- **Entorno de desarrollo sin acceso a emscripten:** `storage.googleapis.com` está bloqueado, así que `pyodide build` / `cibuildwheel --platform pyodide` no pueden correr acá; GitHub, PyPI y npm sí. El wheel de manifold3d hay que compilarlo en Actions. jsDelivr tampoco es accesible, de ahí que la prueba local use el tarball de GitHub Releases (337 MB).
+- **PyPI (13-nov-2026):** manifold3d 3.5.5 sigue sin wheel Emscripten (62 archivos, solo escritorio) pero tiene sdist; micropip confirma que no puede resolver `manifold3d`, `mapbox-earcut`, `pymeshfix` ni `fast-simplification` (por eso el motor se instala con `deps=False`).
+- **JS ↔ micropip:** `micropip.install(x, { deps: false })` NO pasa el kwarg; hay que usar `micropip.install.callKwargs(x, { deps: false })`. Pendiente aplicarlo en `web/worker.js` cuando instale el wheel del motor.
+- **Nombre del wheel del motor:** sale como `action_figure_maker_stl-0.2.1-py3-none-any.whl`, no `afm-*.whl` como dice el plan (§D4); ajustar el plan o el nombre del proyecto.
+- **Pyodide 314.0.8 verificado** en el lock: Python 3.14.2, Emscripten 5.0.3, ABI `pyemscripten_2026_0_wasm32`; numpy 2.4.6, scipy 1.18.0, shapely 2.1.2, scikit-image 0.26.0, networkx 3.6.1, pillow 12.2.0, pytest 9.0.2. No están: trimesh, manifold3d, mapbox-earcut, pymeshfix, fast-simplification, python-i18n, rtree.
+
+## Current Focus (anterior) — Internacionalización (es / en / pt) con python-i18n (2026-11-14, rama `i18n`; parche rehecho sobre main a324526)
 **Hecho:** se aplicó `i18n-wip.patch` (extracción automática de ~1570 textos de `gui/` a `src/afm/locales/es.json`, módulo `afm/i18n.py` con `tr`, `lz`/`loc`, `set_language`) y se completó: (1) `en.json` y `pt.json` con las 1574 claves, mismas variables `%{...}` (verificado por script y por `tests/test_i18n.py`); (2) selector de idioma en la cabecera (`MainWindow._build_language_menu`) y cambio en vivo (`Application.switch_language`: ventana nueva con el MISMO `Controller`, cierra las auxiliares, copia tamaño); (3) persistencia en `gui.json` (`settings.language()` / `remember_language()`); (4) arranque: `--lang` > `AFM_LANG` > idioma elegido > sistema > español (`i18n.initial_language`); (5) `python-i18n` en las dependencias y `locales/*.json` como package-data; (6) README con la sección de idioma.
 **Arreglos al patch:** nombres de íconos (`document-new-symbolic`…) estaban dentro de `tr()` → vuelven a ser literales; `%{key}` chocaba con el primer argumento de `i18n.t` → ahora `%{param}`; `tr`/`tr_in` con argumentos posicionales (`/`); textos que faltaban (valores por defecto `what=`, `'del cuello'`, etiqueta de recorte, `--help`, mensaje de dependencias, comparación `label.startswith(...)` del menú del catálogo).
 **Cambio de idioma y visor GL (2026-11-14):** en el escritorio la ventana nueva fallaba en `_on_realize` con «glXGetCurrentContext: cannot detect OpenGL context», `scene` quedaba en `None` y el visor mostraba memoria sin inicializar. Ahora `MainWindow._ensure_gl` crea el contexto moderngl y la escena de forma perezosa (se reintenta en `_on_render`, donde el `GLArea` ya lo dejó activo), `_on_unrealize` libera el contexto con `mgl.release()` y `Application.switch_language` destruye la ventana vieja ANTES de presentar la nueva. **Sin probar con GL real** (no hay GTK/GL en el entorno de desarrollo): hay que verificar en el escritorio.

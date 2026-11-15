@@ -1,0 +1,47 @@
+# Plan A del port a Pyodide (docs/PLAN_port_pyodide.md §4.1): compilar manifold3d para Pyodide.
+#
+# ESTADO: SIN PROBAR. Se escribió sin poder ejecutarlo (el entorno de desarrollo no puede bajar emscripten).
+# Los puntos marcados [I] son supuestos a validar en la primera corrida; el plazo de G1 son 5 días hábiles.
+#   [I] el identificador de cibuildwheel para Python 3.14 en Pyodide es "cp314-pyodide_wasm32"
+#   [I] cibuildwheel acepta el sdist como argumento de entrada
+#   [I] el CMake de manifold3d respeta MANIFOLD_PAR=OFF pasado por CMAKE_ARGS (build serial, plan §4.1)
+#   [I] los bindings de Python (nanobind) compilan bajo Emscripten sin parches
+name: manifold-wheel
+on:
+  workflow_dispatch:
+    inputs:
+      manifold_version:
+        description: "Versión de manifold3d en PyPI (se compila desde su sdist)"
+        default: "3.5.5"
+env:
+  CIBW_PLATFORM: pyodide
+  CIBW_BUILD: "cp314-pyodide_wasm32"
+  CIBW_ENVIRONMENT: 'CMAKE_ARGS="-DMANIFOLD_PAR=OFF -DMANIFOLD_TEST=OFF -DMANIFOLD_CBIND=OFF"'
+  # Prueba mínima dentro del runtime de Pyodide: importar y hacer una booleana.
+  CIBW_TEST_COMMAND: >-
+    python -c "import manifold3d as m; a=m.Manifold.cube((2,2,2)); b=m.Manifold.cube((2,2,2)).translate((1,0,0));
+    assert abs((a+b).volume()-12)<1e-6 and abs((a^b).volume()-4)<1e-6 and abs((a-b).volume()-4)<1e-6; print('ok')"
+jobs:
+  wheel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.14" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - name: Bajar el sdist fijado de PyPI
+        run: |
+          python - <<'PY'
+          import json, urllib.request
+          v = "${{ inputs.manifold_version }}"
+          d = json.load(urllib.request.urlopen(f"https://pypi.org/pypi/manifold3d/{v}/json"))
+          url = next(u["url"] for u in d["urls"] if u["packagetype"] == "sdist")
+          urllib.request.urlretrieve(url, f"manifold3d-{v}.tar.gz")
+          PY
+      - run: pip install cibuildwheel==4.3.5
+      - run: cibuildwheel --output-dir wheelhouse "manifold3d-${{ inputs.manifold_version }}.tar.gz"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: manifold3d-pyodide-wheel
+          path: wheelhouse/*.whl
