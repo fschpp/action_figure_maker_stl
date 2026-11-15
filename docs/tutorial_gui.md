@@ -161,7 +161,7 @@ que no esté sobre la recta de los otros dos.
 La silueta es el polígono que separa el brazo o la pierna del resto del cuerpo. Se dibuja **sobre el
 plano del miembro**, así que primero ponete en la vista **Frente** (cubo de vista) (el plano se tiene que ver de cara).
 
-1. En **Planos**, apretá el lápiz (**Dibujar / editar la silueta**) del miembro. Aparece, en gris, el
+1. En **Planos**, apretá **Dibujar silueta** (o **Editar silueta**) en la segunda línea de la fila del miembro. Aparece, en gris, el
    **contorno de la figura proyectado sobre ese plano** (solo el lado de trabajo, x ≥ 0): es la guía para
    calcar encima.
 2. **Clic = vértice.** El clic no busca la malla: cae sobre el plano del miembro. Poné los vértices
@@ -177,8 +177,8 @@ plano del miembro**, así que primero ponete en la vista **Frente** (cubo de vis
 5. **Empezar desde el contorno de la figura** carga el contorno exterior más grande como polígono base
    (simplificado a ~0,6 mm) para que lo recortes moviendo y borrando vértices.
    **Vaciar y redibujar** lo borra. **Esc** o **Terminar edición** sale del modo.
-   Para sacar la silueta guardada de un miembro, apretá el tacho (**Quitar la silueta**) en su fila de la lista
-   de planos, junto al lápiz: el miembro vuelve a figurar como pendiente y la 2.ª silueta no se toca.
+   Para sacar la silueta guardada de un miembro, apretá la **✕** que está al lado de **Editar silueta** en su fila de la lista
+   de planos (el tacho de la derecha quita el plano entero): el miembro vuelve a figurar como pendiente y la 2.ª silueta no se toca.
 
    **Ver la cadera mientras dibujás (solo piernas).** Con la silueta de una pierna cerrada y guardada, el botón
    **Ver simulación** de la barra del visor dibuja al costado de la figura la cadera: el muslo con su pasador y el
@@ -214,7 +214,7 @@ afuera el torso), y la pierna necesita su silueta de frente. Si con el plano de 
 del muslo queda pegado al torso** (el torso arranca mucho más abajo que la cadera, el pasador sobresale, las dos
 piernas se pisan en x = 0), te falta la 2.ª silueta.
 
-1. En la lista de planos, el botón **«2.ª»** del miembro abre el dibujo de su 2.ª silueta. La cámara se pone de
+1. En la lista de planos, el botón **Dibujar 2.ª silueta** (o **Editar 2.ª silueta**) de la segunda línea del miembro abre el dibujo de su 2.ª silueta. La cámara se pone de
    frente al plano **frontal** (el que divide la figura en atrás/adelante, perpendicular al plano del miembro). Si el
    plano del miembro ya fuera frontal, la 2.ª silueta sería de costado.
 2. Se dibuja igual que la silueta (clic, cerrar, mover vértices, **Proponer silueta automática**). Lo que
@@ -223,7 +223,7 @@ piernas se pisan en x = 0), te falta la 2.ª silueta.
      (el borde vertical del escalón, a x ≈ 7 mm, es la cara donde va el pasador);
    * **brazo**: el brazo con la mano y un pedacito del hombro; lo que queda del torso se deja afuera.
 3. El miembro es **lo que queda dentro de las dos siluetas** (la de costado/del plano y la de frente). El contorno
-   de la 2.ª silueta se ve en **cian**; el de la silueta del plano, en amarillo. El botón **−** al lado de «2.ª» lo quita.
+   de la 2.ª silueta se ve en **cian**; el de la silueta del plano, en amarillo. La **✕** al lado de **Editar 2.ª silueta** la quita.
 4. **La altura de la cadera no la limita la 2.ª silueta.** Su borde superior (el techo del escalón) fija hasta dónde
    llega la cara de contacto y, con ella, la altura del hueco y del pasador: si queda más bajo que la silueta
    de costado, el pasador no puede subir. Con la 2.ª silueta abierto, **«Subir el borde superior hasta la otra

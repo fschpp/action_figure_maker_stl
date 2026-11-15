@@ -792,6 +792,16 @@ class MainWindow(Gtk.ApplicationWindow):
         if name is not None and abs(spin.get_value() - (self.ctrl.session.limb_offset(name) or 0.0)) > 1e-9:
             self.ctrl.set_limb_offset(name, spin.get_value())
 
+    @staticmethod
+    def _icon_label_button(icon: str, text: str, tooltip: str) -> Gtk.Button:
+        """Botón con ícono Y texto (un `Gtk.Button` con `icon_name` ignora su `label`)."""
+        b = Gtk.Button(tooltip_text=tooltip)
+        box = Gtk.Box(spacing=6)
+        box.append(Gtk.Image.new_from_icon_name(icon))
+        box.append(Gtk.Label(label=text))
+        b.set_child(box)
+        return b
+
     def _rebuild_plane_list(self) -> None:
         while (child := self.planes_box.get_first_child()) is not None:
             self.planes_box.remove(child)
@@ -815,32 +825,35 @@ class MainWindow(Gtk.ApplicationWindow):
                 al.add_css_class("flat")
                 al.connect("clicked", lambda _b, pid=e.id: self.ctrl.align_cut_to_line(pid))
                 row.append(al)
+            sub = None
             if e.kind in ("arm", "leg"):
-                ed = Gtk.Button(icon_name="document-edit-symbolic", tooltip_text="Dibujar / editar la silueta")
-                ed.add_css_class("flat")
-                ed.connect("clicked", lambda _b, pid=e.id: self.ctrl.start_polygon(pid))
-                row.append(ed)
-                if self.ctrl.session.limb(e.id) is not None and len(self.ctrl.session.limb(e.id).polygon) >= 3:
-                    sx = Gtk.Button(icon_name="edit-delete-symbolic", tooltip_text="Quitar la silueta (la 2.ª silueta no se toca)")
-                    sx.add_css_class("flat")
-                    sx.connect("clicked", lambda _b, pid=e.id: self.ctrl.remove_silhouette(pid))
-                    row.append(sx)
-                cr = Gtk.Button(label="2.ª", tooltip_text="Dibujar / editar la 2.ª silueta (silueta sobre el plano "
-                                "perpendicular, normalmente de frente). El miembro es lo que queda dentro de las "
-                                "dos siluetas")
-                cr.add_css_class("flat")
-                cr.connect("clicked", lambda _b, pid=e.id: self.ctrl.start_polygon(pid, cross=True))
-                row.append(cr)
-                if self.ctrl.session.limb(e.id) is not None and self.ctrl.session.limb(e.id).cross is not None:
-                    cx = Gtk.Button(icon_name="list-remove-symbolic", tooltip_text="Quitar la 2.ª silueta")
-                    cx.add_css_class("flat")
-                    cx.connect("clicked", lambda _b, pid=e.id: self.ctrl.remove_cross(pid))
-                    row.append(cx)
-                pn = Gtk.Button(icon_name="find-location-symbolic",
-                                tooltip_text="Colocar el pasador sobre la cara de corte")
-                pn.add_css_class("flat")
+                # segunda línea, con texto en cada botón: «Silueta» y «2.ª silueta» son grupos aparte, y la ✕ de cada grupo
+                # quita SOLO esa silueta (el tacho de la derecha de la fila quita el plano entero)
+                spec = self.ctrl.session.limb(e.id)
+                sub = Gtk.Box(spacing=12, margin_start=30, margin_bottom=2)
+                for cross, tip_draw, tip_rm in (
+                        (False, "Dibuja o edita la silueta del miembro (el contorno sobre el plano de la fila, el de costado)",
+                         f"Quitar la silueta de «{e.id}» (el miembro queda pendiente de silueta; la 2.ª silueta no se toca)"),
+                        (True, "Dibuja o edita la 2.ª silueta (sobre el plano perpendicular, normalmente de frente). El miembro "
+                               "es lo que queda dentro de las dos siluetas",
+                         f"Quitar la 2.ª silueta de «{e.id}» (la silueta principal no se toca)")):
+                    has = spec is not None and ((spec.cross is not None) if cross else len(spec.polygon) >= 3)
+                    name = "2.ª silueta" if cross else "Silueta"
+                    grp = Gtk.Box()
+                    grp.add_css_class("linked")
+                    ed = self._icon_label_button("document-edit-symbolic",
+                                                 f"Editar {name.lower()}" if has else f"Dibujar {name.lower()}", tip_draw)
+                    ed.connect("clicked", lambda _b, pid=e.id, c=cross: self.ctrl.start_polygon(pid, cross=c))
+                    grp.append(ed)
+                    if has:
+                        rx = Gtk.Button(icon_name="window-close-symbolic", tooltip_text=tip_rm)
+                        rx.connect("clicked", lambda _b, pid=e.id, c=cross:
+                                   self.ctrl.remove_cross(pid) if c else self.ctrl.remove_silhouette(pid))
+                        grp.append(rx)
+                    sub.append(grp)
+                pn = self._icon_label_button("find-location-symbolic", "Pasador", "Colocar el pasador sobre la cara de corte")
                 pn.connect("clicked", lambda _b, pid=e.id: self.ctrl.start_pin(pid))
-                row.append(pn)
+                sub.append(pn)
             if e.kind == "joint":
                 jn = e.id[len(JOINT_PREFIX):]
                 ax = Gtk.Button(icon_name="find-location-symbolic", tooltip_text="Colocar el eje de la bisagra "
@@ -868,11 +881,17 @@ class MainWindow(Gtk.ApplicationWindow):
                     sp.set_tooltip_text(tip)
                     sp.connect("value-changed", lambda b, cb=cb: None if self._updating else cb(b))
                     row.append(sp)
-            rm = Gtk.Button(icon_name="edit-delete-symbolic", tooltip_text="Quitar plano")
+            rm = Gtk.Button(icon_name="edit-delete-symbolic", tooltip_text="Quitar el plano entero (con sus siluetas)")
             rm.add_css_class("flat")
             rm.connect("clicked", lambda _b, pid=e.id: self.ctrl.remove_plane(pid))
             row.append(rm)
-            self.planes_box.append(row)
+            if sub is None:
+                self.planes_box.append(row)
+            else:
+                item = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+                item.append(row)
+                item.append(sub)
+                self.planes_box.append(item)
 
     # --------------------------------------------------------------------- GL
     def _on_realize(self, area: Gtk.GLArea) -> None:
