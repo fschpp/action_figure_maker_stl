@@ -54,6 +54,10 @@ jobs:
           s2 = s.replace("if(NOT EMSCRIPTEN AND MANIFOLD_PYBIND)", "if(MANIFOLD_PYBIND)")
           assert s2 != s, "no se encontro la condicion de bindings/CMakeLists.txt"
           p.write_text(s2)
+          p = pathlib.Path("cmake/manifoldDeps.cmake"); s = p.read_text()
+          s2 = s.replace("    set(MANIFOLD_PYBIND_STUBGEN ON)", "    set(MANIFOLD_PYBIND_STUBGEN OFF)")
+          assert s2 != s, "no se encontro MANIFOLD_PYBIND_STUBGEN ON"
+          p.write_text(s2)
           PY
           git diff --no-index --stat /dev/null CMakeLists.txt >/dev/null || true
       - run: pip install cibuildwheel==4.3.5
