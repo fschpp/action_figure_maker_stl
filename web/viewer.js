@@ -19,7 +19,7 @@ export function createViewer(canvas, { onPick = () => {} } = {}) {
   const controls = new OrbitControls(cam, canvas);
   controls.enableDamping = false;
 
-  let mesh = null, ghost = null, markers = [], planes = new Map(), picking = null, bboxSize = 100;
+  let mesh = null, group = null, fitted = false, ghost = null, markers = [], planes = new Map(), picking = null, bboxSize = 100;
   const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
 
   function resize() {
@@ -34,8 +34,9 @@ export function createViewer(canvas, { onPick = () => {} } = {}) {
   requestAnimationFrame(frame);
 
   function setView(name) {   // vistas ortogonales a los ejes; el modelo mira a ±Y según el proyecto
-    if (!mesh) return;
-    const c = new THREE.Box3().setFromObject(mesh).getCenter(new THREE.Vector3());
+    const target = mesh ?? group;
+    if (!target) return;
+    const c = new THREE.Box3().setFromObject(target).getCenter(new THREE.Vector3());
     const d = { front: [0, -1, 0], back: [0, 1, 0], right: [1, 0, 0], left: [-1, 0, 0], top: [0, 0, 1] }[name];
     cam.position.copy(c).addScaledVector(new THREE.Vector3(...d), bboxSize * 3);
     controls.target.copy(c); cam.lookAt(c); controls.update();
@@ -53,6 +54,35 @@ export function createViewer(canvas, { onPick = () => {} } = {}) {
     bboxSize = Math.max(s.x, s.y, s.z);
     resize(); setView("front");
     return { min: geo.boundingBox.min.toArray(), max: geo.boundingBox.max.toArray(), triangles: geo.attributes.position.count / 3 };
+  }
+
+  // Piezas de la figura generada ({nombre: {v: Float32Array xyz, i: Uint32Array}}, marco de la figura: Z arriba, frente +Y).
+  // Reemplaza la geometría de cada pieza sin recrear la escena (el slider de la pose lo llama muchas veces);
+  // `colliding` pinta en rojo las piezas que chocan con el torso.
+  const PALETTE = { torso: 0xc8ccd2, pelvis: 0xb6bcc4, cabeza: 0xe3c9a8, pierna: 0x6fa8dc, brazo: 0xdc8f6f };
+  function showPieces(pieces, colliding = []) {
+    if (!group) { group = new THREE.Group(); scene.add(group); }
+    const bad = new Set(colliding);
+    for (const child of [...group.children]) if (!(child.name in pieces)) { group.remove(child); child.geometry.dispose(); child.material.dispose(); }
+    for (const [name, { v, i }] of Object.entries(pieces)) {
+      let m = group.getObjectByName(name);
+      if (!m) {
+        const base = Object.keys(PALETTE).find((k) => name.startsWith(k));
+        m = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshStandardMaterial({ color: PALETTE[base] ?? 0x9fbf8f, roughness: 0.8, metalness: 0, side: THREE.DoubleSide }));
+        m.name = name; group.add(m);
+      }
+      m.geometry.dispose();
+      const g = new THREE.BufferGeometry();
+      g.setAttribute("position", new THREE.BufferAttribute(v, 3));
+      g.setIndex(new THREE.BufferAttribute(i, 1));
+      g.computeVertexNormals();
+      m.geometry = g;
+      m.material.emissive.setHex(bad.has(name) ? 0xaa0000 : 0x000000);
+    }
+    if (!fitted) {
+      const b = new THREE.Box3().setFromObject(group), s = b.getSize(new THREE.Vector3());
+      bboxSize = Math.max(s.x, s.y, s.z); fitted = true; resize(); setView("right");
+    }
   }
 
   function clearMarkers() { for (const m of markers) scene.remove(m); markers = []; }
@@ -121,5 +151,5 @@ export function createViewer(canvas, { onPick = () => {} } = {}) {
     scene.add(ghost);
   }
 
-  return { loadStl, setView, startPicking, cancelPicking, showPlane, setHalf, clearMarkers, addMarker };
+  return { loadStl, showPieces, setView, startPicking, cancelPicking, showPlane, setHalf, clearMarkers, addMarker };
 }

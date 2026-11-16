@@ -44,5 +44,14 @@ try {
   const inf = JSON.parse(d.informe);
   check(d.archivos.some((a) => a.endsWith(".stl")), "demo: el ZIP trae STL");
   console.log("  informe (claves):", Object.keys(inf).join(", "));
+  // preview_pose: arrays tipados desde el resultado en memoria de la demo (slider de cadera de la página)
+  const t1 = performance.now();
+  const p90 = eng.previewPose(90, true), p0 = eng.previewPose(0, false);
+  const f = p90.piezas.pierna_izq;
+  check(f?.v instanceof Float32Array && f.i instanceof Uint32Array && f.v.length % 3 === 0 && f.i.length % 3 === 0 && Math.max(...f.i.subarray(0, 3000)) < f.v.length / 3,
+    `preview_pose: pierna_izq llega como Float32Array(${f?.v.length}) y Uint32Array(${f?.i.length}) con índices válidos (${((performance.now() - t1) / 1000).toFixed(1)} s para 2 poses)`);
+  check(Object.keys(p90.colisiones).length === 0 && p90.angulo === 90 && eng.previewPose(500, false).angulo === 95, "preview_pose: sin choques a 90° y el ángulo se acota a 95°");
+  const mean = (a) => { let s = 0; for (let k = 1; k < a.length; k += 3) s += a[k]; return s / (a.length / 3); };
+  check(Math.abs(mean(p0.piezas.pierna_izq.v) - mean(p90.piezas.pierna_izq.v)) > 5, "preview_pose: la pierna se mueve entre 0° y 90°");
 } catch (e) { check(/manifold3d/.test(String(e)), `demo: falla esperada sin manifold3d → ${String(e.message || e).split("\n").filter(Boolean).pop()}`); }
 process.exit(fails ? 1 : 0);

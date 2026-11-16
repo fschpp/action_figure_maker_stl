@@ -37,6 +37,34 @@ const init = () => (ready ??= call("init"));
 function busy(on) { for (const b of document.querySelectorAll("button")) b.disabled = on || (b.id === "build" && !(stlBytes && projText)); }
 function sync() { $("#build").disabled = !(stlBytes && projText); }
 
+// --- Pose (preview_pose): el slider mueve la cadera de la figura ya generada; las colisiones se miden al soltar ---
+let poseViewer = null, poseBusy = false, poseNext = null;
+async function requestPose(angle, collisions) {
+  if (poseBusy) { poseNext = [angle, collisions]; return; }     // si el motor está ocupado, solo cuenta el último valor
+  poseBusy = true;
+  try {
+    const r = await call("preview_pose", { angle, collisions });
+    const bad = Object.keys(r.colisiones);
+    poseViewer.showPieces(r.piezas, bad);
+    $("#angle-out").textContent = `${r.angulo.toFixed(0)}°`;
+    if (collisions) $("#poseinfo").textContent = bad.length ? `Choque con el torso a ${r.angulo.toFixed(0)}°: ${bad.map((n) => `${n} (${r.colisiones[n]} mm³)`).join(", ")}` : `Sin choques a ${r.angulo.toFixed(0)}°.`;
+  } catch (e) { $("#poseinfo").textContent = "No se pudo mostrar la pose: " + e.message; }
+  finally { poseBusy = false; if (poseNext) { const n = poseNext; poseNext = null; requestPose(...n); } }
+}
+async function showPose() {
+  try {
+    if (!poseViewer) {
+      const { createViewer } = await import("./viewer.js");
+      $("#pose").hidden = false;
+      poseViewer = createViewer($("#pose-canvas"));
+      $("#angle").addEventListener("input", (e) => requestPose(+e.target.value, false));
+      $("#angle").addEventListener("change", (e) => requestPose(+e.target.value, true));
+      document.querySelectorAll("[data-pview]").forEach((b) => b.addEventListener("click", () => poseViewer.setView(b.dataset.pview)));
+    }
+    await requestPose(+$("#angle").value, true);
+  } catch (e) { log("No se pudo abrir la vista de la pose: " + e.message); }
+}
+
 function showResult(r) {
   const url = URL.createObjectURL(new Blob([r.zip], { type: "application/zip" }));
   $("#download").href = url;
@@ -45,6 +73,7 @@ function showResult(r) {
   const v = r.informe.validacion ?? {};
   $("#reph").hidden = $("#report").hidden = false;
   $("#report").textContent = (v.ok ? "✓ validación correcta\n" : "✗ la validación encontró problemas\n") + JSON.stringify(v, null, 2);
+  showPose();
 }
 
 async function run(fn) {

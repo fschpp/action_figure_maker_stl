@@ -44,6 +44,16 @@
       <p id="pickinfo" aria-live="polite"></p>
     </section>
 
+    <section id="pose" hidden>
+      <h2>Pose de la figura generada</h2>
+      <canvas id="pose-canvas" width="640" height="480"></canvas>
+      <div class="barra">
+        <label>Cadera <input id="angle" type="range" min="0" max="95" step="1" value="90"> <output id="angle-out">90°</output></label>
+        <button data-pview="right">Costado</button><button data-pview="back">Frente</button><button data-pview="top">Arriba</button>
+      </div>
+      <p id="poseinfo" aria-live="polite"></p>
+    </section>
+
     <progress id="bar" max="100" value="0" hidden></progress>
     <p id="stage" aria-live="polite"></p>
     <p id="result" hidden><a id="download" download="figura.zip">Descargar ZIP</a></p>

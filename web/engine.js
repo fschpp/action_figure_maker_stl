@@ -21,6 +21,10 @@ _s = EngineSession()
 def _pack(r):
     return to_js({"zip": to_js(r["zip"]), "archivos": r["archivos"], "informe": json.dumps(r["informe"])},
                  dict_converter=__import__("js").Object.fromEntries)
+def _pack_pose(r):
+    return to_js({"angulo": r["angulo"], "colisiones": json.dumps(r["colisiones"]),
+                  "piezas": {k: {"v": to_js(v["v"]), "i": to_js(v["i"])} for k, v in r["piezas"].items()}},
+                 dict_converter=__import__("js").Object.fromEntries)
 `);
   progress("Listo", 100);
 
@@ -52,6 +56,15 @@ def _pack(r):
     _plane3(fn, points) {
       g.set("_arg", JSON.stringify({ p0: points[0], p1: points[1], p2: points[2] }));
       return JSON.parse(py.runPython(`json.dumps(_s.${fn}(**json.loads(_arg)))`));
+    },
+    // Figura generada con la cadera en `angle` grados (afm.webapi.preview_pose). Devuelve arrays tipados propios (copias).
+    previewPose(angle, collisions = true) {
+      g.set("_arg", JSON.stringify({ angle, collisions }));
+      const r = py.runPython("_pack_pose(_s.preview_pose(**json.loads(_arg)))");
+      const f32 = (u8) => new Float32Array(u8.slice().buffer), u32 = (u8) => new Uint32Array(u8.slice().buffer);
+      const piezas = {};
+      for (const [n, p] of Object.entries(r.piezas)) piezas[n] = { v: f32(p.v), i: u32(p.i) };
+      return { angulo: r.angulo, colisiones: JSON.parse(r.colisiones), piezas };
     },
     demo({ onMessage } = {}) {
       withProgress(onMessage);
