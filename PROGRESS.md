@@ -2,6 +2,20 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — G3: segunda pasada de decimación evaluada y descartada (2026-11-16, rama `g3_decimar_segunda_pasada` sobre main bf5a155)
+**Probado (nativo):** repetir `fs.simplify` hasta quedar a ±5 % del objetivo (hasta 3 pasadas), muñeca de ~42 9xx tri, objetivo 10 000. Resultado: 11 566 (cerrada) y 11 549–11 558 con 20 / 60 / 200 agujeros, contra 12 026–12 615 con una pasada. Es decir, de +20 % a +15 %: la segunda pasada casi no avanza (fast_simplification se estanca). Costo: el alto se desvió hasta 0,48 % (con una pasada ≤ 0,1 %), al borde del límite de 0,5 % que hace volver al original. **Decisión:** no se aplica; se mantiene una sola pasada y el texto «~10 000» (real: ~12 000). Código revertido; no hay cambios en `src/` ni `tests/`.
+
+### Todo List
+- [x] Evaluar segunda pasada (descartada, ver arriba).
+- [ ] Correr `node web/tests/engine_node.mjs <pyodide> <figura.stl>` con red y confirmar los 2 checks de `decimate_stl` (siguen sin ejecutarse bajo Pyodide real).
+- [ ] El dueño prueba el botón con su figura de 19 532 tri y pega el log de tiempos antes/después.
+- [ ] El dueño sube el STL y el `.proyecto` de esa corrida para perfilar etapa por etapa en nativo.
+- [ ] G3: «Cavidad del cuello» y carga de Pyodide.
+
+### Latest Blockers/Discoveries
+- Para bajar de verdad a ~10 000 haría falta otro decimador (p. ej. meshoptimizer) o ajustar `agg`; con `fast_simplification` una pasada es lo razonable.
+- Pendiente de datos del dueño: sin su STL y su `.proyecto` no se puede perfilar la figura real.
+
 ## Current Focus — G3: cobertura del botón «Reducir el STL» (malla abierta + Pyodide real) (2026-11-16, rama `g3_decimar_cobertura` sobre main a49b9d4)
 **Hecho:** `test_decimate_loaded_handles_open_meshes_keeping_height` (muñeca subdividida con 60 agujeros sueltos → no estanca, pesada; reduce a menos de la mitad, mantiene el alto < 0,5 %, no se rompe). `web/tests/engine_node.mjs` ahora cubre `decimateStl` bajo Pyodide real: STL pesado → `Uint8Array` nuevo, `reducido`, mismo alto; y el caso «ya por debajo del objetivo» (`stl = null`).
 **Medido (nativo, `fast_simplification` agg=5, muñeca de 42 9xx tri, objetivo 10 000):** cerrada → 12 026; con 20 / 60 / 200 agujeros → 12 061 / 12 121 / 12 615. Alto dentro de ±0,1 %. O sea: se queda ~20 % por encima del objetivo **también en malla cerrada**; los agujeros casi no lo afectan. El texto del botón dice «~10 000»: es aproximado (con 19 532 tri de la figura real se esperaría ~12 000).
