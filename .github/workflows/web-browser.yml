@@ -1,0 +1,23 @@
+# Prueba de navegador del sitio (web/): DOM, visor three.js, clics, slider de pose y el proyecto que llega a «Generar».
+# El motor Python se reemplaza por un stub (el motor real bajo Pyodide lo prueba engine_node.mjs); acá solo importa la página.
+name: web-browser
+on:
+  pull_request: { paths: ["web/**", ".github/workflows/web-browser.yml"] }
+  push: { branches: [main], paths: ["web/**", ".github/workflows/web-browser.yml"] }
+  workflow_dispatch: {}
+permissions: { contents: read }
+concurrency: { group: "web-browser-${{ github.ref }}", cancel-in-progress: true }
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      # Fuera de web/ (node_modules no se publica). three se fija a la misma versión que el importmap de index.html.
+      - run: npm install --no-save --no-package-lock playwright-core three@0.186.1
+      - run: node web/tests/version_node.mjs
+      - name: Prueba de navegador (Chrome del runner, three servido desde node_modules)
+        env: { THREE_DIR: node_modules/three }
+        run: node web/tests/browser_dom.mjs
