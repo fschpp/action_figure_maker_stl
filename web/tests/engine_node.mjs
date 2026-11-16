@@ -105,5 +105,15 @@ try {
   const vr = inf.validacion.pieces, ve = e2e.validacion.pieces;
   const dif = Object.keys(vr).map((k) => [k, Math.abs(ve[k].volumen - vr[k].volumen) / vr[k].volumen]);
   check(dif.every(([, d]) => d < 0.01), `punta a punta: «Generar» con planos de 3 puntos crudos == demo (${((performance.now() - t2) / 1000).toFixed(1)} s; dif. de volumen por pieza: ${dif.map(([k, d]) => `${k} ${(d * 100).toFixed(2)} %`).join(", ")})`);
+
+  // Silueta automática (`_fill_silhouettes` → `afm.gui.session`, módulo del motor sin GTK): miembros creados en el visor con
+  // 3 puntos llegan sin polígono. Pierna: el motor la propone y construye; brazo del muñeco: no tiene tramo libre → error legible.
+  eng.loadStl(stl);
+  const noPoly = (kind) => { const q = JSON.parse(JSON.stringify(JSON.parse(eng.py.runPython("import json\nfrom afm.project import demo_project\njson.dumps(demo_project().to_dict())")))); q.limbs.forEach((l) => { if (l.kind === kind) l.polygon = []; }); return JSON.stringify(q); };
+  check(rejects(() => eng.build(noPoly("arm"), {}), /no se pudo proponer la silueta de «brazo»/), "silueta automática: el brazo del muñeco no tiene tramo libre → error legible en JS («Dibujala a mano»)");
+  const t3 = performance.now(), msgs3 = [];
+  const sil = eng.build(noPoly("leg"), { onMessage: (m) => msgs3.push(String(m)) });
+  check(msgs3.some((m) => /Proponiendo siluetas/.test(m)) && sil.archivos.some((a) => a.endsWith("pierna_izq.stl")),
+    `silueta automática: pierna sin polígono → el motor la propone y construye bajo Pyodide (${((performance.now() - t3) / 1000).toFixed(1)} s, ${sil.archivos.length} archivos)`);
 } catch (e) { check(/manifold3d/.test(String(e)), `demo: falla esperada sin manifold3d → ${String(e.message || e).split("\n").filter(Boolean).pop()}`); }
 process.exit(fails ? 1 : 0);
