@@ -53,6 +53,19 @@ const rejects = (f, re) => { try { f(); return false; } catch (e) { return re.te
 check(rejects(() => eng.newLimb("x", "leg", [[0, 0, 0], [1, 1, 1], [2, 2, 2]]), /colineales/), "new_limb: 3 puntos alineados → error legible en JS (colineales)");
 check(rejects(() => eng.newWaist([[0, 0, 0], [1, 0, 0], [0, 0, 1]]), /casi vertical/) && rejects(() => eng.newHead([[0, 0, 0], [1, 0, 0], [0, 0, 1]]), /casi vertical/), "new_head / new_waist: plano vertical → error legible en JS");
 
+// decimateStl (botón «Reducir el STL…» de la página): STL pesado → bytes nuevos como Uint8Array, mismo alto, menos triángulos.
+const heavy = eng.py.runPython(`
+from afm.testfigure import make_doll
+make_doll().subdivide().subdivide().export(file_type="stl")`).toJs();
+const hi = eng.loadStl(new Uint8Array(heavy));
+const dec = eng.decimateStl(5000);
+check(hi.pesado === true && dec.stl instanceof Uint8Array && dec.info.reducido === true && dec.info.triangulos < hi.triangulos / 2
+  && Math.abs(dec.info.alto_mm - hi.alto_mm) < 0.005 * hi.alto_mm,
+  `decimate_stl: ${hi.triangulos} → ${dec.info.triangulos} triángulos, STL de ${dec.stl?.length} bytes (${dec.stl?.constructor?.name}), alto ${dec.info.alto_mm?.toFixed(2)} mm`);
+const noop = eng.decimateStl(10 ** 6);
+check(noop.stl === null && noop.info.reducido === false, "decimate_stl: ya por debajo del objetivo → no toca nada (stl = null)");
+eng.loadStl(stl);       // vuelve a la figura normal para el resto de las pruebas
+
 const packed = eng.py.runPython(`_pack({"zip": b"PK-prueba", "archivos": ["a.stl"], "informe": {"ok": True}})`);
 check(packed.zip instanceof Uint8Array && packed.zip.length === 9, `_pack: zip llega como ${packed.zip?.constructor?.name} de ${packed.zip?.length} bytes`);
 check(Array.isArray(packed.archivos) && packed.archivos[0] === "a.stl" && JSON.parse(packed.informe).ok === true, "_pack: archivos e informe");

@@ -54,6 +54,26 @@ def test_decimate_loaded_reduces_keeping_height_and_requires_stl():
     s.close()
 
 
+def test_decimate_loaded_handles_open_meshes_keeping_height():
+    """Figura real del dueño: no estanca. Con agujeros sueltos la decimación reduce, no rompe y mantiene el alto."""
+    pytest.importorskip("fast_simplification")
+    import numpy as np
+    import trimesh
+    heavy = make_doll().subdivide().subdivide()
+    keep = np.ones(len(heavy.faces), bool)
+    keep[np.random.default_rng(0).choice(len(heavy.faces), 60, replace=False)] = False
+    buf = io.BytesIO()
+    trimesh.Trimesh(heavy.vertices, heavy.faces[keep], process=False).export(buf, file_type="stl")
+    s = EngineSession()
+    info = s.load_stl(buf.getvalue())
+    assert info["estanca"] is False and info["pesado"]
+    r = s.decimate_loaded(10_000)
+    assert r["reducido"] and r["triangulos"] < 0.5 * r["triangulos_antes"]
+    assert abs(r["alto_mm"] - info["alto_mm"]) < 0.005 * info["alto_mm"]
+    assert r["triangulos"] < 1.5 * 10_000                         # llega a ~el objetivo (medido: ~+20 %)
+    s.close()
+
+
 def test_build_requires_a_loaded_stl():
     with pytest.raises(RuntimeError):
         EngineSession().build("{}")

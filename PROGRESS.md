@@ -2,6 +2,24 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — G3: cobertura del botón «Reducir el STL» (malla abierta + Pyodide real) (2026-11-16, rama `g3_decimar_cobertura` sobre main a49b9d4)
+**Hecho:** `test_decimate_loaded_handles_open_meshes_keeping_height` (muñeca subdividida con 60 agujeros sueltos → no estanca, pesada; reduce a menos de la mitad, mantiene el alto < 0,5 %, no se rompe). `web/tests/engine_node.mjs` ahora cubre `decimateStl` bajo Pyodide real: STL pesado → `Uint8Array` nuevo, `reducido`, mismo alto; y el caso «ya por debajo del objetivo» (`stl = null`).
+**Medido (nativo, `fast_simplification` agg=5, muñeca de 42 9xx tri, objetivo 10 000):** cerrada → 12 026; con 20 / 60 / 200 agujeros → 12 061 / 12 121 / 12 615. Alto dentro de ±0,1 %. O sea: se queda ~20 % por encima del objetivo **también en malla cerrada**; los agujeros casi no lo afectan. El texto del botón dice «~10 000»: es aproximado (con 19 532 tri de la figura real se esperaría ~12 000).
+**Verificado:** nativo, `tests/test_webapi.py` 11/11 pasan (Python 3.13, venv con manifold3d y fast-simplification de PyPI); `node --check web/tests/engine_node.mjs`. **No verificado:** `engine_node.mjs` corrido de verdad: Pyodide y sus paquetes vienen de jsDelivr, bloqueado en este sandbox, así que el nuevo bloque `decimate_stl` nunca se ejecutó bajo Pyodide (en particular `to_js(bytes)` → `Uint8Array`); el efecto en tiempo con la figura de 19 532 tri del dueño.
+
+### Todo List
+- [x] Test nativo de malla abierta y medición de cuánto se acerca al objetivo.
+- [x] Bloque `decimateStl` en `engine_node.mjs` (escrito, sin ejecutar).
+- [/] Correr `node web/tests/engine_node.mjs <pyodide> <figura.stl>` donde haya red y confirmar los 2 checks nuevos.
+- [ ] Mergear la rama `g3_decimar_stl` (botón) y esta; el dueño prueba con su figura de 19 532 tri y pega el log de tiempos antes/después.
+- [ ] Decidir si se hace una segunda pasada de decimación para acercarse más a 10 000 (hoy ~+20 %).
+- [ ] El dueño sube el STL y el `.proyecto` de esa corrida para perfilar etapa por etapa en nativo.
+- [ ] G3: «Cavidad del cuello» y carga de Pyodide.
+
+### Latest Blockers/Discoveries
+- Sin acceso a jsDelivr no hay Pyodide real en el sandbox: todo cambio del puente JS↔Python queda «escrito, no ejecutado» hasta que se corre `engine_node.mjs` en una máquina con red o en Actions.
+- La decimación no alcanza el objetivo pedido (~+20 %), con o sin agujeros.
+
 ## Current Focus — G3: botón «Reducir el STL a ~10 000 triángulos» en la página (2026-11-16, rama `g3_decimar_stl` sobre main 293dc9e)
 **Hecho:** `EngineSession.decimate_loaded(target)` (fast_simplification sobre el STL cargado, mismas coordenadas, así que los puntos del visor siguen valiendo; si el alto se mueve > 0,5 % vuelve al original y avisa; si ya está por debajo del objetivo no toca nada), `load_stl` devuelve `pesado`; puente `engine.decimateStl` + mensaje `decimate_stl` del worker + botón `#decimate` (visible solo con STL pesado; recarga el visor y la info del STL). **Verificado:** nativo, `test_decimate_loaded_reduces_keeping_height_and_requires_stl` (muñeca subdividida: reduce, alto igual, STL de salida con las caras informadas, errores); prueba de navegador con el worker stub, 14/14 pasos en Chrome (paso nuevo «un STL pesado ofrece Reducir…»). **No verificado:** el botón con Pyodide real (`engine_node.mjs` no lo cubre todavía; `to_js` de `bytes` igual que el ZIP); el efecto en tiempo y en la forma con la figura real de 19 532 tri (falta el STL del dueño); mallas abiertas muy dañadas por la decimación.
 
