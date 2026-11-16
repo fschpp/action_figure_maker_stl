@@ -1,10 +1,12 @@
 // Prueba del puente web/engine.js bajo Pyodide en Node: node web/tests/engine_node.mjs <carpeta-pyodide> <figura.stl>
-// Verifica: instalación del motor con callKwargs, paso de bytes JS→Python (load_stl) y conversión del ZIP Python→JS (_pack).
+// Verifica: instalación del motor con callKwargs, paso de bytes JS→Python (load_stl), el puente de planos (frame, new_limb,
+// new_head, new_waist), la conversión del ZIP Python→JS (_pack) y la vista previa de la pose (previewPose).
 // `demo`/`build` necesitan manifold3d: sin su wheel de Pyodide se espera el fallo de import (se informa, no se oculta).
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { createEngine } from "../engine.js";
+import { planeFromPoints, planeToJson, toFigure } from "../planes.js";
 
 const [dir, stlPath, zipOut] = process.argv.slice(2);
 const base = resolve(dir);
@@ -27,6 +29,29 @@ const check = (ok, msg) => { console.log(`${ok ? "✓" : "✗"} ${msg}`); if (!o
 const stl = new Uint8Array(readFileSync(resolve(stlPath)));
 const r = eng.loadStl(stl);
 check(r.triangulos > 100 && r.alto_mm > 90 && r.alto_mm < 110, `load_stl: ${r.triangulos} triángulos, alto ${r.alto_mm.toFixed(1)} mm, estanca=${r.estanca}`);
+
+// Puente de planos (los usa web/app.js al generar): marco archivo→figura y miembros / cabeza / cintura por 3 puntos.
+const fr = eng.figureFrame(null, 100);
+check(Math.abs(fr.k - 1) < 1e-6 && fr.offset.length === 3 && fr.offset.every(Number.isFinite), `figure_frame: k = ${fr.k.toFixed(4)} (la figura ya mide 100 mm), offset = ${fr.offset.map((x) => x.toFixed(2))}`);
+// El caso que importa: un STL en otras unidades y fuera del origen (÷100 y +[5, 3, 2]) → k = 100 y offset = -k·[5, 3, 2] + el centrado.
+const odd = eng.py.runPython(`
+from afm.testfigure import make_doll
+_m = make_doll(); _m.apply_scale(0.01); _m.apply_translation([5, 3, 2])
+_m.export(file_type="stl")`).toJs();
+eng.loadStl(new Uint8Array(odd));
+const fr2 = eng.figureFrame(null, 100);
+check(Math.abs(fr2.k - 100) < 1e-6 && [-500, -300, -200].every((v, i) => Math.abs(fr2.offset[i] - v) < 1e-3), `figure_frame con un STL fuera de escala y del origen: k = ${fr2.k.toFixed(3)}, offset = ${fr2.offset.map((x) => x.toFixed(2))}`);
+eng.loadStl(stl);       // vuelve a la figura normal para el resto de las pruebas
+const arm = eng.newLimb("brazo", "arm", [[0, 3, 0], [1, 3, 0], [0, 3, 1]]);
+const leg = eng.newLimb("pierna", "leg", [[0, 3, 0], [1, 3, 0], [0, 3, 1]]);
+check(arm.extrude === "outward" && Math.abs(arm.thickness - 12 * 1.653) < 1e-9 && arm.polygon.length === 0 && arm.auto === true
+  && leg.extrude === "symmetric" && leg.thickness === 100, "new_limb: brazo «outward» de 12 × 1,653 mm y pierna simétrica de 100 mm, sin polígono");
+const head = eng.newHead([[-5, -10, 75], [5, -10, 75], [0, 10, 72]]);
+const waist = eng.newWaist([[0, 0, 50], [10, 0, 50], [0, 10, 50]]);
+check(head.name === "cabeza" && head.plane.normal[2] > 0.9 && waist.name === "cintura" && waist.plane.normal[2] === 1, "new_head / new_waist: planos válidos con la normal hacia arriba");
+const rejects = (f, re) => { try { f(); return false; } catch (e) { return re.test(String(e.message || e)); } };
+check(rejects(() => eng.newLimb("x", "leg", [[0, 0, 0], [1, 1, 1], [2, 2, 2]]), /colineales/), "new_limb: 3 puntos alineados → error legible en JS (colineales)");
+check(rejects(() => eng.newWaist([[0, 0, 0], [1, 0, 0], [0, 0, 1]]), /casi vertical/) && rejects(() => eng.newHead([[0, 0, 0], [1, 0, 0], [0, 0, 1]]), /casi vertical/), "new_head / new_waist: plano vertical → error legible en JS");
 
 const packed = eng.py.runPython(`_pack({"zip": b"PK-prueba", "archivos": ["a.stl"], "informe": {"ok": True}})`);
 check(packed.zip instanceof Uint8Array && packed.zip.length === 9, `_pack: zip llega como ${packed.zip?.constructor?.name} de ${packed.zip?.length} bytes`);
@@ -53,5 +78,19 @@ try {
   check(Object.keys(p90.colisiones).length === 0 && p90.angulo === 90 && eng.previewPose(500, false).angulo === 95, "preview_pose: sin choques a 90° y el ángulo se acota a 95°");
   const mean = (a) => { let s = 0; for (let k = 1; k < a.length; k += 3) s += a[k]; return s / (a.length / 3); };
   check(Math.abs(mean(p0.piezas.pierna_izq.v) - mean(p90.piezas.pierna_izq.v)) > 5, "preview_pose: la pierna se mueve entre 0° y 90°");
+
+  // Punta a punta, como lo hace web/app.js: STL fuera de escala y del origen + planos elegidos con 3 puntos del STL crudo,
+  // llevados al marco de la figura con `frame` → «Generar» debe dar las mismas piezas que la demo (planos escritos a mano).
+  eng.loadStl(new Uint8Array(odd));
+  const fr3 = eng.figureFrame(null, 100);
+  const proj = JSON.parse(eng.py.runPython("import json\nfrom afm.project import demo_project\njson.dumps(demo_project().to_dict())"));
+  proj.symmetry = planeToJson(planeFromPoints(...toFigure([[5, 0, 0], [5, 1, 0], [5, 0, 1]], fr3), "simetría"));
+  const cut = planeToJson(planeFromPoints(...toFigure([[0, 3, 0], [1, 3, 0], [0, 3, 1]], fr3), "corte al medio"));
+  proj.limbs.forEach((l) => { l.plane = cut; });
+  const t2 = performance.now();
+  const e2e = JSON.parse(eng.build(JSON.stringify(proj), {}).informe);
+  const vr = inf.validacion.pieces, ve = e2e.validacion.pieces;
+  const dif = Object.keys(vr).map((k) => [k, Math.abs(ve[k].volumen - vr[k].volumen) / vr[k].volumen]);
+  check(dif.every(([, d]) => d < 0.01), `punta a punta: «Generar» con planos de 3 puntos crudos == demo (${((performance.now() - t2) / 1000).toFixed(1)} s; dif. de volumen por pieza: ${dif.map(([k, d]) => `${k} ${(d * 100).toFixed(2)} %`).join(", ")})`);
 } catch (e) { check(/manifold3d/.test(String(e)), `demo: falla esperada sin manifold3d → ${String(e.message || e).split("\n").filter(Boolean).pop()}`); }
 process.exit(fails ? 1 : 0);
