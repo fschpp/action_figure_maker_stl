@@ -33,6 +33,7 @@ class EngineSession:
         self._dir = tempfile.mkdtemp(prefix="afm_")
         self._stl_path: str | None = None
         self._z_up = True
+        self._last: dict | None = None
 
     # ------------------------------------------------------------------ entrada
     def load_stl(self, data: bytes) -> dict:
@@ -167,7 +168,9 @@ class EngineSession:
         out = os.path.join(self._dir, "salida")
         shutil.rmtree(out, ignore_errors=True)
         os.makedirs(out)
-        info = cli.run(stl_path, project, out, name, progress=_progress(progress_cb), orient=orient)
+        keep: dict = {}
+        info = cli.run(stl_path, project, out, name, progress=_progress(progress_cb), orient=orient, keep=keep)
+        self._last = keep or None          # resultado en memoria para `preview_pose`
         _progress(progress_cb)("Comprimiendo el ZIP…")
         buf = io.BytesIO()
         names: list[str] = []
@@ -180,6 +183,40 @@ class EngineSession:
                     names.append(arc)
         shutil.rmtree(out, ignore_errors=True)
         return {"zip": buf.getvalue(), "archivos": sorted(names), "informe": json.loads(json.dumps(info, default=float))}
+
+    def preview_pose(self, angle: float, collisions: bool = True) -> dict:
+        """Figura generada con la cadera girada `angle` grados (0 = de pie, `sit_angle` = sentada), para el slider.
+
+        Usa `pipeline.posed_pieces`, la misma composición de giros que la pose sentada del build, sobre el resultado
+        en memoria de la última generación. Devuelve por pieza los vértices (float32, xyz) y los índices (uint32)
+        en bytes, y con `collisions` el volumen (mm³) en que cada miembro se mete en el torso (> tolerancia = choque).
+        """
+        import numpy as np
+
+        from . import pipeline as P
+        from . import solids as S
+        from .head import HEAD_NAME
+        from .waist import PELVIS_NAME
+
+        if not self._last:
+            raise RuntimeError("primero hay que generar la figura (build) para ver su pose")
+        res, params = self._last["res"], self._last["params"]
+        angle = float(np.clip(angle, 0.0, params.sit_angle + params.hip_margin))
+        posed = P.posed_pieces(res, angle, p=params)
+        fixed = {n: res.pieces[n] for n in ("torso", PELVIS_NAME, HEAD_NAME) if n in res.pieces}
+        pieces = {**fixed, **posed}
+        out: dict = {"angulo": angle, "piezas": {}, "colisiones": {}}
+        for name, mf in pieces.items():
+            m = S.to_trimesh(mf)
+            out["piezas"][name] = {"v": np.asarray(m.vertices, np.float32).tobytes(),
+                                   "i": np.asarray(m.faces, np.uint32).tobytes()}
+        if collisions:
+            body = P.body_ref(res)
+            for name, mf in posed.items():
+                v = float((mf ^ body).volume())
+                if v > P.JOINT_TOL_MM3:
+                    out["colisiones"][name] = round(v, 4)
+        return out
 
     def close(self) -> None:
         shutil.rmtree(self._dir, ignore_errors=True)

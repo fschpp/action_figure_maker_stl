@@ -15,7 +15,9 @@ from .testfigure import make_doll
 
 
 def run(stl_path: str, project: Project, outdir: str, name: str, progress=print, orient: bool | str = False,
-        max_angle: float = 45.0, flat: float | None = None, catalog_root: str | None = None) -> dict:
+        max_angle: float = 45.0, flat: float | None = None, catalog_root: str | None = None,
+        keep: dict | None = None) -> dict:
+    """Genera la figura. `keep`, si se pasa, recibe `res` (el `BuildResult`) y `params` para la vista previa de la pose."""
     from .assembly import resolve_parts
 
     parts = resolve_parts(project.parts, catalog_root) if project.parts else None
@@ -37,6 +39,8 @@ def run(stl_path: str, project: Project, outdir: str, name: str, progress=print,
                       hand=project.hand, parts=parts)
         progress("Validando la figura…")
         val = P.validate(res, project.params, project.limbs, joints=project.joints)
+    if keep is not None:
+        keep.update(res=res, params=project.params)
     from .accessories import finish_export, load_project_items
 
     items = load_project_items(project, progress=print)

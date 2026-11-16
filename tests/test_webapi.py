@@ -125,3 +125,32 @@ def test_new_head_and_new_waist_from_three_points():
         EngineSession.new_waist([0, 0, 50], [0, 1, 50], [1, 0, 53])
     with pytest.raises(ValueError, match="colineales"):
         EngineSession.new_waist([0, 0, 0], [1, 1, 1], [2, 2, 2])
+
+
+# --- preview_pose: figura generada con la cadera en otro ángulo (slider de la página) -----------------------------
+def test_preview_pose_rotates_the_legs_and_keeps_the_body():
+    import numpy as np
+    import pytest
+
+    from afm.webapi import EngineSession
+
+    s = EngineSession()
+    with pytest.raises(RuntimeError, match="generar"):
+        s.preview_pose(0)
+    s.demo()
+
+    def verts(pose, name):
+        return np.frombuffer(pose["piezas"][name]["v"], np.float32).reshape(-1, 3)
+
+    p0, p90, p_big = s.preview_pose(0), s.preview_pose(90), s.preview_pose(500, collisions=False)
+    assert {"torso", "pierna_izq", "pierna_der"} <= set(p90["piezas"])
+    assert p_big["angulo"] == 95.0                                    # sit_angle 90° + margen 5°
+    assert p_big["colisiones"] == {}                                  # sin `collisions` no se calcula
+    for pose in (p0, p90):
+        i = np.frombuffer(pose["piezas"]["pierna_izq"]["i"], np.uint32)
+        assert i.size % 3 == 0 and i.max() < len(verts(pose, "pierna_izq"))
+    assert np.allclose(verts(p0, "torso"), verts(p90, "torso"))       # el torso no se mueve
+    a, b = verts(p0, "pierna_izq"), verts(p90, "pierna_izq")
+    assert abs(a[:, 1].mean() - b[:, 1].mean()) > 5 or abs(a[:, 2].mean() - b[:, 2].mean()) > 5   # la pierna giró
+    assert p0["colisiones"] == {} and p90["colisiones"] == {}         # el recorrido libre de la demo no choca
+    assert np.allclose(verts(p90, "pierna_der")[:, 0].mean(), -verts(p90, "pierna_izq")[:, 0].mean(), atol=1e-3)  # espejo
