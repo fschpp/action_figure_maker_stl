@@ -20,6 +20,19 @@ def test_load_stl_reports_the_mesh_and_rejects_garbage():
     s.close()
 
 
+def test_load_stl_warns_about_heavy_meshes(monkeypatch):
+    import afm.webapi as webapi
+    buf = io.BytesIO()
+    make_doll().export(buf, file_type="stl")
+    data = buf.getvalue()
+    s = EngineSession()
+    assert not any("triángulos" in a for a in s.load_stl(data)["avisos"])
+    monkeypatch.setattr(webapi, "HEAVY_STL_TRIANGLES", 100)      # la muñeca supera este umbral
+    avisos = s.load_stl(data)["avisos"]
+    assert any("decimarlo" in a for a in avisos)
+    s.close()
+
+
 def test_build_requires_a_loaded_stl():
     with pytest.raises(RuntimeError):
         EngineSession().build("{}")

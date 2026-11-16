@@ -5,13 +5,14 @@ _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic
 ## Current Focus — G3 con una figura real: 19 532 tri + rodilla/codo/cintura tardó >1950 s en el navegador (2026-11-16, rama `g3_validar_articulaciones` sobre main dbb2ad0)
 **Dato del dueño (sitio con marcas de etapa; el `Motor cargado` salió 0,0 s porque Pyodide ya estaba cargado en la pestaña):** STL de 19 532 triángulos, ~1,1 de alto (unidades del archivo), no estanca (los STL de ejemplo del repo tienen 9 900–10 900 tri, alto 1,135/1,159 o 114/127 y tampoco son estancos). Proyecto con rodilla, codo y cintura. Tiempos: +4,7 s Separando la cabeza → +57,0 Separando brazo → +167,5 Separando pierna → +200,1 Rodilla → +439,6 Codo → +692,6 Cavidad del cuello (253 s) → +694,4 Reduciendo (196 s) → +890,5 Cintura → +900,2 Validando (**1051 s**) → +1951,1 Exportando. El informe pegado era el de la demo anterior (torso 49 166 tri, `"articulaciones": {}`): la corrida no había terminado.
 **Medido en nativo (1 CPU), demo con rodilla + codo (`test_joints`, `decimate=0`):** `build` 18,6 s; `validate` 8,0 s (`_validate_joints` 2,8 s, `_validate_chain` 0,4 s, el resto es la parte base: `min_gap` y cruces contra un torso de ~124 k tri sin decimar). Aplicando ×7–15 del navegador, las articulaciones valdrían 20–40 s: el 1051 s de la figura real no sale de ahí, sino de la complejidad de su torso y miembros. **No se pudo reproducir** sin su STL y su `.proyecto`.
-**Hecho:** el texto del STL cargado ya no dice «1.1 mm de alto» cuando el alto está fuera de 20–500: dice «1.14 unidades de alto (se escala a 100 mm)».
+**Hecho:** el texto del STL cargado ya no dice «1.1 mm de alto» cuando el alto está fuera de 20–500: dice «1.14 unidades de alto (se escala a 100 mm)». **Aviso de STL pesado:** `EngineSession.load_stl` agrega a `avisos` (que la página ya vuelca al log) un mensaje si el STL tiene más de `HEAVY_STL_TRIANGLES` = 15 000 triángulos, recomendando decimarlo a ~10 000 antes de cargarlo; `test_load_stl_warns_about_heavy_meshes`. **No verificado:** el efecto real de decimar la figura del dueño a ~10 000 (falta su STL); ofrecer decimar dentro de la página.
 
 ### Todo List
 - [x] Medir `validate` con rodilla y codo en nativo y descartar las articulaciones como causa principal.
 - [x] Texto de unidades en la info del STL.
 - [ ] El dueño sube el STL y el `.proyecto` de esa corrida (o pega el log completo con el pie de versión) para perfilar etapa por etapa en nativo.
-- [ ] Advertir al cargar un STL de > ~15 000 triángulos (o ofrecer decimarlo antes) y medir el efecto de decimar a ~10 000.
+- [x] Advertir al cargar un STL de > ~15 000 triángulos.
+- [ ] Medir el efecto de decimar a ~10 000 (con el STL del dueño) y, si conviene, ofrecer decimarlo desde la página.
 - [ ] G3: «Cavidad del cuello» y carga de Pyodide (ver el foco siguiente).
 
 ### Latest Blockers/Discoveries

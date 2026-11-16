@@ -28,6 +28,10 @@ def _progress(cb: ProgressCb | None):
     return lambda *a, **k: cb(" ".join(str(x) for x in a))
 
 
+# Por encima de esto el navegador tarda mucho (figura real de 19 532 tri: >1950 s; los STL de ejemplo tienen ~10 000).
+HEAVY_STL_TRIANGLES = 15_000
+
+
 class EngineSession:
     def __init__(self) -> None:
         self._dir = tempfile.mkdtemp(prefix="afm_")
@@ -53,12 +57,16 @@ class EngineSession:
         self._z_up = int(mesh.extents.argmax()) == 2
         merged = mesh.copy()
         merged.merge_vertices()
+        avisos = [] if self._z_up else ["el eje más largo del STL no es Z: el motor lo gira, pero los puntos "
+                                         "elegidos en el visor no se pueden llevar a la figura"]
+        if len(mesh.faces) > HEAVY_STL_TRIANGLES:
+            avisos.append(f"el STL tiene {len(mesh.faces)} triángulos (más de {HEAVY_STL_TRIANGLES}): en el navegador "
+                          "generar puede tardar decenas de minutos; conviene decimarlo a ~10 000 antes de cargarlo")
         return {"triangulos": int(len(mesh.faces)),
                 "alto_mm": float(mesh.bounds[1][2] - mesh.bounds[0][2]),
                 "estanca": bool(merged.is_watertight),
                 "z_arriba": self._z_up,
-                "avisos": [] if self._z_up else ["el eje más largo del STL no es Z: el motor lo gira, pero los puntos "
-                                                  "elegidos en el visor no se pueden llevar a la figura"]}
+                "avisos": avisos}
 
     def figure_frame(self, crown_z: float | None = None, ref_height: float = 100.0) -> dict:
         """Transformación del STL crudo (Z arriba) al marco normalizado en que se guardan los planos del proyecto:
