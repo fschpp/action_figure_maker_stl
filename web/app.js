@@ -97,7 +97,9 @@ $("#stl").addEventListener("change", async (ev) => {
   await run(async () => {
     const info = stlInfo = await call("load_stl", { bytes: stlBytes.slice() });   // copia: la original queda disponible en la página
     for (const a of info.avisos ?? []) log("Aviso: " + a);
-    $("#stlinfo").textContent = `${info.triangulos} triángulos, ${info.alto_mm.toFixed(1)} mm de alto, ${info.estanca ? "estanca" : "NO estanca"}`;
+    // Muchos STL vienen en otras unidades (p. ej. ~1,1 de alto): no son mm, el motor los escala a 100 mm pies→coronilla.
+    const h = info.alto_mm, alto = (h < 20 || h > 500) ? `${h.toPrecision(3)} unidades de alto (se escala a 100 mm)` : `${h.toFixed(1)} mm de alto`;
+    $("#stlinfo").textContent = `${info.triangulos} triángulos, ${alto}, ${info.estanca ? "estanca" : "NO estanca"}`;
   });
 });
 $("#proj").addEventListener("change", async (ev) => {
