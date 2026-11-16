@@ -21,6 +21,10 @@ _s = EngineSession()
 def _pack(r):
     return to_js({"zip": to_js(r["zip"]), "archivos": r["archivos"], "informe": json.dumps(r["informe"])},
                  dict_converter=__import__("js").Object.fromEntries)
+def _pack_stl(r):
+    stl = r.pop("stl")
+    return to_js({"info": json.dumps(r), "stl": to_js(stl) if stl is not None else None},
+                 dict_converter=__import__("js").Object.fromEntries)
 def _pack_pose(r):
     return to_js({"angulo": r["angulo"], "colisiones": json.dumps(r["colisiones"]),
                   "piezas": {k: {"v": to_js(v["v"]), "i": to_js(v["i"])} for k, v in r["piezas"].items()}},
@@ -35,6 +39,12 @@ def _pack_pose(r):
     loadStl(bytes) {
       g.set("_data", bytes);
       return JSON.parse(py.runPython("json.dumps(_s.load_stl(_data.to_py().tobytes()))"));
+    },
+    // Reduce el STL cargado a ~target triángulos (afm.webapi.decimate_loaded). `stl` = bytes nuevos, o null si no cambió.
+    decimateStl(target) {
+      g.set("_arg", JSON.stringify({ target }));
+      const r = py.runPython("_pack_stl(_s.decimate_loaded(**json.loads(_arg)))");
+      return { info: JSON.parse(r.info), stl: r.stl ? r.stl.slice() : null };
     },
     build(projectText, { onMessage, name = "figura" } = {}) {
       g.set("_proj", projectText); g.set("_name", name); withProgress(onMessage);

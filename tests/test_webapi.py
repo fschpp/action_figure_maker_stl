@@ -33,6 +33,27 @@ def test_load_stl_warns_about_heavy_meshes(monkeypatch):
     s.close()
 
 
+def test_decimate_loaded_reduces_keeping_height_and_requires_stl():
+    pytest.importorskip("fast_simplification")
+    import trimesh
+    with pytest.raises(RuntimeError):
+        EngineSession().decimate_loaded(500)
+    heavy = make_doll().subdivide().subdivide()                 # ~16x los triángulos
+    buf = io.BytesIO()
+    heavy.export(buf, file_type="stl")
+    s = EngineSession()
+    info = s.load_stl(buf.getvalue())
+    assert info["pesado"] is (info["triangulos"] > 15_000)
+    r = s.decimate_loaded(2000)
+    assert r["reducido"] and r["stl"] and r["triangulos"] < r["triangulos_antes"]
+    assert abs(r["alto_mm"] - info["alto_mm"]) < 0.005 * info["alto_mm"]
+    assert len(trimesh.load(io.BytesIO(r["stl"]), file_type="stl").faces) == r["triangulos"]
+    assert s.decimate_loaded(10**6)["reducido"] is False          # ya es más chico que el objetivo
+    with pytest.raises(ValueError):
+        s.decimate_loaded(5)
+    s.close()
+
+
 def test_build_requires_a_loaded_stl():
     with pytest.raises(RuntimeError):
         EngineSession().build("{}")

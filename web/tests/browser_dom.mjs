@@ -41,7 +41,8 @@ self.onmessage = (ev) => {
   const { id, type } = ev.data;
   const post = (value, transfer = []) => self.postMessage({ id, type: "result", value }, transfer);
   if (type === "init") return post("ok");
-  if (type === "load_stl") return post({ triangulos: 12, alto_mm: 100, estanca: true, avisos: [], z_arriba: true });
+  if (type === "load_stl") return post({ triangulos: ev.data.bytes.length > 5000 ? 20000 : 12, alto_mm: 100, estanca: true, avisos: [], z_arriba: true, pesado: ev.data.bytes.length > 5000 });
+  if (type === "decimate_stl") return post({ info: { triangulos: 10000, triangulos_antes: 20000, reducido: true, alto_mm: 100, estanca: true, avisos: [], z_arriba: true, pesado: false }, stl: null });
   if (type === "frame") return post({ k: 1, offset: [0, 0, 0], ref_height: 100 });
   if (type === "new_limb") return post({ name: ev.data.name, kind: ev.data.kind, stub: true, points: ev.data.points });
   if (type === "new_head" || type === "new_waist") return post({ plane: { name: type, origin: ev.data.points[0], normal: [0, 0, 1] } });
@@ -151,6 +152,20 @@ try {
     assert.match(await text("#stlinfo"), /100\.0 mm de alto, estanca/);
     await page.waitForTimeout(300);
     assert.ok(await shot("#canvas") > 3000, "el canvas parece vacío (sin figura dibujada)");
+  });
+
+  await step("un STL pesado ofrece «Reducir»; al pulsarlo se informa la reducción y el botón desaparece", async () => {
+    assert.equal(await page.locator("#decimate").isHidden(), true);
+    const heavy = Buffer.concat([boxStl(), Buffer.alloc(6000, 32)]);      // el stub lo trata como de 20 000 triángulos
+    await page.locator("#stl").setInputFiles({ name: "pesado.stl", mimeType: "model/stl", buffer: heavy });
+    await page.locator("#decimate").waitFor({ state: "visible" });
+    await page.waitForFunction(() => document.querySelector("#stlinfo").textContent.includes("20000 triángulos"));
+    await page.locator("#decimate").click();
+    await page.waitForFunction(() => document.querySelector("#stlinfo").textContent.includes("reducido de 20000"));
+    assert.equal(await page.locator("#decimate").isHidden(), true);
+    await page.locator("#stl").setInputFiles({ name: "caja.stl", mimeType: "model/stl", buffer: boxStl() });   // vuelve al estado normal
+    await page.waitForFunction(() => document.querySelector("#stlinfo").textContent.includes("12 triángulos"));
+    assert.equal(await page.locator("#decimate").isHidden(), true);
   });
 
   await step("«Generar» sigue desactivado hasta cargar el proyecto; un JSON inválido se avisa", async () => {

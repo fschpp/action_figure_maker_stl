@@ -66,7 +66,48 @@ class EngineSession:
                 "alto_mm": float(mesh.bounds[1][2] - mesh.bounds[0][2]),
                 "estanca": bool(merged.is_watertight),
                 "z_arriba": self._z_up,
+                "pesado": len(mesh.faces) > HEAVY_STL_TRIANGLES,
                 "avisos": avisos}
+
+    def decimate_loaded(self, target: int = 10_000) -> dict:
+        """Reduce el STL cargado a ~`target` triángulos (decimación cuadrática) y lo deja como el STL de la sesión.
+
+        No cambia el sistema de coordenadas (solo hay menos caras), así que los puntos elegidos en el visor siguen
+        valiendo. Devuelve el resumen de `load_stl` más `stl` (bytes del STL reducido) y `reducido`; si ya tiene
+        `target` triángulos o menos, no toca nada (`stl` = None)."""
+        import numpy as np
+        import trimesh
+
+        if self._stl_path is None:
+            raise RuntimeError("primero hay que cargar un STL")
+        target = int(target)
+        if target < 100:
+            raise ValueError("el objetivo de triángulos es demasiado chico")
+        mesh = trimesh.load(self._stl_path, file_type="stl", process=False)
+        mesh.merge_vertices()
+        n0 = len(mesh.faces)
+        if n0 <= target:
+            with open(self._stl_path, "rb") as f:
+                info = self.load_stl(f.read())
+            return {**info, "stl": None, "reducido": False, "triangulos_antes": n0}
+        try:
+            import fast_simplification as fs
+        except ImportError as exc:
+            raise RuntimeError("falta fast_simplification: no se puede decimar") from exc
+        v, f = fs.simplify(mesh.vertices.astype(np.float32), mesh.faces.astype(np.int32),
+                           target_reduction=1.0 - target / n0, agg=5)
+        out = trimesh.Trimesh(v, f, process=False)
+        data = bytes(out.export(file_type="stl"))
+        info = self.load_stl(data)
+        # el alto no debe moverse más de 0,5 %: si se mueve, la decimación se comió el modelo
+        h0 = float(mesh.bounds[1][2] - mesh.bounds[0][2])
+        if h0 > 0 and abs(info["alto_mm"] - h0) > 0.005 * h0:
+            with open(self._stl_path, "wb") as fh:      # no se aplica: se vuelve al original
+                trimesh.Trimesh(mesh.vertices, mesh.faces, process=False).export(fh, file_type="stl")
+            info = self.load_stl(open(self._stl_path, "rb").read())
+            return {**info, "stl": None, "reducido": False, "triangulos_antes": n0,
+                    "avisos": info["avisos"] + ["la decimación cambiaba el alto de la figura: se dejó el STL original"]}
+        return {**info, "stl": data, "reducido": True, "triangulos_antes": n0}
 
     def figure_frame(self, crown_z: float | None = None, ref_height: float = 100.0) -> dict:
         """Transformación del STL crudo (Z arriba) al marco normalizado en que se guardan los planos del proyecto:

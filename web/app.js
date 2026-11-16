@@ -100,8 +100,18 @@ $("#stl").addEventListener("change", async (ev) => {
     // Muchos STL vienen en otras unidades (p. ej. ~1,1 de alto): no son mm, el motor los escala a 100 mm pies→coronilla.
     const h = info.alto_mm, alto = (h < 20 || h > 500) ? `${h.toPrecision(3)} unidades de alto (se escala a 100 mm)` : `${h.toFixed(1)} mm de alto`;
     $("#stlinfo").textContent = `${info.triangulos} triángulos, ${alto}, ${info.estanca ? "estanca" : "NO estanca"}`;
+    $("#decimate").hidden = !info.pesado;     // STL pesado: se ofrece reducirlo antes de generar
   });
 });
+$("#decimate").addEventListener("click", () => run(async () => {
+  const { info, stl } = await call("decimate_stl", { target: 10000 });
+  for (const a of info.avisos ?? []) log("Aviso: " + a);
+  stlInfo = info;
+  if (stl) { stlBytes = stl; showInViewer(stlBytes); }
+  const h = info.alto_mm, alto = (h < 20 || h > 500) ? `${h.toPrecision(3)} unidades de alto (se escala a 100 mm)` : `${h.toFixed(1)} mm de alto`;
+  $("#stlinfo").textContent = `${info.triangulos} triángulos${info.reducido ? ` (reducido de ${info.triangulos_antes})` : ""}, ${alto}, ${info.estanca ? "estanca" : "NO estanca"}`;
+  $("#decimate").hidden = true;
+}));
 $("#proj").addEventListener("change", async (ev) => {
   const f = ev.target.files[0]; if (!f) return;
   projText = await f.text();
