@@ -2,6 +2,22 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — Port a Pyodide: prueba de navegador del sitio (DOM, visor, clics, pose) (2026-11-16, rama `web_prueba_navegador` sobre main 007c79d)
+**Hecho:** `web/tests/browser_dom.mjs` (Chrome headless + `playwright-core`, `web/` servido por un servidor local). El motor se reemplaza por un worker stub con el mismo protocolo (Pyodide real ya lo cubre `engine_node.mjs`), así que prueba todo lo demás que hace la página: carga sin errores; secciones ocultas al inicio; abrir un STL (el visor dibuja: se cuentan los píxeles distintos del fondo decodificando el PNG); JSON de proyecto inválido; botones de vista; 3 clics → puntos y plano de simetría; un arrastre no cuenta como clic; clics alineados → error «colineales»; planos de brazo/pierna/cuello/cintura; «Atenuar una mitad»; **«Generar» manda al motor el proyecto con simetría (normal ±Y), coronilla, frente y miembros elegidos en el visor**; pose (segundo visor dibujado, slider llama a `preview_pose`, choque en rojo/«Choque con el torso a 95°»); demo sin archivos; ningún error de consola. Nuevo workflow `web-browser.yml` (en PR y push que toquen `web/`).
+**Bug real encontrado y corregido:** `section { display: flex }` en `web/styles.css` pisaba el atributo `hidden` del navegador, así que las secciones «Vista del modelo» y «Pose de la figura generada» (con sus canvas vacíos) se veían siempre, antes de cargar nada. Arreglo: `[hidden] { display: none !important; }`.
+**Verificado:** 13/13 pasos en Chrome for Testing 153 headless (SwiftShader) en este sandbox, con `three@0.186.1` servido desde node_modules porque jsDelivr está bloqueado acá. **No verificado:** el workflow en Actions (primer run pendiente); el motor real dentro de la página (la prueba usa stub; la integración página + Pyodide + wheels solo la probó el dueño a mano); Safari.
+
+### Todo List
+- [x] `browser_dom.mjs` + `web-browser.yml` + arreglo del CSS `hidden`.
+- [ ] Mergear y ver correr `web-browser` en Actions (si falla por Chrome o por la red del runner, ajustar flags).
+- [ ] El dueño confirma en el sitio que ya no aparecen las secciones vacías de visor y pose antes de cargar un STL.
+- [ ] `_fill_silhouettes` bajo Pyodide con una pierna sin polígono y con Güemes / Belgrano / Azurduy.
+- [ ] G3: «Cavidad del cuello» (15,5 s en Node) y carga de Pyodide.
+- [ ] M3: editor de polígonos 2D y recortes; probetas.
+
+### Latest Blockers/Discoveries
+- Chrome dentro del sandbox se cuelga si hace tráfico de fondo por el proxy: la prueba lanza con `--disable-background-networking --proxy-server=direct://`.
+
 ## Current Focus — Port a Pyodide: el puente de planos y el recorrido «3 puntos → Generar» verificados bajo Pyodide real (2026-11-15, rama `port_engine_node_planos` sobre main 0b5fd99)
 **Hecho:** `web/tests/engine_node.mjs` ahora cubre, con Pyodide 314.0.8 real en Node y los wheels de manifold3d 3.5.5 y fast-simplification 0.2.0: `figureFrame` (figura normal: k = 1; **STL en otras unidades y fuera del origen: k = 100 y offset = −500, −300, −200**), `newLimb` (brazo «outward» 12 × 1,653 mm, pierna simétrica de 100 mm, sin polígono), `newHead` / `newWaist` (planos válidos), los errores de Python llegan a JS con mensaje legible (colineales, «casi vertical») y, **punta a punta como lo hace `web/app.js`**: STL fuera de escala + planos de simetría y corte al medio tomados con 3 puntos crudos y mapeados con `frame` + `toFigure` → «Generar» da las mismas piezas que la demo (brazos, piernas y cabeza 0,00 %, torso 0,17 %; 66,4 s). La demo tarda 52 s en este entorno (1 CPU) y `previewPose` 0,2–0,3 s para 2 poses. Es todo lo que hace la página salvo el DOM, el visor y los clics.
 **No verificado:** el DOM y el visor three.js (render, clics, ajuste al vértice, slider de pose, colores, cámara «Frente»); `_fill_silhouettes` bajo Pyodide (la prueba usa los miembros del demo, con polígono); figuras reales.

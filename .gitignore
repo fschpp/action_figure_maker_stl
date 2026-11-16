@@ -15,3 +15,4 @@ web/wheels/*.whl
 web/wheels/manifest.json
 web/build-info.js
 web/version.json
+node_modules/
