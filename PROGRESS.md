@@ -2,6 +2,18 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — Port a Pyodide, M2 quinta rebanada: `preview_pose` (slider de cadera) (2026-11-15, rama `port_m2_preview_pose` sobre main cd7e74a)
+**Hecho:** `EngineSession.preview_pose(angle, collisions=True)`: sobre el `BuildResult` que `cli.run` deja en memoria (nuevo parámetro `keep`) llama a `pipeline.posed_pieces` (la misma composición de giros que la pose sentada del build) y devuelve por pieza vértices float32 e índices uint32 en bytes, más el volumen (mm³) en que cada miembro se mete en el torso (`body_ref`; > `JOINT_TOL_MM3` = choque). El ángulo se acota a `[0, sit_angle + hip_margin]` (0–95°). Sin generar antes, falla con un mensaje claro. En la página: sección «Pose de la figura generada» (segundo visor three.js, `showPieces` reemplaza la geometría sin recrear la escena), slider de cadera 0–95° (al arrastrar sin colisiones, al soltar con colisiones; si el motor está ocupado solo cuenta el último valor), las piezas que chocan se pintan en rojo, botones Costado / Frente / Arriba. Aparece solo tras «Generar» o la demo.
+**Verificado:** nativo, `test_preview_pose_rotates_the_legs_and_keeps_the_body` (torso fijo, pierna girada, espejo en x, índices válidos, acotado a 95°, sin choques a 0° y 90°; error antes de generar); 10 tests pasan en `test_webapi` + `test_engine_portability`. **Bajo Pyodide 314.0.8 real, en Node** (`web/tests/engine_node.mjs`, con los wheels de manifold3d 3.5.5 y fast-simplification 0.2.0 de los Releases): demo en 59,4 s y el puente `previewPose` entrega `Float32Array` / `Uint32Array` propios con índices válidos, sin choques a 90°, ángulo acotado a 95° y pierna que se mueve entre 0° y 90°; 2 poses en 0,3 s. **No verificado:** el render del slider en un navegador (visor, colores, el rojo de las colisiones, la cámara «Costado»); el frente de la figura (el motor la deja con el frente en +Y y la cámara «Frente» está en +Y).
+
+### Todo List
+- [x] `preview_pose` (motor + puente + visor + slider).
+- [x] `engine_node.mjs` cubre `previewPose` (queda sin cubrir `frame` / `new_limb` / `new_head` / `new_waist`).
+- [ ] Probar el slider en el sitio (tras el despliegue) con la demo y con Sucre; pegar el log si algo falla.
+- [ ] `engine_node.mjs` para `frame` / `new_limb` / `new_head` / `new_waist`.
+- [ ] G3: etapas previas a la pose («Cavidad del cuello» 15,5 s en Node) y carga de Pyodide.
+- [ ] M3: editor de polígonos 2D y recortes; probetas.
+
 ## Current Focus — G3: radio de búsqueda de `min_gap` acotado (2026-11-15, rama `g3_min_gap_radio` sobre main fb2f0dc)
 **Log del dueño con las marcas (sitio `fb2f0dc`, demo `muneco`, «Listo en» 211,1 s):** Pyodide 30,8 s; +6,0 Separando la cabeza; +24,0 Cavidad del cuello; +58,1 Pose sentada y espejado; +58,1 Evaluando (2,5 s); +60,6 Reduciendo triángulos (**99,3 s**); +159,9 Validando (19,9 s); +179,8 Exportando; +180,2 ZIP. Contra nativo (1 CPU): cuello→pose 34 s contra 4,5 (×7,5), reducir 99,3 contra 7,2 (×14), validar 19,9 contra 2,9 (×7).
 **Causa:** el motor llama a `min_gap` 15 veces por build (5 antes de decimar, 5 después, 5 en `validate`), siempre con radio 5 mm; las holguras reales rondan 0,5 mm. Nativo, 5 miembros contra el torso (49 308 tri): radio 5 = 2,16 s; 3 = 0,86; 2 = 0,53; 1 = 0,27; 0,75 = 0,19 s, con holguras idénticas (0,4772 / 0,4806 / 0,4737). En `validate`, `min_gap` es 2,2 de los 2,8 s. El wheel de manifold3d sale en Release (scikit-build-core compila en Release; manifold agrega -O3): no es un problema de optimización.
