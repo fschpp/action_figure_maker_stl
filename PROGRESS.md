@@ -2,6 +2,21 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — Página: el worker caído se muestra y no deja la página «ocupada» (2026-11-17, rama `web_error_del_worker` sobre main aedda3c)
+**Objetivo:** cerrar el pendiente «si el worker no arranca (p. ej. error de carga de Pyodide) la página queda ocupada sin mensaje».
+
+### Todo List
+- [x] Reproducir (rojo) con dos workers de mentira en `web/tests/browser_dom.mjs`: uno que falla al cargar y otro cuyo `init` falla una vez.
+- [x] `worker.onerror` / `onmessageerror` → `failWorker()`: rechaza lo pendiente, muestra un aviso fijo (`#workererror`, el log lo limpia cada acción) con el motivo y «Recargá la página», y las acciones siguientes fallan al instante.
+- [x] `init()` ya no memoriza un fallo normal (p. ej. se cortó la red al bajar un paquete): el siguiente clic reintenta.
+- [x] Tercer caso: el worker muere A MITAD de una acción (`setTimeout(throw)` durante `demo`): la acción termina con error, `running` se libera y la barra se oculta.
+- [ ] Probar con un fallo real (Pyodide inaccesible, CDN caído) en un navegador del dueño; solo se probó con workers de mentira en Chrome.
+
+### Latest Blockers/Discoveries
+- **Los tests de navegador corren en un sandbox sin Chrome ni red a Playwright** con `@sparticuz/chromium` de npm (binario dentro del paquete, extrae a `/tmp/chromium`): `npm i playwright-core three@0.186.1 @sparticuz/chromium` y `PW_DIR=<carpeta> THREE_DIR=<carpeta>/node_modules/three CHROME=/tmp/chromium node web/tests/browser_dom.mjs`. Resultado: 20/20 pasos (17 previos + 3 nuevos).
+- Un worker muerto no se recupera (no se recrea): el aviso pide recargar. Recrearlo a mano exigiría repetir la carga de Pyodide; no se hizo.
+- **Sobre «Origen de las piezas de 218–303 k triángulos» (pendiente abierto, NO está en este parche):** medido en nativo con Güemes, `Manifold.simplify(1e-3)` sobre la malla cruda casi no avanza (brazo 353 732 → 349 296) porque los vértices duplicados le impiden colapsar caras coplanares. **Soldar vértices → reconstruir el Manifold → `simplify(1e-3)` lleva el brazo a 6 078 y el muslo de 377 512 a 7 542 triángulos en ~1,2 s, con el volumen igual (3137,1 → 3137,2).** Eso es lo que la decimación del export hacía de rebote (su salida de 6 230 caras sale de ahí). Una primera idea —decidir el tope por caras imprimibles— NO sirve: sobre la malla cruda `to_printable_trimesh` da >150 k. Queda un WIP sin verificar (`S.compact` aplicado a `pieces` y `res_motion` en `build`, 3 tests propios pasan) pendiente de medir tiempo y paridad de la salida con Güemes.
+
 ## Current Focus — Página: «Generar» no se habilitaba tras «Reducir» (2026-11-16, rama `web_generar_tras_reducir` sobre main 673fed7)
 **Reporte del dueño (capturas, sitio `673fed7`, navegador con botones «Examinar…» = Firefox en español):** con STL reducido (9 999 tri) y `sucre.proyecto` mostrado en el selector, «Generar» queda deshabilitado; el resto de los botones sí están habilitados (así que `running` no estaba trabado).
 **Causa: NO confirmada.** En Chrome headless no se reproduce con la versión `673fed7` en los 3 órdenes (STL→Reducir→proyecto, proyecto→STL→Reducir, STL→proyecto→Reducir): «Generar» queda habilitado. Hipótesis principal: Firefox restaura al recargar los *nombres* de los `<input type=file>` sin disparar `change`, así que se ve `sucre.proyecto` pero `projText` está vacío (la página venía de actualizarse a `673fed7`). No hay Firefox en este sandbox ni red para bajarlo, así que no se pudo probar.

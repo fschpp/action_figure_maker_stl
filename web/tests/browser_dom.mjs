@@ -341,6 +341,71 @@ try {
     await p2.close();
   });
 
+  // ---- el worker falla: la página tiene que decirlo y no quedar «ocupada» para siempre ----
+  const pageWith = async (workerBody) => {
+    const pg = await (await browser.newContext()).newPage();
+    pg.setDefaultTimeout(8000);
+    await pg.route("**/worker.js", (r) => r.fulfill({ contentType: "text/javascript", body: workerBody }));
+    await pg.route(/\/(version\.json|build-info\.js)/, (r) => r.fulfill({ status: 404, body: "" }));
+    await pg.route(/cdn\.jsdelivr\.net\/npm\/three@[^/]+\/(.*)$/, (r) => {
+      const f = path.join(process.env.THREE_DIR ?? "", r.request().url().match(/three@[^/]+\/(.*)$/)[1]);
+      return process.env.THREE_DIR && fs.existsSync(f) ? r.fulfill({ contentType: "text/javascript", body: fs.readFileSync(f) }) : r.continue();
+    });
+    pg.errs = [];
+    pg.on("pageerror", (e) => pg.errs.push("pageerror: " + e.message));
+    await pg.goto(base);
+    return pg;
+  };
+  // Espera una condición y, si no se cumple, dice qué mostraba ESA página (el log y los errores), no la principal.
+  const waitOn = async (pg, fn, what) => {
+    try { await pg.waitForFunction(fn); }
+    catch (e) { throw new Error(`${what}: no ocurrió. log de la página: ${JSON.stringify(await pg.locator("#log").innerText())} | errores: ${JSON.stringify(pg.errs)}`); }
+  };
+
+  await step("si el worker no carga, la página muestra el error y no queda ocupada", async () => {
+    const pg = await pageWith('throw new Error("no se pudo cargar Pyodide (simulado)");');
+    await pg.click("#demo");
+    await waitOn(pg, () => { const e = document.querySelector("#workererror"); return e && !e.hidden; }, "el aviso del worker caído");
+    const msg = await pg.locator("#workererror").innerText();
+    assert.match(msg, /no se pudo cargar Pyodide \(simulado\)/);
+    assert.match(msg, /Recarg/);                                              // dice qué hacer
+    assert.equal(await pg.locator("#demo").isDisabled(), false, "«Probar con la demo» quedó bloqueado");
+    await pg.click("#demo");                                                  // un segundo intento no se cuelga: falla al instante
+    await waitOn(pg, () => document.querySelector("#log").textContent.includes("Error: "), "el error del segundo intento");
+    assert.equal(await pg.locator("#demo").isDisabled(), false);
+    assert.equal(await pg.locator("#result").isHidden(), true);
+    await pg.close();
+  });
+
+  await step("un init que falla con un error normal se puede reintentar (no se memoriza el fallo)", async () => {
+    const flaky = 'let intentos = 0;\n' + STUB_WORKER.replace('if (type === "init") return post("ok");',
+      'if (type === "init") { if (intentos++ === 0) return self.postMessage({ id, type: "error", message: "fallo de red simulado" }); return post("ok"); }');
+    assert.notEqual(flaky, 'let intentos = 0;\n' + STUB_WORKER, "el reemplazo del stub no se aplicó");
+    const pg = await pageWith(flaky);
+    await pg.click("#demo");
+    await waitOn(pg, () => document.querySelector("#log").textContent.includes("Error: fallo de red simulado"), "el error de init en el log");
+    assert.equal(await pg.locator("#demo").isDisabled(), false);
+    assert.equal(await pg.locator("#workererror").isHidden(), true, "un error de init no es un worker caído");
+    await pg.click("#demo");                                                  // el segundo intento sí carga el motor
+    await waitOn(pg, () => !document.querySelector("#result").hidden, "el resultado del segundo intento");
+    assert.match(await pg.locator("#report").innerText(), /✓ validación correcta/);
+    await pg.close();
+  });
+
+  await step("si el worker muere a mitad de una acción, esa acción termina con error y la página se libera", async () => {
+    const dies = STUB_WORKER.replace('if (type === "build" || type === "demo") {',
+      'if (type === "demo") { self.postMessage({ type: "progress", stage: "Separando la cabeza…", pct: null }); setTimeout(() => { throw new Error("se cayó a mitad de la corrida (simulado)"); }, 80); return; }\n  if (type === "build" || type === "demo") {');
+    assert.notEqual(dies, STUB_WORKER, "el reemplazo del stub no se aplicó");
+    const pg = await pageWith(dies);
+    await pg.click("#demo");
+    await waitOn(pg, () => { const e = document.querySelector("#workererror"); return e && !e.hidden; }, "el aviso del worker caído a mitad de la corrida");
+    assert.match(await pg.locator("#workererror").innerText(), /se cayó a mitad de la corrida \(simulado\)/);
+    await waitOn(pg, () => document.querySelector("#log").textContent.includes("Error: El motor dejó de responder"), "el error de la acción en el log");
+    assert.equal(await pg.locator("#demo").isDisabled(), false, "la página quedó ocupada");
+    assert.equal(await pg.locator("#bar").isHidden(), true, "la barra de progreso quedó a medias");
+    await pg.close();
+  });
+
   await step("ningún error de JavaScript ni de consola durante toda la prueba", async () => {
     assert.deepEqual(errors.filter((e) => !/Failed to load resource.*404/.test(e)), []);
   });

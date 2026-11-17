@@ -25,14 +25,31 @@ worker.onmessage = ({ data }) => {
   pending.delete(data.id);
   data.type === "error" ? p.reject(new Error(data.message)) : p.resolve(data.value);
 };
-worker.onerror = (e) => log("Error del worker: " + e.message);
+// Si el worker muere (no se pudo cargar el script o Pyodide, excepción sin capturar), las promesas pendientes no se
+// resolverían nunca: `running` quedaba en true y la página «ocupada» para siempre, con el error solo en la consola.
+// Se rechaza todo lo pendiente, se muestra el motivo en un aviso fijo (el log lo limpia cada acción) y las acciones
+// siguientes fallan al instante. Un worker muerto no se recupera: hay que recargar la página.
+let workerFatal = null;
+function failWorker(detail) {
+  workerFatal ??= `El motor dejó de responder: ${detail}. Recargá la página; si se repite, pegá este mensaje en el reporte.`;
+  const err = new Error(workerFatal);
+  for (const p of pending.values()) p.reject(err);
+  pending.clear();
+  const box = $("#workererror");
+  box.textContent = "⚠ " + workerFatal; box.hidden = false;
+  $("#bar").hidden = true; $("#stage").textContent = "";
+}
+worker.onerror = (e) => { e.preventDefault?.(); failWorker(e.message || "no se pudo cargar el worker"); };
+worker.onmessageerror = () => failWorker("el worker mandó un mensaje que la página no pudo leer");
 
 const call = (type, extra = {}, transfer = []) => new Promise((resolve, reject) => {
+  if (workerFatal) return reject(new Error(workerFatal));
   const id = nextId++;
   pending.set(id, { resolve, reject });
   worker.postMessage({ id, type, ...extra }, transfer);
 });
-const init = () => (ready ??= call("init"));
+// Un `init` que falla con un error normal (p. ej. se cortó la red al bajar un paquete) no se memoriza: el próximo intento reintenta.
+const init = () => (ready ??= call("init").catch((e) => { ready = null; throw e; }));
 
 // Una sola acción a la vez (carga del STL, reducir, generar). «Generar» depende SOLO de los datos cargados y de si hay una
 // acción en curso, y dice por qué está deshabilitado. Los selectores de archivo no se bloquean (el proyecto solo guarda datos);
