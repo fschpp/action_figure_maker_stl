@@ -6,12 +6,14 @@ _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic
 **Objetivo:** que las siluetas (la 1.ª y la 2.ª del miembro, su espejo y el borrador mientras se dibuja) se vean aunque el plano de corte quede dentro de la malla.
 **Causa:** `Controller._sync_polygons` y el espejo dibujaban las siluetas con prueba de profundidad (`on_top=False`); como viven sobre el plano de corte, dentro de la figura, la malla las tapaba. Los puntos pendientes y las guías ya usaban `on_top=True`.
 **Hecho:** `on_top=True` en `silueta:*`, `silueta2:*`, `espejo:silueta*`, `poligono`, `poligono:vertices` y `poligono:sel`. Test de regresión `test_silhouettes_are_drawn_on_top_so_the_figure_does_not_hide_them` (falla sin el fix).
-**Verificado:** `tests/test_gui_controller.py` (34 pasan, 3 skipped) con escena falsa. **No verificado:** el aspecto real en la GUI GTK/OpenGL con Güemes; la suite completa (se corrió solo la parte de GUI, ver abajo). Efecto a mirar: con `on_top` la silueta se ve también desde atrás de la figura, sin oclusión.
+**Trazo grueso (2.º commit):** a 1 px la silueta casi no se veía. `SceneRenderer.set_lines(..., width=px)`: con `width > 1` el trazo se dibuja como cinta (2 triángulos por segmento, ensanchada en pantalla en `_THICK_VS`, con prolongación de medio grosor para empalmar vértices); las siluetas usan `SILHOUETTE_PX = 3.0` (controller). Los fakes de escena de los tests aceptan `width`. Comprobado renderizando fuera de pantalla (cinta de 3 px vs línea de 1 px).
+**Verificado:** `tests/test_gui_controller.py` (39 pasan) y los tests de GUI con escenas falsas (160 pasan, 1 skipped). **No verificado:** el aspecto real en la GUI GTK/OpenGL con Güemes (¿3 px alcanza o conviene configurable?); la suite completa (se corrió solo la parte de GUI, ver abajo). Efecto a mirar: con `on_top` la silueta se ve también desde atrás de la figura, sin oclusión.
 
 ### Todo List
 - [x] Reproducir con test y dibujar las siluetas por delante de la malla.
 - [/] Correr la suite relacionada (GUI, miembros, cortes) sobre este main.
 - [ ] Probar en la GUI con Güemes: silueta del brazo con el plano dentro de la figura, vista de frente y desde atrás.
+- [ ] Confirmar en la GUI que 3 px se ve bien; si no, ajustar `SILHOUETTE_PX`.
 - [ ] Decidir si la guía `guia` (contorno de la figura en el plano) también debe ir por delante.
 
 ## Current Focus — Fix: «Corte a» movía el brazo en vez del plano nuevo de la pierna (2026-11-17, rama `fix_corte_a_plano_nuevo` sobre main 17f1fcf)

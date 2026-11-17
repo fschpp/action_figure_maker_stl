@@ -412,7 +412,7 @@ class _FakeScene:
         self.items[name] = ("quad", plane)
         self.items[name + ":borde"] = ("lines", None)
 
-    def set_lines(self, name, pl, color=None, closed=False, on_top=False):
+    def set_lines(self, name, pl, color=None, closed=False, on_top=False, width=1.0):
         self.items[name] = ("lines", pl)
 
     def set_points(self, name, pts, color=None, size=10.0, on_top=False):
@@ -550,7 +550,7 @@ class _RecordingScene:
     def __init__(self):
         self.items, self.on_top = {}, {}
 
-    def set_lines(self, name, pl, color=None, closed=False, on_top=False):
+    def set_lines(self, name, pl, color=None, closed=False, on_top=False, width=1.0):
         self.items[name], self.on_top[name] = pl, on_top
 
     def set_points(self, name, pts, color=None, size=10.0, on_top=False):
@@ -577,3 +577,47 @@ def test_silhouettes_are_drawn_on_top_so_the_figure_does_not_hide_them(arm):
     arm._sync_polygons(sc)
     for key in ("poligono", "poligono:vertices", "poligono:sel"):
         assert sc.on_top[key], key
+
+
+def test_silhouettes_are_drawn_thick(arm):
+    """Regresión: a 1 px la silueta casi no se distingue sobre la figura; el controller pide un trazo más grueso."""
+    from afm.gui.controller import SILHOUETTE_PX
+    assert SILHOUETTE_PX >= 2.0
+    widths = {}
+
+    class _Scene(_RecordingScene):
+        def set_lines(self, name, pl, color=None, closed=False, on_top=False, width=1.0):
+            super().set_lines(name, pl, color, closed, on_top, width)
+            widths[name] = width
+
+    _draw_square(arm)
+    arm.cancel()
+    sc = _Scene()
+    arm._sync_polygons(sc)
+    arm.start_polygon("brazo")
+    arm._sync_polygons(sc)
+    assert widths["silueta:brazo"] == widths["poligono"] == SILHOUETTE_PX
+
+
+def test_thick_lines_cover_more_pixels_than_thin_ones():
+    pytest.importorskip("moderngl")
+    pytest.importorskip("trimesh")
+    from afm.gui.camera import OrbitCamera
+    from afm.gui.render import OffscreenRenderer
+    try:
+        off = OffscreenRenderer(240, 180)
+    except Exception as e:
+        pytest.skip(f"sin contexto OpenGL fuera de pantalla: {e}")
+    cam = OrbitCamera()
+    cam.frame(np.array([[-30.0, -30, -30], [30, 30, 30]]))
+    cam.look_along((1, 0, 0), target=(0, 0, 0))
+    sq = np.array([[0, -20, -20], [0, 20, -20], [0, 20, 20], [0, -20, 20]], float)
+
+    def lit(width):
+        off.scene.clear()
+        off.scene.set_lines("s", sq, (1.0, 0.0, 0.0, 1.0), closed=True, on_top=True, width=width)
+        img = off.render(cam)
+        return int(((img[..., 0] > 200) & (img[..., 1] < 60)).sum())
+
+    thin, thick = lit(1.0), lit(4.0)
+    assert thin > 0 and thick > 2.5 * thin

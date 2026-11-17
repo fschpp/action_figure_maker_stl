@@ -199,7 +199,7 @@ class _Scene:
     def set_plane(self, name, plane, hs, center=None, color=None):
         self.items[name] = ("quad", plane)
 
-    def set_lines(self, name, pl, color=None, closed=False, on_top=False):
+    def set_lines(self, name, pl, color=None, closed=False, on_top=False, width=1.0):
         self.items[name] = ("lines", pl)
 
     def set_points(self, name, pts, color=None, size=10.0, on_top=False):

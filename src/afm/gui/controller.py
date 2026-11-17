@@ -72,6 +72,7 @@ class Mode(Enum):
     FLOOR_CUT = "corte_paralelo_piso"   # plano paralelo al piso (cabeza o cintura): un clic sobre la figura (o flechas) fija su altura
     FLAT_PLANE = "plano_sin_soportes"   # figura generada sentada, vista Derecha: un clic (o flechas) fija la altura del corte plano
 
+SILHOUETTE_PX = 3.0                          # grosor en pantalla (px) del trazo de las siluetas: 1 px no se distingue sobre la figura
 EXPORT_ONLY_PARAMS = frozenset({"flat_depth"})   # parámetros que no cambian las piezas generadas
 
 
@@ -4660,7 +4661,7 @@ class Controller:
                 if being_edited or poly is None or len(poly) < 3:
                     continue
                 wanted.add(key)
-                scene.set_lines(key, mirrored_points(poly), color, closed=True, on_top=True)     # la silueta vive dentro de la figura: sin prueba de profundidad no se vería
+                scene.set_lines(key, mirrored_points(poly), color, closed=True, on_top=True, width=SILHOUETTE_PX)     # la silueta vive dentro de la figura: sin prueba de profundidad no se vería
                 scene.show(key, not hidden and self.group_visible("contours"))
             if l.pin_center is not None:
                 key = f"espejo:pasador:{l.name}"
@@ -5354,7 +5355,7 @@ class Controller:
                 if being_edited or poly is None or len(poly) < 3:
                     continue
                 wanted.add(key)
-                scene.set_lines(key, np.asarray(poly), color, closed=True, on_top=True)          # la silueta vive dentro de la figura: sin prueba de profundidad no se vería
+                scene.set_lines(key, np.asarray(poly), color, closed=True, on_top=True, width=SILHOUETTE_PX)          # la silueta vive dentro de la figura: sin prueba de profundidad no se vería
                 scene.show(key, l.name not in self.hidden and self.group_visible("contours"))
         for key in [k for k in scene.items if k.startswith(("silueta:", "silueta2:")) and k not in wanted]:
             scene.remove(key)
@@ -5366,7 +5367,8 @@ class Controller:
         scene.set_lines("guia", [editing.plane.to_world(g["exterior"]) for g in guide], (0.7, 0.72, 0.8, 1.0), closed=True)
         if editing.pts:
             w3 = editing.world()
-            scene.set_lines("poligono", w3, (1.0, 0.8, 0.2, 1.0), closed=editing.closed, on_top=True)
+            scene.set_lines("poligono", w3, (1.0, 0.8, 0.2, 1.0), closed=editing.closed, on_top=True,
+                           width=SILHOUETTE_PX)
             scene.set_points("poligono:vertices", w3, (1.0, 0.8, 0.2, 1.0), 9.0, on_top=True)
             if editing.selected is not None:
                 scene.set_points("poligono:sel", w3[[editing.selected]], (1.0, 0.25, 0.25, 1.0), 15.0, on_top=True)

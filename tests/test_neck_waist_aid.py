@@ -28,7 +28,7 @@ class Scene:
     def __init__(self):
         self.items = {}
 
-    def set_lines(self, key, pts, color, closed=False, on_top=False):
+    def set_lines(self, key, pts, color, closed=False, on_top=False, width=1.0):
         self.items[key] = ("lines", pts, color)
 
     def set_points(self, key, pts, color, size, on_top=False):

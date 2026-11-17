@@ -72,6 +72,32 @@ void main() {
     f_color = u_color;
 }
 """
+_THICK_VS = """
+#version 330
+uniform mat4 u_mvp;
+uniform float u_bias;
+uniform float u_width;      // grosor del trazo en píxeles
+uniform vec2 u_viewport;    // tamaño del visor en píxeles
+in vec3 in_pos;             // extremo propio del vértice
+in vec3 in_other;           // el otro extremo del segmento
+in float in_side;           // -1 / +1: de qué lado del trazo está el vértice
+in float in_end;            // 0 en el primer extremo, 1 en el segundo
+void main() {
+    vec4 cs = u_mvp * vec4(in_pos, 1.0);
+    vec4 co = u_mvp * vec4(in_other, 1.0);
+    vec2 ps = (cs.xy / cs.w) * 0.5 * u_viewport;
+    vec2 po = (co.xy / co.w) * 0.5 * u_viewport;
+    vec2 d = (in_end < 0.5) ? (po - ps) : (ps - po);       // siempre del primer extremo al segundo
+    float len = length(d);
+    d = (len > 1e-6) ? d / len : vec2(1.0, 0.0);
+    vec2 n = vec2(-d.y, d.x);
+    float along = (in_end < 0.5) ? -1.0 : 1.0;              // prolonga medio grosor: los vértices de una polilínea se empalman sin muescas
+    vec2 off_px = (n * in_side + d * along) * (0.5 * u_width);
+    gl_Position = cs;
+    gl_Position.xy += off_px * 2.0 / u_viewport * cs.w;
+    gl_Position.z -= u_bias * gl_Position.w;
+}
+"""
 
 
 @dataclass
@@ -90,6 +116,7 @@ class Item:
     ghost: bool = False               # malla translúcida (usa el alfa del color): se pinta después de las opacas, sin escribir profundidad
     cull: bool = False                # descarta las caras de atrás (una malla translúcida se ve limpia: solo su frente)
     restore: tuple | None = None      # (color, ghost, cull) de antes de `set_translucent`, para volver a pintarla opaca
+    width: float = 1.0                # grosor en píxeles de un trazo («lines»); > 1 se dibuja como cinta (GL_LINES solo hace 1 px)
 
 
 def _flat_vertices(mesh: trimesh.Trimesh) -> np.ndarray:
@@ -116,6 +143,7 @@ class SceneRenderer:
         self.ctx = ctx
         self.mesh_prog = ctx.program(vertex_shader=_MESH_VS, fragment_shader=_MESH_FS)
         self.flat_prog = ctx.program(vertex_shader=_FLAT_VS, fragment_shader=_FLAT_FS)
+        self.thick_prog = ctx.program(vertex_shader=_THICK_VS, fragment_shader=_FLAT_FS)
         self.items: dict[str, Item] = {}
         self.background = (0.13, 0.14, 0.16, 1.0)
 
@@ -159,8 +187,8 @@ class SceneRenderer:
         it.ghost, it.cull = True, cull
 
     def set_lines(self, name: str, polylines, color=(1.0, 0.8, 0.2, 1.0), closed: bool = False,
-                  on_top: bool = False):
-        """`polylines`: lista de arreglos Nx3 (o un único Nx3)."""
+                  on_top: bool = False, width: float = 1.0):
+        """`polylines`: lista de arreglos Nx3 (o un único Nx3). `width`: grosor en píxeles (1 = línea fina de GL)."""
         if isinstance(polylines, np.ndarray) and polylines.ndim == 2:
             polylines = [polylines]
         segs = []
@@ -175,9 +203,24 @@ class SceneRenderer:
         if not segs:
             return self.remove(name)
         data = np.concatenate(segs).astype("f4")
+        if width > 1.0:
+            return self._put(name, self._thick_item(data, color, on_top, float(width)))
         vbo = self.ctx.buffer(data.tobytes())
         vao = self.ctx.vertex_array(self.flat_prog, [(vbo, "3f", "in_pos")])
         return self._put(name, Item("lines", vao, vbo, len(data), color, bias=2e-4, on_top=on_top))
+
+    def _thick_item(self, seg: np.ndarray, color, on_top: bool, width: float) -> Item:
+        """Cada segmento (a, b) se vuelve un rectángulo de 2 triángulos que el shader ensancha en pantalla."""
+        a, b = seg[0::2], seg[1::2]
+        n = len(a)
+        rows = np.zeros((n, 6, 8), "f4")
+        for k, (own, other, side, end) in enumerate(((a, b, 1, 0), (a, b, -1, 0), (b, a, 1, 1),
+                                                     (b, a, 1, 1), (a, b, -1, 0), (b, a, -1, 1))):
+            rows[:, k, 0:3], rows[:, k, 3:6], rows[:, k, 6], rows[:, k, 7] = own, other, side, end
+        data = rows.reshape(-1, 8)
+        vbo = self.ctx.buffer(data.tobytes())
+        vao = self.ctx.vertex_array(self.thick_prog, [(vbo, "3f 3f 1f 1f", "in_pos", "in_other", "in_side", "in_end")])
+        return Item("lines", vao, vbo, len(data), color, bias=2e-4, on_top=on_top, width=width)
 
     def set_points(self, name: str, pts, color=(1.0, 0.3, 0.3, 1.0), size: float = 10.0, on_top: bool = False):
         pts = np.asarray(pts, np.float32).reshape(-1, 3)
@@ -261,12 +304,24 @@ class SceneRenderer:
             for it in self.items.values():
                 if not it.visible or it.on_top != on_top:
                     continue
-                if it.kind == "lines":
+                if it.kind == "lines" and it.width > 1.0:
+                    self._thick(it, mvp, width, height)
+                elif it.kind == "lines":
                     self._flat(it, mvp, mgl.LINES)
                 elif it.kind == "points":
                     self._flat(it, mvp, mgl.POINTS, round_=True)
         ctx.enable(mgl.DEPTH_TEST)
         ctx.disable(mgl.BLEND)
+
+    def _thick(self, it: Item, mvp, width: int, height: int) -> None:
+        p = self.thick_prog
+        p["u_mvp"].write(mvp.T.tobytes())
+        p["u_color"].value = it.color
+        p["u_bias"].value = it.bias
+        p["u_width"].value = it.width
+        p["u_viewport"].value = (float(width), float(max(height, 1)))
+        p["u_round"].value = 0
+        it.vao.render(self.mgl.TRIANGLES, vertices=it.count)
 
     def _flat(self, it: Item, mvp, mode, round_: bool = False) -> None:
         p = self.flat_prog
