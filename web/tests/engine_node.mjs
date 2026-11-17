@@ -97,6 +97,12 @@ try {
   check(pc.zip instanceof Uint8Array && pc.zip.length > 1000 && [...pc.archivos].sort().join() === "probetas.stl,probetas.txt" && /0[.,]4/.test(JSON.parse(pc.informe).texto),
     `make_test_coupons: ZIP de ${pc.zip.length} bytes con ${[...pc.archivos].join(", ")}`);
 
+  // Recorte manual: plano de simetría (x = 0, normal +X) y fondo, sobre la figura de la demo ya cargada
+  const demoProj = eng.py.runPython("import json\nfrom afm.project import demo_project\njson.dumps(demo_project().to_dict())");
+  const te = eng.trimEditor(demoProj, "simetria");
+  check(te.plano === "simetria" && te.normal[0] === 1 && te.silueta.length > 0 && te.silueta[0].exterior.length >= 3,
+    `trim_editor: plano de simetría (normal ${te.normal}) con ${te.silueta.length} polígono(s) de fondo`);
+
   // Punta a punta, como lo hace web/app.js: STL fuera de escala y del origen + planos elegidos con 3 puntos del STL crudo,
   // llevados al marco de la figura con `frame` → «Generar» debe dar las mismas piezas que la demo (planos escritos a mano).
   eng.loadStl(new Uint8Array(odd));

@@ -2,6 +2,20 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — M3: recorte manual en la página (§8.8) (2026-11-17, rama `m3_recorte_manual` sobre main cb063ca)
+**Objetivo:** la herramienta genérica de recorte del plan: polígono sobre un plano (por defecto el de simetría) → extruir → restar/unir sobre una pieza (torso o miembro), para panza, cola, capa, etc.
+**Hecho:** el motor ya aplicaba `project.trims` (`trims.py`); faltaba la página. `EngineSession.trim_editor(project, plano)` devuelve el plano de dibujo (`"simetria"` = x = 0 con normal +X en el marco de trabajo, o el plano de un miembro) y el fondo proyectado; mensaje `trim_editor` en el worker, `trimEditor` en engine.js, sección «Recortes manuales» (pieza, plano, restar/unir, espesor, simétrico, editor de polígonos reutilizado, lista con «Quitar»). Los recortes viajan en `project.trims` junto con los que ya traiga el proyecto, y caducan con aviso si cambia el marco (coronilla, frente, simetría, altura), igual que las siluetas.
+**Verificado:** nativo `test_webapi` (+2: `trim_editor` simetría/miembro/errores, y un recorte dibujado en (u, v) → `Trim` → build real del muñeco: el torso pierde volumen); Chrome headless `browser_dom.mjs`: paso nuevo (dibujar 3 vértices, rechazar 1, agregar, «Generar» manda `trims` con op/espesor/plano y polígono sobre x = 0, quitar) pasa. **No verificado:** `engine_node.mjs` (paso nuevo; lo corre CI), el editor con una figura real (Mickey: panza/cola), recortes sobre el plano de un miembro con figura real, tiempo de `trim_editor` bajo WASM, los 8 pasos del visor en este sandbox (CDN de three.js inaccesible). Limitaciones: solo polígonos (las formas predefinidas esfera/caja/cilindro del motor no tienen UI); no se edita un recorte ya agregado (se quita y se vuelve a dibujar); los recortes que ya traía el proyecto no se listan ni se quitan desde la página.
+
+### Todo List
+- [x] `trim_editor` + sección + pruebas.
+- [ ] Probar con Mickey (esfera de panza, cola) en el sitio.
+- [ ] Formas predefinidas (esfera/caja/cilindro) en la UI; editar y listar los recortes del proyecto.
+- [ ] i18n de la página.
+- [ ] Fase final: documentar reconstrucción de wheels / actualización de Pyodide; límites de mallas grandes.
+- [ ] El dueño prueba el editor de siluetas con Güemes y re-corre Sucre para medir G3.
+- [ ] **WIP de main sin cerrar:** `f3319dd` (`S.compact`) sin verificar con Güemes.
+
 ## Current Focus — M3: probetas de calibración en la página (2026-11-17, rama `m3_probetas` sobre main dda8ddb)
 **Objetivo:** poder imprimir las placas de prueba (§8.11) desde la página, sin instalar nada, antes de generar la figura.
 **Hecho:** `probes.probe_files(tipo, …)` devuelve `({nombre: bytes}, texto)` y es la única implementación: `afm probe` la usa para escribir a disco y `EngineSession.make_test_coupons` para armar un ZIP (paridad por construcción). Puente `makeTestCoupons` (engine.js) + mensaje `make_test_coupons` (worker.js) + sección «Probetas de calibración» (tipo hongo / bisagra / clic, boquilla para clic) con descarga del ZIP y la tabla de lo que lleva cada celda. Se sincronizaron las casillas de `docs/PLAN_port_pyodide.md` con la realidad.

@@ -240,7 +240,7 @@ $("#build").addEventListener("click", () => run(async () => showResult(await cal
 // normalizada (escala, pies en z=0, centrada). El motor da la transformación (frame) y el miembro por defecto (new_limb).
 async function projectWithPicks() {
   const base = JSON.parse(projText);
-  const picked = edits.symPts || edits.limbs.size || edits.headPts || edits.waistPts || edits.polys.size;
+  const picked = edits.symPts || edits.limbs.size || edits.headPts || edits.waistPts || edits.polys.size || edits.trims.length;
   if (!picked && edits.crown_z == null && !edits.front) return projText;
   if (stlInfo && stlInfo.z_arriba === false) throw new Error("El STL no tiene Z arriba: los puntos del visor no se pueden usar.");
   const crown = edits.crown_z ?? base.crown_z ?? null;
@@ -259,6 +259,12 @@ async function projectWithPicks() {
     const l = merged.limbs.find((x) => x.name === name);
     if (l) { l.polygon = polygon; l.auto = false; }
   }
+  // Recortes manuales (también en el marco de la figura): se suman a los que ya trae el proyecto y caducan igual.
+  for (const t of [...edits.trims]) {
+    if (t.key !== frameKey(base)) { edits.trims.splice(edits.trims.indexOf(t), 1); log(`Aviso: el recorte «${t.label}» se descartó porque cambió el marco de la figura (coronilla, frente, simetría o altura); hay que dibujarlo de nuevo.`); }
+  }
+  if (edits.trims.length) merged.trims = [...(merged.trims ?? []), ...edits.trims.map(({ trim }) => trim)];
+  renderTrims();
   fillSilLimbs();          // quita la marca «(corregida)» de las siluetas descartadas
   // Cuello y cintura: se conserva lo que ya tenía el proyecto (pasador, cabeza de reemplazo…) y solo cambia el plano.
   if (edits.headPts) { const h = await call("new_head", { points: toFigure(edits.headPts, fr) }); merged.head = { ...(base.head ?? h), plane: h.plane, pin_center: null }; }
@@ -267,7 +273,7 @@ async function projectWithPicks() {
 }
 
 // --- Visor (M2): se carga solo al abrir un STL, para que un fallo de three.js no impida la demo ---
-const edits = { symPts: null, crown_z: null, front: null, limbs: new Map(), headPts: null, waistPts: null, polys: new Map() };   // puntos crudos elegidos en el visor
+const edits = { symPts: null, crown_z: null, front: null, limbs: new Map(), headPts: null, waistPts: null, polys: new Map(), trims: [] };   // puntos crudos elegidos en el visor
 let stlInfo = null;
 let viewer = null;
 async function showInViewer(bytes) {
@@ -330,6 +336,7 @@ function limbNames() {
   return [...names];
 }
 function fillSilLimbs() {
+  fillTrimSelects();
   const sel = $("#sil-limb"), keep = sel.value, names = limbNames();
   sel.replaceChildren(...names.map((n) => new Option(n + (edits.polys.has(n) ? " (corregida)" : ""), n)));
   sel.value = names.includes(keep) ? keep : (names[0] ?? "");
@@ -369,6 +376,56 @@ $("#sil-save").addEventListener("click", async () => {
   silCur = null;
 });
 $("#sil-discard").addEventListener("click", () => { $("#sil-editor").hidden = true; silCur = null; silInfo("Cambios descartados."); });
+// --- Recortes manuales (§8.8): polígono sobre un plano → extruir → restar/unir ---
+let trimEditor = null, trimCur = null;
+const trimInfo = (t) => { $("#rc-info").textContent = t; };
+const OPS = { subtract: "restar", union: "unir" };
+function fillTrimSelects() {
+  const names = limbNames(), t = $("#rc-target"), p = $("#rc-plane"), kt = t.value, kp = p.value;
+  t.replaceChildren(new Option("torso", "torso"), ...names.map((n) => new Option(n, n)));
+  p.replaceChildren(new Option("plano de simetría", "simetria"), ...names.map((n) => new Option("plano de «" + n + "»", n)));
+  if ([...t.options].some((o) => o.value === kt)) t.value = kt;
+  if ([...p.options].some((o) => o.value === kp)) p.value = kp;
+}
+function renderTrims() {
+  let n = 0; try { n = (JSON.parse(projText ?? "{}").trims ?? []).length; } catch { /* inválido */ }
+  const li = edits.trims.map((t, i) => { const el = document.createElement("li"), b = document.createElement("button"); b.textContent = "Quitar"; b.type = "button"; b.disabled = running;
+    b.addEventListener("click", () => { edits.trims.splice(i, 1); renderTrims(); }); el.append(t.label + " ", b); return el; });
+  $("#rc-list").replaceChildren(...li);
+  if (n && !trimCur) trimInfo(`El proyecto ya trae ${n} recorte(s); los de esta lista se suman.`);
+}
+$("#rc-open").addEventListener("click", () => {
+  if (!stlBytes || !projText) { trimInfo("Cargá el STL y un proyecto para dibujar un recorte."); return; }
+  const plane = $("#rc-plane").value;
+  run(async () => {
+    const project = await projectWithPicks();
+    const d = await call("trim_editor", { project, plane });
+    const { createPolygonEditor } = await import("./polygon-editor.js");
+    trimEditor ??= createPolygonEditor($("#rc-canvas"), { onChange: (poly) => { const bad = poly.length >= 3 ? trimEditor.validate() : null; trimInfo(bad ?? `${poly.length} vértices.`); } });
+    trimCur = { plane: { origin: d.origin, u: d.u, v: d.v, normal: d.normal, name: d.name }, key: frameKey(JSON.parse(projText)), target: $("#rc-target").value, planeName: plane };
+    trimEditor.load({ silueta: d.silueta, polygon: [] });
+    $("#rc-editor").hidden = false;
+    trimInfo("Dibujá el polígono (mínimo 3 vértices) y tocá «Agregar recorte».");
+  });
+});
+$("#rc-clear").addEventListener("click", () => trimEditor?.clear());
+$("#rc-undo").addEventListener("click", () => trimEditor?.undo());
+$("#rc-fit").addEventListener("click", () => trimEditor?.fit());
+$("#rc-discard").addEventListener("click", () => { $("#rc-editor").hidden = true; trimCur = null; trimInfo("Recorte descartado."); });
+$("#rc-add").addEventListener("click", async () => {
+  if (!trimCur) return;
+  const bad = trimEditor.validate();
+  if (bad) { trimInfo(bad); return; }
+  const dist = +$("#rc-dist").value;
+  if (!(dist >= 0.5 && dist <= 200)) { trimInfo("El espesor tiene que estar entre 0,5 y 200 mm."); return; }
+  const { uvToWorld } = await import("./polygon-editor.js");
+  const poly = trimEditor.getPolygon(), op = $("#rc-op").value, pl = trimCur.plane;
+  const label = `${trimCur.target} · ${OPS[op]} · ${trimCur.planeName === "simetria" ? "plano de simetría" : "plano de " + trimCur.planeName} · ${poly.length} vértices · ${dist} mm`;
+  edits.trims.push({ key: trimCur.key, label, trim: { target: trimCur.target, plane: { name: pl.name, origin: pl.origin, normal: pl.normal },
+    polygon: uvToWorld(pl, poly), distance: dist, symmetric: $("#rc-sym").checked, op, shape: "polygon", note: "dibujado en la página" } });
+  $("#rc-editor").hidden = true; trimCur = null; renderTrims();
+  trimInfo(`Recorte agregado (${edits.trims.length}): «Generar» lo aplica. Vale mientras no cambien la coronilla, el frente, la simetría o la altura de referencia.`);
+});
 // Atenuar la mitad opuesta al plano de simetría: no → «+» → «−» → no. Solo es la vista; el motor espeja solo.
 let half = null;
 function applyHalf() {

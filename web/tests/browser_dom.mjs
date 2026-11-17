@@ -53,6 +53,8 @@ self.onmessage = (ev) => {
   if (type === "new_head" || type === "new_waist") return post({ plane: { name: type, origin: ev.data.points[0], normal: [0, 0, 1] } });
   if (type === "limb_editor") return post({ nombre: ev.data.name, tipo: "arm", origin: [0, 0, 0], u: [1, 0, 0], v: [0, 0, 1], normal: [0, -1, 0],
     silueta: [{ exterior: [[-5, -5], [30, -5], [30, 70], [-5, 70]], holes: [] }], polygon: [], propuesta: [[0, 0], [20, 0], [20, 60], [0, 60]], aviso: null });
+  if (type === "trim_editor") return post({ plano: ev.data.plane, name: "simetría", origin: [0, 0, 0], u: [0, 1, 0], v: [0, 0, 1], normal: [1, 0, 0],
+    silueta: [{ exterior: [[-10, 0], [40, 0], [40, 100], [-10, 100]], holes: [] }] });
   if (type === "preview_pose") {
     const a = ev.data.angle;
     const mk = (dx) => ({ v: new Float32Array([dx, 0, 0, dx, 10, 0, dx, 0, 30])   /* plano x = dx: se ve desde «Costado» */, i: new Uint32Array([0, 1, 2]) });
@@ -607,6 +609,44 @@ try {
     assert.match(await pg.locator("#pb-dl").innerText(), /2 archivos/);
     assert.match(await pg.locator("#pb-dl").getAttribute("href"), /^blob:/);
     assert.equal(await pg.locator("#pb-gen").isDisabled(), false);
+    await pg.close();
+  });
+
+  await step("recortes manuales: se dibuja sobre el plano de simetría, se agrega a la lista y «Generar» lo manda al motor", async () => {
+    const pg = await pageWith(STUB_WORKER);
+    await pg.locator("#stl").setInputFiles({ name: "caja.stl", mimeType: "model/stl", buffer: boxStl() });
+    await pg.locator("#proj").setInputFiles({ name: "fig.proyecto", mimeType: "application/json", buffer: Buffer.from(JSON.stringify({ version: 1, symmetry: null, crown_z: null, front: "+Y", params: { ref_height: 100 }, limbs: [{ name: "brazo" }] })) });
+    await pg.waitForFunction(() => !document.querySelector("#build").disabled);
+    assert.deepEqual(await pg.locator("#rc-target option").allInnerTexts(), ["torso", "brazo"]);
+    assert.deepEqual(await pg.locator("#rc-plane option").allInnerTexts(), ["plano de simetría", "plano de «brazo»"]);
+    await pg.click("#rc-open");
+    await pg.locator("#rc-editor").waitFor({ state: "visible" });
+    // vista del editor: fondo [-10..40]x[0..100]; tres clics = un triángulo
+    const view = fitView(bounds([[-10, 0], [40, 0], [40, 100], [-10, 100]]), 640, 480);
+    const at = (p) => { const [x, y] = toScreen(view, p); return [x / 640, y / 480]; };
+    const click = async (p) => { const [fx, fy] = at(p); await pg.locator("#rc-canvas").scrollIntoViewIfNeeded(); const b = await pg.locator("#rc-canvas").boundingBox(); await pg.mouse.click(b.x + b.width * fx, b.y + b.height * fy); };
+    await click([5, 20]);
+    await pg.click("#rc-add");
+    assert.match(await pg.locator("#rc-info").innerText(), /al menos 3 vértices/, "con 1 vértice no se puede agregar");
+    assert.equal(await pg.locator("#rc-list li").count(), 0);
+    await click([25, 20]); await click([15, 60]);
+    await pg.waitForFunction(() => document.querySelector("#rc-info").textContent.includes("3 vértices"));
+    await pg.fill("#rc-dist", "12"); await pg.selectOption("#rc-op", "union");
+    await pg.click("#rc-add");
+    await pg.locator("#rc-editor").waitFor({ state: "hidden" });
+    assert.match(await pg.locator("#rc-list li").innerText(), /torso · unir · plano de simetría · 3 vértices · 12 mm/);
+    await pg.click("#build");
+    await pg.waitForFunction(() => !document.querySelector("#result").hidden);
+    const proj = JSON.parse(await pg.evaluate(() => document.querySelector("#report").textContent.replace(/^[^\n]*\n/, ""))).proyecto;
+    const t = JSON.parse(proj).trims;
+    assert.equal(t.length, 1);
+    assert.deepEqual([t[0].target, t[0].op, t[0].distance, t[0].symmetric, t[0].shape], ["torso", "union", 12, true, "polygon"]);
+    assert.deepEqual(t[0].plane.normal, [1, 0, 0]);
+    assert.equal(t[0].polygon.length, 3);
+    assert.ok(t[0].polygon.every((q) => q[0] === 0), "el polígono tiene que quedar sobre el plano x = 0 (u, v → 3D)");
+    // quitar
+    await pg.click("#rc-list li button");
+    assert.equal(await pg.locator("#rc-list li").count(), 0);
     await pg.close();
   });
 

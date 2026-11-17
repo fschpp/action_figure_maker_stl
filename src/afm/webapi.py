@@ -240,6 +240,34 @@ class EngineSession:
                 out["aviso"] = str(exc)
         return out
 
+    def trim_editor(self, project: str | dict, plane: str = "simetria") -> dict:
+        """Datos para dibujar un recorte manual (§8.8): plano de dibujo y fondo, como `limb_editor` pero sin polígono.
+
+        ``plane`` = ``"simetria"`` (x = 0 del marco de trabajo, normal +X: el plano por defecto del plan) o el nombre de un
+        miembro del proyecto (se dibuja sobre el plano de ese miembro). El polígono que dibuje la página, llevado a 3D
+        con ``origin``/``u``/``v``, viaja en ``project.trims`` (``Trim.to_dict``) y lo aplica el build.
+        """
+        from .gui.session import Session
+        from .planes import Plane
+        from .project import Project
+
+        if self._stl_path is None:
+            raise RuntimeError("primero hay que cargar un STL (load_stl)")
+        data = json.loads(project) if isinstance(project, (str, bytes)) else project
+        sess = Session(Project.from_dict(data))
+        sess.load(self._stl_path, crown_z=sess.project.crown_z)
+        if plane == "simetria":
+            pl = Plane.from_normal((0.0, 0.0, 0.0), (1.0, 0.0, 0.0), "simetría")
+        else:
+            spec = sess.limb(plane)
+            if spec is None:
+                raise ValueError(f"el proyecto no tiene un miembro «{plane}»")
+            pl = spec.plane
+        return {"plano": plane, "name": pl.name, "origin": pl.origin.tolist(), "u": pl.u.tolist(), "v": pl.v.tolist(),
+                "normal": pl.normal.tolist(),
+                "silueta": [{"exterior": g["exterior"].tolist(), "holes": [h.tolist() for h in g["holes"]]}
+                            for g in sess.silhouette(pl)]}
+
     def demo(self, progress_cb: ProgressCb | None = None, orient: bool | str = False) -> dict:
         """Figura sintética (`afm demo`) con su proyecto de ejemplo."""
         from . import cli
