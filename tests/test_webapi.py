@@ -323,3 +323,19 @@ def test_a_trim_drawn_in_uv_on_the_symmetry_plane_cuts_the_torso():
     v1 = torso_volume(json.loads(json.dumps(prj.to_dict())))
     assert v1 < v0 - 50, (v0, v1)
     s.close()
+
+
+def test_load_stl_rejects_files_over_the_browser_limits(monkeypatch):
+    import afm.webapi as webapi
+    s = EngineSession()
+    buf = io.BytesIO()
+    make_doll().export(buf, file_type="stl")
+    monkeypatch.setattr(webapi, "MAX_STL_BYTES", 1000)
+    with pytest.raises(ValueError, match="el máximo en el navegador es"):
+        s.load_stl(buf.getvalue())
+    monkeypatch.setattr(webapi, "MAX_STL_BYTES", 10**9)
+    monkeypatch.setattr(webapi, "MAX_STL_TRIANGLES", 100)
+    with pytest.raises(ValueError, match="triángulos"):
+        s.load_stl(buf.getvalue())
+    assert s._stl_path is None                      # el rechazo no deja un STL a medio cargar
+    s.close()

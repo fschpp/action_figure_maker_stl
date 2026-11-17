@@ -10,6 +10,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import http from "node:http";
+import os from "node:os";
 import path from "node:path";
 import zlib from "node:zlib";
 import { createRequire } from "node:module";
@@ -647,6 +648,19 @@ try {
     // quitar
     await pg.click("#rc-list li button");
     assert.equal(await pg.locator("#rc-list li").count(), 0);
+    await pg.close();
+  });
+
+  await step("un STL de más de 75 MB se rechaza antes de leerlo, con un mensaje claro, y la página sigue libre", async () => {
+    const pg = await pageWith(STUB_WORKER);
+    const big = path.join(os.tmpdir(), `afm_enorme_${process.pid}.stl`);     // Playwright no acepta buffers de más de 50 MB: va por ruta
+    fs.writeFileSync(big, Buffer.alloc(76 * 1024 * 1024));
+    try {
+      await pg.locator("#stl").setInputFiles(big);
+      await waitOn(pg, () => document.querySelector("#log").textContent.includes("el máximo en el navegador es 75 MB"), "el mensaje de límite");
+    } finally { fs.rmSync(big, { force: true }); }
+    assert.equal(await pg.locator("#stlinfo").innerText(), "");
+    assert.equal(await pg.locator("#demo").isDisabled(), false);
     await pg.close();
   });
 

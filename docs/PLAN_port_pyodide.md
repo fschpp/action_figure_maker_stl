@@ -238,8 +238,8 @@ Página con: botón "Demo", carga de un STL **y de un `proyecto.json`** (sin sel
 ### Fase final — Despliegue, validación y pulido (2–4 días)
 - [x] CI de Pages (§9) y habilitar Pages (Settings → Pages → Source: GitHub Actions).
 - [ ] Probar Chrome, Firefox y Safari de escritorio; Chrome/Safari móviles como "mejor esfuerzo".
-- [ ] Mallas grandes: fijar límites y mensajes de error claros.
-- [ ] Documentar la reconstrucción de wheels y el procedimiento de actualización de Pyodide.
+- [x] Mallas grandes: fijar límites y mensajes de error claros (aviso > 15 000 triángulos; rechazo > 75 MB / 1,5 M de triángulos; `docs/WEB_mantenimiento.md`).
+- [x] Documentar la reconstrucción de wheels y el procedimiento de actualización de Pyodide (`docs/WEB_mantenimiento.md`).
 
 ### Estimación **[I]**
 | Alcance | Duración |
