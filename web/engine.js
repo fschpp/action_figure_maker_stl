@@ -81,6 +81,11 @@ def _pack_pose(r):
       for (const [n, p] of Object.entries(r.piezas)) piezas[n] = { v: f32(p.v), i: u32(p.i) };
       return { angulo: r.angulo, colisiones: JSON.parse(r.colisiones), piezas };
     },
+    // Probetas de calibración (afm.webapi.make_test_coupons): ZIP con STL + tabla de lo que lleva cada celda.
+    makeTestCoupons(opts) {
+      g.set("_arg", JSON.stringify(opts));
+      return py.runPython("(lambda r: _pack({**r, 'informe': {'texto': r.pop('texto')}}))(_s.make_test_coupons(**json.loads(_arg)))");
+    },
     demo({ onMessage } = {}) {
       withProgress(onMessage);
       return py.runPython("_pack(_s.demo(progress_cb=_pcb))");

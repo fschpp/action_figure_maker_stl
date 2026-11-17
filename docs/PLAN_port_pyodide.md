@@ -195,48 +195,48 @@ make_test_coupons(params)            → bytes                                  
 - [x] Resolver la licencia (§11): GPL-3.0.
 
 ### Fase 1 — Prueba de humo en el navegador (1–3 días)
-- [ ] Página mínima con Pyodide 314.0.x en un Worker.
-- [ ] `loadPackage` de numpy, scipy, shapely, scikit-image, networkx, pillow; `micropip` de trimesh y python-i18n.
-- [ ] Probar `import` de manifold3d, mapbox_earcut, fast_simplification, pymeshfix; registrar qué falla.
-- [ ] Iniciar el intento de **wheel propio de manifold3d** (Plan A) en CI. **G1** a los 5 días hábiles.
+- [x] Página mínima con Pyodide 314.0.x en un Worker.
+- [x] `loadPackage` de numpy, scipy, shapely, scikit-image, networkx, pillow; `micropip` de trimesh y python-i18n.
+- [x] Probar `import` de manifold3d, mapbox_earcut, fast_simplification, pymeshfix; registrar qué falla.
+- [x] Iniciar el intento de **wheel propio de manifold3d** (Plan A) en CI. **G1** a los 5 días hábiles.
 
 ### Fase 2 — Aislar el motor (1–2 días)
-- [ ] Mover imports de GTK/moderngl fuera del camino del motor.
-- [ ] Crear la API de §6.1 (al menos `load_stl`, `build`).
+- [x] Mover imports de GTK/moderngl fuera del camino del motor.
+- [x] Crear la API de §6.1 (al menos `load_stl`, `build`).
 - [ ] Definir la **interfaz de backend de booleanos** (nativo vs JS) para que el Plan B no obligue a reescribir.
-- [ ] Reemplazar escrituras a disco por buffers.
+- [x] Reemplazar escrituras a disco por buffers.
 - [ ] Los tests de escritorio siguen verdes.
 
 ### Fase 3 — Dependencias nativas (2–7 días; la de mayor incertidumbre)
-- [ ] manifold3d: Plan A o B según G1. Test: unión/diferencia/intersección de primitivas con el mismo resultado numérico que en escritorio.
-- [ ] earcut, simplificación y reparación (§4.2–4.4).
-- [ ] Wheels propios publicados en Releases / `web/wheels/`.
-- [ ] **G2:** `afm demo` en navegador vs. referencia dorada.
+- [x] manifold3d: Plan A o B según G1. Test: unión/diferencia/intersección de primitivas con el mismo resultado numérico que en escritorio.
+- [x] earcut, simplificación y reparación (§4.2–4.4).
+- [x] Wheels propios publicados en Releases / `web/wheels/`.
+- [x] **G2:** `afm demo` en navegador vs. referencia dorada.
 
 ### **Hito M1 — "afm build en el navegador" (MVP)**
 Página con: botón "Demo", carga de un STL **y de un `proyecto.json`** (sin selección de puntos todavía), botón "Generar", barra de progreso, descarga del ZIP, informe de validación en texto.
-- [ ] Worker + protocolo de mensajes (`init`, `load_stl`, `build`, `progress`, `result`, `error`).
-- [ ] Transferir buffers (`transfer`) para evitar copias.
+- [x] Worker + protocolo de mensajes (`init`, `load_stl`, `build`, `progress`, `result`, `error`).
+- [x] Transferir buffers (`transfer`) para evitar copias.
 - [ ] **G3** (§4.5) con una figura real.
 - Esto valida todo el riesgo técnico **antes** de invertir en visor y editores.
 
 ### **Hito M2 — Visor y planos (3–5 días)**
-- [ ] three.js: carga y visualización del STL, órbita, zoom.
-- [ ] Selección de 3 puntos por `Raycaster` y generación de planos (brazo, pierna, corte al medio, simetría), con edición y rehacer.
-- [ ] Trabajo en un lado: atenuar la mitad opuesta; el motor espeja.
-- [ ] Generación automática de `proyecto.json`; guardar y abrir el proyecto.
-- [ ] Parámetros en formulario (valores por defecto del plan del repo: holgura 0,50 mm, pasadores Ø6,6 de cabeza, pose 90°, margen 5°).
-- [ ] Vista previa de pose con slider (`preview_pose`).
+- [x] three.js: carga y visualización del STL, órbita, zoom.
+- [x] Selección de 3 puntos por `Raycaster` y generación de planos (brazo, pierna, corte al medio, simetría), con edición y rehacer.
+- [x] Trabajo en un lado: atenuar la mitad opuesta; el motor espeja.
+- [x] Generación automática de `proyecto.json`; guardar y abrir el proyecto.
+- [x] Parámetros en formulario (valores por defecto del plan del repo: holgura 0,50 mm, pasadores Ø6,6 de cabeza, pose 90°, margen 5°).
+- [x] Vista previa de pose con slider (`preview_pose`).
 
 ### **Hito M3 — Editores y complementos (4–7 días)**
 - [x] Editor de polígonos 2D para **siluetas de brazos y piernas** (`web/polygon-editor.js`, `limb_editor` del motor): fondo = figura proyectada sobre el plano, propuesta de `autosil`, vértices imantados, deshacer, validación de cruces.
 - [ ] La **herramienta genérica de recorte manual** (§8.8 del plan del repo) sobre el mismo editor: polígono sobre el plano de simetría → extruir → booleano.
-- [ ] Generador de probetas de articulación (§8.11) con descarga.
-- [ ] Perfiles de línea (§8.12): guardar, listar, exportar/importar.
+- [x] Generador de probetas de articulación (§8.11) con descarga. — hecho: sección «Probetas de calibración» (`probes.probe_files` compartido con `afm probe`, `EngineSession.make_test_coupons`, ZIP).
+- [x] Perfiles de línea (§8.12): guardar, listar, exportar/importar.
 - [ ] i18n completo.
 
 ### Fase final — Despliegue, validación y pulido (2–4 días)
-- [ ] CI de Pages (§9) y habilitar Pages (Settings → Pages → Source: GitHub Actions).
+- [x] CI de Pages (§9) y habilitar Pages (Settings → Pages → Source: GitHub Actions).
 - [ ] Probar Chrome, Firefox y Safari de escritorio; Chrome/Safari móviles como "mejor esfuerzo".
 - [ ] Mallas grandes: fijar límites y mensajes de error claros.
 - [ ] Documentar la reconstrucción de wheels y el procedimiento de actualización de Pyodide.

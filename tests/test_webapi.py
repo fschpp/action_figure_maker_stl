@@ -253,3 +253,17 @@ def test_limb_editor_returns_the_existing_polygon_and_explains_when_it_cannot_pr
     with pytest.raises(RuntimeError):
         EngineSession().limb_editor(d, "brazo")
     s.close()
+
+
+def test_make_test_coupons_zip_matches_the_cli(tmp_path):
+    from afm import cli
+    s = EngineSession()
+    r = s.make_test_coupons("hongo", clearances=[0.4], deltas=[0.0])
+    assert r["archivos"] == ["probetas.stl", "probetas.txt"] and r["texto"]
+    z = zipfile.ZipFile(io.BytesIO(r["zip"]))
+    assert cli.main(["probe", "--out", str(tmp_path), "--clearances", "0.4", "--deltas", "0"]) == 0
+    assert z.read("probetas.stl") == (tmp_path / "probetas.stl").read_bytes()
+    assert z.read("probetas.txt") == (tmp_path / "probetas.txt").read_bytes()
+    with pytest.raises(ValueError):
+        s.make_test_coupons("nada")
+    s.close()

@@ -2,6 +2,20 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — M3: probetas de calibración en la página (2026-11-17, rama `m3_probetas` sobre main dda8ddb)
+**Objetivo:** poder imprimir las placas de prueba (§8.11) desde la página, sin instalar nada, antes de generar la figura.
+**Hecho:** `probes.probe_files(tipo, …)` devuelve `({nombre: bytes}, texto)` y es la única implementación: `afm probe` la usa para escribir a disco y `EngineSession.make_test_coupons` para armar un ZIP (paridad por construcción). Puente `makeTestCoupons` (engine.js) + mensaje `make_test_coupons` (worker.js) + sección «Probetas de calibración» (tipo hongo / bisagra / clic, boquilla para clic) con descarga del ZIP y la tabla de lo que lleva cada celda. Se sincronizaron las casillas de `docs/PLAN_port_pyodide.md` con la realidad.
+**Verificado:** nativo `test_webapi` (ZIP idéntico byte a byte a la salida de `afm probe`); `node --check` de todo el JS; Chrome headless `browser_dom.mjs`: el paso nuevo de probetas pasa. En este sandbox fallan 8 pasos que dependen del visor 3D porque three.js se baja de un CDN inaccesible desde aquí (error `ERR_NAME_NOT_RESOLVED`; no se comparó contra main). **No verificado:** el paso nuevo de `engine_node.mjs` (necesita la carpeta de Pyodide y las wheels; lo corre CI); tipos bisagra/clic en Pyodide (tiempo de generación); descarga en Firefox/Safari.
+
+### Todo List
+- [x] Probetas (§8.11) con descarga en la página + pruebas.
+- [ ] Confirmar en Actions que `browser_dom.mjs` y `engine_node.mjs` pasan completos.
+- [ ] Herramienta genérica de recorte manual (§8.8): polígono sobre el plano de simetría → extruir → booleano (restar/unir), sobre el editor de siluetas.
+- [ ] i18n de la página.
+- [ ] Fase final: documentar reconstrucción de wheels / actualización de Pyodide; límites de mallas grandes.
+- [ ] El dueño prueba el editor de siluetas con Güemes y re-corre Sucre para medir G3.
+- [ ] **WIP de main sin cerrar:** `f3319dd` (`S.compact`) sin verificar con Güemes.
+
 ## Current Focus — M3: editor de siluetas 2D en la página (2026-11-17, rama `m3_editor_siluetas` sobre main fe02eac)
 **Motivo:** con el brazo pegado al cuerpo (el del muñeco, y probablemente Mickey) `autosil` no propone silueta («Dibujala a mano») y la página no tenía cómo dibujarla; la silueta automática de una figura real tampoco se podía corregir.
 **Hecho:** (1) Motor: `EngineSession.limb_editor(project, name, propose)` devuelve el plano del miembro (`origin`, `u`, `v`, `normal`), el fondo (`silueta`: la figura proyectada sobre ese plano, lado x ≥ 0, `Session.silhouette`), el polígono actual y la propuesta de `autosil` (o un `aviso`) en coordenadas (u, v). (2) `web/polygon-editor.js`: lógica pura (vista, agarrar/insertar/mover/quitar vértices, imán a la figura, validación de cruces y área, (u, v) → 3D) + controlador de canvas (clic agrega sobre la arista más cercana, arrastrar mueve, doble clic o clic derecho quita, rueda = zoom, Shift + arrastrar = desplazar, deshacer). (3) Página: sección «Silueta de brazos y piernas» (elige miembro, abre el editor, «Proponer silueta», «Empezar de cero», «Deshacer», «Encuadrar», «Usar esta silueta», «Descartar»); la silueta guardada viaja en el proyecto de «Generar» (`polygon` en 3D, `auto = false`). Se descarta con un aviso si después cambia el marco de la figura (coronilla, frente, simetría o altura de referencia) o se vuelve a marcar el plano de ese miembro.

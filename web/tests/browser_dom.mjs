@@ -47,6 +47,7 @@ self.onmessage = (ev) => {
     return setTimeout(() => post({ triangulos: heavy ? 20000 : 12, alto_mm: 100, estanca: true, avisos: [], z_arriba: true, pesado: heavy }), heavy ? 600 : 0);
   }
   if (type === "decimate_stl") return post({ info: { triangulos: 10000, triangulos_antes: 20000, reducido: true, alto_mm: 100, estanca: true, avisos: [], z_arriba: true, pesado: false }, stl: new TextEncoder().encode("solid t\\nfacet normal 0 0 0\\nouter loop\\nvertex 0 0 0\\nvertex 10 0 0\\nvertex 0 0 10\\nendloop\\nendfacet\\nendsolid t\\n") });
+  if (type === "make_test_coupons") return post({ zip: new Uint8Array([80, 75, 5, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), archivos: ["probetas.stl", "probetas.txt"], informe: { texto: "tipo=" + ev.data.opts.tipo + " b=" + ev.data.opts.boquilla } });
   if (type === "frame") return post({ k: 1, offset: [0, 0, 0], ref_height: 100 });
   if (type === "new_limb") return post({ name: ev.data.name, kind: ev.data.kind, stub: true, points: ev.data.points });
   if (type === "new_head" || type === "new_waist") return post({ plane: { name: type, origin: ev.data.points[0], normal: [0, 0, 1] } });
@@ -591,6 +592,21 @@ try {
     await waitOn(pg, () => document.querySelector("#log").textContent.includes("Error: El motor dejó de responder"), "el error de la acción en el log");
     assert.equal(await pg.locator("#demo").isDisabled(), false, "la página quedó ocupada");
     assert.equal(await pg.locator("#bar").isHidden(), true, "la barra de progreso quedó a medias");
+    await pg.close();
+  });
+
+  await step("probetas de calibración: se elige el tipo, se generan y aparece la descarga con la tabla", async () => {
+    const pg = await pageWith(STUB_WORKER);
+    assert.equal(await pg.locator("#pb-boq-l").isHidden(), true);
+    await pg.selectOption("#pb-tipo", "clic");
+    assert.equal(await pg.locator("#pb-boq-l").isHidden(), false, "la boquilla solo aplica al tipo clic");
+    await pg.fill("#pb-boq", "0.6");
+    await pg.click("#pb-gen");
+    await waitOn(pg, () => !document.querySelector("#pb-res").hidden, "la descarga de las probetas");
+    assert.match(await pg.locator("#pb-txt").innerText(), /tipo=clic b=0\.6/);
+    assert.match(await pg.locator("#pb-dl").innerText(), /2 archivos/);
+    assert.match(await pg.locator("#pb-dl").getAttribute("href"), /^blob:/);
+    assert.equal(await pg.locator("#pb-gen").isDisabled(), false);
     await pg.close();
   });
 

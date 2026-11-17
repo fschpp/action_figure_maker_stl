@@ -181,6 +181,18 @@ async function run(fn) {
   finally { runT0 = null; busy(false); sync(); }
 }
 
+$("#pb-tipo").addEventListener("change", () => { $("#pb-boq-l").hidden = $("#pb-tipo").value !== "clic"; });
+$("#pb-gen").addEventListener("click", () => run(async () => {
+  const tipo = $("#pb-tipo").value, opts = { tipo };
+  if (tipo === "clic") opts.boquilla = Math.min(1.2, Math.max(0.2, +$("#pb-boq").value || 0.4));
+  const r = await call("make_test_coupons", { opts });
+  if ($("#pb-dl").href.startsWith("blob:")) URL.revokeObjectURL($("#pb-dl").href);
+  $("#pb-dl").href = URL.createObjectURL(new Blob([r.zip], { type: "application/zip" }));
+  $("#pb-dl").textContent = `Descargar probetas (${r.archivos.length} archivos, ${(r.zip.byteLength / 1024).toFixed(0)} KB)`;
+  $("#pb-res").hidden = $("#pb-txt").hidden = false;
+  $("#pb-txt").textContent = r.informe.texto;
+}));
+
 $("#demo").addEventListener("click", () => run(async () => showResult(await call("demo"))));
 
 $("#stl").addEventListener("change", async (ev) => {

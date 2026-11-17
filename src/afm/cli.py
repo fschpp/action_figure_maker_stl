@@ -374,42 +374,13 @@ def main(argv=None) -> int:
         return 0
     if args.cmd == "probe":
         from . import probes
-        from .params import Params
-        p = Params()
-        fl = lambda t: [float(x) for x in t.split(",")]
-        if args.tipo == "clic":
-            from . import detent as DT
-            import dataclasses
-            p = dataclasses.replace(p, nozzle=args.boquilla, detent=DT.spec_for_nozzle(args.boquilla))
-            thick = fl(args.espesores) if args.espesores else (
-                (1.4, 1.6, 1.8) if args.boquilla >= 0.7 else probes.DEFAULT_DETENT_THICKNESSES)
-            lines = []
-            for g in fl(args.gaps or "0.2,0.3,0.4"):
-                cells = probes.detent_probe_cells(p, thicknesses=thick, gap=g)
-                fn = f"probetas_clic_b{args.boquilla:g}_gap{g:g}"
-                S.to_trimesh(probes.build_detent_probe(p, cells)).export(os.path.join(args.out, fn + ".stl"))
-                lines.append(f"== {fn}.stl (boquilla {args.boquilla:g} mm, holgura de punta {g:g} mm) ==\n"
-                             + probes.detent_labels_text(cells))
-            text = "\n\n".join(lines)
-            with open(os.path.join(args.out, f"probetas_clic_b{args.boquilla:g}.txt"), "w") as f:
-                f.write(text + "\n")
-            print(text)
-            return 0
-        if args.tipo == "bisagra":
-            kw = {"clearances": fl(args.clearances)} if args.clearances else {}
-            if args.deltas:
-                kw["pin_deltas"] = fl(args.deltas)
-            if args.axiales:
-                kw["axial_clearances"] = fl(args.axiales)
-            cells = probes.hinge_probe_cells(p, **kw)
-            mesh, text = probes.build_hinge_probe(p, cells), probes.hinge_labels_text(cells)
-        else:
-            cells = probes.probe_cells(p, clearances=fl(args.clearances or "0.3,0.4,0.5,0.6"),
-                                       shaft_deltas=fl(args.deltas or "-0.2,0,0.2"))
-            mesh, text = probes.build_probe(p, cells), probes.labels_text(cells)
-        S.to_trimesh(mesh).export(os.path.join(args.out, "probetas.stl"))
-        with open(os.path.join(args.out, "probetas.txt"), "w") as f:
-            f.write(text + "\n")
+        fl = lambda t: [float(x) for x in t.split(",")] if t else None
+        files, text = probes.probe_files(
+            args.tipo, clearances=fl(args.clearances), deltas=fl(args.deltas), axiales=fl(args.axiales),
+            boquilla=args.boquilla, gaps=fl(args.gaps), espesores=fl(args.espesores))
+        for name, data in files.items():
+            with open(os.path.join(args.out, name), "wb") as f:
+                f.write(data)
         print(text)
         return 0
     if args.cmd == "demo":
