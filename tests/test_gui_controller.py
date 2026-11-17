@@ -502,3 +502,43 @@ def test_validation_summary_formats_problems_and_ok():
           "avisos": ["x"], "pieces": {"torso": {}, "brazo": {}, "pierna": {}}}
     txt = validation_summary(ok, 0.5)
     assert "3 piezas" in txt and "0.476" in txt and "recorrido" in txt and "1 aviso" in txt
+
+
+def _sym_plane(c, kind):
+    """Agrega un plano de miembro sobre el plano de simetría (x = 0), como lo haría el usuario con 3 clics."""
+    c.start_limb_plane(kind)
+    feed(c, [(0, 0, 10), (0, 10, 10), (0, 0, 50)])
+
+
+def test_new_plane_takes_over_cut_offset_from_previous_limb(ctrl):
+    """Regresión: con el brazo ya ajustado y dibujado, al agregar el plano de la pierna el campo «Corte a» tiene que
+    mover el de la pierna, no seguir editando el desplazamiento del brazo."""
+    ctrl.auto_symmetry()
+    _sym_plane(ctrl, "arm")
+    ctrl.start_polygon("brazo")                      # el usuario trabajó el brazo (la ventana consulta offset_limb)
+    assert ctrl.offset_limb() == "brazo"
+    ctrl.set_limb_offset("brazo", 25.0)
+    ctrl.cancel(quiet=True)
+    _sym_plane(ctrl, "leg")
+    assert ctrl.offset_limb() == "pierna"
+    ctrl.set_limb_offset(ctrl.offset_limb(), 40.0)
+    assert ctrl.session.limb_offset("pierna") == pytest.approx(40.0)
+    assert ctrl.session.limb_offset("brazo") == pytest.approx(25.0)
+
+
+def test_cut_offset_target_is_forgotten_when_opening_another_figure(ctrl, tmp_path):
+    """Regresión: el «último miembro editado» de una figura no debe pasar a la siguiente que se abre."""
+    ctrl.auto_symmetry()
+    _sym_plane(ctrl, "arm")
+    ctrl.start_polygon("brazo")
+    assert ctrl.offset_limb() == "brazo"
+    ctrl.cancel(quiet=True)
+    path = str(tmp_path / "otro.stl")
+    m = make_doll()
+    m.apply_scale(0.05)
+    m.export(path)
+    ctrl.open_stl(path)
+    ctrl.auto_symmetry()
+    _sym_plane(ctrl, "arm")
+    _sym_plane(ctrl, "leg")
+    assert ctrl.offset_limb() == "pierna"            # el último plano agregado, no el nombre heredado «brazo»

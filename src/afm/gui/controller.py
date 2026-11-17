@@ -237,6 +237,7 @@ class Controller:
         self.overhang_angle = 45.0                   # grados desde la vertical (como `--max-angle`)
         self.draft: PolygonDraft | None = None      # polígono de silueta en edición (modo POLYGON)
         self.edit_limb: str | None = None
+        self._last_offset_limb: str | None = None   # miembro al que apunta «Corte a» cuando ninguno está en edición
         self.edit_cross = False                     # el polígono en edición es la 2.ª silueta (frente) del miembro
         self.joint_limb: str | None = None          # miembro al que se le está definiendo la articulación (JOINT_PLANE)
         self.head_pin_prev = None                   # HeadPinPreview mientras se coloca el pasador del cuello (HEAD_PIN)
@@ -396,6 +397,7 @@ class Controller:
 
     def _after_load(self) -> None:
         self.generated_once = False
+        self._last_offset_limb = None               # el miembro de la figura anterior no vale para esta
         self.history.reset(self._project_text())
         self._saved_text = self.history.current.text
         self.weapon_active = False                  # se abrió una figura: el visor vuelve a ella
@@ -3955,6 +3957,8 @@ class Controller:
             self._changed(tr("controller.no_sirve_e_elegi_3_puntos", e=e))
             return
         self.mode, self.pending_kind = Mode.VIEW, None
+        if self.session.limb_offset(name) is not None:
+            self._last_offset_limb = name            # el plano nuevo es el que se está trabajando: «Corte a» lo mueve a él
         self._changed(tr("controller.plano_name_agregado_falta_dibujar_su", name=name))
 
     def offset_limb(self) -> str | None:
@@ -3966,7 +3970,7 @@ class Controller:
         sym = [l.name for l in self.session.project.limbs if self.session.limb_offset(l.name) is not None]
         if len(sym) == 1:
             return sym[0]
-        last = getattr(self, "_last_offset_limb", None)       # varios sobre la simetría y ninguno activo: el último que se editó
+        last = self._last_offset_limb                           # varios sobre la simetría y ninguno activo: el último que se editó
         return last if last in sym else None
 
     def set_limb_offset(self, name: str, mm: float) -> None:

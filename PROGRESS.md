@@ -2,6 +2,18 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — Fix: «Corte a» movía el brazo en vez del plano nuevo de la pierna (2026-11-17, rama `fix_corte_a_plano_nuevo` sobre main 17f1fcf)
+**Objetivo:** que al agregar un plano de pierna (sobre el plano de simetría) después de ajustar el del brazo, el desplazamiento «Corte a» se aplique al plano nuevo.
+**Causa:** `Controller.offset_limb()` solo mira `pin_limb`/`edit_limb`; con varios miembros sobre la simetría y ninguno en edición cae en `_last_offset_limb` (el brazo). `_finish_limb_plane` no lo actualizaba, y tampoco se olvidaba al abrir otra figura (se creaba con `getattr`, nunca en `__init__`/`_after_load`).
+**Hecho:** `_last_offset_limb` se inicializa en `__init__`, se limpia en `_after_load` y `_finish_limb_plane` lo apunta al plano recién agregado. Tests de regresión en `tests/test_gui_controller.py` (2, fallaban antes del fix).
+**Verificado:** `tests/test_gui_controller.py` (33 pasan, 3 skipped). **No verificado:** el flujo real en la GUI GTK con Güemes; la suite completa (se corrió solo la parte de GUI/miembros/cortes).
+
+### Todo List
+- [x] Reproducir con test y corregir el destino de «Corte a».
+- [/] Correr la suite relacionada completa.
+- [ ] Probar en la GUI: brazo con desplazamiento + 2 siluetas, luego plano de pierna y mover «Corte a».
+- [ ] Caso abierto: con 2+ planos sobre la simetría, sin plano activo y tras abrir un proyecto, «Corte a» queda deshabilitado hasta elegir uno (¿conviene seleccionarlo desde la lista de planos?).
+
 ## Current Focus — Medición de memoria de load/reducir bajo Pyodide y reducción que se queda corta (2026-11-17, rama `m3_medir_memoria` sobre main cbdd6b6)
 **Objetivo:** confirmar con datos los límites de mallas grandes (casilla «Medir con un STL real grande…»).
 **Hecho:** `tools/medir_memoria_wasm.mjs` (carga y reduce una malla bajo Pyodide en Node y imprime tiempo, montón de WASM y RSS máximo). Medido con esferas sintéticas de 82 k, 328 k, 1,31 M y 1,48 M triángulos (tabla en `docs/WEB_mantenimiento.md`): cargar ~0,7 KB de montón por triángulo, reducir suma ~0,4 KB; el techo de 1,5 M llega a ~1,75 GB de montón de WASM al reducir (11 s). Hallazgo: `fast_simplification` pedida a 10 000 dejó la esfera UV de 1,48 M en **47 482** triángulos (también en nativo y con más pasadas); `decimate_loaded` ahora devuelve `reduccion_corta` y un aviso con la cifra real (reemplaza el genérico «conviene decimarlo» cuando la reducción no llegó al objetivo).
