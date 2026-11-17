@@ -34,8 +34,16 @@ const call = (type, extra = {}, transfer = []) => new Promise((resolve, reject) 
 });
 const init = () => (ready ??= call("init"));
 
-function busy(on) { for (const b of document.querySelectorAll("button")) b.disabled = on || (b.id === "build" && !(stlBytes && projText)); }
-function sync() { $("#build").disabled = !(stlBytes && projText); }
+// Una sola acción a la vez: con otra en curso (carga del STL, reducir, generar) los botones Y los selectores de archivo quedan
+// bloqueados. Antes solo se bloqueaban los botones: cargar el proyecto con el STL aún en proceso llamaba a sync(), que volvía a
+// habilitar «Generar»; dos acciones superpuestas se pisaban `runT0` y se perdían las marcas de tiempo de las etapas.
+let running = false;
+function busy(on) {
+  running = on;
+  for (const b of document.querySelectorAll("button")) b.disabled = on || (b.id === "build" && !(stlBytes && projText));
+  for (const i of document.querySelectorAll("input[type=file]")) i.disabled = on;
+}
+function sync() { $("#build").disabled = running || !(stlBytes && projText); }
 
 // --- Pose (preview_pose): el slider mueve la cadera de la figura ya generada; las colisiones se miden al soltar ---
 let poseViewer = null, poseBusy = false, poseNext = null;
@@ -77,6 +85,7 @@ function showResult(r) {
 }
 
 async function run(fn) {
+  if (running) return;                 // defensa: no se superponen acciones (ver `busy`)
   busy(true); $("#result").hidden = true; $("#log").textContent = "";
   try {
     const t0 = performance.now(); await init();

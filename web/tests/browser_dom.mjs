@@ -41,7 +41,10 @@ self.onmessage = (ev) => {
   const { id, type } = ev.data;
   const post = (value, transfer = []) => self.postMessage({ id, type: "result", value }, transfer);
   if (type === "init") return post("ok");
-  if (type === "load_stl") return post({ triangulos: ev.data.bytes.length > 5000 ? 20000 : 12, alto_mm: 100, estanca: true, avisos: [], z_arriba: true, pesado: ev.data.bytes.length > 5000 });
+  if (type === "load_stl") {   // el STL «pesado» tarda 600 ms, como un STL real: da tiempo a intentar otras acciones mientras carga
+    const heavy = ev.data.bytes.length > 5000;
+    return setTimeout(() => post({ triangulos: heavy ? 20000 : 12, alto_mm: 100, estanca: true, avisos: [], z_arriba: true, pesado: heavy }), heavy ? 600 : 0);
+  }
   if (type === "decimate_stl") return post({ info: { triangulos: 10000, triangulos_antes: 20000, reducido: true, alto_mm: 100, estanca: true, avisos: [], z_arriba: true, pesado: false }, stl: null });
   if (type === "frame") return post({ k: 1, offset: [0, 0, 0], ref_height: 100 });
   if (type === "new_limb") return post({ name: ev.data.name, kind: ev.data.kind, stub: true, points: ev.data.points });
@@ -174,6 +177,25 @@ try {
     await page.waitForFunction(() => document.querySelector("#log").textContent.includes("no es un JSON válido"));
     assert.equal(await page.locator("#build").isDisabled(), true);
     await page.locator("#proj").setInputFiles({ name: "fig.proyecto", mimeType: "application/json", buffer: Buffer.from(PROJECT) });
+    await page.waitForFunction(() => !document.querySelector("#build").disabled);
+  });
+
+  await step("con una acción en curso no se puede cargar otro archivo ni generar; las marcas de etapa salen en «Generar»", async () => {
+    const heavy = Buffer.concat([boxStl(), Buffer.alloc(6000, 32)]);
+    await page.locator("#stl").setInputFiles({ name: "pesado.stl", mimeType: "model/stl", buffer: heavy });
+    await page.waitForFunction(() => document.querySelector("#proj").disabled, null, { timeout: 2000 });   // la carga está en curso
+    assert.equal(await page.locator("#build").isDisabled(), true, "«Generar» no debe estar habilitado mientras carga el STL");
+    assert.equal(await page.locator("#stl").isDisabled(), true);
+    await page.waitForFunction(() => !document.querySelector("#build").disabled);                          // terminó la carga
+    assert.equal(await page.locator("#proj").isDisabled(), false);
+    assert.match(await text("#stlinfo"), /20000 triángulos/);
+    await page.locator("#build").click();
+    await page.waitForFunction(() => document.querySelector("#log").textContent.includes("Listo en"));
+    const lg = await text("#log");
+    assert.match(lg, /^\+[\d.]+ s {2}Separando la cabeza/m, "faltan las marcas de etapa en el log de «Generar»");
+    assert.equal(lg.match(/Listo en/g).length, 1, "una sola acción en el log");
+    await page.locator("#stl").setInputFiles({ name: "caja.stl", mimeType: "model/stl", buffer: boxStl() });   // vuelve al estado normal
+    await page.waitForFunction(() => document.querySelector("#stlinfo").textContent.includes("12 triángulos"));
     await page.waitForFunction(() => !document.querySelector("#build").disabled);
   });
 

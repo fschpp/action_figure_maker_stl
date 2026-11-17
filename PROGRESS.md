@@ -2,6 +2,23 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — Página: una sola acción a la vez (faltaban las marcas de etapa) + log del sitio `8e00a0d` (2026-11-16, rama `web_run_sin_superposicion` sobre main 8e00a0d)
+**Log del dueño con `8e00a0d` (Sucre, STL reducido a 9 999 tri; versión con los arreglos de exportación y de `_validate_joints`):** «Listo en» **1307,3 s** (antes 2618 s). Por etapa: separar cabeza 3,4 · cavidad de brazo 18,3 · cavidad de pierna 52,3 · rodilla 124,7 · codo 173,5 · cuello→reducir 15,1 · cintura 39,0 · **Validando 558,6** (antes 764,5) · **Exportando 320,9** (antes 1544,9) · ZIP 0,8. ZIP de 6,0 MB (coincide con el nativo, 6,4 MB; los «2,3 MB» de los logs viejos eran el ZIP viejo de la página). Relación navegador/nativo: Exportando ×3,9 (321 / 83), Validando ×9 (559 / 60), cintura ×18 (39 / 2,1), rodilla ×7. Las etapas previas a Validando salieron 1,3–2,5× más lentas que en el log del dueño de `3b362d8` (p. ej. cavidad de pierna 52 contra 21 s): hay variación entre corridas/equipo, no es un cambio del motor.
+**Observación del dueño: «las marcas de tiempo solo se ven si uno hace clic en Reducir».** Era una carrera de la página: `busy()` deshabilitaba los botones pero no los `<input type=file>`, y el handler del proyecto llamaba a `sync()`, que volvía a habilitar «Generar» con la carga del STL en curso. Dos acciones superpuestas compartían `runT0`; el `finally` de la primera lo ponía en `null` y la segunda dejaba de anotar etapas (en el log viejo: dos «Motor cargado» y dos «Listo en», 38,2 y 1366,0 s, sin marcas). Con «Reducir» se espera a que termine cada paso, por eso ahí salían.
+**Hecho:** `running` + `busy()` bloquea también los selectores de archivo, `sync()` respeta `running` y `run()` no arranca si hay otra acción. **Verificado:** `web/tests/browser_dom.mjs` 15/15 en Chrome local con `playwright-core` y `three@0.186.1` (paso nuevo: con el STL cargándose, `#proj`, `#stl` y `#build` están bloqueados; al terminar se habilitan; «Generar» deja las marcas `+N s` y un solo «Listo en»); el paso nuevo **falla** con el `app.js` anterior y pasa con el nuevo. El stub del worker ahora demora 600 ms el `load_stl` del STL pesado. **No verificado:** el workflow `web-browser` en Actions; Pyodide real en la página.
+
+### Todo List
+- [x] Entender por qué faltaban las marcas de etapa y corregirlo con prueba.
+- [ ] Mergear; el dueño genera de nuevo y confirma que salen las marcas con o sin «Reducir».
+- [ ] Validando en el navegador sigue siendo lo más pesado (559 s; nativo 60 s, ×9): `_nonmanifold_edges` (15,5 s nativo), barrido de `_validate_joints` línea 1132 (12,6 s), y llamadas `min_gap(…, 5.0)` restantes (líneas 950, 1015, 1475).
+- [ ] Por qué la cintura es ×18 en el navegador (39 s contra 2,1 s) y rodilla/codo (125 / 174 s): perfilar en Pyodide real (Node) con el STL del dueño cuando haya red.
+- [ ] Origen de las piezas de 218–303 k triángulos antes del tope (cavidad por marching cubes / Minkowski).
+- [ ] Diseño de Sucre: pared del bulón de codo/rodilla ≥ 0,8 mm.
+- [ ] `engine_node.mjs` con red; «Cavidad del cuello».
+
+### Latest Blockers/Discoveries
+- Cualquier estado global de la página compartido entre acciones (`runT0`, `stlBytes`) exige que no haya acciones superpuestas; ahora lo garantiza `running`.
+
 ## Current Focus — G3: Validando: `_validate_joints` con radio de `min_gap` acotado (2026-11-16, rama `g3_validate_joints_radio` sobre main 05d7787)
 **Dato del dueño con `05d7787` (el arreglo de exportación ya mergeado), STL sin reducir de 19 532 tri:** «Listo en» **1366,0 s** (antes 2618 s con el STL reducido a 9 999). **Ambiguo, no se puede atribuir:** el log pegado no trae las marcas por etapa; trae dos «Listo en» (38,2 s y 1366,0 s) y un informe idéntico al de la corrida anterior (mismos triángulos y volúmenes), así que puede ser el informe viejo de la página. Haría falta el log con las marcas `+N s` para confirmar cuánto bajó «Exportando» y si la corrida usó el STL reducido.
 **Perfil nativo (py-spy, 50 Hz, misma figura, 242 s):** `validate` 108 s, de los cuales **`_validate_joints` línea 1145 `rest.min_gap(prox, 5.0)` = 61,5 s**, la línea 1132 (`rotate_distal ^ prox`, barrido de rango) 12,6 s, `_nonmanifold_edges` 15,5 s, `_validate_chain` 6,1 s. `cap_export_triangles` 81 s (ya acotado).
