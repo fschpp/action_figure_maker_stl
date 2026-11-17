@@ -57,11 +57,17 @@ const init = () => (ready ??= call("init").catch((e) => { ready = null; throw e;
 // el STL, que dispara una acción, se ignora con un aviso si hay otra en curso. Antes `sync()` ignoraba la acción en curso:
 // cargar el proyecto con el STL procesándose habilitaba «Generar», corrían dos acciones y se pisaban `runT0` (sin marcas de etapa).
 let running = false;
-function busy(on) {
-  running = on;
-  for (const b of document.querySelectorAll("button")) b.disabled = on;
+// «Buscar actualización» NUNCA se deshabilita: una generación dura minutos y es justo cuando se quiere actualizar; con el botón
+// apagado la única salida era Shift+F5, que además borra los archivos elegidos. Además Firefox conserva el estado `disabled`
+// de los botones al recargar: si se recargaba con una acción en curso, la página nueva arrancaba con los botones apagados y
+// `busy(false)` nunca llegaba a rehabilitarlos. Por eso `applyBusy()` también corre al cargar y en `pageshow`.
+const ALWAYS_ON = new Set(["check-update"]);
+function applyBusy() {
+  for (const b of document.querySelectorAll("button")) b.disabled = ALWAYS_ON.has(b.id) ? false : running;
   sync();
 }
+function busy(on) { running = on; applyBusy(); }
+window.addEventListener("pageshow", applyBusy);
 function sync() {
   const falta = !stlBytes ? "falta cargar el STL" : !projText ? "falta cargar el proyecto" : running ? "hay una acción en curso" : "";
   $("#build").disabled = !!falta;
@@ -121,7 +127,7 @@ $("#pf-import").addEventListener("change", async (ev) => {
     if (!$("#pf-info").textContent.startsWith("Este navegador")) pfInfo(`Importados: ${r.added} nuevos, ${r.replaced} reemplazados${r.skipped ? `, ${r.skipped} omitidos por estar vacíos o mal formados` : ""}.`);
   } catch (e) { pfInfo(e.message); }
 });
-renderProfiles();
+applyBusy();   // estado inicial de todos los botones (y de los de perfiles, que dependen de sync())
 
 // --- Pose (preview_pose): el slider mueve la cadera de la figura ya generada; las colisiones se miden al soltar ---
 let poseViewer = null, poseBusy = false, poseNext = null;
@@ -311,6 +317,7 @@ sync();
   const ui = initVersionUI({
     el: { label: $("#version-label"), button: $("#check-update"), status: $("#update-status") },
     build, versionUrl: new URL("./version.json", import.meta.url).href, base: import.meta.url,
+    beforeReload: () => !running || confirm("Hay una acción en curso y recargar la página la corta. ¿Actualizar igual?"),
   });
   ui.check({ silent: true });
 })();

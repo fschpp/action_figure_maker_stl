@@ -41,7 +41,7 @@ export async function refreshFiles(files, { fetchFn = fetch, base } = {}) {
 }
 
 // Conecta el label y el botón. `el` = {label, button, status} (cualquier objeto con textContent / addEventListener).
-export function initVersionUI({ el, build, versionUrl, base, fetchFn = fetch, reload = () => location.reload() }) {
+export function initVersionUI({ el, build, versionUrl, base, fetchFn = fetch, reload = () => location.reload(), beforeReload = () => true }) {
   let remote = null, state = "unknown";
   const render = (status, btnText = "Buscar actualización") => { el.status.textContent = status; el.button.textContent = btnText; };
   el.label.textContent = `Versión: ${formatBuild(build)}`;
@@ -67,6 +67,9 @@ export function initVersionUI({ el, build, versionUrl, base, fetchFn = fetch, re
     render("Descargando la versión nueva…", "Actualizar ahora");
     const { failed } = await refreshFiles(["./", ...(remote?.files ?? [])], { fetchFn, base });
     if (failed.length) el.status.textContent = `No se pudieron actualizar: ${failed.join(", ")}. Se recarga igual.`;
+    // Recargar corta lo que esté corriendo (una generación puede llevar muchos minutos): la página puede pedir confirmación.
+    // Si se cancela, la versión nueva ya quedó en la caché y se aplica en la próxima recarga; el botón sigue disponible.
+    if (!beforeReload()) { el.status.textContent = "Versión nueva descargada: se aplica al recargar la página (la acción en curso sigue)."; return; }
     reload();
   }
 
