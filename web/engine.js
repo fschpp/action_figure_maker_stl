@@ -65,6 +65,11 @@ def _pack_pose(r):
       g.set("_proj", projectText); g.set("_arg", JSON.stringify({ name, propose }));
       return JSON.parse(py.runPython("json.dumps(_s.limb_editor(_proj, **json.loads(_arg)))"));
     },
+    // Plano y fondo para dibujar un recorte manual (afm.webapi.trim_editor): "simetria" o el nombre de un miembro.
+    trimEditor(projectText, plane) {
+      g.set("_proj", projectText); g.set("_arg", JSON.stringify({ plane }));
+      return JSON.parse(py.runPython("json.dumps(_s.trim_editor(_proj, **json.loads(_arg)))"));
+    },
     // Cabeza (plano del cuello) y cintura por 3 puntos YA en el marco de la figura (afm.webapi.new_head / new_waist).
     newHead(points) { return this._plane3("new_head", points); },
     newWaist(points) { return this._plane3("new_waist", points); },

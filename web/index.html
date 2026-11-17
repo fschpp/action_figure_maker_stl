@@ -102,6 +102,31 @@
       <p id="sil-info" aria-live="polite"></p>
     </section>
 
+    <section id="recortes">
+      <h2>Recortes manuales</h2>
+      <p class="hint">Para los ajustes propios de cada personaje (la panza, la cola, la capa): se dibuja un polígono sobre un plano, se extruye y se resta de la pieza (o se une a ella). Por defecto se dibuja sobre el plano de simetría y trabaja con el lado +X; el motor espeja el resultado. Mismos controles que el editor de siluetas.</p>
+      <div class="barra">
+        <label>Pieza <select id="rc-target"></select></label>
+        <label>Dibujar sobre <select id="rc-plane"></select></label>
+        <label>Operación <select id="rc-op"><option value="subtract">Restar</option><option value="union">Unir</option></select></label>
+        <label>Espesor (mm) <input id="rc-dist" type="number" min="0.5" max="200" step="0.5" value="25"></label>
+        <label><input id="rc-sym" type="checkbox" checked> Simétrico respecto del plano</label>
+        <button id="rc-open">Abrir el editor</button>
+      </div>
+      <div id="rc-editor" hidden>
+        <canvas id="rc-canvas" width="640" height="480"></canvas>
+        <div class="barra">
+          <button id="rc-clear">Empezar de cero</button>
+          <button id="rc-undo">Deshacer</button>
+          <button id="rc-fit">Encuadrar</button>
+          <button id="rc-add">Agregar recorte</button>
+          <button id="rc-discard">Descartar</button>
+        </div>
+      </div>
+      <p id="rc-info" aria-live="polite"></p>
+      <ul id="rc-list"></ul>
+    </section>
+
     <section id="pose" hidden>
       <h2>Pose de la figura generada</h2>
       <canvas id="pose-canvas" width="640" height="480"></canvas>

@@ -267,3 +267,59 @@ def test_make_test_coupons_zip_matches_the_cli(tmp_path):
     with pytest.raises(ValueError):
         s.make_test_coupons("nada")
     s.close()
+
+
+def test_trim_editor_symmetry_plane_and_limb_plane():
+    import numpy as np
+
+    from afm.project import demo_project
+
+    s = _doll_session()
+    d = demo_project().to_dict()
+    r = s.trim_editor(d)
+    assert r["plano"] == "simetria" and np.allclose(r["origin"], 0) and np.allclose(r["normal"], [1, 0, 0])
+    u, v = np.array(r["u"]), np.array(r["v"])
+    assert abs(u @ v) < 1e-9 and r["silueta"] and len(r["silueta"][0]["exterior"]) >= 3
+    r2 = s.trim_editor(d, "pierna")
+    assert r2["plano"] == "pierna" and r2["silueta"]
+    with pytest.raises(ValueError, match="no tiene un miembro"):
+        s.trim_editor(d, "alas")
+    with pytest.raises(RuntimeError):
+        EngineSession().trim_editor(d)
+    s.close()
+
+
+def test_a_trim_drawn_in_uv_on_the_symmetry_plane_cuts_the_torso():
+    """Lo que hace la página: polígono (u, v) → 3D → `project.trims` → el build lo resta del torso."""
+    import numpy as np
+
+    from afm.planes import Plane
+    from afm.project import Project, demo_project
+    from afm.trims import Trim
+
+    s = _doll_session()
+    r = s.trim_editor(demo_project().to_dict())
+    pl = Plane.from_normal(r["origin"], r["normal"], "simetría")
+    assert np.allclose(pl.u, r["u"]) and np.allclose(pl.v, r["v"])      # la página usa u, v del motor: tienen que coincidir
+    sil = np.array(r["silueta"][0]["exterior"])
+    c = sil.mean(axis=0)
+    uv = np.array([[c[0] - 6, c[1] - 6], [c[0] + 6, c[1] - 6], [c[0] + 6, c[1] + 6], [c[0] - 6, c[1] + 6]])
+    world = np.array(r["origin"]) + np.outer(uv[:, 0], r["u"]) + np.outer(uv[:, 1], r["v"])
+    t = Trim("torso", pl, world, distance=40.0, symmetric=True, op="subtract")
+    prj = Project.from_dict(demo_project().to_dict())
+    prj.trims = [t]
+    back = Project.from_dict(json.loads(json.dumps(prj.to_dict())))
+    assert len(back.trims) == 1 and back.trims[0].op == "subtract" and np.allclose(back.trims[0].polygon, world)
+    # y el build del motor lo aplica de verdad: el torso pierde volumen
+    import trimesh
+
+    def torso_volume(project):
+        z = zipfile.ZipFile(io.BytesIO(s_.build(project)["zip"]))
+        name = next(n for n in z.namelist() if n.lower().endswith(".stl") and "torso" in n.lower())
+        return abs(trimesh.load(io.BytesIO(z.read(name)), file_type="stl").volume)
+
+    s_ = s
+    v0 = torso_volume(demo_project().to_dict())
+    v1 = torso_volume(json.loads(json.dumps(prj.to_dict())))
+    assert v1 < v0 - 50, (v0, v1)
+    s.close()
