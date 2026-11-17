@@ -2,6 +2,26 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — G3: «Exportando las piezas» 1545 s en el navegador → `cap_export_triangles` acotado (2026-11-16, rama `g3_cap_export_rapido` sobre main 3b362d8)
+**Dato del dueño (sitio `3b362d8`, Sucre, STL reducido de 19 532 a 9 999 tri, rodilla + codo + cintura):** «Listo en» **2618 s**. Etapas: separar/cavidades/rodilla/codo hasta +272,5 s; cuello→cintura +26 s; **Validando 764,5 s**; **Exportando 1544,9 s**; ZIP 10 s. Informe: `ok: false` por **diseño de la figura**, no por el motor: «codo: pared del cuerpo proximal alrededor del bulón de 0,65 mm < 0,8 mm» y «rodilla … 0,70 mm»; 5 piezas con aristas non-manifold al soldar por posición (brazos 232/234, muslos 511/513, torso 20).
+**Reproducido en nativo** con su STL y `.proyecto` (mismo `load_stl` → `decimate_loaded(10000)` → `build`; 9 999 tri iguales): total **454,7 s** (Validando 107,7; **Exportando 295,9**). Mismo orden de magnitud que el navegador (×5–6, como en el resto de las etapas). Antes de exportar, `brazo` 190 k, `muslo` 434 k, `pelvis` 131 k triángulos (> `export_max_tris` = 150 000 → se dispara `cap_export_triangles`).
+**Causa (py-spy):** `cap_export_triangles` medía `min_gap(otra, 5.0)` de cada pieza grande contra **todas** las demás, con radio 5 mm y hasta 4 candidatos: el mismo problema que ya se había arreglado en la decimación del torso (radio 5 → 1 mm da los mismos valores y cuesta ~8×).
+**Hecho:** `cap_export_triangles(..., clearance)` usa `_gap_search(clearance)` como radio y solo compara contra las piezas cuya caja envolvente está a ≤ ese radio (`_bbox_gap`, cota inferior de la distancia real); `export` le pasa `params.clearance`. **Resultado en nativo con la figura del dueño:** Exportando 295,9 → **84,7 s**; total 454,7 → **241,0 s** (build 436,3 → 245,2 s en el chequeo de abajo). **Salida idéntica:** mismas caras y mismo volumen por pieza antes y después (brazo 5 224/5 230 tri, muslo 3 940/3 936, torso 9 922, pelvis 129 600, cabeza 3 046; piezas de miembros cerradas). Tests: `test_export_cap.py` + `test_webapi.py` 17/17 (2 nuevos: `_bbox_gap`; una pieza lejana no cambia el resultado).
+**No verificado:** el efecto en el navegador (estimado por la proporción ×5–6: Exportando ~1545 s → ~450 s; el total sigue dominado por Validando y las articulaciones); `torso` y `pelvis` salen «no cerradas» al soldar por posición (ya pasaba, mismo número que el aviso de aristas del informe). El volumen exportado difiere 0,15–0,43 % del validado en brazos y muslos con el código original también (no lo introduce este cambio; criterio `max_vol_change` = 0,2 % de `S.decimate`).
+
+### Todo List
+- [x] Reproducir la corrida del dueño en nativo y atribuir el tiempo por etapa.
+- [x] Acotar `cap_export_triangles` (radio + caja envolvente) con salida idéntica.
+- [ ] El dueño genera Sucre con el sitio nuevo y pega el log: confirma cuánto baja «Exportando».
+- [ ] Atacar **Validando** (107,7 s nativo / 764 s navegador): perfilar `validate` con esta figura (hay que ver si son `min_gap` contra el torso/pelvis de 130 k tri, `_nonmanifold_edges` o el barrido de la cintura).
+- [ ] Por qué `brazo`/`muslo` salen del motor con 190 k/434 k tri antes del tope (la cavidad por marching cubes o el Minkowski); bajarlo en origen ahorraría también Validando.
+- [ ] Diseño de Sucre (no es del motor): subir la pared proximal del bulón de codo/rodilla (0,65/0,70 mm → ≥ 0,8 mm) o achicar el bulón.
+- [ ] `engine_node.mjs` con red (checks de `decimate_stl`) y «Cavidad del cuello».
+
+### Latest Blockers/Discoveries
+- `min_gap` con radio grande es la trampa recurrente de rendimiento: ya fue la causa en la decimación del torso (99 s → 14 s en la demo) y ahora en el tope de exportación (296 s → 85 s). Revisar otros llamados con radio fijo grande (`grep -n "min_gap(.*5.0" src/afm`).
+- Los STL de salida de Sucre pesan 6,4 MB de ZIP; la pelvis queda en 129 600 tri (bajo el tope de 150 000, no se decima).
+
 ## Current Focus — G3: segunda pasada de decimación evaluada y descartada (2026-11-16, rama `g3_decimar_segunda_pasada` sobre main bf5a155)
 **Probado (nativo):** repetir `fs.simplify` hasta quedar a ±5 % del objetivo (hasta 3 pasadas), muñeca de ~42 9xx tri, objetivo 10 000. Resultado: 11 566 (cerrada) y 11 549–11 558 con 20 / 60 / 200 agujeros, contra 12 026–12 615 con una pasada. Es decir, de +20 % a +15 %: la segunda pasada casi no avanza (fast_simplification se estanca). Costo: el alto se desvió hasta 0,48 % (con una pasada ≤ 0,1 %), al borde del límite de 0,5 % que hace volver al original. **Decisión:** no se aplica; se mantiene una sola pasada y el texto «~10 000» (real: ~12 000). Código revertido; no hay cambios en `src/` ni `tests/`.
 

@@ -60,3 +60,19 @@ def test_export_writes_smaller_stl(tmp_path):
     assert size(b) < 0.4 * size(a)
     m = trimesh.load(b / "piezas" / "f_torso.stl")
     assert m.is_watertight and len(m.faces) <= 20000
+
+
+def test_bbox_gap_is_a_lower_bound_and_zero_when_touching():
+    a = S.Manifold.cube((2, 2, 2), center=True)
+    assert P._bbox_gap(a, a) == 0.0
+    assert abs(P._bbox_gap(a, a.translate((5, 0, 0))) - 3.0) < 1e-9
+    assert abs(P._bbox_gap(a, a.translate((5, 4, 0))) - 13 ** 0.5) < 1e-9     # huecos (3, 2, 0) → √13
+
+
+def test_far_pieces_are_not_measured_and_the_result_is_the_same():
+    """Una pieza lejana (fuera del radio de búsqueda) no entra en la comparación de holguras: mismo resultado, sin medirla."""
+    pieces = _pieces()
+    pieces["lejana"] = S.Manifold.cube((4, 4, 4), center=True).translate((200, 0, 0))
+    out, rep = P.cap_export_triangles(pieces, 20000)
+    out0, rep0 = P.cap_export_triangles(_pieces(), 20000)
+    assert rep == rep0 and out["torso"].num_tri() == out0["torso"].num_tri()

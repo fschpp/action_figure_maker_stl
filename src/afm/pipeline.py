@@ -522,7 +522,15 @@ def _decimate_keeping_clearance(pieces: dict, p: Params, tol: float = 0.02) -> S
     return torso
 
 
-def cap_export_triangles(pieces: dict, max_tris: int, tol: float = 0.02, max_vol_change: float = 0.002) -> tuple[dict, dict]:
+def _bbox_gap(a: S.Manifold, b: S.Manifold) -> float:
+    """Distancia entre las cajas envolventes de dos piezas (0 si se tocan o se solapan): cota inferior de la distancia real."""
+    ba, bb = a.bounding_box(), b.bounding_box()
+    d = [max(ba[i] - bb[i + 3], bb[i] - ba[i + 3], 0.0) for i in range(3)]
+    return float(sum(x * x for x in d) ** 0.5)
+
+
+def cap_export_triangles(pieces: dict, max_tris: int, tol: float = 0.02, max_vol_change: float = 0.002,
+                          clearance: float = 0.5) -> tuple[dict, dict]:
     """Limita los triángulos de cada pieza antes de escribir el STL (las booleanas, el barrido por marching cubes y las
     holguras Minkowski multiplican las caras: un STL de entrada de 0,5 MB puede salir en decenas de MB).
 
@@ -538,15 +546,18 @@ def cap_export_triangles(pieces: dict, max_tris: int, tol: float = 0.02, max_vol
         n0 = mf.num_tri()
         if n0 <= max_tris:
             continue
-        others = [m for n, m in out.items() if n != name]
-        base = [mf.min_gap(o, 5.0) for o in others]
+        # Solo las piezas que pueden estar a menos del radio de búsqueda (caja envolvente) y con ese radio, no 5 mm contra
+        # todas: el costo de `min_gap` crece muy rápido con el radio (figura real, 190–430 k tri: 296 s en nativo, 1545 s en el navegador).
+        sl = _gap_search(clearance)
+        others = [m for n, m in out.items() if n != name and _bbox_gap(mf, m) <= sl]
+        base = [mf.min_gap(o, sl) for o in others]
         red = 1.0 - 0.95 * max_tris / n0                   # 5 % por debajo del tope: la decimación no clava el objetivo
         done = None
         for k in (1.0, 0.8, 0.6, 0.4):
             cand = S.decimate(mf, red * k, max_vol_change)
             if cand is mf:
                 continue
-            if all(cand.min_gap(o, 5.0) >= g - tol for o, g in zip(others, base)):
+            if all(cand.min_gap(o, sl) >= g - tol for o, g in zip(others, base)):
                 done = cand
                 break
         if done is not None:
@@ -1554,7 +1565,7 @@ def export(res: BuildResult, outdir: str, name: str = "figura", orient: bool | s
     cap = (params if params is not None else Params()).export_max_tris
     if cap and cap > 0 and any(m.num_tri() > cap for m in res.pieces.values()):
         say("Reduciendo triángulos de las piezas…")
-        capped, rep_tris = cap_export_triangles(res.pieces, cap)
+        capped, rep_tris = cap_export_triangles(res.pieces, cap, clearance=(params if params is not None else Params()).clearance)
         info["triangulos_reducidos"] = rep_tris             # {pieza: [antes, después]}; [n, n] = no se pudo reducir sin perder holgura/volumen
         res = BuildResult(pieces=capped, report=res.report, motion=res.motion, joints=res.joints, detent=res.detent,
                           detent_ref=res.detent_ref, waist=res.waist)
