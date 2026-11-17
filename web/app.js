@@ -9,6 +9,7 @@ const worker = new Worker(new URL("./worker.js", import.meta.url), { type: "modu
 let nextId = 1;
 const pending = new Map();
 let ready = null;          // promesa de init (se inicia con el primer uso)
+const MAX_STL_BYTES = 75 * 1024 * 1024;   // = webapi.MAX_STL_BYTES
 let stlBytes = null, projText = null;
 let runT0 = null;          // inicio de la acción en curso (tras cargar Pyodide), para cronometrar etapas
 
@@ -198,6 +199,10 @@ $("#demo").addEventListener("click", () => run(async () => showResult(await call
 $("#stl").addEventListener("change", async (ev) => {
   const f = ev.target.files[0]; if (!f) return;
   if (running) { log("Hay otra acción en curso: esperá a que termine y volvé a elegir el STL."); ev.target.value = ""; return; }
+  if (f.size > MAX_STL_BYTES) {    // mismo límite que el motor (webapi.MAX_STL_BYTES): se avisa antes de leer el archivo a memoria
+    log(`Error: el STL pesa ${(f.size / 1048576).toFixed(0)} MB (el máximo en el navegador es ${MAX_STL_BYTES / 1048576} MB): reducilo a ~10 000 triángulos con MeshLab, Blender o similar antes de cargarlo.`);
+    ev.target.value = ""; return;
+  }
   stlBytes = new Uint8Array(await f.arrayBuffer()); $("#stlinfo").textContent = "";
   showInViewer(stlBytes);
   await run(async () => {

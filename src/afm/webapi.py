@@ -30,6 +30,10 @@ def _progress(cb: ProgressCb | None):
 
 # Por encima de esto el navegador tarda mucho (figura real de 19 532 tri: >1950 s; los STL de ejemplo tienen ~10 000).
 HEAVY_STL_TRIANGLES = 15_000
+# Límite duro: un STL binario pesa 84 B + 50 B por triángulo, así que 75 MB ≈ 1,5 M de triángulos. Más que eso no entra con
+# holgura en la memoria de WebAssembly (Pyodide, ≤ 4 GB por pestaña, con el STL copiado varias veces) y se rechaza con un mensaje.
+MAX_STL_TRIANGLES = 1_500_000
+MAX_STL_BYTES = 75 * 1024 * 1024
 
 
 class EngineSession:
@@ -44,12 +48,18 @@ class EngineSession:
         """Guarda el STL de la sesión y devuelve un resumen. Rechaza lo que no se pueda leer como malla."""
         import trimesh
 
+        if len(data) > MAX_STL_BYTES:
+            raise ValueError(f"el STL pesa {len(data) / 1048576:.0f} MB (el máximo en el navegador es {MAX_STL_BYTES // 1048576} MB): "
+                             "reducilo a ~10 000 triángulos con MeshLab, Blender o similar antes de cargarlo")
         try:
             mesh = trimesh.load(io.BytesIO(bytes(data)), file_type="stl", process=False)
         except Exception as exc:        # noqa: BLE001 — se informa tal cual al usuario
             raise ValueError(f"no se pudo leer el STL: {exc}") from exc
         if not isinstance(mesh, trimesh.Trimesh) or len(mesh.faces) == 0:
             raise ValueError("el archivo no contiene una malla de triángulos")
+        if len(mesh.faces) > MAX_STL_TRIANGLES:
+            raise ValueError(f"el STL tiene {len(mesh.faces)} triángulos (el máximo en el navegador es {MAX_STL_TRIANGLES}): "
+                             "reducilo a ~10 000 triángulos con MeshLab, Blender o similar antes de cargarlo")
         path = os.path.join(self._dir, "figura.stl")
         with open(path, "wb") as f:
             f.write(bytes(data))

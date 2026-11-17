@@ -2,6 +2,21 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — Fase final: límites de mallas y documentación de mantenimiento (2026-11-17, rama `m3_fase_final` sobre main a212a12)
+**Objetivo:** cerrar lo que el plan pide antes de dar el port por terminado: límites claros para STL grandes y documentar cómo reconstruir los wheels y actualizar Pyodide.
+**Hecho:** límite duro en el motor (`MAX_STL_BYTES` 75 MB, `MAX_STL_TRIANGLES` 1,5 M) con mensajes que piden reducir a ~10 000 triángulos; la página rechaza el archivo antes de leerlo a memoria; nuevo `docs/WEB_mantenimiento.md` (origen de cada pieza, reconstruir manifold3d y fast-simplification, actualizar Pyodide, límites); casillas del plan sincronizadas.
+**Verificado:** nativo `test_webapi` (rechazo por bytes y por triángulos, sin dejar STL a medias); Chrome headless `browser_dom.mjs`: paso nuevo (76 MB → mensaje, página libre) pasa. **No verificado:** que 75 MB / 1,5 M de triángulos sea el techo real de memoria en Pyodide (se eligió por cálculo, no por medición); procedimiento de actualización de Pyodide (escrito a partir de los workflows, no ejecutado); Safari/móviles.
+**Estado de main (2026-11-17 11:40):** a212a12, CI (pages y web-browser) en verde, sin PRs abiertos.
+
+### Todo List
+- [x] Límites de mallas grandes + mensajes; documentación de mantenimiento.
+- [ ] Medir con un STL real grande el uso de memoria del worker para confirmar los límites.
+- [ ] Probar Safari y móviles (mejor esfuerzo).
+- [ ] i18n de la página.
+- [ ] Probar el recorte manual con Mickey; formas predefinidas y edición de recortes del proyecto.
+- [ ] El dueño prueba el editor de siluetas con Güemes y re-corre Sucre para medir G3.
+- [ ] **WIP de main sin cerrar:** `f3319dd` (`S.compact`) sin verificar con Güemes.
+
 ## Current Focus — M3: recorte manual en la página (§8.8) (2026-11-17, rama `m3_recorte_manual` sobre main cb063ca)
 **Objetivo:** la herramienta genérica de recorte del plan: polígono sobre un plano (por defecto el de simetría) → extruir → restar/unir sobre una pieza (torso o miembro), para panza, cola, capa, etc.
 **Hecho:** el motor ya aplicaba `project.trims` (`trims.py`); faltaba la página. `EngineSession.trim_editor(project, plano)` devuelve el plano de dibujo (`"simetria"` = x = 0 con normal +X en el marco de trabajo, o el plano de un miembro) y el fondo proyectado; mensaje `trim_editor` en el worker, `trimEditor` en engine.js, sección «Recortes manuales» (pieza, plano, restar/unir, espesor, simétrico, editor de polígonos reutilizado, lista con «Quitar»). Los recortes viajan en `project.trims` junto con los que ya traiga el proyecto, y caducan con aviso si cambia el marco (coronilla, frente, simetría, altura), igual que las siluetas.
