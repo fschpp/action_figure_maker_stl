@@ -1,5 +1,6 @@
 import { planeFromPoints, mergeProject, toFigure } from "./planes.js";
 import { initVersionUI } from "./version.js";
+import { cleanName, extractProfile, applyProfile, loadProfiles, storeProfiles, exportProfiles, importProfiles } from "./profiles.js";
 const $ = (s) => document.querySelector(s);
 const log = (t) => { $("#log").textContent += t + "\n"; };
 
@@ -65,7 +66,62 @@ function sync() {
   const falta = !stlBytes ? "falta cargar el STL" : !projText ? "falta cargar el proyecto" : running ? "hay una acción en curso" : "";
   $("#build").disabled = !!falta;
   $("#buildhint").textContent = falta ? `(${falta})` : "";
+  renderProfiles();
 }
+
+// --- Perfiles de línea (plan §8.12): los `params` del proyecto, con nombre, en localStorage + exportar/importar ---
+let store = null;
+try { store = window.localStorage; } catch { /* sin almacenamiento (p. ej. cookies bloqueadas): los perfiles viven solo en esta sesión */ }
+let profiles = store ? loadProfiles(store) : {};
+const pfInfo = (t) => { $("#pf-info").textContent = t; };
+function renderProfiles() {
+  const sel = $("#pf-list"), keep = sel.value, names = Object.keys(profiles).sort((a, b) => a.localeCompare(b, "es"));
+  if (sel.options.length !== names.length || names.some((n, i) => sel.options[i].value !== n)) {
+    sel.replaceChildren(...names.map((n) => new Option(n, n)));
+    sel.value = names.includes(keep) ? keep : (names[0] ?? "");
+  }
+  sel.disabled = !names.length;
+  $("#pf-save").disabled = running || !projText;
+  $("#pf-apply").disabled = running || !projText || !names.length;
+  $("#pf-del").disabled = running || !names.length;
+  $("#pf-export").disabled = running || !names.length;
+}
+function persistProfiles() {
+  renderProfiles();
+  if (store && !storeProfiles(store, profiles)) pfInfo("Este navegador no dejó guardar el perfil: queda solo hasta cerrar la página. Exportalo para conservarlo.");
+}
+function pfAction(fn) { try { fn(); } catch (e) { pfInfo(e.message); } }
+$("#pf-save").addEventListener("click", () => pfAction(() => {
+  const name = cleanName($("#pf-name").value), existed = name in profiles;
+  profiles[name] = extractProfile(projText);
+  persistProfiles(); $("#pf-list").value = name;
+  if (!$("#pf-info").textContent.startsWith("Este navegador")) pfInfo(`Perfil «${name}» ${existed ? "actualizado" : "guardado"} (${Object.keys(profiles[name]).length} parámetros).`);
+}));
+$("#pf-apply").addEventListener("click", () => pfAction(() => {
+  const name = $("#pf-list").value;
+  projText = applyProfile(projText, profiles[name]);
+  pfInfo(`Perfil «${name}» aplicado al proyecto cargado: «Generar» usa sus parámetros${profiles[name].ref_height ? ` (altura de referencia ${profiles[name].ref_height} mm)` : ""}. El archivo del proyecto no se modifica.`);
+}));
+$("#pf-del").addEventListener("click", () => pfAction(() => {
+  const name = $("#pf-list").value;
+  delete profiles[name]; persistProfiles(); pfInfo(`Perfil «${name}» eliminado.`);
+}));
+$("#pf-export").addEventListener("click", () => {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([exportProfiles(profiles)], { type: "application/json" }));
+  a.download = "perfiles-de-linea.json"; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
+$("#pf-import").addEventListener("change", async (ev) => {
+  const f = ev.target.files[0]; ev.target.value = "";
+  if (!f) return;
+  try {
+    const r = importProfiles(await f.text(), profiles);
+    profiles = r.profiles; persistProfiles();
+    if (!$("#pf-info").textContent.startsWith("Este navegador")) pfInfo(`Importados: ${r.added} nuevos, ${r.replaced} reemplazados${r.skipped ? `, ${r.skipped} omitidos por estar vacíos o mal formados` : ""}.`);
+  } catch (e) { pfInfo(e.message); }
+});
+renderProfiles();
 
 // --- Pose (preview_pose): el slider mueve la cadera de la figura ya generada; las colisiones se miden al soltar ---
 let poseViewer = null, poseBusy = false, poseNext = null;
