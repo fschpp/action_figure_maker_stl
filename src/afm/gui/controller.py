@@ -238,6 +238,7 @@ class Controller:
         self.overhang_angle = 45.0                   # grados desde la vertical (como `--max-angle`)
         self.draft: PolygonDraft | None = None      # polígono de silueta en edición (modo POLYGON)
         self.edit_limb: str | None = None
+        self._vertex_drag: dict | None = None       # arrastre de un vértice de la silueta en curso: índice, posición previa y si ya se movió
         self._last_offset_limb: str | None = None   # miembro al que apunta «Corte a» cuando ninguno está en edición
         self.edit_cross = False                     # el polígono en edición es la 2.ª silueta (frente) del miembro
         self.joint_limb: str | None = None          # miembro al que se le está definiendo la articulación (JOINT_PLANE)
@@ -1088,6 +1089,7 @@ class Controller:
         if was in (Mode.HEAD_CUT_PLANE, Mode.WEAPON_CUT_PLANE):
             self._rebuild_picker()           # durante el corte el picker apuntaba a la cabeza de reemplazo / al arma
         self.clear_hover()
+        self._vertex_drag = None
         self.draft, self.edit_limb, self.edit_cross = None, None, False
         self.pin_limb, self.pin_prev = None, None
         self.pin_aid, self.pin_aim = None, None
@@ -1464,6 +1466,61 @@ class Controller:
             else:
                 d.insert(edge, uv)
                 self._commit_polygon(tr("controller.vertice_agregado"))
+
+    # ---------------------------------------------- arrastre de vértices (ajuste fino)
+    def begin_vertex_drag(self, px: float, py: float, width: float, height: float) -> bool:
+        """Empieza a arrastrar el vértice de la silueta bajo el puntero (píxeles). Devuelve True si había uno; en ese caso la
+        ventana manda el movimiento con `drag_vertex` y lo termina con `end_vertex_drag`. No hace nada fuera del modo silueta."""
+        d = self.draft
+        self._vertex_drag = None
+        if self.busy or self.mode != Mode.POLYGON or d is None or not d.pts:
+            return False
+        screen = self.camera.project(d.world(), width, height)[:, :2]
+        near = d.nearest_vertex(screen, (px, py), VERTEX_PX)
+        if near is None:
+            return False
+        self._vertex_drag = {"index": near, "before": d.pts[near].copy(), "moved": False}
+        return True
+
+    def drag_vertex(self, px: float, py: float, width: float, height: float) -> None:
+        """Lleva el vértice arrastrado bajo el puntero (proyectado sobre el plano de la silueta). Solo repinta: el cambio
+        se guarda, como un único paso de deshacer, al soltar (`end_vertex_drag`)."""
+        st, d = self._vertex_drag, self.draft
+        if st is None or d is None or st["index"] >= len(d.pts):
+            return
+        origin, direction = self.camera.ray(px, py, width, height)
+        uv = ray_plane_uv(d.plane, origin, direction)
+        if uv is None:                                  # el plano se ve de canto: el vértice se queda donde estaba
+            return
+        d.move(st["index"], uv)
+        d.selected = st["index"]
+        st["moved"] = True
+        self.scene_dirty = True
+
+    def end_vertex_drag(self) -> bool:
+        """Suelta el vértice: guarda la silueta (si ya está cerrada y es válida). Devuelve True si el vértice se movió."""
+        st, d = self._vertex_drag, self.draft
+        self._vertex_drag = None
+        if st is None or d is None or not st["moved"]:
+            return False
+        d.selected = None
+        if d.closed:
+            self._commit_polygon(tr("controller.vertice_movido"))
+        else:
+            self._changed(tr("controller.vertice_movido"))
+        return True
+
+    def cancel_vertex_drag(self) -> bool:
+        """Esc en pleno arrastre: el vértice vuelve a donde estaba y la silueta queda sin cambios."""
+        st, d = self._vertex_drag, self.draft
+        self._vertex_drag = None
+        if st is None or d is None:
+            return False
+        if st["index"] < len(d.pts):
+            d.pts[st["index"]] = st["before"].copy()
+        d.selected = None
+        self._changed(tr("controller.arrastre_cancelado"))
+        return True
 
     def _commit_polygon(self, what: str = "Silueta guardada") -> bool:
         """Guarda el polígono cerrado en el proyecto (solo si es válido)."""

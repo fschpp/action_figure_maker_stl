@@ -2,6 +2,18 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — Arrastrar vértices de la silueta para el ajuste fino (2026-11-17, sobre main eab8252, sin commitear)
+**Objetivo:** después de «Proponer silueta automática» (o con cualquier silueta cerrada) poder mover un vértice arrastrándolo con el mouse, en vez del «clic para elegir + clic para soltar».
+**Hecho:** `Controller.begin_vertex_drag / drag_vertex / end_vertex_drag / cancel_vertex_drag` (el vértice sigue al puntero sobre el plano de la silueta; se guarda al soltar como un único paso de deshacer; si la silueta queda inválida, se avisa y no se guarda). `MainWindow`: el arrastre con botón 1 sobre un vértice lo mueve en lugar de orbitar (Mayús o fuera de un vértice sigue orbitando/paneando); Esc en pleno arrastre lo deshace. Un clic simple sobre un vértice sigue eligiéndolo (flujo viejo intacto). Textos en es/en/pt. Tests: 7 en `tests/test_gui_controller.py` + 1 en `tests/test_autosil.py` (propuesta → arrastre → guardado).
+**Verificado:** tests de controller, autosil, i18n, polygon_editor y casi todos los `test_gui_*` con escenas falsas (pasan). **No verificado:** el comportamiento real en la ventana GTK/OpenGL (no hay GTK en el entorno de desarrollo): `_on_drag_begin/update/end` y Esc solo se compilaron; no se corrieron `test_gui_window_build`, `test_gui_language`, `test_gui_app`. Tampoco la suite completa (excede 10 min aquí).
+
+### Todo List
+- [x] Controller: arrastre de vértices + tests.
+- [x] Ventana: conectar begin/update/end y Esc.
+- [ ] Probar en la GUI con Güemes: proponer silueta, arrastrar un vértice, soltar, deshacer (Ctrl+Z) y Esc a mitad de arrastre.
+- [ ] Decidir si conviene resaltar el vértice bajo el puntero antes de arrastrar (hoy solo se pinta rojo al elegirlo/arrastrarlo).
+- [ ] Correr la suite completa y los tests que necesitan GTK en una máquina con el entorno gráfico.
+
 ## Current Focus — Fix: las siluetas quedaban ocultas dentro de la figura STL (2026-11-17, rama `fix_siluetas_visibles` sobre main 1a83b0e)
 **Objetivo:** que las siluetas (la 1.ª y la 2.ª del miembro, su espejo y el borrador mientras se dibuja) se vean aunque el plano de corte quede dentro de la malla.
 **Causa:** `Controller._sync_polygons` y el espejo dibujaban las siluetas con prueba de profundidad (`on_top=False`); como viven sobre el plano de corte, dentro de la figura, la malla las tapaba. Los puntos pendientes y las guías ya usaban `on_top=True`.
