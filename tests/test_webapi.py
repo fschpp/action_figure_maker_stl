@@ -208,3 +208,48 @@ def test_preview_pose_rotates_the_legs_and_keeps_the_body():
     assert abs(a[:, 1].mean() - b[:, 1].mean()) > 5 or abs(a[:, 2].mean() - b[:, 2].mean()) > 5   # la pierna giró
     assert p0["colisiones"] == {} and p90["colisiones"] == {}         # el recorrido libre de la demo no choca
     assert np.allclose(verts(p90, "pierna_der")[:, 0].mean(), -verts(p90, "pierna_izq")[:, 0].mean(), atol=1e-3)  # espejo
+
+
+# --- M3: datos del editor de polígonos 2D ------------------------------------------------------------------------
+def _doll_session():
+    s = EngineSession()
+    buf = io.BytesIO()
+    make_doll().export(buf, file_type="stl")
+    s.load_stl(buf.getvalue())
+    return s
+
+
+def test_limb_editor_gives_plane_background_polygon_and_proposal():
+    import numpy as np
+
+    from afm.project import demo_project
+
+    s = _doll_session()
+    d = demo_project().to_dict()
+    for l in d["limbs"]:
+        if l["kind"] == "leg":
+            l["polygon"] = []
+    r = s.limb_editor(d, "pierna")
+    u, v, n = (np.array(r[k]) for k in ("u", "v", "normal"))
+    assert abs(u @ v) < 1e-9 and abs(np.linalg.norm(np.cross(u, v)) - 1) < 1e-9 and abs(abs(n @ np.cross(u, v)) - 1) < 1e-9
+    assert r["silueta"] and len(r["silueta"][0]["exterior"]) >= 3 and r["polygon"] == []
+    assert r["propuesta"] and len(r["propuesta"]) >= 3 and r["aviso"] is None
+    # el polígono propuesto (u, v) vuelve a 3D sobre el plano: la misma pasada que hace la página
+    world = np.array(r["origin"]) + np.outer(np.array(r["propuesta"])[:, 0], u) + np.outer(np.array(r["propuesta"])[:, 1], v)
+    assert np.allclose((world - np.array(r["origin"])) @ n, 0, atol=1e-9)
+    s.close()
+
+
+def test_limb_editor_returns_the_existing_polygon_and_explains_when_it_cannot_propose():
+    from afm.project import demo_project
+
+    s = _doll_session()
+    d = demo_project().to_dict()
+    r = s.limb_editor(d, "brazo")                 # el brazo del muñeco: con polígono; no hay tramo libre para proponer
+    assert len(r["polygon"]) == 4 and r["propuesta"] is None and "a mano" in r["aviso"]
+    assert s.limb_editor(d, "brazo", propose=False)["aviso"] is None
+    with pytest.raises(ValueError, match="no tiene un miembro"):
+        s.limb_editor(d, "alas")
+    with pytest.raises(RuntimeError):
+        EngineSession().limb_editor(d, "brazo")
+    s.close()

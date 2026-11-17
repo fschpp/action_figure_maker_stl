@@ -60,6 +60,11 @@ def _pack_pose(r):
       g.set("_arg", JSON.stringify({ name, kind, p0: points[0], p1: points[1], p2: points[2] }));
       return JSON.parse(py.runPython("json.dumps(_s.new_limb(**json.loads(_arg)))"));
     },
+    // Datos del editor de polígonos 2D de un miembro (afm.webapi.limb_editor): plano, fondo, polígono actual y propuesta.
+    limbEditor(projectText, name, propose = true) {
+      g.set("_proj", projectText); g.set("_arg", JSON.stringify({ name, propose }));
+      return JSON.parse(py.runPython("json.dumps(_s.limb_editor(_proj, **json.loads(_arg)))"));
+    },
     // Cabeza (plano del cuello) y cintura por 3 puntos YA en el marco de la figura (afm.webapi.new_head / new_waist).
     newHead(points) { return this._plane3("new_head", points); },
     newWaist(points) { return this._plane3("new_waist", points); },

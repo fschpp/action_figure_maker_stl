@@ -1,6 +1,6 @@
 // Prueba de navegador (Chrome headless + playwright-core) del DOM, el visor three.js, los clics y el slider de pose.
 // El motor Python NO se carga: `worker.js` se reemplaza por un stub con el mismo protocolo (init, load_stl, frame, new_limb,
-// new_head, new_waist, preview_pose, build, demo). Pyodide real ya lo cubre web/tests/engine_node.mjs; aquí se prueba
+// new_head, new_waist, limb_editor, preview_pose, build, demo). Pyodide real ya lo cubre web/tests/engine_node.mjs; aquí se prueba
 // todo lo que hace la página salvo el motor.
 //
 // Uso:   node web/tests/browser_dom.mjs
@@ -14,6 +14,7 @@ import path from "node:path";
 import zlib from "node:zlib";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { bounds, fitView, toScreen } from "../polygon-editor.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const webDir = path.resolve(here, "..");
@@ -49,6 +50,8 @@ self.onmessage = (ev) => {
   if (type === "frame") return post({ k: 1, offset: [0, 0, 0], ref_height: 100 });
   if (type === "new_limb") return post({ name: ev.data.name, kind: ev.data.kind, stub: true, points: ev.data.points });
   if (type === "new_head" || type === "new_waist") return post({ plane: { name: type, origin: ev.data.points[0], normal: [0, 0, 1] } });
+  if (type === "limb_editor") return post({ nombre: ev.data.name, tipo: "arm", origin: [0, 0, 0], u: [1, 0, 0], v: [0, 0, 1], normal: [0, -1, 0],
+    silueta: [{ exterior: [[-5, -5], [30, -5], [30, 70], [-5, 70]], holes: [] }], polygon: [], propuesta: [[0, 0], [20, 0], [20, 60], [0, 60]], aviso: null });
   if (type === "preview_pose") {
     const a = ev.data.angle;
     const mk = (dx) => ({ v: new Float32Array([dx, 0, 0, dx, 10, 0, dx, 0, 30])   /* plano x = dx: se ve desde «Costado» */, i: new Uint32Array([0, 1, 2]) });
@@ -305,6 +308,42 @@ try {
     assert.notEqual(before, await (await page.locator("#canvas").screenshot()).toString("base64"));
   });
 
+  await step("editor de siluetas: abre con la propuesta del motor, agrega un vértice, rechaza un polígono cruzado y guarda", async () => {
+    assert.equal(await page.locator("#siluetas").isVisible(), true);
+    await page.selectOption("#front", "-Y");     // el frente mueve el marco de la figura: se fija ANTES de guardar la silueta
+    assert.deepEqual(await page.locator("#sil-limb option").allInnerTexts(), ["brazo", "pierna"]);
+    await page.click("#sil-open");
+    await page.locator("#sil-editor").waitFor({ state: "visible" });
+    await page.waitForFunction(() => document.querySelector("#sil-info").textContent.includes("Silueta propuesta para «brazo»"));
+    assert.ok(await shot("#sil-canvas") > 500, "el editor de siluetas está vacío");
+    // Misma vista que el editor (encuadra la figura de fondo + el polígono): los vértices se ubican en pantalla desde acá.
+    const bg = [[-5, -5], [30, -5], [30, 70], [-5, 70]], poly = [[0, 0], [20, 0], [20, 60], [0, 60]];
+    const view = fitView(bounds([...bg, ...poly]), 640, 480);
+    const at = (p) => { const [x, y] = toScreen(view, p); return [x / 640, y / 480]; };
+    const drag = async (from, to) => {
+      const a = await canvasPoint("#sil-canvas", ...at(from)), b = await canvasPoint("#sil-canvas", ...at(to));
+      await page.mouse.move(a.x, a.y); await page.mouse.down(); await page.mouse.move((a.x + b.x) / 2, (a.y + b.y) / 2); await page.mouse.move(b.x, b.y); await page.mouse.up();
+    };
+    // 1) un clic sobre una arista agrega un vértice
+    await clickAt("#sil-canvas", ...at([10, 1.5]));
+    await page.waitForFunction(() => document.querySelector("#sil-info").textContent.includes("5 vértices"));
+    await page.click("#sil-undo");
+    await page.waitForFunction(() => document.querySelector("#sil-info").textContent.includes("4 vértices"));
+    // 2) arrastrar el vértice (20, 0) a (10, 66) cruza dos aristas: no se puede guardar
+    await drag([20, 0], [10, 66]);
+    await page.waitForFunction(() => document.querySelector("#sil-info").textContent.includes("se cruza"));
+    await page.click("#sil-save");
+    assert.match(await text("#sil-info"), /se cruza/);
+    assert.equal(await page.locator("#sil-editor").isVisible(), true, "un polígono inválido no debe cerrar el editor");
+    // 3) deshacer el movimiento y guardar
+    await page.click("#sil-undo");
+    await page.waitForFunction(() => !document.querySelector("#sil-info").textContent.includes("se cruza"));
+    await page.click("#sil-save");
+    await page.locator("#sil-editor").waitFor({ state: "hidden" });
+    assert.match(await text("#sil-info"), /Silueta de «brazo» guardada \(4 vértices\)/);
+    assert.deepEqual(await page.locator("#sil-limb option").allInnerTexts(), ["brazo (corregida)", "pierna"]);
+  });
+
   await step("«Atenuar una mitad» recorre no → lado + → lado − → no", async () => {
     const t = [];
     for (let i = 0; i < 3; i++) { await page.click("#half"); t.push(await text("#half")); }
@@ -327,6 +366,10 @@ try {
     assert.ok(typeof proj.crown_z === "number");
     assert.deepEqual(proj.limbs.map((l) => l.name).sort(), ["brazo", "pierna"]);
     assert.ok(proj.limbs.every((l) => l.stub));
+    const arm = proj.limbs.find((l) => l.name === "brazo");
+    assert.deepEqual(arm.polygon, [[0, 0, 0], [20, 0, 0], [20, 0, 60], [0, 0, 60]], "la silueta corregida llega al proyecto en 3D sobre el plano");
+    assert.equal(arm.auto, false);
+    assert.equal(proj.limbs.find((l) => l.name === "pierna").polygon, undefined, "la pierna no se editó: sigue sin polígono (la propone el motor)");
     assert.match(await text("#log"), /Separando la cabeza/);
   });
 
@@ -341,6 +384,17 @@ try {
     await page.locator("#angle").fill("30");
     await page.waitForFunction(() => document.querySelector("#poseinfo").textContent.includes("Sin choques a 30°"));
     for (const v of ["right", "back", "top"]) await page.click(`[data-pview="${v}"]`);
+  });
+
+  await step("una silueta guardada se descarta (con aviso) si después cambia el marco de la figura (el frente)", async () => {
+    await page.selectOption("#front", "+Y");
+    await page.click("#build");
+    await page.waitForFunction(() => document.querySelector("#result") && !document.querySelector("#result").hidden);
+    assert.match(await text("#log"), /la silueta de «brazo» se descartó/);
+    const proj = JSON.parse(JSON.parse(await page.evaluate(() => document.querySelector("#report").textContent.replace(/^[^\n]*\n/, ""))).proyecto);
+    assert.equal(proj.front, "+Y");
+    assert.equal(proj.limbs.find((l) => l.name === "brazo").polygon, undefined, "sin la silueta descartada, el brazo vuelve a quedar sin polígono");
+    assert.deepEqual(await page.locator("#sil-limb option").allInnerTexts(), ["brazo", "pierna"]);
   });
 
   await step("la demo funciona sin cargar ningún archivo", async () => {

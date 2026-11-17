@@ -19,6 +19,7 @@ jobs:
       - run: npm install --no-save --no-package-lock playwright-core three@0.186.1
       - run: node web/tests/version_node.mjs
       - run: node web/tests/profiles_node.mjs
+      - run: node web/tests/polygon_node.mjs
       - name: Prueba de navegador (Chrome del runner, three servido desde node_modules)
         env: { THREE_DIR: node_modules/three }
         run: node web/tests/browser_dom.mjs

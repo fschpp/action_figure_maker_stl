@@ -65,6 +65,27 @@
       <p id="pickinfo" aria-live="polite"></p>
     </section>
 
+    <section id="siluetas" hidden>
+      <h2>Silueta de brazos y piernas</h2>
+      <p class="hint">El motor propone la silueta de cada miembro al generar. Acá la podés ver y corregir: se dibuja la figura vista sobre el plano del miembro y el polígono naranja es lo que se recorta. Clic = agregar un vértice · arrastrar = moverlo · doble clic o clic derecho = quitarlo · rueda = zoom · Shift + arrastrar = desplazar. Los vértices se imantan a la figura (Shift los suelta).</p>
+      <div class="barra">
+        <label>Miembro <select id="sil-limb"></select></label>
+        <button id="sil-open">Abrir el editor</button>
+      </div>
+      <div id="sil-editor" hidden>
+        <canvas id="sil-canvas" width="640" height="480"></canvas>
+        <div class="barra">
+          <button id="sil-propose">Proponer silueta</button>
+          <button id="sil-clear">Empezar de cero</button>
+          <button id="sil-undo">Deshacer</button>
+          <button id="sil-fit">Encuadrar</button>
+          <button id="sil-save">Usar esta silueta</button>
+          <button id="sil-discard">Descartar los cambios</button>
+        </div>
+      </div>
+      <p id="sil-info" aria-live="polite"></p>
+    </section>
+
     <section id="pose" hidden>
       <h2>Pose de la figura generada</h2>
       <canvas id="pose-canvas" width="640" height="480"></canvas>

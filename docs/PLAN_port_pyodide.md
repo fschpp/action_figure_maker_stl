@@ -229,7 +229,8 @@ Página con: botón "Demo", carga de un STL **y de un `proyecto.json`** (sin sel
 - [ ] Vista previa de pose con slider (`preview_pose`).
 
 ### **Hito M3 — Editores y complementos (4–7 días)**
-- [ ] Editor de polígonos 2D para siluetas y para la **herramienta genérica de recorte manual** (§8.8 del plan del repo).
+- [x] Editor de polígonos 2D para **siluetas de brazos y piernas** (`web/polygon-editor.js`, `limb_editor` del motor): fondo = figura proyectada sobre el plano, propuesta de `autosil`, vértices imantados, deshacer, validación de cruces.
+- [ ] La **herramienta genérica de recorte manual** (§8.8 del plan del repo) sobre el mismo editor: polígono sobre el plano de simetría → extruir → booleano.
 - [ ] Generador de probetas de articulación (§8.11) con descarga.
 - [ ] Perfiles de línea (§8.12): guardar, listar, exportar/importar.
 - [ ] i18n completo.

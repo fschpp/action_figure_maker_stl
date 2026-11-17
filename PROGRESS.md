@@ -2,6 +2,18 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — M3: editor de siluetas 2D en la página (2026-11-17, rama `m3_editor_siluetas` sobre main fe02eac)
+**Motivo:** con el brazo pegado al cuerpo (el del muñeco, y probablemente Mickey) `autosil` no propone silueta («Dibujala a mano») y la página no tenía cómo dibujarla; la silueta automática de una figura real tampoco se podía corregir.
+**Hecho:** (1) Motor: `EngineSession.limb_editor(project, name, propose)` devuelve el plano del miembro (`origin`, `u`, `v`, `normal`), el fondo (`silueta`: la figura proyectada sobre ese plano, lado x ≥ 0, `Session.silhouette`), el polígono actual y la propuesta de `autosil` (o un `aviso`) en coordenadas (u, v). (2) `web/polygon-editor.js`: lógica pura (vista, agarrar/insertar/mover/quitar vértices, imán a la figura, validación de cruces y área, (u, v) → 3D) + controlador de canvas (clic agrega sobre la arista más cercana, arrastrar mueve, doble clic o clic derecho quita, rueda = zoom, Shift + arrastrar = desplazar, deshacer). (3) Página: sección «Silueta de brazos y piernas» (elige miembro, abre el editor, «Proponer silueta», «Empezar de cero», «Deshacer», «Encuadrar», «Usar esta silueta», «Descartar»); la silueta guardada viaja en el proyecto de «Generar» (`polygon` en 3D, `auto = false`). Se descarta con un aviso si después cambia el marco de la figura (coronilla, frente, simetría o altura de referencia) o se vuelve a marcar el plano de ese miembro.
+**Verificado:** nativo `test_webapi` (+2: plano ortonormal, fondo, propuesta, aviso del brazo, miembro inexistente); Node `web/tests/polygon_node.mjs` (nuevo, en `web-browser.yml`); Chrome headless `browser_dom.mjs` **33/33** (pasos nuevos: abre con la propuesta, un clic agrega un vértice, arrastrar un vértice hasta cruzar dos aristas bloquea el guardado, deshacer y guardar, la silueta llega al proyecto en 3D, y se descarta con aviso al cambiar el frente); Pyodide 314.0.8 real en Node `engine_node.mjs` (3 pasos nuevos de `limb_editor`, corrida completa 134 s). **No verificado:** el editor con Güemes / Belgrano / Azurduy (tiempo de `limb_editor` con ~10 700 triángulos bajo WASM, que vuelve a proyectar y proponer); pantalla táctil (doble clic para quitar vértices); Safari y Firefox; la herramienta de recorte manual (§8.8), que queda para el siguiente paso sobre este mismo editor.
+
+### Todo List
+- [x] `limb_editor` + `polygon-editor.js` + sección de la página + pruebas (nativo, Node, Chrome, Pyodide).
+- [ ] El dueño prueba el editor en el sitio con Güemes (brazo y pierna) y mide cuánto tarda «Abrir el editor».
+- [ ] Herramienta genérica de recorte manual (§8.8): polígono sobre el plano de simetría → extruir → booleano (restar/unir), sobre el mismo editor.
+- [ ] Generador de probetas (§8.11) con descarga.
+- [ ] i18n de la página.
+
 ## Current Focus — Página: «Buscar actualización» nunca se deshabilita (2026-11-17, rama `web_buscar_actualizacion` sobre main bfdfb14)
 **Reporte del dueño:** tras actualizar varias veces, «Buscar actualización» queda deshabilitado y solo Shift+F5 lo arregla (y borra los archivos elegidos).
 **Causa (hipótesis fuerte, no reproducida en Firefox):** `busy()` deshabilitaba TODOS los `<button>` durante cualquier acción (una generación dura minutos), también el de actualización; y Firefox conserva el estado `disabled` de los botones al recargar, así que una recarga con una acción en curso arrancaba la página nueva con los botones apagados y `busy(false)` nunca se ejecutaba para rehabilitarlos.

@@ -209,7 +209,7 @@ $("#decimate").addEventListener("click", () => run(async () => {
 async function loadProjectFile(f) {
   projText = await f.text();
   try { JSON.parse(projText); } catch { projText = null; log("El proyecto no es un JSON válido."); }
-  sync();
+  fillSilLimbs(); sync();
 }
 $("#proj").addEventListener("change", (ev) => { const f = ev.target.files[0]; if (f) loadProjectFile(f); });
 // Al recargar la página (p. ej. tras actualizar la versión) Firefox restaura los NOMBRES de los archivos elegidos en los
@@ -228,7 +228,7 @@ $("#build").addEventListener("click", () => run(async () => showResult(await cal
 // normalizada (escala, pies en z=0, centrada). El motor da la transformación (frame) y el miembro por defecto (new_limb).
 async function projectWithPicks() {
   const base = JSON.parse(projText);
-  const picked = edits.symPts || edits.limbs.size || edits.headPts || edits.waistPts;
+  const picked = edits.symPts || edits.limbs.size || edits.headPts || edits.waistPts || edits.polys.size;
   if (!picked && edits.crown_z == null && !edits.front) return projText;
   if (stlInfo && stlInfo.z_arriba === false) throw new Error("El STL no tiene Z arriba: los puntos del visor no se pueden usar.");
   const crown = edits.crown_z ?? base.crown_z ?? null;
@@ -240,6 +240,14 @@ async function projectWithPicks() {
   for (const [name, { kind, pts }] of edits.limbs) limbs.push(await call("new_limb", { name, kind, points: toFigure(pts, fr) }));
   const merged = JSON.parse(mergeProject(base, out));
   if (edits.limbs.size) merged.limbs = limbs;
+  // Siluetas corregidas en el editor 2D (en el marco de la figura): solo valen mientras no cambien la coronilla, el frente,
+  // la simetría ni la altura de referencia, que mueven ese marco; si cambiaron, se descartan con un aviso.
+  for (const [name, { key, polygon }] of [...edits.polys]) {
+    if (key !== frameKey(base)) { edits.polys.delete(name); log(`Aviso: la silueta de «${name}» se descartó porque cambió el marco de la figura (coronilla, frente, simetría o altura); se vuelve a proponer.`); continue; }
+    const l = merged.limbs.find((x) => x.name === name);
+    if (l) { l.polygon = polygon; l.auto = false; }
+  }
+  fillSilLimbs();          // quita la marca «(corregida)» de las siluetas descartadas
   // Cuello y cintura: se conserva lo que ya tenía el proyecto (pasador, cabeza de reemplazo…) y solo cambia el plano.
   if (edits.headPts) { const h = await call("new_head", { points: toFigure(edits.headPts, fr) }); merged.head = { ...(base.head ?? h), plane: h.plane, pin_center: null }; }
   if (edits.waistPts) { const w = await call("new_waist", { points: toFigure(edits.waistPts, fr) }); merged.waist = { ...(base.waist ?? w), plane: w.plane, pin_center: null }; }
@@ -247,7 +255,7 @@ async function projectWithPicks() {
 }
 
 // --- Visor (M2): se carga solo al abrir un STL, para que un fallo de three.js no impida la demo ---
-const edits = { symPts: null, crown_z: null, front: null, limbs: new Map(), headPts: null, waistPts: null };   // puntos crudos elegidos en el visor
+const edits = { symPts: null, crown_z: null, front: null, limbs: new Map(), headPts: null, waistPts: null, polys: new Map() };   // puntos crudos elegidos en el visor
 let stlInfo = null;
 let viewer = null;
 async function showInViewer(bytes) {
@@ -257,6 +265,7 @@ async function showInViewer(bytes) {
       $("#vista").hidden = false;
       viewer = createViewer($("#canvas"), { onPick: (p, i, n) => { $("#pickinfo").textContent = `Punto ${i} de ${n}: (${p.map((x) => x.toFixed(2)).join(", ")})`; } });
     }
+    $("#siluetas").hidden = false; fillSilLimbs();
     const info = viewer.loadStl(bytes);
     $("#pickinfo").textContent = `Visor: ${info.triangles} triángulos.`;
   } catch (e) { log("No se pudo abrir el visor 3D: " + e.message); }
@@ -281,7 +290,7 @@ for (const [id, kind, name] of [["pick-arm", "arm", "brazo"], ["pick-leg", "leg"
     $("#pickinfo").textContent = kind === "arm" ? "3 clics no alineados sobre la cara chata del hombro (donde se une el brazo)."
       : "3 clics no alineados sobre un plano que atraviese la pierna y la cadera (p. ej. el plano medio frente/espalda).";
     viewer.startPicking(3, (pts) => {
-      try { viewer.showPlane(planeFromPoints(...pts, name), 0xf5a83f, name); edits.limbs.set(name, { kind, pts }); $("#pickinfo").textContent = `Plano del ${name} definido (la silueta la propone el motor al generar).`; }
+      try { viewer.showPlane(planeFromPoints(...pts, name), 0xf5a83f, name); edits.limbs.set(name, { kind, pts }); edits.polys.delete(name); fillSilLimbs(); $("#pickinfo").textContent = `Plano del ${name} definido (la silueta la propone el motor al generar).`; }
       catch (e) { $("#pickinfo").textContent = e.message; }
     });
   });
@@ -298,6 +307,56 @@ for (const [id, key, label, hint, color] of [
     });
   });
 }
+
+// --- Editor de siluetas 2D (M3): el polígono de cada miembro se ve y se corrige sobre la figura proyectada en su plano ---
+const frameKey = (base) => JSON.stringify([edits.crown_z ?? base.crown_z ?? null, edits.front ?? base.front ?? null, edits.symPts ?? base.symmetry ?? null, base.params?.ref_height ?? 100]);
+let silEditor = null, silCur = null;       // silCur = { name, plane, key }: miembro abierto en el editor
+const silInfo = (t) => { $("#sil-info").textContent = t; };
+function limbNames() {
+  const names = new Set(edits.limbs.keys());
+  try { for (const l of JSON.parse(projText ?? "{}").limbs ?? []) names.add(l.name); } catch { /* proyecto inválido: se avisa al generar */ }
+  return [...names];
+}
+function fillSilLimbs() {
+  const sel = $("#sil-limb"), keep = sel.value, names = limbNames();
+  sel.replaceChildren(...names.map((n) => new Option(n + (edits.polys.has(n) ? " (corregida)" : ""), n)));
+  sel.value = names.includes(keep) ? keep : (names[0] ?? "");
+}
+$("#sil-open").addEventListener("click", () => {
+  if (!stlBytes || !projText) { silInfo("Cargá el STL y un proyecto: el editor parte de los miembros del proyecto (o de los planos que marques en el visor)."); return; }
+  const name = $("#sil-limb").value;
+  if (!name) { silInfo("El proyecto no tiene miembros: marcá el plano de un brazo o de una pierna en el visor."); return; }
+  run(async () => {
+    const project = await projectWithPicks();
+    const d = await call("limb_editor", { project, name, propose: true });
+    const { createPolygonEditor } = await import("./polygon-editor.js");
+    silEditor ??= createPolygonEditor($("#sil-canvas"), { onChange: (poly) => { const bad = poly.length >= 3 ? silEditor.validate() : null; silInfo(bad ?? `${poly.length} vértices.`); } });
+    silCur = { name, plane: { origin: d.origin, u: d.u, v: d.v }, key: frameKey(JSON.parse(projText)), proposal: d.propuesta };
+    const edited = edits.polys.has(name);
+    silEditor.load({ silueta: d.silueta, polygon: d.polygon.length ? d.polygon : (d.propuesta ?? []) });
+    $("#sil-editor").hidden = false;
+    silInfo(d.aviso ? `No se pudo proponer la silueta de «${name}»: ${d.aviso}` : edited ? `Silueta de «${name}» (corregida por vos).` : d.polygon.length ? `Silueta de «${name}» del proyecto.` : `Silueta propuesta para «${name}»: corregila si no la envuelve del todo.`);
+  });
+});
+$("#sil-propose").addEventListener("click", () => {
+  if (!silCur) return;
+  if (silCur.proposal) { silEditor.setPolygon(silCur.proposal); silInfo("Propuesta restaurada."); }
+  else silInfo("El motor no pudo proponer una silueta para este miembro: dibujala a mano.");
+});
+$("#sil-clear").addEventListener("click", () => silEditor?.clear());
+$("#sil-undo").addEventListener("click", () => silEditor?.undo());
+$("#sil-fit").addEventListener("click", () => silEditor?.fit());
+$("#sil-save").addEventListener("click", async () => {
+  if (!silCur) return;
+  const bad = silEditor.validate();
+  if (bad) { silInfo(bad); return; }
+  const { uvToWorld } = await import("./polygon-editor.js");
+  edits.polys.set(silCur.name, { key: silCur.key, polygon: uvToWorld(silCur.plane, silEditor.getPolygon()) });
+  $("#sil-editor").hidden = true; $("#sil-limb").value = silCur.name; fillSilLimbs();
+  silInfo(`Silueta de «${silCur.name}» guardada (${edits.polys.get(silCur.name).polygon.length} vértices): «Generar» la usa. Para volver a la propuesta automática, abrí el editor y tocá «Proponer silueta».`);
+  silCur = null;
+});
+$("#sil-discard").addEventListener("click", () => { $("#sil-editor").hidden = true; silCur = null; silInfo("Cambios descartados."); });
 // Atenuar la mitad opuesta al plano de simetría: no → «+» → «−» → no. Solo es la vista; el motor espeja solo.
 let half = null;
 function applyHalf() {

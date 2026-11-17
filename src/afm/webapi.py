@@ -202,6 +202,44 @@ class EngineSession:
             except ValueError as exc:
                 raise ValueError(f"no se pudo proponer la silueta de «{name}»: {exc}") from exc
 
+    def limb_editor(self, project: str | dict, name: str, propose: bool = True) -> dict:
+        """Datos para el editor de polígonos 2D de la página (M3) del miembro ``name`` del proyecto.
+
+        Devuelve el plano del miembro (``origin``, ``u``, ``v``, ``normal``: con ellos la página pasa de (u, v) a 3D),
+        el fondo (``silueta``: polígonos ``{exterior, holes}`` en (u, v) de la figura proyectada sobre ese plano, el lado
+        de trabajo x ≥ 0 como en la GUI de escritorio), el polígono actual en (u, v) (``polygon``, vacío si el miembro
+        no tiene) y, con ``propose``, la propuesta de `autosil` (``propuesta``; ``None`` y ``aviso`` si no hay tramo
+        donde el miembro quede separado del tronco, p. ej. el brazo pegado al cuerpo: hay que dibujarlo).
+        """
+        import numpy as np
+
+        from .gui.session import Session
+        from .project import Project
+
+        if self._stl_path is None:
+            raise RuntimeError("primero hay que cargar un STL (load_stl)")
+        data = json.loads(project) if isinstance(project, (str, bytes)) else project
+        proj = Project.from_dict(data)
+        sess = Session(proj)
+        sess.load(self._stl_path, crown_z=proj.crown_z)
+        spec = sess.limb(name)
+        if spec is None:
+            raise ValueError(f"el proyecto no tiene un miembro «{name}»")
+        plane = spec.plane
+        out: dict = {"nombre": name, "tipo": spec.kind,
+                     "origin": plane.origin.tolist(), "u": plane.u.tolist(), "v": plane.v.tolist(), "normal": plane.normal.tolist(),
+                     "silueta": [{"exterior": g["exterior"].tolist(), "holes": [h.tolist() for h in g["holes"]]}
+                                 for g in sess.silhouette(plane)],
+                     "polygon": plane.to_uv(spec.polygon).tolist() if len(spec.polygon) >= 3 else [],
+                     "propuesta": None, "aviso": None}
+        if propose:
+            try:
+                poly = sess.propose_silhouette(name)
+                out["propuesta"] = plane.to_uv(np.asarray(poly, float)).tolist()
+            except ValueError as exc:
+                out["aviso"] = str(exc)
+        return out
+
     def demo(self, progress_cb: ProgressCb | None = None, orient: bool | str = False) -> dict:
         """Figura sintética (`afm demo`) con su proyecto de ejemplo."""
         from . import cli

@@ -115,5 +115,15 @@ try {
   const sil = eng.build(noPoly("leg"), { onMessage: (m) => msgs3.push(String(m)) });
   check(msgs3.some((m) => /Proponiendo siluetas/.test(m)) && sil.archivos.some((a) => a.endsWith("pierna_izq.stl")),
     `silueta automática: pierna sin polígono → el motor la propone y construye bajo Pyodide (${((performance.now() - t3) / 1000).toFixed(1)} s, ${sil.archivos.length} archivos)`);
+
+  // Editor de polígonos 2D (limb_editor): plano ortonormal, fondo, propuesta de la pierna y aviso legible del brazo.
+  const ed = eng.limbEditor(noPoly("leg"), "pierna", true);
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  check(Math.abs(dot(ed.u, ed.v)) < 1e-9 && Math.abs(dot(ed.u, ed.normal)) < 1e-9 && ed.silueta.length > 0 && ed.silueta[0].exterior.length >= 3
+    && ed.polygon.length === 0 && ed.propuesta?.length >= 3 && ed.aviso === null,
+    `limb_editor (pierna sin polígono): plano ortonormal, fondo de ${ed.silueta.length} polígono(s) y propuesta de ${ed.propuesta?.length} vértices`);
+  const ea = eng.limbEditor(noPoly("arm"), "brazo", true);
+  check(ea.propuesta === null && /a mano/.test(ea.aviso ?? "") && ea.silueta.length > 0, "limb_editor (brazo del muñeco): sin propuesta y con el aviso «dibujala a mano»");
+  check(rejects(() => eng.limbEditor(noPoly("leg"), "alas", false), /no tiene un miembro/), "limb_editor: miembro inexistente → error legible en JS");
 } catch (e) { check(/manifold3d/.test(String(e)), `demo: falla esperada sin manifold3d → ${String(e.message || e).split("\n").filter(Boolean).pop()}`); }
 process.exit(fails ? 1 : 0);

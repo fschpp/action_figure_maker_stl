@@ -12,7 +12,7 @@ section { display: flex; flex-direction: column; gap: .6rem; align-items: flex-s
 label { display: flex; gap: .5rem; align-items: center; }
 #download { font-weight: 600; }
 .barra { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
-#canvas { width: 100%; max-width: 640px; aspect-ratio: 4 / 3; background: #15181c; touch-action: none; }
+#canvas, #sil-canvas { width: 100%; max-width: 640px; aspect-ratio: 4 / 3; background: #15181c; touch-action: none; }
 .verbar { display: flex; gap: .6rem; flex-wrap: wrap; align-items: center; margin-top: 2rem; padding-top: .8rem; border-top: 1px solid color-mix(in srgb, currentColor 25%, transparent); font-size: .9rem; }
 .verbar button { padding: .25rem .7rem; }
 .hint { font-size: .9rem; opacity: .75; }
