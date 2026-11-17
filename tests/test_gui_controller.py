@@ -542,3 +542,38 @@ def test_cut_offset_target_is_forgotten_when_opening_another_figure(ctrl, tmp_pa
     _sym_plane(ctrl, "arm")
     _sym_plane(ctrl, "leg")
     assert ctrl.offset_limb() == "pierna"            # el último plano agregado, no el nombre heredado «brazo»
+
+
+class _RecordingScene:
+    """Escena falsa: anota qué se dibuja y si va por delante de la figura (`on_top`)."""
+
+    def __init__(self):
+        self.items, self.on_top = {}, {}
+
+    def set_lines(self, name, pl, color=None, closed=False, on_top=False):
+        self.items[name], self.on_top[name] = pl, on_top
+
+    def set_points(self, name, pts, color=None, size=10.0, on_top=False):
+        self.items[name], self.on_top[name] = pts, on_top
+
+    def remove(self, name):
+        self.items.pop(name, None)
+        self.on_top.pop(name, None)
+
+    def show(self, name, visible):
+        pass
+
+
+def test_silhouettes_are_drawn_on_top_so_the_figure_does_not_hide_them(arm):
+    """Regresión: el plano de corte queda dentro de la figura; las siluetas (guardadas y en edición) se dibujaban con
+    prueba de profundidad y la malla las tapaba."""
+    _draw_square(arm)
+    arm.cancel()                                               # sale del modo silueta: queda la guardada
+    sc = _RecordingScene()
+    arm._sync_polygons(sc)
+    assert sc.on_top["silueta:brazo"]                          # la guardada
+    arm.start_polygon("brazo")                                 # ahora en edición: el borrador y sus vértices
+    arm.draft.selected = 0
+    arm._sync_polygons(sc)
+    for key in ("poligono", "poligono:vertices", "poligono:sel"):
+        assert sc.on_top[key], key
