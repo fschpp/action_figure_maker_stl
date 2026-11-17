@@ -51,5 +51,14 @@ r = importProfiles(JSON.stringify({ format: "afm-perfiles", version: 1, profiles
 assert.deepEqual([r.added, r.skipped], [1, 3]); assert.deepEqual(Object.keys(r.profiles), ["Z"]);
 assert.throws(() => importProfiles("{no", {}), /JSON válido/);
 assert.throws(() => importProfiles(JSON.stringify({ a: 1 }), {}), /perfiles de línea/);
+assert.throws(() => importProfiles(JSON.stringify({ formato: "afm-linea-9" }), {}), /perfiles de línea/);
 assert.throws(() => importProfiles(JSON.stringify({ format: "otro", profiles: {} }), {}), /perfiles de línea/);
+// `linea.json` del catálogo de escritorio (afm-linea-1): el nombre y los params de la línea se importan como un perfil
+const linea = { formato: "afm-linea-1", nombre: "proceres-127", altura_mm: 127, boquilla: 0.4, params: { ref_height: 127, nozzle: 0.4, gap: 0.5 }, lugares: ["brazo"], motor: "0.9" };
+r = importProfiles(JSON.stringify(linea), {});
+assert.deepEqual([r.added, r.replaced, r.skipped], [1, 0, 0]); assert.deepEqual(r.profiles, { "proceres-127": linea.params });
+r = importProfiles(JSON.stringify({ ...linea, nombre: undefined }), {});
+assert.deepEqual([r.added, r.skipped], [0, 1], "sin nombre se omite, no se inventa uno");
+r = importProfiles(JSON.stringify({ ...linea, params: undefined }), {});
+assert.deepEqual([r.added, r.skipped], [0, 1], "sin params se omite");
 console.log("profiles_node: OK");

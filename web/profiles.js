@@ -3,6 +3,7 @@
 // navegador (localStorage) y se puede exportar/importar como archivo para pasarlo entre equipos. Sin DOM: se prueba en Node.
 export const STORAGE_KEY = "afm.perfiles.v1";
 export const FILE_FORMAT = "afm-perfiles";
+export const LINE_FORMAT = "afm-linea-1";   // `linea.json` del catálogo de escritorio (src/afm/catalog.py): nombre + params
 
 const isObj = (x) => x !== null && typeof x === "object" && !Array.isArray(x);
 
@@ -47,13 +48,15 @@ export function exportProfiles(profiles) {
 }
 
 /**
- * Lee un archivo de perfiles y lo junta con los existentes. Con un nombre repetido gana el importado si `overwrite`
+ * Lee un archivo de perfiles —el de esta página o el `linea.json` de un catálogo de escritorio (formato `afm-linea-1`,
+ * que aporta un perfil con su `nombre` y sus `params`)— y lo junta con los existentes. Con un nombre repetido gana el importado si `overwrite`
  * (por defecto), si no se conserva el que ya estaba. Devuelve { profiles, added, replaced, skipped }.
  */
 export function importProfiles(text, existing, { overwrite = true } = {}) {
   let doc;
   try { doc = JSON.parse(text); } catch { throw new Error("El archivo no es un JSON válido."); }
-  if (doc?.format !== FILE_FORMAT || !isObj(doc.profiles)) throw new Error("No es un archivo de perfiles de línea.");
+  if (doc?.formato === LINE_FORMAT) doc = { format: FILE_FORMAT, profiles: { [doc.nombre ?? ""]: doc.params } };   // linea.json
+  if (doc?.format !== FILE_FORMAT || !isObj(doc.profiles)) throw new Error("No es un archivo de perfiles de línea (ni un linea.json de catálogo).");
   const out = { ...existing };
   let added = 0, replaced = 0, skipped = 0;
   for (const [rawName, params] of Object.entries(doc.profiles)) {
