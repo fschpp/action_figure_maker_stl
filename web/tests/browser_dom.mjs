@@ -185,6 +185,8 @@ try {
     await page.locator("#stl").setInputFiles({ name: "pesado.stl", mimeType: "model/stl", buffer: heavy });
     await page.waitForFunction(() => document.querySelector("#buildhint").textContent.includes("acción en curso"), null, { timeout: 2000 });
     assert.equal(await page.locator("#build").isDisabled(), true, "«Generar» no debe estar habilitado mientras carga el STL");
+    assert.equal(await page.locator("#demo").isDisabled(), true, "la demo sí se bloquea durante una acción");
+    assert.equal(await page.locator("#check-update").isDisabled(), false, "«Buscar actualización» nunca se deshabilita, ni con una acción en curso");
     // el proyecto se puede elegir durante la carga (solo guarda datos) pero «Generar» espera; otro STL se ignora con aviso
     await page.locator("#proj").setInputFiles({ name: "fig2.proyecto", mimeType: "application/json", buffer: Buffer.from(PROJECT) });
     await page.locator("#stl").setInputFiles({ name: "otro.stl", mimeType: "model/stl", buffer: boxStl() });
@@ -201,6 +203,21 @@ try {
     await page.locator("#stl").setInputFiles({ name: "caja.stl", mimeType: "model/stl", buffer: boxStl() });   // vuelve al estado normal
     await page.waitForFunction(() => document.querySelector("#stlinfo").textContent.includes("12 triángulos"));
     await page.waitForFunction(() => !document.querySelector("#build").disabled);
+  });
+
+  await step("«Buscar actualización» se puede pulsar varias veces; botones que el navegador restauró apagados se rehabilitan", async () => {
+    await page.waitForFunction(() => !document.querySelector("#demo").disabled);
+    for (let i = 0; i < 3; i++) {
+      await page.click("#check-update");
+      await page.waitForFunction(() => document.querySelector("#update-status").textContent.includes("No se pudo comprobar"));
+      assert.equal(await page.locator("#check-update").isDisabled(), false, `tras el clic ${i + 1}`);
+      await page.evaluate(() => { document.querySelector("#update-status").textContent = ""; });
+    }
+    // Firefox conserva `disabled` al recargar una página que estaba ocupada: se simula y se dispara `pageshow`
+    await page.evaluate(() => { for (const id of ["#check-update", "#demo", "#decimate", "#pf-export"]) document.querySelector(id).disabled = true; window.dispatchEvent(new Event("pageshow")); });
+    assert.equal(await page.locator("#check-update").isDisabled(), false);
+    assert.equal(await page.locator("#demo").isDisabled(), false);
+    assert.equal(await page.locator("#decimate").isDisabled(), false);
   });
 
   await step("tras «Reducir» se puede generar, con el proyecto cargado antes o después", async () => {

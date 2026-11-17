@@ -52,4 +52,11 @@ t = setup(B, { ...A, files: [] }); assert.equal(await t.ui.check(), "ahead"); as
 t = setup(null, B); assert.equal(await t.ui.check(), "unknown"); assert.match(t.el.label.textContent, /desarrollo/);
 t = setup(A, "down"); assert.equal(await t.ui.check({ silent: true }), "error"); assert.equal(t.el.status.textContent, "");   // silencioso al cargar
 assert.equal(await t.ui.check(), "error"); assert.match(t.el.status.textContent, /No se pudo comprobar/);                    // manual: avisa
+// beforeReload: si la página no quiere recargar (acción en curso), la versión nueva queda descargada y no se recarga
+t = setup(A, { ...B, files: ["app.js"] }, { beforeReload: () => false });
+await t.ui.check(); await t.el.button.click(); await new Promise((r) => setTimeout(r, 10));
+assert.equal(t.reloaded, 0); assert.match(t.el.status.textContent, /se aplica al recargar/); assert.equal(t.el.button.textContent, "Actualizar ahora");
+t = setup(A, { ...B, files: ["app.js"] }, { beforeReload: () => true });
+await t.ui.check(); await t.el.button.click(); await new Promise((r) => setTimeout(r, 10));
+assert.equal(t.reloaded, 1);
 console.log("version_node: OK");

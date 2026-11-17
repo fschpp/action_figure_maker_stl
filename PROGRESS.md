@@ -2,6 +2,16 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — Página: «Buscar actualización» nunca se deshabilita (2026-11-17, rama `web_buscar_actualizacion` sobre main bfdfb14)
+**Reporte del dueño:** tras actualizar varias veces, «Buscar actualización» queda deshabilitado y solo Shift+F5 lo arregla (y borra los archivos elegidos).
+**Causa (hipótesis fuerte, no reproducida en Firefox):** `busy()` deshabilitaba TODOS los `<button>` durante cualquier acción (una generación dura minutos), también el de actualización; y Firefox conserva el estado `disabled` de los botones al recargar, así que una recarga con una acción en curso arrancaba la página nueva con los botones apagados y `busy(false)` nunca se ejecutaba para rehabilitarlos.
+**Hecho:** (1) `applyBusy()` deja `#check-update` siempre habilitado; (2) corre también al cargar y en `pageshow`, así que botones restaurados apagados se rehabilitan; (3) si se pulsa «Actualizar ahora» con una acción en curso, pide confirmación (`beforeReload` en `version.js`): recargar corta la generación; si se cancela, la versión nueva queda descargada y se aplica en la próxima recarga. **Verificado:** `version_node.mjs` OK (2 casos nuevos de `beforeReload`); `browser_dom.mjs` 31/31 en Chrome (pasos nuevos: el botón sigue habilitado con una acción en curso, 3 clics seguidos, botones apagados + `pageshow` → habilitados); con el comportamiento viejo (`ALWAYS_ON` vacío) el paso falla. **No verificado:** Firefox real (la restauración de `disabled` se simuló); el `confirm()` en navegador; el workflow en Actions. Al cargar, `sync()` ahora corre una vez: el texto junto a «Generar» muestra «(falta cargar el STL)» desde el inicio.
+
+### Todo List
+- [x] `ALWAYS_ON` + `applyBusy` en carga y `pageshow` + `beforeReload` + pruebas.
+- [ ] El dueño confirma en Firefox: actualizar varias veces seguidas, también con una acción en curso.
+- [ ] Si algo sigue apagado después de recargar, pegar qué botón y el texto de `#buildhint`.
+
 ## Current Focus — M3: perfiles de línea (plan web §8.12) (2026-11-17, rama `web_perfiles_de_linea` sobre main f3319dd)
 **Objetivo:** que al abrir un personaje nuevo no haya que repetir los parámetros comunes de la línea (altura de referencia, holgura, pasadores, pose, margen). Un perfil = el bloque `params` del proyecto, con nombre.
 **Hecho:** `web/profiles.js` (lógica pura: nombre, extraer `params`, aplicar, guardar en `localStorage`, exportar/importar JSON `{format: "afm-perfiles", version: 1, profiles}`) y una sección «Perfil de línea» en la página: guardar los parámetros del proyecto cargado, aplicar un perfil al proyecto cargado (reemplaza `params` completo; planos y miembros quedan; el archivo en disco no se toca), eliminar, exportar e importar (el mismo nombre se reemplaza, no se duplica). Sin `localStorage` (bloqueado) la página sigue andando y los perfiles viven en la sesión; si no deja escribir, avisa.
