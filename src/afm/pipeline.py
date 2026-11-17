@@ -370,6 +370,19 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
     say("Evaluando las piezas…")
     for _m in pieces.values():
         _m.num_tri()
+    # Las piezas llegan con ~100 veces más triángulos de los necesarios (brazo de 353 732 que en el STL son 6 000):
+    # compactarlas acá abarata la decimación, la validación y la exportación (ver S.compact). Una misma malla puede estar
+    # en `pieces` y en `res_motion`: se compacta una sola vez.
+    say("Compactando las piezas…")
+    _memo: dict = {}
+
+    def _compact(m):
+        if id(m) not in _memo:
+            _memo[id(m)] = S.compact(m)
+        return _memo[id(m)]
+
+    pieces = {n: _compact(m) for n, m in pieces.items()}
+    res_motion = {n: (_compact(v[0]),) + tuple(v[1:]) for n, v in res_motion.items()}
     if p.decimate > 0:
         say("Reduciendo triángulos…")
         n0 = pieces["torso"].num_tri()

@@ -28,6 +28,29 @@ def to_manifold(mesh: trimesh.Trimesh) -> Manifold:
     return mf
 
 
+def compact(mf: Manifold, tol: float = 1e-3, min_tris: int = 20_000) -> Manifold:
+    """La misma pieza con muchos menos triángulos: suelda los vértices duplicados, reconstruye el Manifold y simplifica.
+
+    Las booleanas, el barrido por marching cubes y las holguras Minkowski dejan mallas con 100 veces más triángulos de los
+    que la forma necesita (un brazo de Güemes: 353 732 → 6 078; un muslo: 377 512 → 7 542, volumen igual a 0,1 mm³, en
+    ~1 s). `Manifold.simplify` sobre la malla cruda casi no avanza (353 732 → 349 296) porque los vértices duplicados le
+    impiden colapsar caras coplanares; soldándolos antes sí. Todo lo que viene después (validar, exportar) trabaja sobre
+    mallas 50 veces más chicas. Devuelve la pieza original si es chica, si no se puede reconstruir como variedad o si el
+    volumen cambia más de 0,2 %."""
+    n = mf.num_tri()
+    if n < min_tris:
+        return mf
+    try:
+        m2 = to_manifold(to_trimesh(mf))
+    except MeshNotManifold:
+        return mf
+    m3 = m2.simplify(tol)
+    v0 = mf.volume()
+    if m3.is_empty() or m3.num_tri() >= n or abs(m3.volume() - v0) > 2e-3 * max(abs(v0), 1e-9):
+        return mf
+    return m3
+
+
 def to_trimesh(mf: Manifold) -> trimesh.Trimesh:
     mm = mf.to_mesh()
     return trimesh.Trimesh(
