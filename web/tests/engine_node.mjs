@@ -92,6 +92,11 @@ try {
   const mean = (a) => { let s = 0; for (let k = 1; k < a.length; k += 3) s += a[k]; return s / (a.length / 3); };
   check(Math.abs(mean(p0.piezas.pierna_izq.v) - mean(p90.piezas.pierna_izq.v)) > 5, "preview_pose: la pierna se mueve entre 0° y 90°");
 
+  // Probetas de calibración: ZIP con STL + tabla, idéntico al de la CLI (probes.probe_files)
+  const pc = eng.makeTestCoupons({ tipo: "hongo", clearances: [0.4], deltas: [0] });
+  check(pc.zip instanceof Uint8Array && pc.zip.length > 1000 && [...pc.archivos].sort().join() === "probetas.stl,probetas.txt" && /0[.,]4/.test(JSON.parse(pc.informe).texto),
+    `make_test_coupons: ZIP de ${pc.zip.length} bytes con ${[...pc.archivos].join(", ")}`);
+
   // Punta a punta, como lo hace web/app.js: STL fuera de escala y del origen + planos elegidos con 3 puntos del STL crudo,
   // llevados al marco de la figura con `frame` → «Generar» debe dar las mismas piezas que la demo (planos escritos a mano).
   eng.loadStl(new Uint8Array(odd));

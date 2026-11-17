@@ -305,5 +305,18 @@ class EngineSession:
                     out["colisiones"][name] = round(v, 4)
         return out
 
+    def make_test_coupons(self, tipo: str = "hongo", clearances=None, deltas=None, axiales=None,
+                          boquilla: float = 0.4, gaps=None, espesores=None) -> dict:
+        """Probetas de calibración (§8.11) en un ZIP: mismos archivos que `afm probe` (`probes.probe_files`)."""
+        from . import probes
+
+        files, text = probes.probe_files(tipo, clearances=clearances, deltas=deltas, axiales=axiales,
+                                         boquilla=boquilla, gaps=gaps, espesores=espesores)
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            for name in sorted(files):
+                z.writestr(name, files[name])
+        return {"zip": buf.getvalue(), "archivos": sorted(files), "texto": text}
+
     def close(self) -> None:
         shutil.rmtree(self._dir, ignore_errors=True)

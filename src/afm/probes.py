@@ -221,3 +221,45 @@ def detent_labels_text(cells: list[DetentProbeCell]) -> str:
                     f"{s.detent_gap:.2f} mm | ε {100 * DT.tongue_strain(s):.2f} %, F {DT.tongue_force(s):.2f} N, "
                     f"par est. {DT.hold_torque(s):.1f} N·mm, juego ±{DT.angular_play_deg(s):.1f}°")
     return "\n".join(rows)
+
+
+def probe_files(tipo: str = "hongo", clearances=None, deltas=None, axiales=None, boquilla: float = 0.4,
+                gaps=None, espesores=None) -> tuple[dict[str, bytes], str]:
+    """Genera las probetas de calibración como archivos en memoria: ({nombre: bytes}, texto de la tabla).
+
+    Es la única implementación: la usan `afm probe` (CLI) y la página (Pyodide), así que dan los mismos archivos."""
+    import dataclasses
+
+    p = Params()
+    stl = lambda mesh: S.to_trimesh(mesh).export(file_type="stl")
+    if tipo == "clic":
+        from . import detent as DT
+        p = dataclasses.replace(p, nozzle=boquilla, detent=DT.spec_for_nozzle(boquilla))
+        thick = tuple(espesores) if espesores else ((1.4, 1.6, 1.8) if boquilla >= 0.7 else DEFAULT_DETENT_THICKNESSES)
+        files: dict[str, bytes] = {}
+        blocks = []
+        for g in (gaps or (0.2, 0.3, 0.4)):
+            cells = detent_probe_cells(p, thicknesses=thick, gap=g)
+            fn = f"probetas_clic_b{boquilla:g}_gap{g:g}"
+            files[fn + ".stl"] = stl(build_detent_probe(p, cells))
+            blocks.append(f"== {fn}.stl (boquilla {boquilla:g} mm, holgura de punta {g:g} mm) ==\n" + detent_labels_text(cells))
+        text = "\n\n".join(blocks)
+        files[f"probetas_clic_b{boquilla:g}.txt"] = (text + "\n").encode()
+        return files, text
+    if tipo == "bisagra":
+        kw = {}
+        if clearances:
+            kw["clearances"] = list(clearances)
+        if deltas:
+            kw["pin_deltas"] = list(deltas)
+        if axiales:
+            kw["axial_clearances"] = list(axiales)
+        cells = hinge_probe_cells(p, **kw)
+        mesh, text = build_hinge_probe(p, cells), hinge_labels_text(cells)
+    elif tipo == "hongo":
+        cells = probe_cells(p, clearances=list(clearances or DEFAULT_CLEARANCES),
+                            shaft_deltas=list(deltas or DEFAULT_SHAFT_DELTAS))
+        mesh, text = build_probe(p, cells), labels_text(cells)
+    else:
+        raise ValueError(f"tipo de probeta desconocido: {tipo!r}")
+    return {"probetas.stl": stl(mesh), "probetas.txt": (text + "\n").encode()}, text

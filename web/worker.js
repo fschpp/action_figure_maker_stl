@@ -1,5 +1,5 @@
 // Web Worker: carga Pyodide y atiende mensajes {id, type, ...}.
-// Protocolo: init, load_stl, decimate_stl, frame, new_limb, new_head, new_waist, limb_editor, preview_pose, build, demo → progress / result / error.
+// Protocolo: init, load_stl, decimate_stl, frame, new_limb, new_head, new_waist, limb_editor, preview_pose, make_test_coupons, build, demo → progress / result / error.
 import { PYODIDE_BASE, PYODIDE_PACKAGES, MICROPIP_PACKAGES, WHEELS_MANIFEST } from "./config.js";
 import { createEngine } from "./engine.js";
 
@@ -43,6 +43,10 @@ self.onmessage = async (ev) => {
     else if (type === "preview_pose") {
       const v = engine.previewPose(ev.data.angle, ev.data.collisions !== false);
       post({ id, type: "result", value: v }, Object.values(v.piezas).flatMap((p) => [p.v.buffer, p.i.buffer]));
+    }
+    else if (type === "make_test_coupons") {
+      const v = unpack(engine.makeTestCoupons(ev.data.opts ?? {}));
+      post({ id, type: "result", value: v }, [v.zip.buffer]);
     }
     else if (type === "build" || type === "demo") {
       const onMessage = (m) => post({ type: "progress", stage: String(m), pct: null });
