@@ -38,6 +38,17 @@ Igual, con el workflow **fastsimp-wheel** (versión por defecto `0.2.0`, Release
 
 - **Aviso** (`HEAVY_STL_TRIANGLES`, 15 000 triángulos): el STL carga, pero la página avisa que generar puede tardar decenas de minutos y ofrece «Reducir».
 - **Rechazo** (`MAX_STL_BYTES` = 75 MB, `MAX_STL_TRIANGLES` = 1 500 000, en `src/afm/webapi.py`; el de bytes se repite en `web/app.js`): un STL binario pesa 84 B + 50 B por triángulo, así que 75 MB ≈ 1,5 M de triángulos. La memoria de WebAssembly (≤ 4 GB por pestaña) no alcanza con holgura porque el STL se copia varias veces (archivo, worker, trimesh, manifold). El mensaje pide reducirlo a ~10 000 triángulos con MeshLab o Blender.
+- **Medición** (2026-11-17, `tools/medir_memoria_wasm.mjs`, Pyodide 314.0.8 en Node 22, una malla por proceso, esferas sintéticas cerradas; en un navegador cambia el techo de memoria, no la proporción): cargar cuesta ~0,7 KB de montón de WASM por triángulo y reducir a ~10 000 suma ~0,4 KB por triángulo más.
+
+  | Triángulos | Archivo | Cargar: tiempo / montón WASM | Reducir a 10 000: tiempo / montón WASM | RSS máx. del proceso |
+  |---|---|---|---|---|
+  | 81 920 | 4 MB | 5,6 s / 187 MB | 0,6 s / 224 MB | 1,1 GB |
+  | 327 680 | 16 MB | 7,0 s / 322 MB | 2,3 s / 557 MB | 1,4 GB |
+  | 1 310 720 | 63 MB | 13,9 s / 1 016 MB | 8,2 s / 1 628 MB | 2,6 GB |
+  | 1 483 520 | 71 MB | 14,5 s / 1 126 MB | 10,6 s / 1 750 MB | 2,6 GB |
+
+  Conclusión: el límite de 1,5 M entra en Node con ~1,75 GB de montón de WASM al reducir, es decir, con poca holgura bajo 2 GB (el techo de algunos navegadores y móviles); en un celular conviene bajarlo. **No medido:** un STL real (las esferas se reducen sin problema), «Generar» con una malla así (no se intenta: el torso se decimaría de todos modos), Safari/móviles.
+- **La reducción puede quedarse corta:** `fast_simplification` pedida a 10 000 dejó la esfera UV de 1,48 M en 47 482 triángulos (igual en nativo y con más pasadas; la esfera icosaédrica de 1,31 M sí llegó a 10 000). `decimate_loaded` lo marca (`reduccion_corta`) y avisa en el log con la cifra real.
 - Si subís estos límites, medilo antes con un STL real (memoria del worker y tiempo de «Cargar»), y cambiá los dos lugares a la vez; hay un test nativo (`test_load_stl_rejects_files_over_the_browser_limits`) y uno de navegador.
 
 ## Verificación mínima antes de mergear algo web

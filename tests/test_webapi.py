@@ -74,6 +74,23 @@ def test_decimate_loaded_handles_open_meshes_keeping_height():
     s.close()
 
 
+def test_decimate_loaded_says_when_the_reduction_falls_short(monkeypatch):
+    fs = pytest.importorskip("fast_simplification")
+    heavy = make_doll().subdivide().subdivide()
+    buf = io.BytesIO()
+    heavy.export(buf, file_type="stl")
+    real = fs.simplify
+    # la biblioteca real se detiene lejos del objetivo en algunas mallas: se simula pidiéndole el triple
+    monkeypatch.setattr(fs, "simplify", lambda v, f, target_reduction, **kw: real(v, f, target_reduction=1 - 3 * (1 - target_reduction), **kw))
+    s = EngineSession()
+    info = s.load_stl(buf.getvalue())
+    assert info["triangulos"] > 6000
+    r = s.decimate_loaded(2000)
+    assert r["reducido"] and r["reduccion_corta"] and r["triangulos"] > 3000
+    assert any("se detuvo en" in a for a in r["avisos"]) and not any("conviene decimarlo" in a for a in r["avisos"])
+    s.close()
+
+
 def test_build_requires_a_loaded_stl():
     with pytest.raises(RuntimeError):
         EngineSession().build("{}")

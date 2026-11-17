@@ -117,7 +117,14 @@ class EngineSession:
             info = self.load_stl(open(self._stl_path, "rb").read())
             return {**info, "stl": None, "reducido": False, "triangulos_antes": n0,
                     "avisos": info["avisos"] + ["la decimación cambiaba el alto de la figura: se dejó el STL original"]}
-        return {**info, "stl": data, "reducido": True, "triangulos_antes": n0}
+        # fast_simplification puede detenerse lejos del objetivo (esfera UV de 1,48 M tri pedida a 10 000 → 47 482, también
+        # en nativo y con más pasadas): se dice tal cual en vez de repetir el aviso genérico de «conviene decimarlo».
+        corto = info["triangulos"] > 1.5 * target
+        avisos = [x for x in info["avisos"] if "decimarlo" not in x] if corto else info["avisos"]
+        if corto:
+            avisos.append(f"la reducción se detuvo en {info['triangulos']} triángulos (se pedían ~{target}): la biblioteca no "
+                          "pudo colapsar más esta malla; si generar tarda demasiado, reducila con otra herramienta (MeshLab, Blender)")
+        return {**info, "avisos": avisos, "stl": data, "reducido": True, "reduccion_corta": corto, "triangulos_antes": n0}
 
     def figure_frame(self, crown_z: float | None = None, ref_height: float = 100.0) -> dict:
         """Transformación del STL crudo (Z arriba) al marco normalizado en que se guardan los planos del proyecto:

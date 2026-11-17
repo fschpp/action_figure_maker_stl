@@ -2,6 +2,21 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — Medición de memoria de load/reducir bajo Pyodide y reducción que se queda corta (2026-11-17, rama `m3_medir_memoria` sobre main cbdd6b6)
+**Objetivo:** confirmar con datos los límites de mallas grandes (casilla «Medir con un STL real grande…»).
+**Hecho:** `tools/medir_memoria_wasm.mjs` (carga y reduce una malla bajo Pyodide en Node y imprime tiempo, montón de WASM y RSS máximo). Medido con esferas sintéticas de 82 k, 328 k, 1,31 M y 1,48 M triángulos (tabla en `docs/WEB_mantenimiento.md`): cargar ~0,7 KB de montón por triángulo, reducir suma ~0,4 KB; el techo de 1,5 M llega a ~1,75 GB de montón de WASM al reducir (11 s). Hallazgo: `fast_simplification` pedida a 10 000 dejó la esfera UV de 1,48 M en **47 482** triángulos (también en nativo y con más pasadas); `decimate_loaded` ahora devuelve `reduccion_corta` y un aviso con la cifra real (reemplaza el genérico «conviene decimarlo» cuando la reducción no llegó al objetivo).
+**Verificado:** nativo `test_webapi` (+1, simulando la biblioteca corta); medición real bajo Pyodide 314.0.8 con las wheels de los Releases (manifold3d 3.5.5, fast-simplification 0.2.0). **No verificado:** un STL real grande (solo esferas), «Generar» con mallas de ese tamaño, Chrome/Safari/móviles (se midió en Node: el techo de memoria de un navegador es otro), por qué la biblioteca se detiene en la esfera UV.
+**Pendiente de decisión (del dueño):** bajar `MAX_STL_TRIANGLES` (p. ej. a ~1 M: ~1,3 GB de montón al reducir) si se quiere holgura en móviles; hoy queda en 1,5 M.
+
+### Todo List
+- [x] Medir memoria de load/reducir bajo Pyodide con mallas sintéticas hasta el techo; aviso cuando la reducción se queda corta.
+- [ ] Medir con un STL real grande (el del dueño) y decidir si se baja el límite.
+- [ ] Probar Safari y móviles (mejor esfuerzo).
+- [ ] i18n de la página.
+- [ ] Probar el recorte manual con Mickey; formas predefinidas y edición de recortes del proyecto.
+- [ ] El dueño prueba el editor de siluetas con Güemes y re-corre Sucre para medir G3.
+- [ ] **WIP de main sin cerrar:** `f3319dd` (`S.compact`) sin verificar con Güemes.
+
 ## Current Focus — Fase final: límites de mallas y documentación de mantenimiento (2026-11-17, rama `m3_fase_final` sobre main a212a12)
 **Objetivo:** cerrar lo que el plan pide antes de dar el port por terminado: límites claros para STL grandes y documentar cómo reconstruir los wheels y actualizar Pyodide.
 **Hecho:** límite duro en el motor (`MAX_STL_BYTES` 75 MB, `MAX_STL_TRIANGLES` 1,5 M) con mensajes que piden reducir a ~10 000 triángulos; la página rechaza el archivo antes de leerlo a memoria; nuevo `docs/WEB_mantenimiento.md` (origen de cada pieza, reconstruir manifold3d y fast-simplification, actualizar Pyodide, límites); casillas del plan sincronizadas.
