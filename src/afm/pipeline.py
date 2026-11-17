@@ -1142,9 +1142,10 @@ def _validate_joints(res: BuildResult, p: Params, joints, out: dict, step: float
                 out["problems"].append(f"{jname}: sin tope de {'flexión' if label == 'flexion' else 'extensión'}: "
                                        f"a {f:.0f}° todavía no choca (el tope debe estar a ≤ {reach:.0f}° del límite)")
         rest = jb.distal if lo > 0 or hi < 0 else jb.rotate_distal(0.0)
-        gap = float(rest.min_gap(prox, 5.0))
-        rec["holgura_mm"] = round(gap, 4)
         need = 0.9 * min(p.clearance, p.axial_clearance)
+        # radio acotado (ver `_gap_search`): solo hay que distinguir «menos de `need`»; a 5 mm costaba 61 s de 108 en la figura real
+        gap = float(rest.min_gap(prox, min(5.0, max(2.0, 3.0 * need))))
+        rec["holgura_mm"] = round(gap, 4)
         if gap < need:
             out["problems"].append(f"{jname}: holgura mínima {gap:.3f} mm < {need:.3f} mm")
         free = []

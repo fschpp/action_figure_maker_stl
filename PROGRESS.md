@@ -2,6 +2,25 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — G3: Validando: `_validate_joints` con radio de `min_gap` acotado (2026-11-16, rama `g3_validate_joints_radio` sobre main 05d7787)
+**Dato del dueño con `05d7787` (el arreglo de exportación ya mergeado), STL sin reducir de 19 532 tri:** «Listo en» **1366,0 s** (antes 2618 s con el STL reducido a 9 999). **Ambiguo, no se puede atribuir:** el log pegado no trae las marcas por etapa; trae dos «Listo en» (38,2 s y 1366,0 s) y un informe idéntico al de la corrida anterior (mismos triángulos y volúmenes), así que puede ser el informe viejo de la página. Haría falta el log con las marcas `+N s` para confirmar cuánto bajó «Exportando» y si la corrida usó el STL reducido.
+**Perfil nativo (py-spy, 50 Hz, misma figura, 242 s):** `validate` 108 s, de los cuales **`_validate_joints` línea 1145 `rest.min_gap(prox, 5.0)` = 61,5 s**, la línea 1132 (`rotate_distal ^ prox`, barrido de rango) 12,6 s, `_nonmanifold_edges` 15,5 s, `_validate_chain` 6,1 s. `cap_export_triangles` 81 s (ya acotado).
+**Hecho:** el radio de esa `min_gap` pasa a `min(5, max(2, 3·need))` con `need = 0,9·min(clearance, axial_clearance)` (misma idea que `_gap_search` y el radio de `validate`). **Nativo con la figura del dueño:** Validando 108 → **59,8 s**; total 245,8 → **193,1 s**. Holguras de rodilla y codo iguales (0,3502), mismos 2 problemas de pared (codo 0,66 mm, rodilla 0,69 mm); `gaps` de miembros contra torso idénticos (0,4772; 2,0 = radio). Tests: `test_joints.py` + `test_export_cap.py` 30/30 (200 s).
+**Efecto colateral:** si la holgura real de una articulación superara el radio (≥ 2 mm) el informe mostraría el radio en vez del valor; no cambia ningún veredicto porque `need` ≈ 0,32 mm.
+**No verificado:** el efecto en el navegador (esperable ~×5–6: Validando 764 s → ~400 s); `test_assembly` y la suite completa.
+
+### Todo List
+- [x] Perfilar `validate` con la figura real.
+- [x] Acotar `min_gap` de `_validate_joints`.
+- [ ] El dueño pega el log con las marcas por etapa (`+N s …`) del sitio nuevo y del siguiente.
+- [ ] Siguiente en el perfil: `_validate_joints` línea 1132 (barrido `rotate_distal ^ prox`, 12,6 s) y `_nonmanifold_edges` (15,5 s: `np.unique` sobre aristas de piezas de 130–430 k tri; mejor medirlo después del tope).
+- [ ] Las otras llamadas con radio 5 mm: líneas 950 (mano), 1015, 1475 (`gaps` por pareja).
+- [ ] Diseño de Sucre: pared del bulón de codo/rodilla ≥ 0,8 mm.
+- [ ] `engine_node.mjs` con red; «Cavidad del cuello».
+
+### Latest Blockers/Discoveries
+- `min_gap(…, 5.0)` fijo era el cuello de botella en 3 sitios (decimación del torso, tope de exportación, validación de articulaciones).
+
 ## Current Focus — G3: «Exportando las piezas» 1545 s en el navegador → `cap_export_triangles` acotado (2026-11-16, rama `g3_cap_export_rapido` sobre main 3b362d8)
 **Dato del dueño (sitio `3b362d8`, Sucre, STL reducido de 19 532 a 9 999 tri, rodilla + codo + cintura):** «Listo en» **2618 s**. Etapas: separar/cavidades/rodilla/codo hasta +272,5 s; cuello→cintura +26 s; **Validando 764,5 s**; **Exportando 1544,9 s**; ZIP 10 s. Informe: `ok: false` por **diseño de la figura**, no por el motor: «codo: pared del cuerpo proximal alrededor del bulón de 0,65 mm < 0,8 mm» y «rodilla … 0,70 mm»; 5 piezas con aristas non-manifold al soldar por posición (brazos 232/234, muslos 511/513, torso 20).
 **Reproducido en nativo** con su STL y `.proyecto` (mismo `load_stl` → `decimate_loaded(10000)` → `build`; 9 999 tri iguales): total **454,7 s** (Validando 107,7; **Exportando 295,9**). Mismo orden de magnitud que el navegador (×5–6, como en el resto de las etapas). Antes de exportar, `brazo` 190 k, `muslo` 434 k, `pelvis` 131 k triángulos (> `export_max_tris` = 150 000 → se dispara `cap_export_triangles`).
