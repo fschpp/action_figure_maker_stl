@@ -26,6 +26,25 @@
       <button id="decimate" hidden>Reducir el STL a ~10 000 triángulos (más rápido)</button>
     </section>
 
+    <section id="perfiles">
+      <h2>Perfil de línea</h2>
+      <p class="hint">Un perfil guarda los parámetros comunes de una línea de figuras (altura de referencia, holgura, pasadores, pose, margen) para no repetirlos en cada personaje. Se guarda en este navegador; exportalo para llevarlo a otro equipo.</p>
+      <div class="barra">
+        <label>Nombre <input id="pf-name" type="text" maxlength="60" placeholder="p. ej. Héroes 13 cm"></label>
+        <button id="pf-save" disabled>Guardar los parámetros del proyecto cargado</button>
+      </div>
+      <div class="barra">
+        <label>Perfiles guardados <select id="pf-list"></select></label>
+        <button id="pf-apply" disabled>Aplicar al proyecto cargado</button>
+        <button id="pf-del" disabled>Eliminar</button>
+      </div>
+      <div class="barra">
+        <button id="pf-export" disabled>Exportar perfiles</button>
+        <label>Importar <input id="pf-import" type="file" accept=".json"></label>
+      </div>
+      <p id="pf-info" class="hint" aria-live="polite"></p>
+    </section>
+
     <section id="vista" hidden>
       <h2>Vista del modelo</h2>
       <div class="barra">

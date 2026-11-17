@@ -2,6 +2,24 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — M3: perfiles de línea (plan web §8.12) (2026-11-17, rama `web_perfiles_de_linea` sobre main f3319dd)
+**Objetivo:** que al abrir un personaje nuevo no haya que repetir los parámetros comunes de la línea (altura de referencia, holgura, pasadores, pose, margen). Un perfil = el bloque `params` del proyecto, con nombre.
+**Hecho:** `web/profiles.js` (lógica pura: nombre, extraer `params`, aplicar, guardar en `localStorage`, exportar/importar JSON `{format: "afm-perfiles", version: 1, profiles}`) y una sección «Perfil de línea» en la página: guardar los parámetros del proyecto cargado, aplicar un perfil al proyecto cargado (reemplaza `params` completo; planos y miembros quedan; el archivo en disco no se toca), eliminar, exportar e importar (el mismo nombre se reemplaza, no se duplica). Sin `localStorage` (bloqueado) la página sigue andando y los perfiles viven en la sesión; si no deja escribir, avisa.
+**Verificado:** `node web/tests/profiles_node.mjs` OK (lógica pura, incl. almacenamiento roto y archivos mal formados); `web/tests/browser_dom.mjs` **29/29** en Chrome local (9 pasos nuevos: botones bloqueados sin proyecto, nombre vacío / sin params, guardar, aplicar → «Generar» manda al motor exactamente los `params` del perfil con `front` intacto, persiste al recargar, exportar → eliminar → importar, archivo inválido, `localStorage` bloqueado). **Mutación:** si «Aplicar» no hace nada, el paso de aplicar falla. `profiles_node.mjs` entra en `web-browser.yml`.
+**No verificado:** el workflow en Actions; Firefox/Safari (la descarga de «Exportar» solo se probó en Chrome); que los nombres de parámetros de un perfil sigan siendo válidos si cambia `Params` del motor (un perfil viejo con claves desconocidas llega tal cual al motor; qué hace `Params.from_dict` con ellas no se probó).
+
+### Todo List
+- [x] `profiles.js` + sección de la página + pruebas (Node y navegador) + workflow.
+- [ ] Probar en el sitio real (Pyodide) que un perfil aplicado llega al motor: `Params.from_dict` con las claves del perfil y con una clave desconocida.
+- [ ] Perfil con más que `params` (p. ej. pasadores de cuello/cintura si viven fuera de `params`): confirmar contra `Project.to_dict()`.
+- [ ] M3 restante: editor de polígonos 2D (siluetas y recortes), generador de probetas (§8.11) con descarga, i18n completo.
+- [ ] **WIP de main sin cerrar:** `f3319dd` (`S.compact` aplicado en `pipeline.build`) sigue «sin verificar»: falta medir tiempo y paridad de piezas con Güemes (se postergó a pedido del dueño).
+
+### Latest Blockers/Discoveries
+- `busy()` deshabilita todos los `<button>` y `sync()` los rehabilita: el estado de los botones de perfiles lo fija `renderProfiles()` desde `sync()`, no el HTML.
+- Nativo, `Session.propose_silhouette` sobre Belgrano (`examples/belgrano_lq_rsized.stl`) no terminó en >5 min en `autosil.scan` (`trimesh.section` por cada corte de 0,5 mm), mientras que Güemes tarda 0,6 s; con `trimesh` y `shapely` recién instalados de PyPI en un venv de 2 CPU. **Sin diagnóstico:** no se sabe si es la figura, la versión de trimesh o el venv; pendiente de medir cuántos cortes hace y cuánto tarda cada `section`. Con el muñeco sintético `propose_silhouette` falla (brazo pegado al torso: «no hay un tramo donde el miembro quede separado del tronco»), así que no sirve de fixture para `_fill_silhouettes`.
+- Pyodide 314.0.8 completo y los wheels de manifold3d y fast-simplification se pueden bajar desde GitHub en este sandbox (`gh api` REST; `gh release download` usa GraphQL y está bloqueado): se puede correr `engine_node.mjs` en modo `pyodide` acá.
+
 ## Current Focus — Página: el worker caído se muestra y no deja la página «ocupada» (2026-11-17, rama `web_error_del_worker` sobre main aedda3c)
 **Objetivo:** cerrar el pendiente «si el worker no arranca (p. ej. error de carga de Pyodide) la página queda ocupada sin mensaje».
 

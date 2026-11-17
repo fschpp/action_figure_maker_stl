@@ -362,6 +362,115 @@ try {
     catch (e) { throw new Error(`${what}: no ocurrió. log de la página: ${JSON.stringify(await pg.locator("#log").innerText())} | errores: ${JSON.stringify(pg.errs)}`); }
   };
 
+  // ---------- Perfiles de línea (§8.12) ----------
+  // Un contexto propio (localStorage limpio) que se conserva entre pasos; `goto` de nuevo = recargar la página.
+  const pfCtx = await browser.newContext({ acceptDownloads: true });
+  const pf = await pfCtx.newPage();
+  const pfErrors = [];
+  pf.on("pageerror", (e) => pfErrors.push(e.message));
+  await pf.route("**/worker.js", (r) => r.fulfill({ contentType: "text/javascript", body: STUB_WORKER }));
+  await pf.route(/\/(version\.json|build-info\.js)/, (r) => r.fulfill({ status: 404, body: "" }));
+  await pf.route(/cdn\.jsdelivr\.net\/npm\/three@[^/]+\/(.*)$/, (r) => {
+    const f = path.join(process.env.THREE_DIR ?? "", r.request().url().match(/three@[^/]+\/(.*)$/)[1]);
+    return process.env.THREE_DIR && fs.existsSync(f) ? r.fulfill({ contentType: "text/javascript", body: fs.readFileSync(f) }) : r.continue();
+  });
+  pf.setDefaultTimeout(15000);
+  const projFile = (params, name = "fig.proyecto") => ({ name, mimeType: "application/json", buffer: Buffer.from(JSON.stringify({ version: 1, symmetry: null, crown_z: null, front: "+Y", limbs: [], ...(params ? { params } : {}) })) });
+  const pfInfo = () => pf.locator("#pf-info").innerText();
+  const LINEA = { ref_height: 130, gap: 0.5, pin: { head_d: 6.6 } };
+
+  await step("perfiles: sin proyecto cargado no se puede guardar ni aplicar; sin perfiles no se exporta", async () => {
+    await pf.goto(base);
+    for (const id of ["#pf-save", "#pf-apply", "#pf-del", "#pf-export"]) assert.equal(await pf.locator(id).isDisabled(), true, id);
+    assert.equal(await pf.locator("#pf-list option").count(), 0);
+  });
+
+  await step("perfiles: nombre vacío y proyecto sin parámetros dan un aviso legible y no guardan nada", async () => {
+    await pf.locator("#proj").setInputFiles(projFile(null));
+    await pf.waitForFunction(() => !document.querySelector("#pf-save").disabled);
+    await pf.click("#pf-save");
+    assert.match(await pfInfo(), /necesita un nombre/);
+    await pf.fill("#pf-name", "Sin params"); await pf.click("#pf-save");
+    assert.match(await pfInfo(), /no tiene parámetros/);
+    assert.equal(await pf.locator("#pf-list option").count(), 0);
+  });
+
+  await step("perfiles: guardar los parámetros del proyecto cargado; aparece en la lista y en localStorage", async () => {
+    await pf.locator("#proj").setInputFiles(projFile(LINEA, "heroes.proyecto"));
+    await pf.fill("#pf-name", "  Héroes   13 cm "); await pf.click("#pf-save");
+    assert.match(await pfInfo(), /Perfil «Héroes 13 cm» guardado \(3 parámetros\)/);
+    assert.deepEqual(await pf.locator("#pf-list option").allInnerTexts(), ["Héroes 13 cm"]);
+    const saved = JSON.parse(await pf.evaluate(() => localStorage.getItem("afm.perfiles.v1")));
+    assert.deepEqual(saved["Héroes 13 cm"], LINEA);
+    await pf.click("#pf-save");   // mismo nombre: se actualiza
+    assert.match(await pfInfo(), /actualizado/);
+  });
+
+  await step("perfiles: aplicado a otro proyecto, «Generar» manda al motor los parámetros del perfil y el resto intacto", async () => {
+    await pf.locator("#proj").setInputFiles(projFile({ ref_height: 100, gap: 0.3, margin: 5 }, "otro.proyecto"));
+    await pf.locator("#stl").setInputFiles({ name: "caja.stl", mimeType: "model/stl", buffer: boxStl() });
+    await pf.waitForFunction(() => document.querySelector("#stlinfo").textContent.includes("12 triángulos"));
+    await pf.click("#pf-apply");
+    assert.match(await pfInfo(), /Perfil «Héroes 13 cm» aplicado .*altura de referencia 130 mm/);
+    await pf.waitForFunction(() => !document.querySelector("#build").disabled);
+    await pf.click("#build");
+    await pf.waitForFunction(() => !document.querySelector("#result").hidden);
+    const proj = JSON.parse(JSON.parse(await pf.evaluate(() => document.querySelector("#report").textContent.replace(/^[^\n]*\n/, ""))).proyecto);
+    assert.deepEqual(proj.params, LINEA, "los params son exactamente los del perfil (no mezclados con los del proyecto)");
+    assert.equal(proj.front, "+Y");
+  });
+
+  await step("perfiles: sobreviven a recargar la página", async () => {
+    await pf.goto(base);
+    assert.deepEqual(await pf.locator("#pf-list option").allInnerTexts(), ["Héroes 13 cm"]);
+    assert.equal(await pf.locator("#pf-export").isDisabled(), false);
+    assert.equal(await pf.locator("#pf-apply").isDisabled(), true, "sin proyecto cargado no se puede aplicar");
+  });
+
+  await step("perfiles: exportar da un JSON con formato; eliminar vacía la lista; importar lo devuelve", async () => {
+    const [dl] = await Promise.all([pf.waitForEvent("download"), pf.click("#pf-export")]);
+    assert.equal(dl.suggestedFilename(), "perfiles-de-linea.json");
+    const file = JSON.parse(fs.readFileSync(await dl.path(), "utf8"));
+    assert.equal(file.format, "afm-perfiles"); assert.deepEqual(file.profiles["Héroes 13 cm"], LINEA);
+    await pf.click("#pf-del");
+    assert.match(await pfInfo(), /eliminado/);
+    assert.equal(await pf.locator("#pf-list option").count(), 0);
+    assert.equal(await pf.locator("#pf-export").isDisabled(), true);
+    assert.deepEqual(JSON.parse(await pf.evaluate(() => localStorage.getItem("afm.perfiles.v1"))), {});
+    await pf.locator("#pf-import").setInputFiles({ name: "perfiles.json", mimeType: "application/json", buffer: fs.readFileSync(await dl.path()) });
+    await pf.waitForFunction(() => document.querySelector("#pf-list").options.length === 1);
+    assert.match(await pfInfo(), /Importados: 1 nuevos, 0 reemplazados/);
+    // el mismo archivo otra vez: se reemplaza, no se duplica
+    await pf.locator("#pf-import").setInputFiles({ name: "perfiles.json", mimeType: "application/json", buffer: fs.readFileSync(await dl.path()) });
+    await pf.waitForFunction(() => document.querySelector("#pf-info").textContent.includes("0 nuevos, 1 reemplazados"));
+    assert.equal(await pf.locator("#pf-list option").count(), 1);
+  });
+
+  await step("perfiles: un archivo que no es de perfiles se rechaza con un mensaje y no toca los guardados", async () => {
+    await pf.locator("#pf-import").setInputFiles({ name: "malo.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify({ hola: 1 })) });
+    await pf.waitForFunction(() => document.querySelector("#pf-info").textContent.includes("No es un archivo de perfiles"));
+    await pf.locator("#pf-import").setInputFiles({ name: "roto.json", mimeType: "application/json", buffer: Buffer.from("{no") });
+    await pf.waitForFunction(() => document.querySelector("#pf-info").textContent.includes("no es un JSON válido"));
+    assert.deepEqual(await pf.locator("#pf-list option").allInnerTexts(), ["Héroes 13 cm"]);
+  });
+
+  await step("perfiles: con localStorage bloqueado la página no se rompe y los perfiles viven en la sesión", async () => {
+    const ctx = await browser.newContext();
+    await ctx.addInitScript(() => { Object.defineProperty(window, "localStorage", { get() { throw new DOMException("bloqueado", "SecurityError"); } }); });
+    const q = await ctx.newPage(); const qerr = [];
+    q.on("pageerror", (e) => qerr.push(e.message));
+    await q.route("**/worker.js", (r) => r.fulfill({ contentType: "text/javascript", body: STUB_WORKER }));
+    await q.route(/\/(version\.json|build-info\.js)/, (r) => r.fulfill({ status: 404, body: "" }));
+    await q.goto(base);
+    await q.locator("#proj").setInputFiles(projFile(LINEA));
+    await q.fill("#pf-name", "Solo sesión"); await q.click("#pf-save");
+    assert.match(await q.locator("#pf-info").innerText(), /guardado/);
+    assert.deepEqual(await q.locator("#pf-list option").allInnerTexts(), ["Solo sesión"]);
+    assert.deepEqual(qerr, []);
+    await ctx.close();
+  });
+  await step("perfiles: sin errores de JavaScript", async () => { assert.deepEqual(pfErrors, []); await pfCtx.close(); });
+
   await step("si el worker no carga, la página muestra el error y no queda ocupada", async () => {
     const pg = await pageWith('throw new Error("no se pudo cargar Pyodide (simulado)");');
     await pg.click("#demo");
