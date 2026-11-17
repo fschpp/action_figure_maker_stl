@@ -2,6 +2,22 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — Página: «Generar» no se habilitaba tras «Reducir» (2026-11-16, rama `web_generar_tras_reducir` sobre main 673fed7)
+**Reporte del dueño (capturas, sitio `673fed7`, navegador con botones «Examinar…» = Firefox en español):** con STL reducido (9 999 tri) y `sucre.proyecto` mostrado en el selector, «Generar» queda deshabilitado; el resto de los botones sí están habilitados (así que `running` no estaba trabado).
+**Causa: NO confirmada.** En Chrome headless no se reproduce con la versión `673fed7` en los 3 órdenes (STL→Reducir→proyecto, proyecto→STL→Reducir, STL→proyecto→Reducir): «Generar» queda habilitado. Hipótesis principal: Firefox restaura al recargar los *nombres* de los `<input type=file>` sin disparar `change`, así que se ve `sucre.proyecto` pero `projText` está vacío (la página venía de actualizarse a `673fed7`). No hay Firefox en este sandbox ni red para bajarlo, así que no se pudo probar.
+**Hecho (independiente de cuál sea la causa):** (1) «Generar» depende solo de los datos y de `running` y muestra al lado **por qué** está deshabilitado: `(falta cargar el STL)`, `(falta cargar el proyecto)` o `(hay una acción en curso)`; (2) ya no se deshabilitan los `<input type=file>` (el proyecto solo guarda datos); un STL elegido con otra acción en curso se ignora con aviso en el log; (3) `restoreFiles()` toma los archivos que el navegador restauró (`pageshow` / `load`): carga el proyecto y dispara la carga del STL. **Verificado:** `browser_dom.mjs` 17/17 en Chrome local (pasos nuevos: «Generar» bloqueado con su motivo durante la carga y marcas de etapa; **tras «Reducir» se puede generar** con el proyecto cargado antes o después; archivos restaurados sin `change` se toman igual, simulado con `DataTransfer` + `pageshow`). **No verificado:** Firefox real; que la hipótesis sea la causa; el workflow en Actions.
+**Pista para el dueño:** el texto al lado de «Generar» dice la causa. Si dice «falta cargar el proyecto» con el nombre visible, era la restauración de Firefox.
+
+### Todo List
+- [x] Reproducir en Chrome (no se reproduce) y rediseñar el estado de «Generar» con motivo visible.
+- [x] `restoreFiles()` + pruebas de navegador (17/17).
+- [ ] El dueño prueba en Firefox: ¿qué dice el texto junto a «Generar» después de Reducir? Si sigue habilitándose mal, pegar el log y el texto.
+- [ ] Si el worker no arranca (p. ej. error de carga de Pyodide) la página queda «ocupada» sin mensaje claro (`init()` no responde): mostrar el error del worker y soltar `running`.
+
+### Latest Blockers/Discoveries
+- Sin Firefox en el sandbox, todo lo específico de Firefox queda como hipótesis.
+- Un error de sintaxis en el worker (de mentira o real) deja `running = true` para siempre: `worker.onerror` solo escribe al log, que `run()` ya limpió.
+
 ## Current Focus — Página: una sola acción a la vez (faltaban las marcas de etapa) + log del sitio `8e00a0d` (2026-11-16, rama `web_run_sin_superposicion` sobre main 8e00a0d)
 **Log del dueño con `8e00a0d` (Sucre, STL reducido a 9 999 tri; versión con los arreglos de exportación y de `_validate_joints`):** «Listo en» **1307,3 s** (antes 2618 s). Por etapa: separar cabeza 3,4 · cavidad de brazo 18,3 · cavidad de pierna 52,3 · rodilla 124,7 · codo 173,5 · cuello→reducir 15,1 · cintura 39,0 · **Validando 558,6** (antes 764,5) · **Exportando 320,9** (antes 1544,9) · ZIP 0,8. ZIP de 6,0 MB (coincide con el nativo, 6,4 MB; los «2,3 MB» de los logs viejos eran el ZIP viejo de la página). Relación navegador/nativo: Exportando ×3,9 (321 / 83), Validando ×9 (559 / 60), cintura ×18 (39 / 2,1), rodilla ×7. Las etapas previas a Validando salieron 1,3–2,5× más lentas que en el log del dueño de `3b362d8` (p. ej. cavidad de pierna 52 contra 21 s): hay variación entre corridas/equipo, no es un cambio del motor.
 **Observación del dueño: «las marcas de tiempo solo se ven si uno hace clic en Reducir».** Era una carrera de la página: `busy()` deshabilitaba los botones pero no los `<input type=file>`, y el handler del proyecto llamaba a `sync()`, que volvía a habilitar «Generar» con la carga del STL en curso. Dos acciones superpuestas compartían `runT0`; el `finally` de la primera lo ponía en `null` y la segunda dejaba de anotar etapas (en el log viejo: dos «Motor cargado» y dos «Listo en», 38,2 y 1366,0 s, sin marcas). Con «Reducir» se espera a que termine cada paso, por eso ahí salían.

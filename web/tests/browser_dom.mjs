@@ -45,7 +45,7 @@ self.onmessage = (ev) => {
     const heavy = ev.data.bytes.length > 5000;
     return setTimeout(() => post({ triangulos: heavy ? 20000 : 12, alto_mm: 100, estanca: true, avisos: [], z_arriba: true, pesado: heavy }), heavy ? 600 : 0);
   }
-  if (type === "decimate_stl") return post({ info: { triangulos: 10000, triangulos_antes: 20000, reducido: true, alto_mm: 100, estanca: true, avisos: [], z_arriba: true, pesado: false }, stl: null });
+  if (type === "decimate_stl") return post({ info: { triangulos: 10000, triangulos_antes: 20000, reducido: true, alto_mm: 100, estanca: true, avisos: [], z_arriba: true, pesado: false }, stl: new TextEncoder().encode("solid t\\nfacet normal 0 0 0\\nouter loop\\nvertex 0 0 0\\nvertex 10 0 0\\nvertex 0 0 10\\nendloop\\nendfacet\\nendsolid t\\n") });
   if (type === "frame") return post({ k: 1, offset: [0, 0, 0], ref_height: 100 });
   if (type === "new_limb") return post({ name: ev.data.name, kind: ev.data.kind, stub: true, points: ev.data.points });
   if (type === "new_head" || type === "new_waist") return post({ plane: { name: type, origin: ev.data.points[0], normal: [0, 0, 1] } });
@@ -180,14 +180,18 @@ try {
     await page.waitForFunction(() => !document.querySelector("#build").disabled);
   });
 
-  await step("con una acción en curso no se puede cargar otro archivo ni generar; las marcas de etapa salen en «Generar»", async () => {
+  await step("con una acción en curso «Generar» queda bloqueado y dice por qué; las marcas de etapa salen en «Generar»", async () => {
     const heavy = Buffer.concat([boxStl(), Buffer.alloc(6000, 32)]);
     await page.locator("#stl").setInputFiles({ name: "pesado.stl", mimeType: "model/stl", buffer: heavy });
-    await page.waitForFunction(() => document.querySelector("#proj").disabled, null, { timeout: 2000 });   // la carga está en curso
+    await page.waitForFunction(() => document.querySelector("#buildhint").textContent.includes("acción en curso"), null, { timeout: 2000 });
     assert.equal(await page.locator("#build").isDisabled(), true, "«Generar» no debe estar habilitado mientras carga el STL");
-    assert.equal(await page.locator("#stl").isDisabled(), true);
+    // el proyecto se puede elegir durante la carga (solo guarda datos) pero «Generar» espera; otro STL se ignora con aviso
+    await page.locator("#proj").setInputFiles({ name: "fig2.proyecto", mimeType: "application/json", buffer: Buffer.from(PROJECT) });
+    await page.locator("#stl").setInputFiles({ name: "otro.stl", mimeType: "model/stl", buffer: boxStl() });
+    await page.waitForFunction(() => document.querySelector("#log").textContent.includes("otra acción en curso"));
+    assert.equal(await page.locator("#build").isDisabled(), true);
     await page.waitForFunction(() => !document.querySelector("#build").disabled);                          // terminó la carga
-    assert.equal(await page.locator("#proj").isDisabled(), false);
+    assert.equal(await text("#buildhint"), "");
     assert.match(await text("#stlinfo"), /20000 triángulos/);
     await page.locator("#build").click();
     await page.waitForFunction(() => document.querySelector("#log").textContent.includes("Listo en"));
@@ -197,6 +201,47 @@ try {
     await page.locator("#stl").setInputFiles({ name: "caja.stl", mimeType: "model/stl", buffer: boxStl() });   // vuelve al estado normal
     await page.waitForFunction(() => document.querySelector("#stlinfo").textContent.includes("12 triángulos"));
     await page.waitForFunction(() => !document.querySelector("#build").disabled);
+  });
+
+  await step("tras «Reducir» se puede generar, con el proyecto cargado antes o después", async () => {
+    const heavy = Buffer.concat([boxStl(), Buffer.alloc(6000, 32)]);
+    const reducir = async () => {
+      await page.locator("#decimate").waitFor({ state: "visible" });
+      await page.locator("#decimate").click();
+      await page.waitForFunction(() => document.querySelector("#stlinfo").textContent.includes("reducido de"));
+      await page.waitForFunction(() => !document.querySelector("#demo").disabled);
+    };
+    // 1) proyecto ya cargado → STL pesado → Reducir → Generar habilitado
+    await page.locator("#stl").setInputFiles({ name: "pesado.stl", mimeType: "model/stl", buffer: heavy });
+    await reducir();
+    await page.waitForFunction(() => !document.querySelector("#build").disabled);
+    assert.equal(await text("#buildhint"), "");
+    await page.locator("#build").click();
+    await page.waitForFunction(() => document.querySelector("#log").textContent.includes("Listo en"));
+    // 2) STL pesado → Reducir → recién después el proyecto → Generar habilitado
+    await page.reload();
+    await page.locator("#stl").setInputFiles({ name: "pesado.stl", mimeType: "model/stl", buffer: heavy });
+    await reducir();
+    assert.equal(await page.locator("#build").isDisabled(), true);
+    assert.match(await text("#buildhint"), /falta cargar el proyecto/);
+    await page.locator("#proj").setInputFiles({ name: "fig.proyecto", mimeType: "application/json", buffer: Buffer.from(PROJECT) });
+    await page.waitForFunction(() => !document.querySelector("#build").disabled);
+    await page.locator("#stl").setInputFiles({ name: "caja.stl", mimeType: "model/stl", buffer: boxStl() });   // vuelve al estado normal
+    await page.waitForFunction(() => document.querySelector("#stlinfo").textContent.includes("12 triángulos"));
+  });
+
+  await step("archivos que el navegador restaura al recargar (sin evento `change`) se toman igual", async () => {
+    await page.reload();
+    assert.match(await text("#buildhint"), /falta cargar el STL/);
+    // se simula la restauración de Firefox: los archivos quedan en los <input> sin que se dispare `change`
+    await page.evaluate(([stl, proj]) => {
+      const set = (sel, name, body) => { const dt = new DataTransfer(); dt.items.add(new File([body], name)); document.querySelector(sel).files = dt.files; };
+      set("#stl", "caja.stl", stl); set("#proj", "fig.proyecto", proj);
+      window.dispatchEvent(new Event("pageshow"));
+    }, [boxStl().toString("latin1"), PROJECT]);
+    await page.waitForFunction(() => document.querySelector("#stlinfo").textContent.includes("12 triángulos"));
+    await page.waitForFunction(() => !document.querySelector("#build").disabled);
+    assert.equal(await text("#buildhint"), "");
   });
 
   await step("los botones de vista cambian la cámara (la imagen cambia)", async () => {

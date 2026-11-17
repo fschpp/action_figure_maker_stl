@@ -34,16 +34,21 @@ const call = (type, extra = {}, transfer = []) => new Promise((resolve, reject) 
 });
 const init = () => (ready ??= call("init"));
 
-// Una sola acción a la vez: con otra en curso (carga del STL, reducir, generar) los botones Y los selectores de archivo quedan
-// bloqueados. Antes solo se bloqueaban los botones: cargar el proyecto con el STL aún en proceso llamaba a sync(), que volvía a
-// habilitar «Generar»; dos acciones superpuestas se pisaban `runT0` y se perdían las marcas de tiempo de las etapas.
+// Una sola acción a la vez (carga del STL, reducir, generar). «Generar» depende SOLO de los datos cargados y de si hay una
+// acción en curso, y dice por qué está deshabilitado. Los selectores de archivo no se bloquean (el proyecto solo guarda datos);
+// el STL, que dispara una acción, se ignora con un aviso si hay otra en curso. Antes `sync()` ignoraba la acción en curso:
+// cargar el proyecto con el STL procesándose habilitaba «Generar», corrían dos acciones y se pisaban `runT0` (sin marcas de etapa).
 let running = false;
 function busy(on) {
   running = on;
-  for (const b of document.querySelectorAll("button")) b.disabled = on || (b.id === "build" && !(stlBytes && projText));
-  for (const i of document.querySelectorAll("input[type=file]")) i.disabled = on;
+  for (const b of document.querySelectorAll("button")) b.disabled = on;
+  sync();
 }
-function sync() { $("#build").disabled = running || !(stlBytes && projText); }
+function sync() {
+  const falta = !stlBytes ? "falta cargar el STL" : !projText ? "falta cargar el proyecto" : running ? "hay una acción en curso" : "";
+  $("#build").disabled = !!falta;
+  $("#buildhint").textContent = falta ? `(${falta})` : "";
+}
 
 // --- Pose (preview_pose): el slider mueve la cadera de la figura ya generada; las colisiones se miden al soltar ---
 let poseViewer = null, poseBusy = false, poseNext = null;
@@ -101,6 +106,7 @@ $("#demo").addEventListener("click", () => run(async () => showResult(await call
 
 $("#stl").addEventListener("change", async (ev) => {
   const f = ev.target.files[0]; if (!f) return;
+  if (running) { log("Hay otra acción en curso: esperá a que termine y volvé a elegir el STL."); ev.target.value = ""; return; }
   stlBytes = new Uint8Array(await f.arrayBuffer()); $("#stlinfo").textContent = "";
   showInViewer(stlBytes);
   await run(async () => {
@@ -121,12 +127,22 @@ $("#decimate").addEventListener("click", () => run(async () => {
   $("#stlinfo").textContent = `${info.triangulos} triángulos${info.reducido ? ` (reducido de ${info.triangulos_antes})` : ""}, ${alto}, ${info.estanca ? "estanca" : "NO estanca"}`;
   $("#decimate").hidden = true;
 }));
-$("#proj").addEventListener("change", async (ev) => {
-  const f = ev.target.files[0]; if (!f) return;
+async function loadProjectFile(f) {
   projText = await f.text();
   try { JSON.parse(projText); } catch { projText = null; log("El proyecto no es un JSON válido."); }
   sync();
-});
+}
+$("#proj").addEventListener("change", (ev) => { const f = ev.target.files[0]; if (f) loadProjectFile(f); });
+// Al recargar la página (p. ej. tras actualizar la versión) Firefox restaura los NOMBRES de los archivos elegidos en los
+// <input type=file> sin disparar `change`: el nombre se ve pero la página no tiene el contenido y «Generar» quedaba
+// deshabilitado sin motivo aparente. Se toman esos archivos restaurados (el proyecto es un dato; el STL, una acción normal).
+function restoreFiles() {
+  const pf = $("#proj").files?.[0];
+  if (pf && !projText) loadProjectFile(pf);
+  if ($("#stl").files?.[0] && !stlBytes && !running) $("#stl").dispatchEvent(new Event("change"));
+}
+window.addEventListener("pageshow", restoreFiles);
+if (document.readyState === "complete") restoreFiles(); else window.addEventListener("load", restoreFiles);
 $("#build").addEventListener("click", () => run(async () => showResult(await call("build", { project: await projectWithPicks(), name: "figura" }))));
 
 // Lo elegido en el visor está en coordenadas del STL crudo; los planos del proyecto, en el marco de la figura
