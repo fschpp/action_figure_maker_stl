@@ -454,6 +454,14 @@ try {
     assert.deepEqual(await pf.locator("#pf-list option").allInnerTexts(), ["Héroes 13 cm"]);
   });
 
+  await step("perfiles: el linea.json de un catálogo de escritorio se importa como perfil (nombre y params de la línea)", async () => {
+    const linea = { formato: "afm-linea-1", nombre: "proceres-127", altura_mm: 127, boquilla: 0.4, params: { ref_height: 127, nozzle: 0.4, gap: 0.5 }, lugares: ["brazo"], motor: "0.9" };
+    await pf.locator("#pf-import").setInputFiles({ name: "linea.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(linea)) });
+    await pf.waitForFunction(() => document.querySelector("#pf-info").textContent.includes("Importados: 1 nuevos"));
+    assert.deepEqual(await pf.locator("#pf-list option").allInnerTexts(), ["Héroes 13 cm", "proceres-127"]);
+    assert.deepEqual(JSON.parse(await pf.evaluate(() => localStorage.getItem("afm.perfiles.v1")))["proceres-127"], linea.params);
+  });
+
   await step("perfiles: con localStorage bloqueado la página no se rompe y los perfiles viven en la sesión", async () => {
     const ctx = await browser.newContext();
     await ctx.addInitScript(() => { Object.defineProperty(window, "localStorage", { get() { throw new DOMException("bloqueado", "SecurityError"); } }); });
