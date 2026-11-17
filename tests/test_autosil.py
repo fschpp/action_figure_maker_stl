@@ -152,6 +152,30 @@ def test_controller_propose_replaces_draft(fig, tmp_path):
     assert len(c.session.limb("brazo").polygon) == len(c.draft.pts)
 
 
+def test_drag_adjusts_a_proposed_silhouette(fig, tmp_path):
+    """Después de «proponer silueta» el vértice se afina arrastrándolo; al soltar se guarda."""
+    path = str(tmp_path / "fig.stl")
+    fig.export(path)
+    c = Controller()
+    c.open_stl(path)
+    plane = Plane.from_normal((0, 0, 0), (0, 1, 0))
+    c.session.add_limb("brazo", "arm", plane)
+    c.start_polygon("brazo")
+    c.propose_silhouette()
+    w, h = 800, 600
+    c.camera.look_along(plane.normal, target=plane.origin)
+    uv0 = c.draft.pts[1].copy()
+    target = uv0 + np.array([1.5, -1.0])
+    x0, y0 = c.camera.project(plane.to_world(uv0), w, h)[0, :2]
+    x1, y1 = c.camera.project(plane.to_world(target), w, h)[0, :2]
+    assert c.begin_vertex_drag(x0, y0, w, h)
+    c.drag_vertex((x0 + x1) / 2, (y0 + y1) / 2, w, h)
+    c.drag_vertex(x1, y1, w, h)
+    assert c.end_vertex_drag()
+    assert np.allclose(c.draft.pts[1], target, atol=0.2)
+    assert np.allclose(plane.to_uv(c.session.limb("brazo").polygon)[1], target, atol=0.2)
+
+
 # ---- contra los polígonos hechos a mano de los personajes reales (más lento) -------------------------------
 
 def _example(name):

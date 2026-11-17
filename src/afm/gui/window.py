@@ -112,7 +112,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self._updating = False
         self._base_tips: dict = {}              # tooltip original de cada control que `_gate` apaga con un motivo
         self._trim_names: list[str] = []
-        self._drag = {"button": 0, "last": (0.0, 0.0), "moved": False, "start": (0.0, 0.0), "pan": False}
+        self._drag = {"button": 0, "last": (0.0, 0.0), "moved": False, "start": (0.0, 0.0), "pan": False, "vertex": False}
 
         self._install_css()
         self._last_mode = self.ctrl.mode
@@ -990,8 +990,11 @@ class MainWindow(Gtk.ApplicationWindow):
     def _on_drag_begin(self, g: Gtk.GestureDrag, x: float, y: float) -> None:
         self.gl.grab_focus()
         shift = bool(g.get_current_event_state() & Gdk.ModifierType.SHIFT_MASK)
-        self._drag = {"button": g.get_current_button(), "last": (0.0, 0.0), "moved": False,
-                      "start": (x, y), "pan": shift}
+        button = g.get_current_button()
+        grab = (button == 1 and not shift and
+                self.ctrl.begin_vertex_drag(x, y, max(self.gl.get_width(), 1), max(self.gl.get_height(), 1)))   # sobre un vértice de la silueta: arrastrarlo
+        self._drag = {"button": button, "last": (0.0, 0.0), "moved": False,
+                      "start": (x, y), "pan": shift, "vertex": grab}
 
     def _on_drag_update(self, _g, dx: float, dy: float) -> None:
         d = self._drag
@@ -999,6 +1002,10 @@ class MainWindow(Gtk.ApplicationWindow):
             return
         d["moved"] = True
         self.ctrl.clear_hover()
+        if d["vertex"]:                                 # ajuste fino: el vértice sigue al puntero
+            self.ctrl.drag_vertex(d["start"][0] + dx, d["start"][1] + dy, max(self.gl.get_width(), 1), max(self.gl.get_height(), 1))
+            self.gl.queue_render()
+            return
         ddx, ddy = dx - d["last"][0], dy - d["last"][1]
         d["last"] = (dx, dy)
         cam = self.ctrl.camera
@@ -1124,6 +1131,12 @@ class MainWindow(Gtk.ApplicationWindow):
     def _on_drag_end(self, _g, _dx: float, _dy: float) -> None:
         d = self._drag
         moved, d["moved"] = d["moved"], False          # el hover vuelve a andar al terminar el arrastre
+        grabbed, d["vertex"] = d["vertex"], False
+        if grabbed:
+            if self.ctrl.end_vertex_drag() or moved:     # arrastró (o Esc lo canceló): no es un clic
+                self.gl.queue_render()
+                self._refresh()
+                return
         if moved or d["button"] != 1:
             return
         x, y = d["start"]
@@ -1144,6 +1157,9 @@ class MainWindow(Gtk.ApplicationWindow):
                 self.ctrl.redo()
                 return True
         if keyval == Gdk.KEY_Escape:
+            if self.ctrl.cancel_vertex_drag():           # en pleno arrastre de un vértice: solo deshace el arrastre
+                self.gl.queue_render()
+                return True
             self.ctrl.cancel()
             return True
         if keyval in (Gdk.KEY_BackSpace, Gdk.KEY_Delete):

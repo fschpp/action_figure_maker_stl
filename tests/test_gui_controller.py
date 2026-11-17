@@ -301,6 +301,83 @@ def test_draw_polygon_with_real_clicks_closes_and_saves(arm):
     assert not any("silueta" in p for p in arm.problems())
 
 
+def _drag_uv(c, src, dst, steps=3):
+    """Simula arrastrar con el mouse del vértice en `src` (u, v) hasta `dst`, en `steps` movimientos."""
+    x0, y0 = _px(c, src)
+    x1, y1 = _px(c, dst)
+    assert c.begin_vertex_drag(x0, y0, W, H)
+    for k in range(1, steps + 1):
+        c.drag_vertex(x0 + (x1 - x0) * k / steps, y0 + (y1 - y0) * k / steps, W, H)
+    return c.end_vertex_drag()
+
+
+def test_drag_vertex_moves_it_live_and_saves_once_on_release(arm):
+    _draw_square(arm)
+    plane = arm.session.limb("brazo").plane
+    arm.history.observe(arm._project_text(), "base")
+    n_undo = len(arm.history._undo) if hasattr(arm.history, "_undo") else None
+    x0, y0 = _px(arm, SQUARE[2])
+    x1, y1 = _px(arm, (30, 44))
+    assert arm.begin_vertex_drag(x0, y0, W, H)
+    arm.drag_vertex(x1, y1, W, H)
+    assert np.allclose(arm.draft.pts[2], (30, 44), atol=0.2)                       # se ve en el borrador mientras se arrastra
+    assert np.allclose(plane.to_uv(arm.session.limb("brazo").polygon)[2], SQUARE[2], atol=1e-6)   # todavía no se guardó
+    assert arm.end_vertex_drag()
+    assert np.allclose(plane.to_uv(arm.session.limb("brazo").polygon)[2], (30, 44), atol=0.2)      # al soltar se guarda
+    assert arm.draft.selected is None and "movido" in arm.message
+    if n_undo is not None:
+        assert len(arm.history._undo) == n_undo + 1                                # un único paso de deshacer
+
+
+def test_drag_vertex_far_from_any_vertex_does_nothing(arm):
+    _draw_square(arm)
+    assert not arm.begin_vertex_drag(*_px(arm, (15, 22)), W, H)
+    arm.drag_vertex(10, 10, W, H)                                                  # sin arrastre en curso: ignorado
+    assert not arm.end_vertex_drag()
+    assert np.allclose(arm.draft.pts, np.array(SQUARE, float), atol=1e-6)
+
+
+def test_drag_vertex_only_in_polygon_mode(arm):
+    assert not arm.begin_vertex_drag(10, 10, W, H)
+
+
+def test_press_on_vertex_without_moving_is_still_a_click_that_picks_it(arm):
+    _draw_square(arm)
+    x, y = _px(arm, SQUARE[1])
+    assert arm.begin_vertex_drag(x, y, W, H)
+    assert not arm.end_vertex_drag()                                               # no se movió: la ventana lo trata como clic
+    arm.click(x, y, W, H)
+    assert arm.draft.selected == 1
+
+
+def test_cancel_drag_restores_the_vertex(arm):
+    _draw_square(arm)
+    x0, y0 = _px(arm, SQUARE[0])
+    x1, y1 = _px(arm, (0, 0))
+    assert arm.begin_vertex_drag(x0, y0, W, H)
+    arm.drag_vertex(x1, y1, W, H)
+    assert arm.cancel_vertex_drag()
+    assert np.allclose(arm.draft.pts[0], SQUARE[0], atol=1e-6)
+    assert np.allclose(arm.session.limb("brazo").plane.to_uv(arm.session.limb("brazo").polygon)[0], SQUARE[0], atol=1e-6)
+    assert not arm.cancel_vertex_drag()                                            # ya no hay arrastre
+
+
+def test_drag_that_crosses_the_polygon_is_reported_and_not_saved(arm):
+    _draw_square(arm)
+    plane = arm.session.limb("brazo").plane
+    saved = plane.to_uv(arm.session.limb("brazo").polygon).copy()
+    assert _drag_uv(arm, SQUARE[0], (30, 20))                                      # el vértice pasa al otro lado del borde opuesto: se cruza
+    assert "cruza" in arm.message
+    assert np.allclose(plane.to_uv(arm.session.limb("brazo").polygon), saved, atol=1e-6)
+
+
+def test_leaving_polygon_mode_drops_a_drag_in_progress(arm):
+    _draw_square(arm)
+    assert arm.begin_vertex_drag(*_px(arm, SQUARE[0]), W, H)
+    arm.cancel()
+    assert not arm.end_vertex_drag()
+
+
 def test_polygon_close_button_and_too_few_points(arm):
     arm.start_polygon("brazo")
     _click_uv(arm, (5, 5)); _click_uv(arm, (25, 5))
