@@ -73,6 +73,9 @@ class Mode(Enum):
     FLOOR_CUT = "corte_paralelo_piso"   # plano paralelo al piso (cabeza o cintura): un clic sobre la figura (o flechas) fija su altura
     FLAT_PLANE = "plano_sin_soportes"   # figura generada sentada, vista Derecha: un clic (o flechas) fija la altura del corte plano
 
+DRAFT_PX = 6.0                               # grosor en pantalla (px) del borrador de silueta (el que se propone o se está dibujando)
+DRAFT_COLOR = (1.0, 0.0, 0.85, 1.0)          # magenta fosforescente: contrasta con la figura gris y con los amarillos/celestes de las siluetas ya guardadas
+DRAFT_SELECTED_COLOR = (0.1, 1.0, 0.2, 1.0)  # vértice elegido: verde flúor (el rojo se confundía con el magenta)
 SILHOUETTE_PX = 3.0                          # grosor en pantalla (px) del trazo de las siluetas: 1 px no se distingue sobre la figura
 EXPORT_ONLY_PARAMS = frozenset({"flat_depth"})   # parámetros que no cambian las piezas generadas
 
@@ -5747,11 +5750,10 @@ class Controller:
         scene.set_lines("guia", [editing.plane.to_world(g["exterior"]) for g in guide], (0.7, 0.72, 0.8, 1.0), closed=True)
         if editing.pts:
             w3 = editing.world()
-            scene.set_lines("poligono", w3, (1.0, 0.8, 0.2, 1.0), closed=editing.closed, on_top=True,
-                           width=SILHOUETTE_PX)
-            scene.set_points("poligono:vertices", w3, (1.0, 0.8, 0.2, 1.0), 9.0, on_top=True)
+            scene.set_lines("poligono", w3, DRAFT_COLOR, closed=editing.closed, on_top=True, width=DRAFT_PX)
+            scene.set_points("poligono:vertices", w3, DRAFT_COLOR, 11.0, on_top=True)
             if editing.selected is not None:
-                scene.set_points("poligono:sel", w3[[editing.selected]], (1.0, 0.25, 0.25, 1.0), 15.0, on_top=True)
+                scene.set_points("poligono:sel", w3[[editing.selected]], DRAFT_SELECTED_COLOR, 17.0, on_top=True)
             else:
                 scene.remove("poligono:sel")
         else:

@@ -673,7 +673,37 @@ def test_silhouettes_are_drawn_thick(arm):
     arm._sync_polygons(sc)
     arm.start_polygon("brazo")
     arm._sync_polygons(sc)
-    assert widths["silueta:brazo"] == widths["poligono"] == SILHOUETTE_PX
+    from afm.gui.controller import DRAFT_PX
+    assert widths["silueta:brazo"] == SILHOUETTE_PX
+    assert widths["poligono"] == DRAFT_PX > SILHOUETTE_PX      # el borrador (p. ej. la silueta propuesta) es todavía más grueso
+
+
+def test_draft_silhouette_uses_a_loud_color_distinct_from_saved_ones(arm):
+    """Regresión: el borrador (la silueta propuesta) iba en amarillo sobre una figura gris clara y no se veía; ahora es magenta flúor,
+    distinto de los colores de las siluetas guardadas, y el vértice elegido no se confunde con él."""
+    from afm.gui.controller import DRAFT_COLOR, DRAFT_SELECTED_COLOR
+    colors = {}
+
+    class _Scene(_RecordingScene):
+        def set_lines(self, name, pl, color=None, closed=False, on_top=False, width=1.0):
+            super().set_lines(name, pl, color, closed, on_top, width)
+            colors[name] = color
+
+        def set_points(self, name, pts, color=None, size=10.0, on_top=False):
+            super().set_points(name, pts, color, size, on_top)
+            colors[name] = color
+
+    _draw_square(arm)
+    arm.cancel()
+    sc = _Scene()
+    arm._sync_polygons(sc)
+    arm.start_polygon("brazo")
+    arm.draft.selected = 0
+    arm._sync_polygons(sc)
+    assert colors["poligono"] == colors["poligono:vertices"] == DRAFT_COLOR
+    assert colors["poligono:sel"] == DRAFT_SELECTED_COLOR
+    assert DRAFT_COLOR != colors["silueta:brazo"] and DRAFT_SELECTED_COLOR != DRAFT_COLOR
+    assert max(DRAFT_COLOR[:3]) - min(DRAFT_COLOR[:3]) >= 0.9      # saturación máxima: no es un gris ni un pastel
 
 
 def test_thick_lines_cover_more_pixels_than_thin_ones():
