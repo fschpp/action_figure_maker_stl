@@ -739,12 +739,23 @@ class MainWindow(Gtk.ApplicationWindow):
             self.chk_fill_hip.set_active(ctrl.session.project.params.flat_fill_hip)
             self.chk_fill_hip.set_sensitive(self.chk_flat.get_active())
             self.dd_front.set_selected(0 if ctrl.session.project.front == "+Y" else 1)
+            self._sync_side_widgets()
             self._rebuild_plane_list()
             self._rebuild_trim_ui()
             self._refresh_joint_preview()
         finally:
             self._updating = False
         self.gl.queue_render()
+
+    def _sync_side_widgets(self) -> None:
+        """Casilla «Cortes distintos para cada lado» y selector de lado (solo con cortes asimétricos)."""
+        sess = self.ctrl.session
+        if self.chk_asym.get_active() != sess.asymmetric:
+            self.chk_asym.set_active(sess.asymmetric)
+        self.chk_asym.set_sensitive(self.ctrl.loaded and not sess.project.parts)
+        self.side_box.set_visible(sess.asymmetric)
+        if self.btn_side[sess.edit_side].get_active() is False:
+            self.btn_side[sess.edit_side].set_active(True)
 
     def _rebuild_trim_ui(self) -> None:
         """Pieza elegible (torso + miembros) y lista de recortes con editar / cambiar operación / quitar."""
@@ -872,25 +883,26 @@ class MainWindow(Gtk.ApplicationWindow):
                 # quita SOLO esa silueta (el tacho de la derecha de la fila quita el plano entero)
                 spec = self.ctrl.session.limb(e.id)
                 sub = Gtk.Box(spacing=12, margin_start=30, margin_bottom=2)
-                for cross, tip_draw, tip_rm in (
-                        (False, tr("window.dibuja_o_edita_la_silueta_del_miembro"),
+                for kind, tip_draw, tip_rm in (
+                        (0, tr("window.dibuja_o_edita_la_silueta_del_miembro"),
                          tr("window.quitar_la_silueta_de_name", name=e.id)),
-                        (True, tr("window.dibuja_o_edita_la_2_a_silueta"),
-                         tr("window.quitar_la_2_a_silueta_de_name", name=e.id))):
-                    has = spec is not None and ((spec.cross is not None) if cross else len(spec.polygon) >= 3)
-                    if cross:
-                        label = tr("window.editar_2_a_silueta") if has else tr("window.dibujar_2_a_silueta")
-                    else:
-                        label = tr("window.editar_silueta") if has else tr("window.dibujar_silueta")
+                        (1, tr("window.dibuja_o_edita_la_2_a_silueta"),
+                         tr("window.quitar_la_2_a_silueta_de_name", name=e.id)),
+                        (2, tr("window.dibuja_o_edita_la_3_a_silueta"),
+                         tr("window.quitar_la_3_a_silueta_de_name", name=e.id))):
+                    has = spec is not None and ((len(spec.polygon) >= 3, spec.cross is not None, spec.cross2 is not None)[kind])
+                    label = ((tr("window.editar_silueta") if has else tr("window.dibujar_silueta")),
+                             (tr("window.editar_2_a_silueta") if has else tr("window.dibujar_2_a_silueta")),
+                             (tr("window.editar_3_a_silueta") if has else tr("window.dibujar_3_a_silueta")))[kind]
                     grp = Gtk.Box()
                     grp.add_css_class("linked")
                     ed = self._icon_label_button(None, label, tip_draw)
-                    ed.connect("clicked", lambda _b, pid=e.id, c=cross: self.ctrl.start_polygon(pid, cross=c))
+                    ed.connect("clicked", lambda _b, pid=e.id, k=kind: self.ctrl.start_polygon(pid, cross=k == 1, cross2=k == 2))
                     grp.append(ed)
                     if has:
                         rx = Gtk.Button(icon_name="window-close-symbolic", tooltip_text=tip_rm)
-                        rx.connect("clicked", lambda _b, pid=e.id, c=cross:
-                                   self.ctrl.remove_cross(pid) if c else self.ctrl.remove_silhouette(pid))
+                        rx.connect("clicked", lambda _b, pid=e.id, k=kind:
+                                   (self.ctrl.remove_silhouette, self.ctrl.remove_cross, self.ctrl.remove_cross2)[k](pid))
                         grp.append(rx)
                     sub.append(grp)
                 pn = self._icon_label_button("find-location-symbolic", tr("window.pasador"), tr("window.colocar_el_pasador_sobre_la_cara"))

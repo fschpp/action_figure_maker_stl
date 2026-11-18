@@ -10,6 +10,7 @@ Marcos de coordenadas (igual que el CLI, ver `afm.cli.run`):
 from __future__ import annotations
 from ..i18n import tr
 
+import contextlib
 import copy
 import dataclasses
 import json
@@ -32,6 +33,7 @@ from ..project import Project
 ARM_SLAB_MM = 12 * 1.653      # losa del brazo: 12 mm del tutorial a la escala final (plan §5.1)
 from ..trims import Trim
 
+MIRROR_X = np.diag([-1.0, 1.0, 1.0, 1.0])      # reflexión respecto de x = 0 (lado derecho en vista espejada)
 FLIP_Z = np.array([[-1, 0, 0, 0], [0, -1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]], float)
 
 
@@ -65,6 +67,11 @@ class BuildOutcome:
     validation: dict
 
 
+def _cut_sig(c) -> tuple | None:
+    """Firma de un `LimbCut` (o None) para las claves de caché."""
+    return None if c is None else (np.asarray(c.polygon).tobytes(), c.plane.origin.tobytes(), c.plane.normal.tobytes(), c.thickness)
+
+
 def json_sig(obj) -> str:
     """Firma de texto de un dict/lista con arreglos de numpy (para saber si algo cambió)."""
     return json.dumps(obj, sort_keys=True, default=lambda o: np.asarray(o).tolist())
@@ -83,6 +90,9 @@ class Session:
         self._zmin_file = 0.0
         self.catalog_origin: dict | None = None      # bloque `catalogo_solo` del .proyecto: figura toda de catálogo, sin STL
         self._catalog_joint_cache: dict | None = None  # articulaciones de las piezas de catálogo ya colocadas (ver `catalog_joints`)
+        self.edit_side = "left"                      # «left»: se editan los miembros +X; «right»: los del −X, sobre la figura espejada
+        self._left_limbs: list | None = None         # miembros del lado izquierdo mientras se edita el derecho
+        self._left_outcome: BuildOutcome | None = None
 
     # ------------------------------------------------------------------ carga
     def load(self, path: str, crown_z: float | None = None, progress=None) -> meshio.LoadReport:
@@ -104,6 +114,7 @@ class Session:
         mida ``ref_height`` y guarda la cota equivalente en unidades del archivo."""
         if not self.loaded or z_mm <= 1.0:
             raise ValueError(tr("session.cota_de_coronilla_invalida"))
+        self._leave_right()
         ref = self.project.params.ref_height
         k = ref / z_mm
         self.base = self.base.copy()
@@ -131,6 +142,7 @@ class Session:
         k = mm / old
         if abs(k - 1.0) < 1e-9:
             return 1.0
+        self._leave_right()
         self.project.params.ref_height = mm
         if self.base is not None:
             self.base = self.base.copy()
@@ -147,9 +159,11 @@ class Session:
             raise ValueError(tr("session.front_debe_ser_y_o_y"))
         if front == self.project.front:
             return
+        self._leave_right()
         self.project.front = front
         self.project.symmetry = None
         self.project.limbs, self.project.trims, self.project.head, self.project.waist = [], [], None, None
+        self.project.limbs_right = None
         self.project.part_scales.clear()
         self.outcome = None
         self._rebuild_frames()
@@ -163,6 +177,9 @@ class Session:
             fig.apply_transform(FLIP_Z)
         self.figure = fig
         self.work = P.align_to_symmetry(fig, self.project.symmetry)
+        if self.edit_side == "right":
+            self.work = self.work.copy()
+            self.work.apply_transform(MIRROR_X)
 
     # -------------------------------------------------------------- simetría
     @staticmethod
@@ -176,6 +193,7 @@ class Session:
         """Plano de simetría (en el marco ``figure``). None = ninguno (se usa la figura tal cual)."""
         if plane is not None and abs(plane.normal[2]) > 0.05:
             raise ValueError(tr("session.el_plano_de_simetria_debe_ser"))
+        self._leave_right()
         self.project.symmetry = plane
         self.outcome = None
         self._rebuild_frames()
@@ -189,6 +207,71 @@ class Session:
     # --------------------------------------------------------------- miembros
     def limb(self, name: str) -> LimbSpec | None:
         return next((l for l in self.project.limbs if l.name == name), None)
+
+    # ------------------------------------------------- figura asimétrica (cortes propios para cada lado)
+    @property
+    def asymmetric(self) -> bool:
+        return self.project.limbs_right is not None
+
+    def set_asymmetric(self, on: bool) -> None:
+        """Activa o desactiva los cortes distintos para cada lado. Al activarlos, el lado derecho arranca como una copia espejada
+        del izquierdo (después se retoca). Al desactivarlos se descarta el lado derecho: vale otra vez el espejo del izquierdo."""
+        if on == self.asymmetric:
+            return
+        if on:
+            if self.project.parts:
+                raise ValueError(tr("session.asimetrica_no_con_catalogo"))
+            self.project.limbs_right = [l.mirrored() for l in copy.deepcopy(self.project.limbs)]
+        else:
+            self._leave_right()
+            self.project.limbs_right = None
+        self.outcome = None
+
+    def set_edit_side(self, side: str) -> None:
+        """Lado que se edita: «left» (+X, el de siempre) o «right» (−X). El derecho se edita sobre la figura espejada: sus miembros
+        y la malla se reflejan respecto de x = 0, así todas las herramientas (siluetas, pasador, vistas previas) funcionan igual que en
+        el izquierdo; al volver (o al guardar) se reflejan de nuevo a su lugar."""
+        if side not in ("left", "right"):
+            raise ValueError(tr("session.lado_invalido"))
+        if side == self.edit_side:
+            return
+        if side == "right":
+            if not self.asymmetric:
+                raise ValueError(tr("session.primero_activa_los_cortes_distintos"))
+            self._enter_right()
+        else:
+            self._leave_right()
+
+    def _enter_right(self) -> None:
+        self._left_limbs, self._left_outcome = self.project.limbs, self.outcome
+        self.project.limbs = [l.mirrored() for l in self.project.limbs_right]
+        self.edit_side, self.outcome = "right", None
+        self._rebuild_frames()
+
+    def _leave_right(self) -> None:
+        if self.edit_side != "right":
+            return
+        new_right = [l.mirrored() for l in self.project.limbs]
+        changed = json_sig([l.to_dict() for l in new_right]) != json_sig([l.to_dict() for l in self.project.limbs_right])
+        self.project.limbs_right = new_right
+        self.project.limbs, self._left_limbs = self._left_limbs, None
+        self.edit_side = "left"
+        self.outcome = None if changed else self._left_outcome
+        self._left_outcome = None
+        self._rebuild_frames()
+
+    @contextlib.contextmanager
+    def committed(self):
+        """Dentro del bloque el proyecto está en su estado real (lado izquierdo en `limbs`, derecho en `limbs_right`), aunque se esté
+        editando el derecho; al salir se vuelve a la edición del derecho."""
+        if self.edit_side != "right":
+            yield
+            return
+        self._leave_right()
+        try:
+            yield
+        finally:
+            self._enter_right()
 
     def add_limb(self, name: str, kind: str, plane: Plane, thickness: float | None = None, auto: bool = True,
                  extrude: str | None = None) -> LimbSpec:
@@ -378,6 +461,47 @@ class Session:
         self.outcome = None
         return True
 
+    # ------------------------------------------------- 3.ª silueta (desde arriba)
+    def cross2_plane(self, name: str) -> Plane:
+        """Plano donde se dibuja la 3.ª silueta de `name`: el que ya tiene o, si no, el horizontal (vista desde arriba) a la altura
+        media del miembro. Sirve cuando el miembro se solapa con otra parte en las vistas de costado y de frente (el dedo de la
+        mano de una figura sentada que cae sobre el muslo, por ejemplo): desde arriba se ve cuál es cuál."""
+        spec = self.limb(name)
+        if spec is None:
+            raise KeyError(name)
+        if spec.cross2 is not None:
+            return spec.cross2.plane
+        poly = np.asarray(spec.polygon, float)
+        if poly.ndim == 2 and len(poly) >= 3:
+            z = float(poly[:, 2].mean())
+            c = np.asarray(spec.plane.origin, float) if self.work is None else self.work.bounds.mean(axis=0)
+            return Plane.from_normal((float(c[0]), float(c[1]), z), (0.0, 0.0, 1.0), "arriba")
+        c = self.work.bounds.mean(axis=0) if self.work is not None else np.zeros(3)
+        return Plane.from_normal((0.0, float(c[1]), float(c[2])), (0.0, 0.0, 1.0), "arriba")
+
+    def set_limb_cross2(self, name: str, polygon_world) -> None:
+        """Guarda el polígono de la 3.ª silueta de `name` (sobre `cross2_plane`). El miembro pasa a ser lo que queda dentro de los
+        tres prismas."""
+        spec = self.limb(name)
+        if spec is None:
+            raise KeyError(name)
+        poly = np.asarray(polygon_world, float)
+        if poly.ndim != 2 or poly.shape[1] != 3:
+            raise ValueError(tr("session.el_poligono_debe_ser_nx3"))
+        spec.cross2 = LimbCut(self.cross2_plane(name), poly)
+        self.outcome = None
+
+    def clear_limb_cross2(self, name: str) -> bool:
+        """Quita la 3.ª silueta. Devuelve True si había una."""
+        spec = self.limb(name)
+        if spec is None:
+            raise KeyError(name)
+        if spec.cross2 is None:
+            return False
+        spec.cross2 = None
+        self.outcome = None
+        return True
+
     def _proposal(self, name: str, crotch_z: float | None):
         """Región (x–z, polígono Nx2) que propone `autosil` para el miembro."""
         from .. import autosil
@@ -470,7 +594,8 @@ class Session:
                spec.thickness, spec.kind, spec.extrude, tuple(spec.contact_axis), spec.burr, params.burr, params.ref_height,
                spec.auto, tuple(spec.cap_dir), self.catalog_root, self._catalog_stamp(), stl,
                None if spec.cross is None else (np.asarray(spec.cross.polygon).tobytes(), spec.cross.plane.origin.tobytes(),
-                                                spec.cross.plane.normal.tobytes(), spec.cross.thickness))
+                                                spec.cross.plane.normal.tobytes(), spec.cross.thickness),
+               _cut_sig(spec.cross2))
         cache = getattr(self, "_cut_aid_cache", None)
         if cache is not None and cache[0] == (name, key):
             return cache[1]
@@ -651,7 +776,7 @@ class Session:
                spec.plane.normal.tobytes(), spec.thickness,
                None if spec.cross is None else (np.asarray(spec.cross.polygon).tobytes(), spec.cross.plane.origin.tobytes(),
                                                 spec.cross.plane.normal.tobytes(), spec.cross.thickness), spec.extrude, spec.cut_offset, tuple(spec.contact_axis), spec.burr,
-               burr, spec.auto, tuple(spec.cap_dir))
+               burr, spec.auto, tuple(spec.cap_dir), _cut_sig(spec.cross2))
         cache = getattr(self, "_pin_cache", None)
         if cache is not None and cache[0] == key:
             return cache[1]
@@ -1583,9 +1708,14 @@ class Session:
             out.append(tr("common.falta_el_plano_de_simetria"))
         if not self.project.limbs and self.project.head is None and self.project.waist is None:
             out.append(tr("session.defini_al_menos_un_miembro_brazo"))
+        if self.edit_side == "right":
+            out.append(tr("session.volve_al_lado_izquierdo_para_generar"))
         for l in self.project.limbs:
             if len(l.polygon) < 3:
                 out.append(tr("session.name_dibuja_la_silueta_minimo_3", name=l.name))
+        for l in (self.project.limbs_right or []) if self.edit_side == "left" else []:
+            if len(l.polygon) < 3:
+                out.append(tr("session.name_dibuja_la_silueta_minimo_3", name=f"{l.name} (derecho)"))
         names = {l.name for l in self.project.limbs}
         for j in self.project.joints:
             if j.limb not in names:
@@ -2317,7 +2447,8 @@ class Session:
         body = S.to_manifold(self.work)
         res = P.build(body, self.project.limbs, self.project.params, self.project.symmetry,
                       progress=progress, trims=self.project.trims, head=self.project.head,
-                      joints=self.project.joints, waist=self.project.waist, hand=self.project.hand, parts=parts)
+                      joints=self.project.joints, waist=self.project.waist, hand=self.project.hand, parts=parts,
+                      limbs_right=self.project.limbs_right)
         if progress:
             progress(tr("session.validando_la_figura"))
         val = P.validate(res, self.project.params, self.project.limbs, joints=self.project.joints)
@@ -2371,7 +2502,8 @@ class Session:
 
     # ------------------------------------------------------------- proyecto
     def save_project(self, path: str) -> None:
-        d = self.project.to_dict()
+        with self.committed():
+            d = self.project.to_dict()
         d["source"] = os.path.abspath(self.stl_path) if self.stl_path else None
         if self.catalog_origin is not None and not self.stl_path:      # sin esto el proyecto no se podría reabrir sin STL
             d["catalogo_solo"] = {**self.catalog_origin, **({"ruta": os.path.abspath(self.catalog_root)} if self.catalog_root else {})}

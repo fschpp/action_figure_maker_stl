@@ -1,6 +1,8 @@
 """Pipeline completo: STL normalizado -> piezas articuladas (plan §8.3–§8.10)."""
 from __future__ import annotations
 
+import dataclasses
+
 import logging
 import os
 from dataclasses import dataclass, field
@@ -45,6 +47,9 @@ class BuildResult:
     hand: dict | None = None                     # mano articulada: {"limb", "piece0" (mano de pie, sin girar), "center", "axis" (de la pose impresa), "pin"}
     waist: WaistBuild | None = None              # cintura: `pieces["torso"]` es el pecho (arriba) y `pieces["pelvis"]` la pelvis
     joint_specs: list = field(default_factory=list)   # todas las articulaciones usadas (las del modelo y las que traen las piezas de catálogo)
+    torso_half: S.Manifold | None = None         # mitad +X del torso ya tallada, antes de espejar (la usa el lado derecho de una figura asimétrica)
+    right: "BuildResult | None" = None           # figura asimétrica: construcción completa del lado −X, hecha sobre el cuerpo espejado (marco espejado)
+    right_limbs: list = field(default_factory=list)   # miembros del lado derecho llevados al marco espejado (los de `right`)
 
 
 def align_to_symmetry(mesh: trimesh.Trimesh, sym: Plane | None) -> trimesh.Trimesh:
@@ -88,18 +93,24 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
           sit: bool = True, progress=None, trims: list[Trim] | None = None,
           head: HeadSpec | None = None, joints: list[JointSpec] | None = None,
           waist: WaistSpec | None = None, hand: HandSpec | None = None,
-          parts: dict[str, PartChoice] | None = None, host_faces: dict | None = None) -> BuildResult:
+          parts: dict[str, PartChoice] | None = None, host_faces: dict | None = None,
+          limbs_right: list[LimbSpec] | None = None) -> BuildResult:
     """Construye las piezas. `body` debe estar normalizado y con el plano de simetría en x = 0.
 
     `hand`: mano estándar (STL) que reemplaza a la del modelo; se pega en el lado +X antes de cortar los miembros, así
     viaja con el brazo (o con el antebrazo, si hay codo) y el otro lado sale por espejo.
 
-    `parts`: piezas de catálogo (`assembly.PartChoice`) por nombre de miembro (`LimbSpec.name`). En vez de cortar ese
+    `limbs_right`: figura asimétrica. Define los miembros del lado derecho (−X) con sus propias siluetas (deben ser los\n    mismos nombres que `limbs`, que pasan a ser los del lado izquierdo, +X). El lado derecho se construye completo sobre el\n    cuerpo espejado, con sus miembros espejados al lado de trabajo, y sus piezas y su mitad de torso vuelven a espejarse al lado\n    −X: así cada lado se corta, se talla y se valida con sus propios cortes. La cabeza, la mano estándar, las articulaciones y los\n    recortes se toman iguales para los dos lados. Con `None` (lo habitual) el resultado es idéntico al de siempre.\n\n    `parts`: piezas de catálogo (`assembly.PartChoice`) por nombre de miembro (`LimbSpec.name`). En vez de cortar ese
     miembro del modelo, se lleva la pieza al puerto que el modelo tiene en ese lugar (sin escala); el resto del flujo
     (pasador, clic, barrido, tallado del torso, articulaciones) es el de siempre. Con `None` el resultado es idéntico."""
     say = progress or (lambda *_: None)
     trims = trims or []
     joints = list(joints or [])
+    right_res: BuildResult | None = None
+    right_limbs: list[LimbSpec] = []
+    if limbs_right is not None:
+        right_limbs, right_res = _build_right_side(body, limbs, limbs_right, p, sym, sit, say, trims, head, joints, hand, parts,
+                                                   host_faces)
     by_limb: dict[str, JointSpec] = {}
     for j in joints:
         if j.limb in by_limb:
@@ -326,7 +337,19 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
             report["limbs"][name]["disc_margin_mm"] = None if (m := pin_margin(b["face"], dl.spec.disc_d)) is None else round(float(m), 3)
             report.setdefault("detent", {})[name] = DT.summary(dl)
     torso_other = None
-    if not p.torso_mirror:
+    if right_res is not None:
+        # Figura asimétrica: el lado −X sale del lado derecho construido aparte (sus piezas y su mitad de torso, espejadas).
+        if detents or right_res.detent:
+            raise ValueError("el mecanismo de clic todavía no admite figuras con cortes asimétricos "
+                             "(desactivá «Clic» en hombro y cadera, o volvé a cortes simétricos)")
+        for nm, mf in right_res.pieces.items():
+            if nm.endswith("_izq"):
+                pieces[nm[:-4] + "_der"] = S.mirror_x(mf)
+        torso_other = S.mirror_x(right_res.torso_half)
+        report["torso"] = {"espejado": False, "asimetrica": True, "volumen_der_mm3": round(float(torso_half.volume()), 2),
+                           "volumen_izq_mm3": round(float(right_res.torso_half.volume()), 2)}
+        report["derecha"] = right_res.report
+    elif not p.torso_mirror:
         say("Torso sin espejar: lado −X…")
         other, why = _other_side_half(body, p, head, host_hand, hand_source)
         if other is None:
@@ -405,7 +428,30 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
         pieces["torso"], pieces[PELVIS_NAME] = waist_build.upper, waist_build.lower
         report["waist"] = _waist_report(waist_build, built, by_limb, head_build is not None)
     return BuildResult(pieces=pieces, report=report, motion=res_motion, joints=res_joints, detent=detents, detent_ref=ref,
-                       waist=waist_build, hand=hand_res, joint_specs=list(joints))
+                       waist=waist_build, hand=hand_res, joint_specs=list(joints), torso_half=torso_half,
+                       right=right_res, right_limbs=right_limbs)
+
+
+def check_asymmetric(limbs: list[LimbSpec], limbs_right: list[LimbSpec]) -> None:
+    """Los miembros del lado derecho tienen que ser los mismos que los del izquierdo (mismos nombres y tipos)."""
+    left = {l.name: l.kind for l in limbs}
+    right = {l.name: l.kind for l in limbs_right}
+    if left != right:
+        raise ValueError("figura asimétrica: los miembros del lado derecho no coinciden con los del izquierdo "
+                         f"(izquierdo: {', '.join(sorted(left)) or 'ninguno'}; derecho: {', '.join(sorted(right)) or 'ninguno'})")
+
+
+def _build_right_side(body, limbs, limbs_right, p, sym, sit, say, trims, head, joints, hand, parts, host_faces):
+    """Lado derecho (−X) de una figura asimétrica: la misma construcción de siempre sobre el cuerpo espejado, con los miembros del
+    lado derecho espejados al lado de trabajo. Sin decimar ni cintura (eso se hace una sola vez sobre el torso completo)."""
+    if parts or host_faces:
+        raise ValueError("las piezas de catálogo todavía no admiten figuras con cortes asimétricos")
+    check_asymmetric(limbs, limbs_right)
+    mirrored = [l.mirrored() for l in limbs_right]
+    say("Lado derecho (cortes propios)…")
+    res = build(S.mirror_x(body), mirrored, dataclasses.replace(p, decimate=0.0), sym, sit,
+                (lambda m: say(f"Lado derecho: {m}")), trims, head, joints, None, hand)
+    return mirrored, res
 
 
 def build_from_parts(parts: dict[str, PartChoice], p: Params, sit: bool = True, progress=None, trims: list[Trim] | None = None,
@@ -698,6 +744,12 @@ def validate(res: BuildResult, p: Params, limbs: list[LimbSpec], sit: bool = Tru
     out["cintura"] = _validate_waist(res, p, out)
     out["mano"] = _validate_hand(res, p, out)
     out["piezas"] = _validate_parts(res, out)
+    if res.right is not None:
+        rv = validate(res.right, p, res.right_limbs, sit, sweep_check_step, joints, detent_free_step)
+        out["derecha"] = rv
+        out["problems"].extend(f"derecha: {x}" for x in rv["problems"] if not x.startswith(("torso", PELVIS_NAME)))
+        out["avisos"].extend(f"derecha: {x}" for x in rv["avisos"] if not x.startswith(("torso", PELVIS_NAME)))
+        out["avisos_pasador"].extend(f"derecha: {x}" for x in rv["avisos_pasador"])
     out["ok"] = not out["problems"]
     return out
 

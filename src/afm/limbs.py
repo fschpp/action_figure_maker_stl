@@ -62,6 +62,21 @@ def raise_ceiling(poly: np.ndarray, top: float | None, band: float = CROSS_CEILI
     return poly
 
 
+def mirror_pts_x(pts) -> np.ndarray:
+    """Refleja puntos (…×3) respecto del plano de simetría x = 0."""
+    a = np.array(pts, float)
+    if a.size:
+        a[..., 0] *= -1.0
+    return a
+
+
+def mirror_plane_x(plane: Plane) -> Plane:
+    """Plano reflejado respecto de x = 0 (origen y normal con la X invertida)."""
+    o, n = np.array(plane.origin, float), np.array(plane.normal, float)
+    o[0], n[0] = -o[0], -n[0]
+    return Plane.from_normal(o, n, plane.name)
+
+
 @dataclass
 class LimbCut:
     """Segundo corte de un miembro: polígono sobre otro plano (normalmente el frontal, perpendicular al de
@@ -80,6 +95,10 @@ class LimbCut:
         """Prisma del corte; con `open_to` el techo del polígono se sube hasta esa cota (ver `raise_ceiling`)."""
         poly = raise_ceiling(self.polygon, open_to) if open_to is not None else self.polygon
         return S.prism_from_polygon(self.plane, poly, self.thickness, symmetric=True)
+
+    def mirrored(self) -> "LimbCut":
+        """El mismo corte reflejado respecto del plano de simetría x = 0."""
+        return LimbCut(mirror_plane_x(self.plane), mirror_pts_x(self.polygon), self.thickness)
 
     def to_dict(self) -> dict:
         return {"plane": self.plane.to_dict(), "polygon": np.asarray(self.polygon).tolist(),
@@ -122,6 +141,10 @@ class LimbSpec:
     # Segundo corte (opcional) sobre otro plano, p. ej. la silueta de frente cuando la principal es de costado.
     # El miembro es lo que queda dentro de los dos prismas; sin él todo funciona como antes.
     cross: LimbCut | None = None
+    # Tercer corte (opcional), «3.ª silueta»: normalmente la vista desde arriba (plano horizontal). Sirve cuando el miembro
+    # se solapa con otra parte en las dos vistas anteriores (p. ej. el dedo de la mano de una figura sentada que cae sobre
+    # el muslo): el miembro es la intersección de los tres prismas con la figura.
+    cross2: LimbCut | None = None
     # Mecanismo de la articulación con el torso: None = según `Params.shoulder_detent` / `hip_detent`; "mushroom" = solo
     # pasador de hongo; "detent" = hongo + disco de clic con lengüetas (PLAN_mecanismo_clic_hombro_cadera.md).
     mechanism: str | None = None
@@ -142,9 +165,23 @@ class LimbSpec:
             "cap_center": None if self.cap_center is None else list(self.cap_center),
             "cap_dir": list(self.cap_dir),
             "cross": None if self.cross is None else self.cross.to_dict(),
+            "cross2": None if self.cross2 is None else self.cross2.to_dict(),
             "mechanism": self.mechanism,
             "detent": None if self.detent is None else dataclasses.asdict(self.detent),
         }
+
+    def mirrored(self) -> "LimbSpec":
+        """El miembro reflejado respecto de x = 0 (para pasar la definición de un lado al otro). Los puntos y planos se
+        reflejan; `contact_axis` es sin signo y no cambia; `cap_dir`/`sweep_deg` no dependen de X."""
+        def pt(p):
+            return None if p is None else tuple(float(x) for x in mirror_pts_x(p))
+
+        return dataclasses.replace(
+            self, plane=mirror_plane_x(self.plane), polygon=mirror_pts_x(self.polygon), pin_center=pt(self.pin_center),
+            cap_center=pt(self.cap_center),
+            cross=None if self.cross is None else self.cross.mirrored(),
+            cross2=None if self.cross2 is None else self.cross2.mirrored(),
+            detent=None if self.detent is None else dataclasses.replace(self.detent))
 
     @classmethod
     def from_dict(cls, d: dict) -> "LimbSpec":
@@ -162,6 +199,7 @@ class LimbSpec:
             cap_center=None if d.get("cap_center") is None else tuple(d["cap_center"]),
             cap_dir=tuple(d.get("cap_dir", (0.0, 0.0, -1.0))),
             cross=None if d.get("cross") is None else LimbCut.from_dict(d["cross"]),
+            cross2=None if d.get("cross2") is None else LimbCut.from_dict(d["cross2"]),
             mechanism=d.get("mechanism"),
             detent=None if d.get("detent") is None else DetentSpec(**d["detent"]),
         )
@@ -238,6 +276,8 @@ def limb_prism(spec: LimbSpec) -> S.Manifold:
             # de costado, así que su techo no puede quedar por debajo (limitaba la cara de contacto y el pasador).
             open_to = float(np.asarray(spec.polygon, float)[:, 2].max()) + CROSS_CEILING_MARGIN_MM
         prism = S.intersection(prism, spec.cross.prism(open_to))
+    if spec.cross2 is not None and spec.cross2.valid():
+        prism = S.intersection(prism, spec.cross2.prism())
     return prism
 
 

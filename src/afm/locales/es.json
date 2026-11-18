@@ -904,7 +904,17 @@
   "hace_clic_sobre_la_figura_a_la_altura": "Hacé clic sobre la figura a la altura que querés (o ↑ ↓, Mayús = 1 mm); Esc termina.",
   "corte_de_la_cabeza_cuello_plano_paralelo": "Corte de la cabeza (cuello): plano paralelo al piso a %{h} mm sobre él.",
   "corte_de_la_cintura_plano_paralelo_al": "Corte de la cintura: plano paralelo al piso a %{h} mm sobre él.",
-  "revisa_el_pasador": "Revisá el pasador."
+  "revisa_el_pasador": "Revisá el pasador.",
+  "3_a_silueta_de_name_sobre": "3.ª silueta de «%{name}» (sobre el plano «%{name2}», vista desde arriba)",
+  "cubri_el_miembro_visto_desde_arriba": "Cubrí el miembro visto desde arriba y dejá afuera lo que se le solapa (por ejemplo, el dedo de la mano sobre el muslo).",
+  "what_3_a_silueta_de_edit": "%{what}: 3.ª silueta de «%{edit_limb}» (%{n} vértices).",
+  "3_a_silueta_de_name_quitado": "3.ª silueta de «%{name}» quitada.",
+  "name_no_tiene_3_a_silueta": "«%{name}» no tiene 3.ª silueta.",
+  "la_propuesta_no_es_para_la_3_a": "La propuesta automática no está disponible para la 3.ª silueta: dibujala a mano.",
+  "lado_izquierdo_activo": "Editando el lado izquierdo (+X).",
+  "lado_derecho_activo": "Editando el lado derecho (−X). La figura se ve espejada: el lado derecho queda a +X, así todas las herramientas funcionan igual.",
+  "cortes_asimetricos_activados": "Cortes distintos por lado activados: el lado derecho empieza como copia espejada del izquierdo.",
+  "cortes_asimetricos_desactivados": "Cortes simétricos: el lado derecho vuelve a salir por espejo del izquierdo."
  },
  "figure_builder": {
   "torso": "Torso",
@@ -1218,7 +1228,11 @@
   "guardando_el_informe_y_el_proyecto_2": "Guardando el informe y el proyecto",
   "lname_la_articulacion_name_de_la": "«%{lname}»: la articulación «%{name}» de la pieza es «%{kind}» y el miembro es «%{kind2}»",
   "lugar_invalido_place": "lugar inválido: %{place}",
-  "la_altura_del_corte_tiene_que_estar": "la altura del corte tiene que estar entre %{lo} y %{hi} mm sobre el piso"
+  "la_altura_del_corte_tiene_que_estar": "la altura del corte tiene que estar entre %{lo} y %{hi} mm sobre el piso",
+  "asimetrica_no_con_catalogo": "Los cortes distintos por lado todavía no se combinan con piezas de catálogo.",
+  "lado_invalido": "El lado tiene que ser «left» o «right».",
+  "primero_activa_los_cortes_distintos": "Primero activá «Cortes distintos para cada lado».",
+  "volve_al_lado_izquierdo_para_generar": "Volvé al lado izquierdo para generar la figura."
  },
  "step_state": {
   "y_v_mas": "y %{v} más",
@@ -1353,7 +1367,11 @@
   "siluetas_de_los_miembros_1_o": "Siluetas de los miembros (1.º y 2.ª silueta) y recortes manuales",
   "numerar_los_cortes_en_el_visor": "Numerar los cortes en el visor",
   "todavia_no_hay_planos_agregalos_en": "Todavía no hay planos. Agregalos en la pestaña «Planos» (simetría, brazo, pierna).",
-  "durante_la_seleccion_retroceso_deshace_el": "Durante la selección: Retroceso deshace el último punto, Esc cancela."
+  "durante_la_seleccion_retroceso_deshace_el": "Durante la selección: Retroceso deshace el último punto, Esc cancela.",
+  "cortes_distintos_por_lado": "Cortes distintos para cada lado",
+  "cortes_distintos_tooltip": "Para figuras asimétricas: el lado derecho tiene sus propias siluetas, planos y pasadores en vez de salir por espejo del izquierdo.",
+  "lado_izquierdo": "Lado izquierdo (+X)",
+  "lado_derecho": "Lado derecho (−X, vista espejada)"
  },
  "planos": {
   "arma_el_brazo_y_la_pierna": "Arma el brazo y la pierna de esta figura sobre cada torso del catálogo, sienta la pierna y mide si chocan. Tarda (carga las mallas): se mide solo en la posición elegida. Si choca, aparece un punto violeta en la cinta.",
@@ -1683,6 +1701,10 @@
   "dibujar_2_a_silueta": "Dibujar 2.ª silueta",
   "editar_2_a_silueta": "Editar 2.ª silueta",
   "pasador": "Pasador",
-  "quitar_el_plano_entero_con_sus_siluetas": "Quitar el plano entero (con sus siluetas)"
+  "quitar_el_plano_entero_con_sus_siluetas": "Quitar el plano entero (con sus siluetas)",
+  "dibuja_o_edita_la_3_a_silueta": "Dibuja o edita la 3.ª silueta: la vista desde arriba. Sirve cuando el miembro se solapa con otra parte en las vistas de costado y de frente",
+  "quitar_la_3_a_silueta_de_name": "Quitar la 3.ª silueta de «%{name}»",
+  "editar_3_a_silueta": "Editar 3.ª silueta",
+  "dibujar_3_a_silueta": "Dibujar 3.ª silueta"
  }
 }

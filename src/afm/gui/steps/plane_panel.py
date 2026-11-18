@@ -36,6 +36,23 @@ def build(win) -> Gtk.Widget:
     win.chk_cut_numbers = Gtk.CheckButton(label=tr("plane_panel.numerar_los_cortes_en_el_visor"), active=win.ctrl.show_cut_numbers)
     win.chk_cut_numbers.connect("toggled", lambda b: None if win._updating else win.ctrl.set_show_cut_numbers(b.get_active()))
     vis.append(win.chk_cut_numbers)
+    # Figura asimétrica: cortes propios para cada lado. El lado derecho se edita sobre la figura espejada (queda a +X).
+    win.chk_asym = Gtk.CheckButton(label=tr("plane_panel.cortes_distintos_por_lado"), tooltip_text=tr("plane_panel.cortes_distintos_tooltip"))
+    win.chk_asym.connect("toggled", lambda b: None if win._updating else win.ctrl.set_asymmetric(b.get_active()))
+    sec.append(win.chk_asym)
+    win.side_box = Gtk.Box(spacing=0, visible=False, css_classes=["linked"])
+    win.btn_side = {}
+    first = None
+    for side, label in (("left", tr("plane_panel.lado_izquierdo")), ("right", tr("plane_panel.lado_derecho"))):
+        b = Gtk.ToggleButton(label=label, hexpand=True)
+        if first is None:
+            first = b
+        else:
+            b.set_group(first)
+        b.connect("toggled", lambda btn, sd=side: None if win._updating or not btn.get_active() else win.ctrl.set_edit_side(sd))
+        win.side_box.append(b)
+        win.btn_side[side] = b
+    sec.append(win.side_box)
     win.planes_box = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
     win.planes_box.add_css_class("boxed-list")
     win.lbl_planes_empty = Gtk.Label(label=tr("plane_panel.todavia_no_hay_planos_agregalos_en"),

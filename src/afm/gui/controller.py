@@ -246,6 +246,7 @@ class Controller:
         self._vertex_drag: dict | None = None       # arrastre de un vértice de la silueta en curso: índice, posición previa y si ya se movió
         self._last_offset_limb: str | None = None   # miembro al que apunta «Corte a» cuando ninguno está en edición
         self.edit_cross = False                     # el polígono en edición es la 2.ª silueta (frente) del miembro
+        self.edit_cross2 = False                    # el polígono en edición es la 3.ª silueta (desde arriba) del miembro
         self.joint_limb: str | None = None          # miembro al que se le está definiendo la articulación (JOINT_PLANE)
         self.head_pin_prev = None                   # HeadPinPreview mientras se coloca el pasador del cuello (HEAD_PIN)
         self.waist_pin_prev = None                  # LinePinPreview mientras se coloca el pasador de la cintura (WAIST_PIN)
@@ -313,7 +314,8 @@ class Controller:
 
     # ------------------------------------------------------ deshacer / rehacer
     def _project_text(self) -> str:
-        return json_sig(self.session.project.to_dict())
+        with self.session.committed():             # el estado real aunque se esté editando el lado derecho (vista espejada)
+            return json_sig(self.session.project.to_dict())
 
     @property
     def dirty(self) -> bool:
@@ -381,6 +383,7 @@ class Controller:
         from ..project import Project
 
         sess = self.session
+        sess._leave_right()                                  # el texto es el estado real: se vuelve al lado izquierdo antes de aplicarlo
         cur = sess.project
         new = Project.from_dict(json.loads(text))
         reload = sess.stl_path is not None and (new.crown_z != cur.crown_z
@@ -1130,7 +1133,7 @@ class Controller:
             self._rebuild_picker()           # durante el corte el picker apuntaba a la cabeza de reemplazo / al arma
         self.clear_hover()
         self._vertex_drag = None
-        self.draft, self.edit_limb, self.edit_cross = None, None, False
+        self.draft, self.edit_limb, self.edit_cross, self.edit_cross2 = None, None, False, False
         self.pin_limb, self.pin_prev = None, None
         self.pin_aid, self.pin_aim, self.pin_hover = None, None, None
         self.pin_proposal = None
@@ -1274,6 +1277,40 @@ class Controller:
         self._changed(tr("controller.label_value_hay_que_generar_de", label=label, value=f"{value:g}"), scene=False)
         return True
 
+    # ------------------------------------------------- figura asimétrica (cortes propios para cada lado)
+    def set_asymmetric(self, on: bool) -> bool:
+        """Activa o desactiva «Cortes distintos para cada lado». Devuelve False (con el motivo en `message`) si no se pudo."""
+        try:
+            self.cancel(quiet=True)
+            self.session.set_asymmetric(on)
+        except ValueError as e:
+            self._changed(str(e), scene=False)
+            return False
+        self._after_side_change()
+        self._changed(tr("controller.cortes_asimetricos_activados" if on else "controller.cortes_asimetricos_desactivados"))
+        return True
+
+    def set_edit_side(self, side: str) -> bool:
+        """Cambia el lado que se edita («left» / «right»). El derecho se muestra espejado (ver `Session.set_edit_side`)."""
+        if side == self.session.edit_side:
+            return True
+        try:
+            self.cancel(quiet=True)
+            self.session.set_edit_side(side)
+        except ValueError as e:
+            self._changed(str(e), scene=False)
+            return False
+        self._after_side_change()
+        self._changed(tr("controller.lado_derecho_activo" if side == "right" else "controller.lado_izquierdo_activo"))
+        return True
+
+    def _after_side_change(self) -> None:
+        """La malla de trabajo cambió (espejada o no): se rehace el selector de clics y se reencuadra la cámara."""
+        if self.loaded:
+            self._rebuild_picker()
+            self.camera.frame(self.session.work.bounds)
+        self.cut_seated = None
+
     def set_ref_height(self, mm: float) -> bool:
         """Cambia la altura de la figura (pies → coronilla, mm). Reescala la malla y, si ya había planos, siluetas,
         recortes y ejes, los escala por el mismo factor. Las medidas absolutas (pasadores, holgura, clic) no se
@@ -1399,12 +1436,13 @@ class Controller:
                       scene=False)
 
     # ------------------------------------------------------------ siluetas
-    def start_polygon(self, name: str, cross: bool = False) -> None:
+    def start_polygon(self, name: str, cross: bool = False, cross2: bool = False) -> None:
         """Entra al modo de dibujo de la silueta del miembro `name` (la que ya tenga se carga para editarla).
 
         Con `cross` se edita su 2.ª silueta: la silueta sobre el plano perpendicular al principal (el frontal,
         normalmente). El miembro es lo que queda dentro de las dos siluetas, como en Onshape (un recorte de
-        costado más uno de frente)."""
+        costado más uno de frente). Con `cross2` se edita la 3.ª silueta, la vista desde arriba (plano horizontal), para sacar
+        lo que se solapa con el miembro en las otras dos vistas."""
         if not self._need_loaded():
             return
         limb = self.session.limb(name)
@@ -1413,7 +1451,11 @@ class Controller:
             return
         keep_sim = self.show_joint_preview and self.polygon_hip_name() is not None     # de la silueta a la 2.ª (y al revés) sigue la simulación
         self.cancel(quiet=True)
-        if cross:
+        if cross2:
+            plane = self.session.cross2_plane(name)
+            poly = limb.cross2.polygon if limb.cross2 is not None else np.zeros((0, 3))
+            what = tr("controller.3_a_silueta_de_name_sobre", name=name, name2=plane.name)
+        elif cross:
             plane = self.session.cross_plane(name)
             poly = limb.cross.polygon if limb.cross is not None else np.zeros((0, 3))
             what = tr("controller.2_a_silueta_de_name_sobre", name=name, name2=plane.name)
@@ -1425,12 +1467,14 @@ class Controller:
         else:
             self.draft = PolygonDraft(plane)
             msg = (tr("controller.what_hace_clic_para_poner_vertices", what=what))
-            if cross:
+            if cross2:
+                msg += ' ' + tr("controller.cubri_el_miembro_visto_desde_arriba")
+            elif cross:
                 msg += ((' ' + tr("controller.cubri_el_miembro_visto_de_frente")))
-        self.mode, self.edit_limb, self.edit_cross = Mode.POLYGON, name, cross
+        self.mode, self.edit_limb, self.edit_cross, self.edit_cross2 = Mode.POLYGON, name, cross, cross2
         if keep_sim and self.polygon_hip_name() == self._jp["name"]:
             self.show_joint_preview = True
-        if cross:
+        if cross or cross2:
             self.camera.look_along(plane.normal, target=plane.origin)
         self._changed(msg)
 
@@ -1457,7 +1501,7 @@ class Controller:
 
     def remove_silhouette(self, name: str) -> None:
         """Quita la silueta principal de `name` (el miembro vuelve a figurar como pendiente de silueta)."""
-        if self.edit_limb == name and not self.edit_cross:
+        if self.edit_limb == name and not self.edit_cross and not self.edit_cross2:
             self.cancel(quiet=True)
         if self.session.clear_limb_polygon(name):
             self._changed(tr("controller.silueta_de_name_quitada_falta_dibujarla", name=name))
@@ -1472,6 +1516,15 @@ class Controller:
             self._changed(tr("controller.2_a_silueta_de_name_quitado", name=name))
         else:
             self._changed(tr("controller.name_no_tiene_2_a_silueta", name=name), scene=False)
+
+    def remove_cross2(self, name: str) -> None:
+        """Quita la 3.ª silueta (la de arriba) de `name`."""
+        if self.edit_limb == name and self.edit_cross2:
+            self.cancel(quiet=True)
+        if self.session.clear_limb_cross2(name):
+            self._changed(tr("controller.3_a_silueta_de_name_quitado", name=name))
+        else:
+            self._changed(tr("controller.name_no_tiene_3_a_silueta", name=name), scene=False)
 
     def _click_polygon(self, px: float, py: float, width: float, height: float) -> None:
         d = self.draft
@@ -1574,7 +1627,10 @@ class Controller:
         if err:
             self._changed(tr("controller.what_pero_la_silueta_err_corregila", what=what, err=err))
             return False
-        if self.edit_cross:
+        if self.edit_cross2:
+            self.session.set_limb_cross2(self.edit_limb, d.world())
+            self._changed(tr("controller.what_3_a_silueta_de_edit", what=what, edit_limb=self.edit_limb, n=len(d.pts)))
+        elif self.edit_cross:
             self.session.set_limb_cross(self.edit_limb, d.world())
             self._changed(tr("controller.what_2_a_silueta_de_edit", what=what, edit_limb=self.edit_limb, n=len(d.pts)))
         else:
@@ -1644,6 +1700,9 @@ class Controller:
             return
         if self.edit_limb is None:
             self._changed(tr("controller.la_propuesta_automatica_es_para_la"), scene=False)
+            return
+        if self.edit_cross2:
+            self._changed(tr("controller.la_propuesta_no_es_para_la_3_a"), scene=False)
             return
         try:
             poly = self.session.propose_silhouette(self.edit_limb, crotch_z, cross=self.edit_cross)
@@ -4938,8 +4997,10 @@ class Controller:
             hidden = l.name in self.hidden
             for key, poly, color in ((f"espejo:silueta:{l.name}", l.polygon, (1.0, 0.8, 0.2, 1.0)),
                                      (f"espejo:silueta2:{l.name}", None if l.cross is None else l.cross.polygon,
-                                      (0.3, 0.85, 1.0, 1.0))):
-                being_edited = editing is not None and l.name == self.edit_limb and self.edit_cross == ("silueta2" in key)
+                                      (0.3, 0.85, 1.0, 1.0)),
+                                     (f"espejo:silueta3:{l.name}", None if l.cross2 is None else l.cross2.polygon,
+                                      (0.75, 0.55, 1.0, 1.0))):
+                being_edited = editing is not None and l.name == self.edit_limb and self._edit_kind() == key.split(":")[1]
                 if being_edited or poly is None or len(poly) < 3:
                     continue
                 wanted.add(key)
@@ -5657,20 +5718,26 @@ class Controller:
         t = np.asarray(prev.face.triangles, float)
         return t.reshape(-1, 3), np.arange(len(t) * 3).reshape(-1, 3)
 
+    def _edit_kind(self) -> str:
+        """Qué silueta del miembro se está editando: «silueta» (la principal), «silueta2» (de frente) o «silueta3» (desde arriba)."""
+        return "silueta3" if self.edit_cross2 else "silueta2" if self.edit_cross else "silueta"
+
     def _sync_polygons(self, scene) -> None:
         editing = self.draft if self.mode == Mode.POLYGON else None
         wanted = set()
         for l in self.session.project.limbs:
             for key, poly, color in ((f"silueta:{l.name}", l.polygon, (1.0, 0.8, 0.2, 1.0)),
                                      (f"silueta2:{l.name}", None if l.cross is None else l.cross.polygon,
-                                      (0.3, 0.85, 1.0, 1.0))):
-                being_edited = editing is not None and l.name == self.edit_limb and self.edit_cross == key.startswith("silueta2")
+                                      (0.3, 0.85, 1.0, 1.0)),
+                                     (f"silueta3:{l.name}", None if l.cross2 is None else l.cross2.polygon,
+                                      (0.75, 0.55, 1.0, 1.0))):
+                being_edited = editing is not None and l.name == self.edit_limb and self._edit_kind() == key.split(":")[0]
                 if being_edited or poly is None or len(poly) < 3:
                     continue
                 wanted.add(key)
                 scene.set_lines(key, np.asarray(poly), color, closed=True, on_top=True, width=SILHOUETTE_PX)          # la silueta vive dentro de la figura: sin prueba de profundidad no se vería
                 scene.show(key, l.name not in self.hidden and self.group_visible("contours"))
-        for key in [k for k in scene.items if k.startswith(("silueta:", "silueta2:")) and k not in wanted]:
+        for key in [k for k in scene.items if k.startswith(("silueta:", "silueta2:", "silueta3:")) and k not in wanted]:
             scene.remove(key)
         if editing is None:
             for key in ("guia", "poligono", "poligono:vertices", "poligono:sel"):

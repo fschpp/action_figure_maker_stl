@@ -2,6 +2,25 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — Cortes asimétricos por lado y 3.ª silueta (desde arriba) (2026-11-18, sobre main 1c9d26c, sin commitear)
+**Objetivo:** que figuras no simétricas (Egon: brazos y piernas distintos; el dedo de la mano solapa el muslo al sentarla) se puedan cortar bien: (1) cortes propios para el lado derecho; (2) una 3.ª silueta, vista desde arriba, para sacar lo que se solapa con el miembro en las vistas de costado y de frente.
+**Hecho (motor):** `LimbSpec.cross2` (3.ª silueta, `LimbCut`) y `limb_prism` la intersecta con las otras dos; `LimbSpec.mirrored()` / `LimbCut.mirrored()`. `Project.limbs_right` (None = simétrica). `pipeline.build(..., limbs_right=)`: el lado derecho se construye completo sobre el cuerpo espejado (`_build_right_side`) y sus piezas y su mitad de torso (`BuildResult.torso_half`) se espejan al −X; `validate` valida también ese lado (`out["derecha"]`). Verificado con el muñeco de prueba: lados iguales = mismo volumen que el simétrico; brazo derecho más corto = pieza derecha más chica; 3.ª silueta recorta el brazo.
+**Hecho (sesión/GUI):** `Session.set_asymmetric`, `set_edit_side("right")` (el lado derecho se edita sobre la figura espejada: miembros y malla reflejados, así todas las herramientas sirven sin tocarlas; `committed()` da el estado real para guardar/deshacer), `cross2_plane/set_limb_cross2/clear_limb_cross2`. Controlador: `set_asymmetric`, `set_edit_side`, `start_polygon(cross2=)`, `remove_cross2`, silueta 3 (violeta) en el visor. Ventana: botón «Dibujar/Editar 3.ª silueta» por miembro; casilla «Cortes distintos para cada lado» y selector de lado en el panel de planos. Textos es/en/pt. CLI: `afm` genera con `limbs_right` si el .proyecto lo trae.
+**No verificado:** nada de la GUI en pantalla (este entorno no tiene GTK); la suite completa; Egon real con 3.ª silueta dibujada; clic (detent) y piezas de catálogo con cortes asimétricos (se rechazan con un mensaje).
+
+### Todo List
+- [x] Motor: 3.ª silueta, espejado de miembros, `limbs_right`, construcción del lado derecho, validación.
+- [x] Sesión, controlador, ventana, textos.
+- [ ] Presentar el parche.
+- [/] Tests unitarios: `tests/test_asymmetric.py` (motor, proyecto, sesión), controlador de la 3.ª silueta.
+- [ ] Probar en la GUI con Egon: activar «Cortes distintos», lado derecho, 3.ª silueta en la pierna.
+- [ ] Decidir si la cabeza, la mano y las articulaciones también deben tener lado propio (hoy se toman iguales en los dos lados).
+
+### Latest Blockers/Discoveries
+- El pipeline entero asume +X y espeja al final; en vez de refactorizarlo se construye dos veces (lado derecho sobre el cuerpo espejado). Cuesta ~2× el tiempo de generar solo si hay `limbs_right`.
+- Con cortes asimétricos el «Clic» (detent), las piezas de catálogo y la cintura por lado no están soportados todavía (clic y catálogo lanzan `ValueError`).
+- `tests/` completo tarda varios minutos; sin GTK en este entorno no corren los tests de ventana.
+
 ## Current Focus — La simulación al costado queda quieta al cambiar la «Flexión mostrada» (2026-11-18, sobre main 4d1d7ba, sin commitear)
 **Objetivo:** que al girar el brazo / la pierna en la simulación, el resto (torso o pelvis tallados) no se desplace en pantalla.
 **Causa:** `Controller._joint_beside_layout` calculaba el corrimiento «al costado» con los límites de la pieza distal a la flexión mostrada. Con la cámara mirando a lo largo de X el corrimiento va sobre Y, que es el plano en que gira el brazo: cada flexión nueva recalculaba el corrimiento y toda la simulación saltaba (con Egon, a 30° y 75°).

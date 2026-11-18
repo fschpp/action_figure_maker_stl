@@ -36,7 +36,7 @@ def run(stl_path: str, project: Project, outdir: str, name: str, progress=print,
     else:
         res = P.build(body, project.limbs, project.params, project.symmetry, progress=progress,
                       trims=project.trims, head=project.head, joints=project.joints, waist=project.waist,
-                      hand=project.hand, parts=parts)
+                      hand=project.hand, parts=parts, limbs_right=project.limbs_right)
         progress("Validando la figura…")
         val = P.validate(res, project.params, project.limbs, joints=project.joints)
     if keep is not None:

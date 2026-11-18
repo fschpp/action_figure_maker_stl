@@ -904,7 +904,17 @@
   "hace_clic_sobre_la_figura_a_la_altura": "Clique na figura na altura que quiser (ou ↑ ↓, Shift = 1 mm); Esc termina.",
   "corte_de_la_cabeza_cuello_plano_paralelo": "Corte da cabeça (pescoço): plano paralelo ao piso a %{h} mm sobre ele.",
   "corte_de_la_cintura_plano_paralelo_al": "Corte da cintura: plano paralelo ao piso a %{h} mm sobre ele.",
-  "revisa_el_pasador": "Revise o pino."
+  "revisa_el_pasador": "Revise o pino.",
+  "3_a_silueta_de_name_sobre": "3.ª silhueta de “%{name}” (sobre o plano “%{name2}”, vista de cima)",
+  "cubri_el_miembro_visto_desde_arriba": "Cubra o membro visto de cima e deixe de fora o que se sobrepõe a ele (por exemplo, o dedo da mão sobre a coxa).",
+  "what_3_a_silueta_de_edit": "%{what}: 3.ª silhueta de “%{edit_limb}” (%{n} vértices).",
+  "3_a_silueta_de_name_quitado": "3.ª silhueta de “%{name}” removida.",
+  "name_no_tiene_3_a_silueta": "“%{name}” não tem 3.ª silhueta.",
+  "la_propuesta_no_es_para_la_3_a": "A proposta automática não está disponível para a 3.ª silhueta: desenhe-a à mão.",
+  "lado_izquierdo_activo": "Editando o lado esquerdo (+X).",
+  "lado_derecho_activo": "Editando o lado direito (−X). A figura aparece espelhada: o lado direito fica em +X, assim todas as ferramentas funcionam igual.",
+  "cortes_asimetricos_activados": "Cortes diferentes por lado ativados: o lado direito começa como cópia espelhada do esquerdo.",
+  "cortes_asimetricos_desactivados": "Cortes simétricos: o lado direito volta a sair por espelho do esquerdo."
  },
  "figure_builder": {
   "torso": "Torso",
@@ -1218,7 +1228,11 @@
   "guardando_el_informe_y_el_proyecto_2": "Salvando o relatório e o projeto",
   "lname_la_articulacion_name_de_la": "“%{lname}”: a articulação “%{name}” da peça é “%{kind}” e o membro é “%{kind2}”",
   "lugar_invalido_place": "lugar inválido: %{place}",
-  "la_altura_del_corte_tiene_que_estar": "a altura do corte tem de estar entre %{lo} e %{hi} mm sobre o piso"
+  "la_altura_del_corte_tiene_que_estar": "a altura do corte tem de estar entre %{lo} e %{hi} mm sobre o piso",
+  "asimetrica_no_con_catalogo": "Os cortes diferentes por lado ainda não se combinam com peças de catálogo.",
+  "lado_invalido": "O lado deve ser “left” ou “right”.",
+  "primero_activa_los_cortes_distintos": "Ative primeiro “Cortes diferentes para cada lado”.",
+  "volve_al_lado_izquierdo_para_generar": "Volte ao lado esquerdo para gerar a figura."
  },
  "step_state": {
   "y_v_mas": "e mais %{v}",
@@ -1353,7 +1367,11 @@
   "siluetas_de_los_miembros_1_o": "Silhuetas dos membros (1.ª e 2.ª silhueta) e recortes manuais",
   "numerar_los_cortes_en_el_visor": "Numerar os cortes no visualizador",
   "todavia_no_hay_planos_agregalos_en": "Ainda não há planos. Adicione-os na aba “Planos” (simetria, braço, perna).",
-  "durante_la_seleccion_retroceso_deshace_el": "Durante a seleção: Backspace desfaz o último ponto, Esc cancela."
+  "durante_la_seleccion_retroceso_deshace_el": "Durante a seleção: Backspace desfaz o último ponto, Esc cancela.",
+  "cortes_distintos_por_lado": "Cortes diferentes para cada lado",
+  "cortes_distintos_tooltip": "Para figuras assimétricas: o lado direito tem suas próprias silhuetas, planos e pinos em vez de sair por espelho do esquerdo.",
+  "lado_izquierdo": "Lado esquerdo (+X)",
+  "lado_derecho": "Lado direito (−X, vista espelhada)"
  },
  "planos": {
   "arma_el_brazo_y_la_pierna": "Monta o braço e a perna desta figura sobre cada torso do catálogo, senta a perna e mede se chocam. Demora (carrega as malhas): mede-se só na posição escolhida. Se chocar, aparece um ponto violeta na faixa.",
@@ -1683,6 +1701,10 @@
   "dibujar_2_a_silueta": "Desenhar 2.ª silhueta",
   "editar_2_a_silueta": "Editar 2.ª silhueta",
   "pasador": "Pino",
-  "quitar_el_plano_entero_con_sus_siluetas": "Remover o plano inteiro (com suas silhuetas)"
+  "quitar_el_plano_entero_con_sus_siluetas": "Remover o plano inteiro (com suas silhuetas)",
+  "dibuja_o_edita_la_3_a_silueta": "Desenha ou edita a 3.ª silhueta: a vista de cima. Serve quando o membro se sobrepõe a outra parte nas vistas lateral e frontal",
+  "quitar_la_3_a_silueta_de_name": "Remover a 3.ª silhueta de “%{name}”",
+  "editar_3_a_silueta": "Editar 3.ª silhueta",
+  "dibujar_3_a_silueta": "Desenhar 3.ª silhueta"
  }
 }

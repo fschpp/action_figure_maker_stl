@@ -904,7 +904,17 @@
   "hace_clic_sobre_la_figura_a_la_altura": "Click on the figure at the height you want (or ↑ ↓, Shift = 1 mm); Esc finishes.",
   "corte_de_la_cabeza_cuello_plano_paralelo": "Head (neck) cut: plane parallel to the floor at %{h} mm above it.",
   "corte_de_la_cintura_plano_paralelo_al": "Waist cut: plane parallel to the floor at %{h} mm above it.",
-  "revisa_el_pasador": "Check the pin."
+  "revisa_el_pasador": "Check the pin.",
+  "3_a_silueta_de_name_sobre": "3rd outline of “%{name}” (on plane “%{name2}”, top view)",
+  "cubri_el_miembro_visto_desde_arriba": "Cover the limb as seen from above and leave out whatever overlaps it (for example, the hand's finger over the thigh).",
+  "what_3_a_silueta_de_edit": "%{what}: 3rd outline of “%{edit_limb}” (%{n} vertices).",
+  "3_a_silueta_de_name_quitado": "3rd outline of “%{name}” removed.",
+  "name_no_tiene_3_a_silueta": "“%{name}” has no 3rd outline.",
+  "la_propuesta_no_es_para_la_3_a": "The automatic proposal is not available for the 3rd outline: draw it by hand.",
+  "lado_izquierdo_activo": "Editing the left side (+X).",
+  "lado_derecho_activo": "Editing the right side (−X). The figure is shown mirrored: the right side sits at +X so every tool works the same way.",
+  "cortes_asimetricos_activados": "Per-side cuts enabled: the right side starts as a mirrored copy of the left one.",
+  "cortes_asimetricos_desactivados": "Symmetric cuts: the right side is mirrored from the left again."
  },
  "figure_builder": {
   "torso": "Torso",
@@ -1218,7 +1228,11 @@
   "guardando_el_informe_y_el_proyecto_2": "Saving the report and the project",
   "lname_la_articulacion_name_de_la": "“%{lname}”: the part's joint “%{name}” is “%{kind}” and the limb is “%{kind2}”",
   "lugar_invalido_place": "invalid place: %{place}",
-  "la_altura_del_corte_tiene_que_estar": "the cut height must be between %{lo} and %{hi} mm above the floor"
+  "la_altura_del_corte_tiene_que_estar": "the cut height must be between %{lo} and %{hi} mm above the floor",
+  "asimetrica_no_con_catalogo": "Per-side cuts cannot be combined with catalog parts yet.",
+  "lado_invalido": "The side must be “left” or “right”.",
+  "primero_activa_los_cortes_distintos": "Enable “Different cuts for each side” first.",
+  "volve_al_lado_izquierdo_para_generar": "Go back to the left side to generate the figure."
  },
  "step_state": {
   "y_v_mas": "and %{v} more",
@@ -1353,7 +1367,11 @@
   "siluetas_de_los_miembros_1_o": "Limb outlines (1st and 2nd outline) and manual trims",
   "numerar_los_cortes_en_el_visor": "Number the cuts in the viewer",
   "todavia_no_hay_planos_agregalos_en": "There are no planes yet. Add them in the “Planes” tab (symmetry, arm, leg).",
-  "durante_la_seleccion_retroceso_deshace_el": "During selection: Backspace undoes the last point, Esc cancels."
+  "durante_la_seleccion_retroceso_deshace_el": "During selection: Backspace undoes the last point, Esc cancels.",
+  "cortes_distintos_por_lado": "Different cuts for each side",
+  "cortes_distintos_tooltip": "For asymmetric figures: the right side gets its own outlines, planes and pins instead of mirroring the left one.",
+  "lado_izquierdo": "Left side (+X)",
+  "lado_derecho": "Right side (−X, mirrored view)"
  },
  "planos": {
   "arma_el_brazo_y_la_pierna": "It assembles this figure's arm and leg on each catalog torso, seats the leg and measures whether they collide. It takes a while (it loads the meshes): it is measured only at the chosen position. If it collides, a violet dot appears on the band.",
@@ -1683,6 +1701,10 @@
   "dibujar_2_a_silueta": "Draw 2nd outline",
   "editar_2_a_silueta": "Edit 2nd outline",
   "pasador": "Pin",
-  "quitar_el_plano_entero_con_sus_siluetas": "Remove the whole plane (with its outlines)"
+  "quitar_el_plano_entero_con_sus_siluetas": "Remove the whole plane (with its outlines)",
+  "dibuja_o_edita_la_3_a_silueta": "Draw or edit the 3rd outline: the top view. Use it when the limb overlaps another part in the side and front views",
+  "quitar_la_3_a_silueta_de_name": "Remove the 3rd outline of “%{name}”",
+  "editar_3_a_silueta": "Edit 3rd outline",
+  "dibujar_3_a_silueta": "Draw 3rd outline"
  }
 }

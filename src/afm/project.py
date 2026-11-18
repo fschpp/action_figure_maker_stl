@@ -51,6 +51,9 @@ class Project:
     crown_z: float | None = None          # cota de la coronilla en unidades del STL original
     front: str = "+Y"                     # hacia dónde mira la figura en el STL ("+Y" o "-Y")
     limbs: list[LimbSpec] = field(default_factory=list)
+    # Figura asimétrica: miembros del lado derecho (−X) con sus propias siluetas, en coordenadas reales de la figura (los de `limbs`
+    # son los del lado izquierdo, +X). None = figura simétrica: el derecho sale por espejo del izquierdo (lo de siempre).
+    limbs_right: list[LimbSpec] | None = None
     trims: list[Trim] = field(default_factory=list)
     joints: list[JointSpec] = field(default_factory=list)   # rodillas / codos (bisagras); vacío = miembro rígido
     head: HeadSpec | None = None          # cabeza articulada (plano del cuello + pasador); None = cabeza fija al torso
@@ -66,6 +69,8 @@ class Project:
         d = self._to_dict_base()
         if self.accesorios:                                   # solo si hay: los proyectos anteriores no cambian
             d["accesorios"] = [a.to_dict() for a in self.accesorios]
+        if self.limbs_right is not None:
+            d["limbs_right"] = [l.to_dict() for l in self.limbs_right]
         return d
 
     def _to_dict_base(self) -> dict:
@@ -93,6 +98,7 @@ class Project:
             crown_z=d.get("crown_z"),
             front=d.get("front", "+Y"),
             limbs=[LimbSpec.from_dict(x) for x in d.get("limbs", [])],
+            limbs_right=None if d.get("limbs_right") is None else [LimbSpec.from_dict(x) for x in d["limbs_right"]],
             trims=[Trim.from_dict(x) for x in d.get("trims", [])],
             head=None if d.get("head") is None else HeadSpec.from_dict(d["head"]),
             waist=None if d.get("waist") is None else WaistSpec.from_dict(d["waist"]),
@@ -118,7 +124,13 @@ class Project:
             return None if x is None else float(x) * k
 
         self.symmetry = pl(self.symmetry)
-        for l in self.limbs:
+        def cut(c):
+            if c is not None:
+                c.plane = pl(c.plane)
+                c.polygon = np.asarray(c.polygon, float) * k
+                c.thickness = float(c.thickness) * k
+
+        for l in list(self.limbs) + list(self.limbs_right or []):
             l.plane = pl(l.plane)
             l.polygon = np.asarray(l.polygon, float) * k
             l.thickness = float(l.thickness) * k
@@ -126,10 +138,8 @@ class Project:
             l.cut_offset = opt(l.cut_offset)
             l.cap_radius = opt(l.cap_radius)
             l.cap_center = pt(l.cap_center)
-            if l.cross is not None:
-                l.cross.plane = pl(l.cross.plane)
-                l.cross.polygon = np.asarray(l.cross.polygon, float) * k
-                l.cross.thickness = float(l.cross.thickness) * k
+            cut(l.cross)
+            cut(l.cross2)
         for t in self.trims:
             t.plane = pl(t.plane)
             t.polygon = np.asarray(t.polygon, float) * k
