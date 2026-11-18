@@ -211,7 +211,9 @@ def _px(c, uv):
 def test_without_catalog_there_is_no_aim(ctrl):
     ctrl.start_pin("brazo")
     assert ctrl.pin_aid is None
-    assert ctrl.update_hover(*_px(ctrl, ctrl.pin_prev.project(ctrl.pin_prev.default_center)), W, H) is False
+    # sin catálogo no hay mira, pero sí pasador fantasma que sigue al puntero (se ve si entra en la cara)
+    assert ctrl.update_hover(*_px(ctrl, ctrl.pin_prev.project(ctrl.pin_prev.default_center)), W, H) is True
+    assert ctrl.pin_aim is None and ctrl.pin_hover is not None and ctrl.message.startswith("Fantasma")
     ctrl.snap_pin()
     assert "catálogo" in ctrl.message
 

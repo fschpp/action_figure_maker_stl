@@ -190,7 +190,7 @@ def test_controller_preview_reports_errors_instead_of_failing(ctrl):
 
 def test_preview_needs_a_joint(ctrl):
     ctrl.session.remove_joint("codo")
-    ctrl.session.project.limbs = [l for l in ctrl.session.project.limbs if l.kind != "leg"]    # sin pierna tampoco hay cadera
+    ctrl.session.project.limbs = [l for l in ctrl.session.project.limbs if l.kind not in ("leg", "arm")]    # sin pierna ni brazo tampoco hay cadera ni hombro
     ctrl.set_joint_preview(None, True)
     assert not ctrl.show_joint_preview and "No hay ninguna articulación" in ctrl.message
 

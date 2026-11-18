@@ -17,7 +17,7 @@ class FakeScene:
     def __init__(self):
         self.items = {}
 
-    def set_mesh(self, name, mesh, color=None, clip_x=-1e9, clip_plane=None):
+    def set_mesh(self, name, mesh, color=None, clip_x=-1e9, clip_plane=None, ghost=False):
         self.items[name] = ("mesh", mesh, clip_x, clip_plane)
 
     def set_plane(self, name, plane, hs, center=None, color=None):

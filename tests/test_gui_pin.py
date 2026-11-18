@@ -192,7 +192,7 @@ class _Scene:
     def __init__(self):
         self.items, self.kw = {}, {}
 
-    def set_mesh(self, name, mesh, color=None, clip_x=-1e9, clip_plane=None):
+    def set_mesh(self, name, mesh, color=None, clip_x=-1e9, clip_plane=None, ghost=False):
         self.items[name] = ("mesh", mesh)
         self.kw[name] = clip_plane
 

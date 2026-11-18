@@ -731,6 +731,8 @@ class MainWindow(Gtk.ApplicationWindow):
             gate(self.btn_raise, ctrl.blocked("raise"))
             gate((self.btn_pin_reset, self.btn_pin_face), ctrl.blocked("pin"))
             gate((self.btn_pin_snap, self.btn_pin_heat, self.btn_pin_end), ctrl.blocked("pin_any"))     # también en el cuello / la cintura
+            gate((self.btn_pin_widest, self.btn_pin_shrink), ctrl.blocked("pin"))
+            self._sync_pin_size_rows()
             self.aim_area.set_visible(ctrl.aim_active())
             self.aim_area.queue_draw()
             self.spin_over.set_value(ctrl.overhang_angle)
@@ -1094,6 +1096,27 @@ class MainWindow(Gtk.ApplicationWindow):
         key, run = job
         self._run_task(tr("window.midiendo_el_choque_en_pose_sentada"), run, lambda res, err: self.ctrl.finish_cut_seated(key, res, err))
 
+    def _sync_pin_size_rows(self) -> None:
+        """Tamaño del pasador y del hueco: solo mientras se coloca el pasador de un miembro, y solo las medidas de su clase
+        (hombro para un brazo, cadera para una pierna) más la holgura. También la casilla de simular el giro."""
+        ctrl = self.ctrl
+        placing = ctrl.mode == Mode.PIN and ctrl.pin_limb is not None and ctrl.session.limb(ctrl.pin_limb) is not None
+        self.pin_size_box.set_visible(placing)
+        self.chk_pin_sim.set_sensitive(placing and not ctrl.busy)
+        if not placing:
+            self.chk_pin_sim.set_active(False)
+            return
+        kind = ctrl.session.limb(ctrl.pin_limb).kind
+        mine = "hip_pin." if kind == "leg" else "shoulder_pin."
+        for key, info in self.pin_size_rows.items():
+            info["row"].set_visible(key == "clearance" or key.startswith(mine))
+            if abs(info["spin"].get_value() - ctrl.get_param(key)) > 1e-9:
+                info["spin"].set_value(ctrl.get_param(key))
+        from ..joint_preview import pivot_preview_name
+        on = bool(ctrl.show_joint_preview and ctrl._jp["name"] == pivot_preview_name(ctrl.session.limb(ctrl.pin_limb)))
+        if self.chk_pin_sim.get_active() != on:
+            self.chk_pin_sim.set_active(on)
+
     def _draw_aim(self, _area, cr, w: int, h: int) -> None:
         """El recuadro de la mira: lo que lee bajo el puntero o, si no hay lectura, en el centro actual del pasador."""
         from ..pin_aid_view import draw_aim_box
@@ -1108,7 +1131,7 @@ class MainWindow(Gtk.ApplicationWindow):
     def _on_gl_motion(self, _c, x: float, y: float) -> None:
         """Marca el vértice cercano al puntero (modos de elegir puntos). Se agrupan los eventos: la búsqueda traza un rayo."""
         self._hover_pos = (x, y)
-        if (self.ctrl.hover_active() or self.ctrl.aim_active()) and not self._hover_timer:
+        if (self.ctrl.hover_active() or self.ctrl.aim_active() or self.ctrl.ghost_active()) and not self._hover_timer:
             self._hover_timer = GLib.timeout_add(30, self._hover_tick)
 
     def _hover_tick(self) -> bool:
@@ -1117,7 +1140,7 @@ class MainWindow(Gtk.ApplicationWindow):
         if pos is not None and not self._drag["moved"] and self.ctrl.update_hover(
                 pos[0], pos[1], max(self.gl.get_width(), 1), max(self.gl.get_height(), 1)):
             self.gl.queue_render()
-            if self.ctrl.aim_active():                  # la mira: solo la barra de estado y el recuadro, no toda la interfaz
+            if self.ctrl.aim_active() or self.ctrl.ghost_active():   # la mira / el fantasma: solo la barra de estado y el recuadro, no toda la interfaz
                 probs = self.ctrl.problems()
                 self._set_status(self.ctrl.message, (tr("window.pendiente") + ' ') + "; ".join(probs) if probs else tr("window.siluetas_completas"))
                 self.aim_area.queue_draw()

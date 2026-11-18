@@ -617,13 +617,26 @@ class Session:
             raise ValueError((m.error if m else None) or tr("session.no_se_pudo_medir_el_corte"))
         return seated_summary(m, off)
 
-    def pin_preview(self, name: str) -> PinPreview:
+    def pin_preview(self, name: str, allow_small: bool = False) -> PinPreview:
         """Cara de contacto (plano de corte) del miembro y centro por defecto del pasador.
 
         Corta solo ese miembro de la mitad de trabajo (no construye la figura), con la silueta y la rebaba
         actuales. Se guarda en caché mientras no cambien la malla, la silueta ni los parámetros.
         Falla con ValueError si falta la silueta o la silueta no deja una cara de contacto plana.
+
+        Con `allow_small=False` (por defecto) también falla si la cara es más chica que el vástago. Con `allow_small=True`
+        la devuelve igual: la GUI entra al modo de colocación y muestra el pasador fantasma en rojo para que se vea por qué
+        no entra (y se pueda achicar el pasador, mover la 2.ª silueta o el plano de corte).
         """
+        prev = self._pin_preview_raw(name)
+        shaft = self.pin_spec(name).shaft_d
+        if not allow_small and prev.face.area < np.pi * (shaft / 2) ** 2:
+            raise ValueError(
+                tr("session.la_cara_de_contacto_encontrada_es", area=f"{prev.face.area:.1f}", shaft=f"{shaft:g}"))
+        return prev
+
+    def _pin_preview_raw(self, name: str) -> PinPreview:
+        """`pin_preview` sin el chequeo de tamaño de la cara (con caché)."""
         spec = self.limb(name)
         if spec is None:
             raise KeyError(name)
@@ -647,12 +660,17 @@ class Session:
             self._half = S.to_manifold(self.work).trim_by_plane((1.0, 0.0, 0.0), 0.0)
             self._half_key = hkey
         prev = contact_preview(self._half, spec, burr)
-        shaft = self.pin_spec(name).shaft_d
-        if prev.face.area < np.pi * (shaft / 2) ** 2:
-            raise ValueError(
-                tr("session.la_cara_de_contacto_encontrada_es", area=f"{prev.face.area:.1f}", shaft=f"{shaft:g}"))
         self._pin_cache = (key, prev)
         return prev
+
+    def pin_fit_at(self, name: str, uv):
+        """`pin_ghost.PinFit` del pasador de `name` si se centrara en `uv` de su cara de contacto (con las medidas actuales
+        del pasador, la holgura y la pared mínima). No exige que la cara sea más grande que el vástago."""
+        from ..pin_ghost import evaluate_pin
+
+        prev = self.pin_preview(name, allow_small=True)
+        prm = self.project.params
+        return evaluate_pin(prev.shape, uv, self.pin_spec(name), prm.clearance, prm.min_wall, prev.face.area)
 
     def pin_reach_margin(self, name: str) -> float | None:
         """Holgura (mm) entre la punta del pasador y el plano de simetría, descontando la holgura de la cavidad
@@ -662,7 +680,7 @@ class Session:
         spec = self.limb(name)
         if sym is None or spec is None or self.work is None:
             return None
-        prev = self.pin_preview(name)
+        prev = self.pin_preview(name, allow_small=True)
         n = np.asarray(sym.normal, float) / np.linalg.norm(np.asarray(sym.normal, float))
         if abs(float(prev.face.outward @ n)) < 0.99:
             return None
@@ -680,7 +698,7 @@ class Session:
         if point_world is None:
             spec.pin_center = None
         else:
-            prev = self.pin_preview(name)
+            prev = self.pin_preview(name, allow_small=True)
             uv = prev.project(point_world)
             _inside, margin = prev.fit(uv, self.pin_spec(name).shaft_d)
             if margin <= -self.pin_spec(name).shaft_d:        # centro a más de un diámetro del borde: ni lo roza
@@ -698,7 +716,7 @@ class Session:
         * la cara entera es más chica que el vástago (el plano apenas roza el miembro).
         """
         try:
-            spec, prev = self.limb(name), self.pin_preview(name)
+            spec, prev = self.limb(name), self.pin_preview(name, allow_small=True)
             if spec is None:
                 return ""
             shaft = self.pin_spec(name).shaft_d

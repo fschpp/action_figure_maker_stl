@@ -113,11 +113,12 @@ def test_oversized_pin_warns_that_it_sticks_out(leg, params):
     assert any("sobresale" in w for w in pv.warnings) and "sobresale" in pv.summary()
 
 
-def test_hip_needs_a_leg(leg, params):
+def test_hip_needs_a_leg_or_an_arm(leg, params):
+    """Piernas (cadera) y brazos (hombro) tienen pasador de pivote; cualquier otro tipo de miembro no."""
     half, limb, face, _ = leg
     arm = next(l for l in demo_project().limbs if l.name == "brazo")
-    with pytest.raises(ValueError, match="no es una pierna"):
-        preview_hip(half, limb, face, arm, params)
+    with pytest.raises(ValueError, match="solo las piernas"):
+        preview_hip(half, limb, face, dataclasses.replace(arm, kind="otro"), params)
 
 
 def test_hip_with_click_mechanism_uses_the_detent_volume(leg, params):
@@ -142,7 +143,7 @@ def ctrl(tmp_path):
 def test_session_lists_one_hip_per_leg(ctrl):
     s = ctrl.session
     assert s.hip_previews() == [HIP]
-    assert s.preview_names() == [HIP] and s.is_hip_preview(HIP)
+    assert s.preview_names() == [HIP, "hombro de brazo"] and s.is_hip_preview(HIP)
     assert s.preview_exists(HIP) and not s.preview_exists("cadera de brazo") and not s.preview_exists(None)
     assert not s.is_hip_preview("codo")
 
@@ -152,7 +153,7 @@ def test_session_lists_hips_next_to_the_joints(ctrl):
 
     s = ctrl.session
     s.add_joint("brazo", Plane.from_normal((18.5, 0, 59.0), (0, 0, 1.0), "articulación"), anchor=(18.5, 0, 59.0))
-    assert s.preview_names() == ["codo", HIP]
+    assert s.preview_names() == ["codo", HIP, "hombro de brazo"]
 
 
 def test_no_hips_with_a_catalog_torso(ctrl):
@@ -247,5 +248,6 @@ def test_controller_reports_a_hip_that_cannot_be_built(ctrl):
 
 def test_preview_without_any_joint_or_leg(ctrl):
     ctrl.session.project.limbs = [l for l in ctrl.session.project.limbs if l.kind != "leg"]
+    ctrl.session.project.limbs = [l for l in ctrl.session.project.limbs if l.kind != "arm"]      # sin pierna ni brazo no hay cadera ni hombro
     ctrl.set_joint_preview(None, True)
     assert not ctrl.show_joint_preview and "No hay ninguna articulación" in ctrl.message

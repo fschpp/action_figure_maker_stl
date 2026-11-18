@@ -25,6 +25,7 @@ from ..pipeline import body_base_z, body_ref
 from ..waist import PELVIS_NAME, WAIST_NAME
 from .. import cut_ref as CR
 from ..limbs import cut_plane, silhouette_on_plane
+from ..pin_ghost import MIN_SHAFT_D, fit_scale, ghost_meshes, widest_point
 from ..orient import OrientResult, overhang_mask, pose_orientation
 from ..planes import Plane
 from ..trims import Trim
@@ -258,6 +259,7 @@ class Controller:
         self.cut_ref_visible = True                  # guía de la referencia: línea / plano a la distancia que corta esa figura
         self.cut_seated: dict | None = None          # último choque en pose sentada medido (`cut_aid.seated_summary` + su clave)
         self.pin_aim = None                          # última lectura de la mira bajo el puntero (AimReading)
+        self.pin_hover = None                        # (u, v) de la cara bajo el puntero en el modo PIN: ahí se dibuja el pasador fantasma
         self.mirror_live = False                     # con «un solo lado»: mostrar el espejo del lado de trabajo en vivo
         self.pose_view = False                       # vista previa de la figura generada con las piernas en la pose sentada
         self.pose_angle: float | None = None         # ángulo de cadera de la vista previa (None = el de la pose sentada)
@@ -1103,7 +1105,7 @@ class Controller:
         self._vertex_drag = None
         self.draft, self.edit_limb, self.edit_cross = None, None, False
         self.pin_limb, self.pin_prev = None, None
-        self.pin_aid, self.pin_aim = None, None
+        self.pin_aid, self.pin_aim, self.pin_hover = None, None, None
         self.head_pin_prev, self.waist_pin_prev, self.joint_prev = None, None, None
         self.joint_limb, self.joint_name = None, None
         was_trim = self.trim_cfg is not None
@@ -1638,18 +1640,22 @@ class Controller:
         self.cancel(quiet=True)
         fixed = self.session.fix_limb_extrude(name)
         try:
-            prev = self.session.pin_preview(name)
+            prev = self.session.pin_preview(name, allow_small=True)      # una cara chica NO impide entrar: se ve el fantasma en rojo
         except (ValueError, KeyError) as e:
             self._changed(tr("controller.no_se_puede_colocar_el_pasador", name=name, e=e), scene=False)
             return
         self.mode, self.pin_limb, self.pin_prev = Mode.PIN, name, prev
-        self.pin_aid, self.pin_aim = self._make_pin_aid(name, prev), None
+        self.pin_aid, self.pin_aim, self.pin_hover = self._make_pin_aid(name, prev), None, None
         face = prev.face
         half = float(max(np.ptp(prev.plane.to_uv(r), axis=0).max() for r in prev.rings_world())) * 0.65 or 10.0
         self.camera.look_along(face.outward, face.center, max(half, 8.0))
         self.hidden.discard(name)
         note = ((tr("controller.name_tiene_el_plano_de_costado", name=name) + ' ')) if fixed else ""
-        self._changed(note + (tr("controller.pasador_de_name", name=name) + ' ') + self._pin_status(name) + self._reach_warning(name)
+        small = ''
+        shaft = self.session.pin_spec(name).shaft_d
+        if prev.face.area < np.pi * (shaft / 2) ** 2:      # la cara es menor que el vástago: se explica y se ofrece qué hacer
+            small = ' ' + tr("controller.pin_cara_chica", area=f"{prev.face.area:.1f}", shaft=f"{shaft:g}") + self.session.pin_miss_hint(name, prev.project(self._pin_center(name)))
+        self._changed(note + (tr("controller.pasador_de_name", name=name) + ' ') + self._pin_status(name) + self._reach_warning(name) + small
                       + (' ' + tr("controller.clic_mover_flechas_0_1_mm")))
 
     def _make_pin_aid(self, name: str, prev):
@@ -1693,10 +1699,20 @@ class Controller:
         if not inside:
             return txt + tr("controller.centro_fuera_de_la_cara_vastago", shaft_d=f"{pin.shaft_d:g}", v=f"{max(margin + pin.shaft_d / 2, 0):.1f}")
         if margin < 0:
-            return txt + tr("controller.el_vastago_sobresale_v_mm_del", v=f"{-margin:.1f}") + self._aim_note(uv)
+            return (txt + tr("controller.el_vastago_sobresale_v_mm_del", v=f"{-margin:.1f}") + self._cabe_note(name, uv)
+                    + self._aim_note(uv))
         if margin < self.session.project.params.min_wall:
             return txt + tr("controller.margen_al_borde_margin_mm_min", margin=f"{margin:.1f}", min_wall=f"{self.session.project.params.min_wall:g}") + self._aim_note(uv)
         return txt + tr("controller.margen_al_borde_margin_mm", margin=f"{margin:.1f}") + self._aim_note(uv)
+
+    def _cabe_note(self, name: str, uv) -> str:
+        """« Acá cabe Ø 2.6 mm; el punto más ancho de la cara admite Ø 3.1 mm.» cuando el pasador no entra (para decidir si achicarlo)."""
+        try:
+            fit = self.session.pin_fit_at(name, uv)
+            _wuv, wd = widest_point(self.pin_prev.shape)
+            return ' ' + tr("controller.pin_cabe", here=f"{fit.max_shaft_d:.1f}", widest=f"{wd:.1f}")
+        except Exception:      # noqa: BLE001 — es solo ayuda
+            return ''
 
     def _aim_note(self, uv) -> str:
         """« Catálogo: torsos 3/4 · brazos 17/21.» con la mira asistida, o nada si no hay catálogo contra el cual medir."""
@@ -1737,6 +1753,7 @@ class Controller:
             return self._clear_pin_aim()
         r = self.pin_aid.evaluate(uv)
         old = self.pin_aim
+        self.pin_hover = (float(uv[0]), float(uv[1]))
         if old is not None and old.nivel == r.nivel and np.allclose(old.uv, r.uv, atol=0.05):
             return False
         self.pin_aim = r
@@ -1750,11 +1767,105 @@ class Controller:
         return self._pin_aim_active()
 
     def _clear_pin_aim(self) -> bool:
-        if self.pin_aim is None:
+        if self.pin_aim is None and self.pin_hover is None:
             return False
         self.pin_aim = None
+        self.pin_hover = None
         self.scene_dirty = True
         return True
+
+    # ------------------------------------------- pasador fantasma (siempre, con o sin catálogo)
+    def ghost_active(self) -> bool:
+        """True si en el modo PIN hay que seguir el puntero para dibujar el pasador / hueco fantasma sobre la cara."""
+        return self.mode == Mode.PIN and self.pin_prev is not None and not self.busy
+
+    def _update_pin_hover(self, px: float, py: float, width: float, height: float) -> bool:
+        """Sin catálogo (sin mira): el fantasma sigue al puntero y la barra de estado dice si el pasador entra ahí."""
+        uv = ray_plane_uv(self.pin_prev.plane, *self.camera.ray(px, py, width, height))
+        if uv is None:
+            return self._clear_pin_aim()
+        uv = (float(uv[0]), float(uv[1]))
+        if self.pin_hover is not None and np.allclose(self.pin_hover, uv, atol=0.05):
+            return False
+        self.pin_hover = uv
+        self.message = tr("controller.pin_fantasma", txt=self.ghost_text(uv))
+        self.scene_dirty = True
+        return True
+
+    def ghost_text(self, uv=None) -> str:
+        """Frase del fantasma: si el pasador entra en `uv` (o bajo el puntero / en el centro actual) y cuánto margen queda."""
+        if self.mode != Mode.PIN or self.pin_prev is None:
+            return ''
+        if uv is None:
+            uv = self.pin_hover if self.pin_hover is not None else self.pin_prev.project(self._pin_center(self.pin_limb))
+        fit = self.session.pin_fit_at(self.pin_limb, uv)
+        return fit.text(self.session.project.params.min_wall)
+
+    def pin_widest(self) -> None:
+        """Lleva el pasador al punto de la cara donde más ancho cabe un vástago (el centro del mayor círculo inscripto)."""
+        if self.mode != Mode.PIN or self.pin_prev is None:
+            return
+        uv, d = widest_point(self.pin_prev.shape)
+        if d <= 0:
+            self._changed(tr("controller.pin_sin_lugar", min=f"{MIN_SHAFT_D:g}"), scene=False)
+            return
+        self._place_pin(uv, tr("controller.pin_al_punto_mas_ancho", d=f"{d:.1f}"))
+
+    def pin_shrink_to_fit(self) -> None:
+        """Achica el pasador (vástago y cabeza, en proporción) hasta que entre en la cara con la pared mínima de borde. Si el
+        centro está fuera o en un lugar angosto, lo lleva antes al punto más ancho. Cambia el parámetro del hombro / la cadera."""
+        if self.mode != Mode.PIN or self.pin_prev is None:
+            return
+        name = self.pin_limb
+        spec = self.session.limb(name)
+        pre = "hip_pin" if spec.kind == "leg" else "shoulder_pin"
+        pin, prm = self.session.pin_spec(name), self.session.project.params
+        uv = self.pin_prev.project(self._pin_center(name))
+        fit = self.session.pin_fit_at(name, uv)
+        wuv, wd = widest_point(self.pin_prev.shape)
+        if wd > fit.max_shaft_d:                       # el punto más ancho admite más que el actual: se trabaja ahí
+            uv, room = wuv, wd
+        else:
+            room = fit.max_shaft_d
+        k = fit_scale(room, pin, prm.min_wall)
+        if k <= 0:
+            self._changed(tr("controller.pin_sin_lugar", min=f"{MIN_SHAFT_D + 2 * prm.min_wall:g}"), scene=False)
+            return
+        if k < 1.0:
+            shaft = float(np.floor(pin.shaft_d * k * 10.0 + 1e-9) / 10.0)
+            head = round(pin.head_d * shaft / pin.shaft_d, 1)
+            lo_s = next(f[2] for f in PARAM_FIELDS if f[0] == f"{pre}.shaft_d")
+            lo_h = next(f[2] for f in PARAM_FIELDS if f[0] == f"{pre}.head_d")
+            if shaft < lo_s - 1e-9:
+                self._changed(tr("controller.pin_minimo_vastago", shaft=f"{shaft:g}", lo=f"{lo_s:g}", room=f"{room:.1f}"), scene=False)
+                return
+            if not (self.set_param(f"{pre}.shaft_d", shaft) and self.set_param(f"{pre}.head_d", max(head, lo_h))):
+                return
+            self.pin_aid = self._make_pin_aid(name, self.pin_prev)           # la mira midió con el pasador anterior
+        self._place_pin(uv, tr("controller.pin_achicado", shaft=f"{self.session.pin_spec(name).shaft_d:g}",
+                               head=f"{self.session.pin_spec(name).head_d:g}", d=f"{room:.1f}"))
+
+    def set_pin_size(self, key: str, value: float) -> bool:
+        """Cambia una medida del pasador / hueco (vástago, cabeza, largo, alto de cabeza, holgura) viendo el fantasma al instante."""
+        if not self.set_param(key, value):
+            return False
+        if self.mode == Mode.PIN and self.pin_prev is not None:
+            name = self.pin_limb
+            self.pin_aid = self._make_pin_aid(name, self.pin_prev)
+            self.pin_aim = None
+            label = next((f[1] for f in PARAM_FIELDS if f[0] == key), key)
+            self._changed(f"{loc(label)}: {float(value):g}. " + self._pin_status(name))
+        return True
+
+    def pin_simulate_pivot(self, on: bool = True) -> None:
+        """Atajo desde el panel del pasador: enciende / apaga la simulación del giro del hombro (o cadera) de este miembro, la
+        misma de «Parámetros → Ver solo la articulación», sin salir de la colocación."""
+        name = self.pin_limb
+        if name is None or self.session.limb(name) is None:
+            return
+        from ..joint_preview import pivot_preview_name
+
+        self.set_joint_preview(pivot_preview_name(self.session.limb(name)), on)
 
     def snap_pin(self) -> None:
         """El «imán»: mueve el pasador a la mejor posición (más piezas del catálogo que lo aceptan) dentro de ±2 mm."""
@@ -2536,6 +2647,8 @@ class Controller:
         cambió lo que hay que dibujar."""
         if self._pin_aim_active():                   # modo PIN con catálogo: la mira lee la cara bajo el puntero
             return self._update_pin_aim(px, py, width, height)
+        if self.ghost_active():                      # modo PIN sin catálogo: el fantasma sigue al puntero
+            return self._update_pin_hover(px, py, width, height)
         if not self.hover_active():
             return self.clear_hover()
         found = self.picker.nearest_vertex(self.camera, px, py, width, height, HOVER_RADIUS_PX)
@@ -4772,7 +4885,8 @@ class Controller:
             scene.show(key, l.name not in self.hidden and self.group_visible("pins"))
         pin_keys = ("pasador:cara", "pasador:borde", "pasador:silueta", "pasador:vastago", "pasador:cabeza",
                     "pasador:centro", "pasador:auto", "pasador:mira", "pasador:mira_cabeza",
-                    "pasador:calor_ok", "pasador:calor_aviso", "pasador:calor_no")
+                    "pasador:calor_ok", "pasador:calor_aviso", "pasador:calor_no",
+                    "pasador:fantasma", "pasador:hueco", "pasador:hueco_borde", "pasador:sobra")
         if editing is None:
             for key in [k for k in scene.items if k.startswith("pasador:") and k not in wanted]:
                 scene.remove(key)
@@ -4801,6 +4915,7 @@ class Controller:
         else:
             scene.remove("pasador:auto")
         self._sync_pin_heat(scene)
+        self._sync_pin_ghost(scene, prev, name, pin)
         aim = self.pin_aim if self._pin_aim_active() else None
         if aim is None:                                 # el fantasma de la mira: vástago y cabeza con el color del nivel
             scene.remove("pasador:mira")
@@ -4810,6 +4925,35 @@ class Controller:
             scene.set_lines("pasador:mira", circle_world(prev.plane, g, pin.shaft_d / 2), aim.color, closed=True, on_top=True)
             scene.set_lines("pasador:mira_cabeza", circle_world(prev.plane, g, pin.head_d / 2), aim.color, closed=True,
                             on_top=True)
+
+    def _sync_pin_ghost(self, scene, prev, name: str, pin) -> None:
+        """El pasador y su hueco como fantasma translúcido sobre la cara, donde está el puntero (o, si no hay puntero, en el centro
+        actual). Verde: entra; amarillo: entra justo (borde menor que la pared mínima); rojo: no entra, y en rojo fuerte la parte
+        del vástago que sobresale de la cara. El aro más grande es el hueco que se vacía en el torso (vástago + holgura)."""
+        keys = ("pasador:fantasma", "pasador:hueco", "pasador:hueco_borde", "pasador:sobra")
+        try:
+            uv = self.pin_hover if self.pin_hover is not None else prev.project(self._pin_center(name))
+            fit = self.session.pin_fit_at(name, uv)
+            r, g, b, _a = _pin_aid_colors()[fit.level]
+            clearance = self.session.project.params.clearance
+            center = prev.plane.to_world(np.asarray(uv, float)[None])[0]
+            meshes = ghost_meshes(center, prev.face.outward, pin, clearance)
+        except Exception:      # noqa: BLE001 — el fantasma es solo ayuda: nunca debe romper el modo PIN
+            for key in keys:
+                scene.remove(key)
+            return
+        scene.set_mesh("pasador:fantasma", meshes["pasador"], color=(r, g, b, 0.55), ghost=True)
+        scene.set_mesh("pasador:hueco", meshes["hueco"], color=(r, g, b, 0.18), ghost=True)
+        scene.set_lines("pasador:hueco_borde", circle_world(prev.plane, center, pin.shaft_d / 2 + clearance), (r, g, b, 1.0),
+                        closed=True, on_top=True)
+        rings = []
+        if fit.overflow is not None:
+            geoms = list(fit.overflow.geoms) if hasattr(fit.overflow, "geoms") else [fit.overflow]
+            rings = [prev.plane.to_world(np.asarray(gm.exterior.coords)) for gm in geoms if gm.geom_type == "Polygon" and not gm.is_empty]
+        if rings:
+            scene.set_lines("pasador:sobra", rings, (1.0, 0.1, 0.1, 1.0), closed=True, on_top=True)
+        else:
+            scene.remove("pasador:sobra")
 
     # ------------------------------------------------ mira del corte (cinta de calor + fantasma de la sección)
     CUT_KEYS = ("ok", "aviso", "no", "fuera")
