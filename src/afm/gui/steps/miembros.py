@@ -42,7 +42,7 @@ def build(win) -> None:
     for b in (win.btn_pin_snap, win.btn_pin_heat, win.btn_pin_widest, win.btn_pin_shrink, win.btn_pin_reset, win.btn_pin_face,
               win.btn_pin_end):
         sec.append(b)
-    # Simulación del giro del hombro / cadera sin salir de la colocación (es la misma de «Parámetros → Ver solo la articulación»)
+    # Simulación del giro del hombro / cadera sin salir de la colocación (se ve al costado de la figura, como la cadera al dibujar la silueta)
     win.chk_pin_sim = Gtk.CheckButton(label=tr("miembros.pin_simular"))
     win.chk_pin_sim.connect("toggled", lambda b: None if win._updating else win.ctrl.pin_simulate_pivot(b.get_active()))
     sec.append(win.chk_pin_sim)

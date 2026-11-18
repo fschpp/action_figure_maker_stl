@@ -2,6 +2,17 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — Simulación del hombro al costado de la figura, como la cadera (2026-11-18, sobre main 80e6941, sin commitear)
+**Objetivo:** que la simulación del hombro se vea en el visor 3D igual que la de la cadera (al costado de la figura, que sigue a la vista), y no escondida en «Parámetros → Ver solo la articulación».
+**Hecho:** `Controller.polygon_hip_name` ahora vale también para brazos (silueta y 2.ª silueta: botón «Ver simulación» en la barra del visor con la flexión mostrada). Nuevo `pin_pivot_name` / `tool_pivot_name`: en la colocación del pasador (`Mode.PIN`) la barra del visor ofrece «Ver simulación» y la casilla «Simular el giro con este pasador» ahora dibuja la simulación AL COSTADO (la figura y el fantasma del pasador siguen a la vista). La simulación se conserva al mover el pasador o cambiar la cara, y se apaga al terminar la herramienta. Al apagarla y volver a encenderla se reencuadra la cámara.
+**No verificado:** el aspecto real en la ventana GTK/OpenGL; no se corrieron tests. Hay que actualizar `tests/test_gui_hip_beside.py` (línea ~71 asume que la silueta de un brazo no tiene simulación).
+
+### Todo List
+- [x] Hombro al costado en la silueta del brazo y en la colocación del pasador.
+- [ ] Probar en la GUI con Egon: silueta del brazo → «Ver simulación»; pasador → «Ver simulación».
+- [ ] Actualizar y agregar tests (silueta de brazo, `Mode.PIN`, `start_pin` conserva la simulación).
+- [ ] Decidir si en `Mode.PIN` la simulación debe encenderse sola al entrar.
+
 ## Current Focus — Arrastrar vértices de la silueta para el ajuste fino (2026-11-17, sobre main eab8252, sin commitear)
 **Objetivo:** después de «Proponer silueta automática» (o con cualquier silueta cerrada) poder mover un vértice arrastrándolo con el mouse, en vez del «clic para elegir + clic para soltar».
 **Hecho:** `Controller.begin_vertex_drag / drag_vertex / end_vertex_drag / cancel_vertex_drag` (el vértice sigue al puntero sobre el plano de la silueta; se guarda al soltar como un único paso de deshacer; si la silueta queda inválida, se avisa y no se guarda). `MainWindow`: el arrastre con botón 1 sobre un vértice lo mueve en lugar de orbitar (Mayús o fuera de un vértice sigue orbitando/paneando); Esc en pleno arrastre lo deshace. Un clic simple sobre un vértice sigue eligiéndolo (flujo viejo intacto). Textos en es/en/pt. Tests: 7 en `tests/test_gui_controller.py` + 1 en `tests/test_autosil.py` (propuesta → arrastre → guardado).

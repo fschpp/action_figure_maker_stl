@@ -859,6 +859,7 @@ class Controller:
         """Enciende o apaga la vista previa de una articulación (por omisión, la primera del proyecto)."""
         if not on:
             self.show_joint_preview = False
+            self._jp["framed_beside"] = None          # al volver a encenderla al costado se encuadra de nuevo
             self._changed(tr("controller.vista_previa_de_la_articulacion_apagada"))
             return True
         listed = self.session.preview_names()
@@ -894,31 +895,47 @@ class Controller:
         simulación reemplaza a la figura, como siempre."""
         if not self.show_joint_preview:
             return False
-        return self.mode in self.JOINT_TOOL_MODES or (self.polygon_hip_name() is not None and self.polygon_hip_name() == self._jp["name"])
+        tool = self.tool_pivot_name()
+        return self.mode in self.JOINT_TOOL_MODES or (tool is not None and tool == self._jp["name"])
 
     def polygon_hip_name(self) -> str | None:
-        """Entrada de la vista previa (la cadera) del miembro cuya silueta se está dibujando, o None si no aplica: solo las
-        piernas tienen cadera, y con torso de catálogo no hay cadera del modelo que mostrar. Sirve para ver cómo queda el
-        hueco de la pelvis y el pasador mientras se ajusta la silueta (principal o 2.ª) de la pierna."""
+        """Entrada de la vista previa del pivote (la cadera de una pierna o el hombro de un brazo) del miembro cuya silueta se
+        está dibujando, o None si no aplica: con torso de catálogo no hay pivote del modelo que mostrar. Sirve para ver cómo
+        queda el hueco y el pasador mientras se ajusta la silueta (principal o 2.ª) del miembro."""
         if self.mode != Mode.POLYGON or self.edit_limb is None or self.trim_cfg is not None:
             return None
-        spec = self.session.limb(self.edit_limb)
-        if spec is None or spec.kind != "leg":
+        return self._pivot_name_of(self.edit_limb)
+
+    def pin_pivot_name(self) -> str | None:
+        """Entrada de la vista previa del pivote del miembro cuyo pasador se está colocando (hombro o cadera), o None."""
+        if self.mode != Mode.PIN or self.pin_limb is None:
             return None
-        from ..joint_preview import hip_preview_name
-        name = hip_preview_name(spec.name)
-        return name if self.session.is_hip_preview(name) else None
+        return self._pivot_name_of(self.pin_limb)
+
+    def tool_pivot_name(self) -> str | None:
+        """Pivote que acompaña a la herramienta activa (silueta o pasador de un miembro), o None."""
+        return self.polygon_hip_name() or self.pin_pivot_name()
+
+    def _pivot_name_of(self, limb_name: str) -> str | None:
+        spec = self.session.limb(limb_name)
+        if spec is None:
+            return None
+        from ..joint_preview import pivot_preview_name
+        name = pivot_preview_name(spec)
+        return name if self.session.is_pivot_preview(name) else None
 
     def preview_here_available(self) -> bool:
         """¿Hay una simulación que mostrar con la herramienta activa? (la barra del visor decide si ofrece el botón)"""
         if self.mode == Mode.POLYGON:
             return self.polygon_hip_name() is not None
+        if self.mode == Mode.PIN:
+            return self.pin_pivot_name() is not None
         return True
 
     def toggle_joint_preview_here(self) -> None:
         """Botón de la barra del visor: enciende o apaga la simulación de la articulación que se está ajustando
         (`joint_name`; en la silueta de una pierna, su cadera), sin ir a la pestaña Parámetros."""
-        name = self.joint_name or self.polygon_hip_name()
+        name = self.joint_name or self.tool_pivot_name()
         if name is None or not self.session.preview_exists(name):
             self._changed(self.no_joint_text(), scene=False)
             return
@@ -1095,7 +1112,7 @@ class Controller:
 
     def cancel(self, quiet: bool = False) -> None:
         was = self.mode
-        if self.show_joint_preview and (was in self.JOINT_TOOL_MODES or self.polygon_hip_name() is not None):
+        if self.show_joint_preview and (was in self.JOINT_TOOL_MODES or self.tool_pivot_name() is not None):
             self.show_joint_preview = False          # al terminar la herramienta vuelve la figura (la simulación solo acompaña al ajuste)
         self.mode, self.pending, self.pending_kind = Mode.VIEW, [], None
         self._hand_path_pending = None
@@ -1637,6 +1654,7 @@ class Controller:
         if self.session.limb(name) is None:
             self._changed(tr("controller.no_existe_el_plano_name", name=name), scene=False)
             return
+        keep_sim = self.show_joint_preview and self.pin_pivot_name() == self._jp["name"] and self._pivot_name_of(name) == self._jp["name"]
         self.cancel(quiet=True)
         fixed = self.session.fix_limb_extrude(name)
         try:
@@ -1645,6 +1663,8 @@ class Controller:
             self._changed(tr("controller.no_se_puede_colocar_el_pasador", name=name, e=e), scene=False)
             return
         self.mode, self.pin_limb, self.pin_prev = Mode.PIN, name, prev
+        if keep_sim and self.pin_pivot_name() == self._jp["name"]:
+            self.show_joint_preview = True          # el pasador se movió o cambió la cara: la simulación al costado sigue
         self.pin_aid, self.pin_aim, self.pin_hover = self._make_pin_aid(name, prev), None, None
         face = prev.face
         half = float(max(np.ptp(prev.plane.to_uv(r), axis=0).max() for r in prev.rings_world())) * 0.65 or 10.0
@@ -1858,8 +1878,8 @@ class Controller:
         return True
 
     def pin_simulate_pivot(self, on: bool = True) -> None:
-        """Atajo desde el panel del pasador: enciende / apaga la simulación del giro del hombro (o cadera) de este miembro, la
-        misma de «Parámetros → Ver solo la articulación», sin salir de la colocación."""
+        """Atajo desde el panel del pasador: enciende / apaga la simulación del giro del hombro (o cadera) de este miembro. Se ve
+        AL COSTADO de la figura (que sigue a la vista para colocar el pasador), igual que la cadera al dibujar la silueta."""
         name = self.pin_limb
         if name is None or self.session.limb(name) is None:
             return

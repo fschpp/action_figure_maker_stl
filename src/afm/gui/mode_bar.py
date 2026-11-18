@@ -30,7 +30,7 @@ MODE_HELP: dict[Mode, tuple[str, tuple[str, ...]]] = {
     Mode.JOINT_AXIS: (lz("mode_bar.clic_sobre_la_figura_eje_de"), ("preview", "done")),
     Mode.POLYGON: (lz("mode_bar.clic_agregar_vertice_intro_cerrar_el"),
                    ("undo_point", "close", "cancel", "preview")),
-    Mode.PIN: (_PIN, ("snap", "heat", "done")),
+    Mode.PIN: (_PIN, ("snap", "heat", "preview", "done")),
     Mode.HEAD_PIN: (_PIN, ("snap", "heat", "done")),
     Mode.WAIST_PIN: (_PIN, ("snap", "heat", "done")),
     Mode.TRIM_PICK: (lz("mode_bar.clic_sobre_la_figura_centro_del"), ("cancel",)),
@@ -102,7 +102,7 @@ def update(win, title: str) -> None:
     hint, acts = info
     ctrl = win.ctrl
     if "preview" in acts and not ctrl.preview_here_available():
-        acts = tuple(a for a in acts if a != "preview")     # p. ej. la silueta de un brazo: no hay cadera que simular
+        acts = tuple(a for a in acts if a != "preview")     # p. ej. la silueta con torso de catálogo: no hay cadera ni hombro del modelo que simular
     if ctrl.show_joint_preview and ctrl._jp["error"] and "preview" in acts:
         hint += "\n" + tr("mode_bar.simulacion_estado", status=ctrl.joint_preview_status())
     win.mode_title.set_text(title)
