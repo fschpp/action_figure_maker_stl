@@ -599,6 +599,7 @@
   "no_se_puede_previsualizar_err": "It cannot be previewed: %{err}.",
   "vista_previa_de_la_articulacion_apagada": "Joint preview turned off.",
   "vista_previa_de_la_name_el": "%{name} preview: the pin and the gap the sweep carves in the pelvis. Change the displayed bend (0° standing, %{hi}° seated) to see the thigh turn; the pin and the sweep are adjusted in “Parameters” and “Place pin”.",
+  "vista_previa_del_hombro": "%{name} preview: the pin and the gap it carves in the torso. Change the displayed bend to see the arm turn around the pin; the summary tells you if the arm runs into the torso at that angle. The pin is adjusted in “Place pin”.",
   "quedan_n_punto_s": "%{n} point(s) left.",
   "el_plano_de_simetria": "the symmetry plane",
   "n_miembro_s": "%{n} limb(s)",

@@ -599,6 +599,7 @@
   "no_se_puede_previsualizar_err": "No se puede previsualizar: %{err}.",
   "vista_previa_de_la_articulacion_apagada": "Vista previa de la articulación apagada.",
   "vista_previa_de_la_name_el": "Vista previa de la %{name}: el pasador y el hueco que talla el barrido en la pelvis. Cambiá la flexión mostrada (0° de pie, %{hi}° sentada) para ver girar el muslo; el pasador y el barrido se ajustan en «Parámetros» y «Colocar pasador».",
+  "vista_previa_del_hombro": "Vista previa del %{name}: el pasador y el hueco que talla en el torso. Cambiá la flexión mostrada para ver girar el brazo alrededor del pasador; el resumen avisa si a ese ángulo el brazo se mete en el torso. El pasador se ajusta en «Colocar pasador».",
   "quedan_n_punto_s": "Quedan %{n} punto(s).",
   "el_plano_de_simetria": "el plano de simetría",
   "n_miembro_s": "%{n} miembro(s)",

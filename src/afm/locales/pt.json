@@ -599,6 +599,7 @@
   "no_se_puede_previsualizar_err": "Não é possível visualizar: %{err}.",
   "vista_previa_de_la_articulacion_apagada": "Visualização da articulação desligada.",
   "vista_previa_de_la_name_el": "Visualização de %{name}: o pino e o vão que a varredura esculpe na pelve. Mude a flexão mostrada (0° em pé, %{hi}° sentada) para ver a coxa girar; o pino e a varredura se ajustam em “Parâmetros” e “Colocar pino”.",
+  "vista_previa_del_hombro": "Visualização de %{name}: o pino e o vão que ele esculpe no torso. Mude a flexão mostrada para ver o braço girar em torno do pino; o resumo avisa se nesse ângulo o braço entra no torso. O pino se ajusta em “Colocar pino”.",
   "quedan_n_punto_s": "Restam %{n} ponto(s).",
   "el_plano_de_simetria": "o plano de simetria",
   "n_miembro_s": "%{n} membro(s)",

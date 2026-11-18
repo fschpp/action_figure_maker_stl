@@ -155,6 +155,28 @@ def hip_limb_name(name: str) -> str | None:
     return name[len(HIP_PREFIX):] if name.startswith(HIP_PREFIX) and len(name) > len(HIP_PREFIX) else None
 
 
+SHOULDER_PREFIX = "hombro de "      # entrada de hombro de un brazo en la vista previa: «hombro de brazo»
+
+
+def shoulder_preview_name(limb_name: str) -> str:
+    return SHOULDER_PREFIX + limb_name
+
+
+def shoulder_limb_name(name: str) -> str | None:
+    """Nombre del miembro de una entrada de hombro de la vista previa, o None si no lo es."""
+    return name[len(SHOULDER_PREFIX):] if name.startswith(SHOULDER_PREFIX) and len(name) > len(SHOULDER_PREFIX) else None
+
+
+def pivot_preview_name(spec: LimbSpec) -> str:
+    """Entrada de la vista previa del pivote de un miembro: la cadera de una pierna o el hombro de un brazo."""
+    return hip_preview_name(spec.name) if spec.kind == "leg" else shoulder_preview_name(spec.name)
+
+
+def pivot_limb_name(name: str) -> str | None:
+    """Miembro de una entrada de cadera o de hombro (None si no es ninguna de las dos)."""
+    return hip_limb_name(name) or shoulder_limb_name(name)
+
+
 @dataclass
 class HipBuild:
     """Lo mínimo de `JointBuild` que usa el visor: el eje del pasador, la pelvis tallada y el muslo con su pasador."""
@@ -183,6 +205,7 @@ class HipPreview:
     pin_margin_mm: float | None = None
     mechanism: str = "hongo"
     warnings: list = field(default_factory=list)
+    kind: str = "leg"                  # «leg» (cadera) o «arm» (hombro): cambia solo los textos
     _proximal_mesh: trimesh.Trimesh | None = None
 
     @property
@@ -195,16 +218,27 @@ class HipPreview:
         return self._proximal_mesh
 
     def distal_mesh(self, flex: float = 0.0) -> trimesh.Trimesh:
-        """El muslo girado `flex` grados alrededor del pasador (0 = de pie; `sit_angle` = pose sentada)."""
+        """El muslo (o el brazo) girado `flex` grados alrededor del pasador (0 = de pie / colgando)."""
         return S.to_trimesh(self.build.rotate_distal(float(flex)))
 
-    def summary(self) -> str:
+    def collision_mm3(self, flex: float) -> float:
+        """Volumen (mm³) en que el miembro girado `flex` grados se mete en el torso tallado: 0 = gira libre a ese ángulo.
+        Muestra si el hueco del barrido alcanza para el ángulo que se está mirando."""
+        return float(S.intersection(self.build.rotate_distal(float(flex)), self.build.proximal).volume())
+
+    def summary(self, flex: float | None = None) -> str:
         lo, hi = self.flex_range
-        text = (f"Cadera ({self.mechanism}): el hueco se lleva {self.carved_mm3:.0f} mm³ de la pelvis ({self.carved_pct:.0f} %) · "
-                f"barrido {lo:g}° … {hi:g}° · «Flexión mostrada» gira el muslo alrededor del pasador")
+        name, host, limb = ("Cadera", "la pelvis", "muslo") if self.kind == "leg" else ("Hombro", "el torso", "brazo")
+        de_host = "de " + host if host.startswith("la ") else "del " + host[3:]
+        text = (f"{name} ({self.mechanism}): el hueco se lleva {self.carved_mm3:.0f} mm³ {de_host} ({self.carved_pct:.0f} %) · "
+                f"barrido {lo:g}° … {hi:g}° · «Flexión mostrada» gira el {limb} alrededor del pasador")
         if self.pin_margin_mm is not None:
             text += f" · margen del vástago al borde de la cara {self.pin_margin_mm:.1f} mm"
-        return text + ("".join(f"\\n  · {w}" for w in self.warnings) if self.warnings else "")
+        if flex is not None:
+            c = self.collision_mm3(flex)
+            text += (f" · a {flex:g}° el {limb} gira libre" if c < 1.0
+                     else f" · a {flex:g}° el {limb} se mete {c:.0f} mm³ en {host} (ampliá el barrido)")
+        return text + ("".join(f"\n  · {w}" for w in self.warnings) if self.warnings else "")
 
 
 def preview_hip(half: S.Manifold, limb: S.Manifold, face: ContactFace, spec: LimbSpec, p: Params,
@@ -221,14 +255,14 @@ def preview_hip(half: S.Manifold, limb: S.Manifold, face: ContactFace, spec: Lim
     from .pins import mushroom_pin
     from .pipeline import _detent_sweep, _pin_spec, _rotation_axis, _sweep_range
 
-    if spec.kind != "leg":
-        raise ValueError(f"«{spec.name}» no es una pierna: la cadera solo existe en las piernas")
+    if spec.kind not in ("leg", "arm"):
+        raise ValueError(f"«{spec.name}»: solo las piernas (cadera) y los brazos (hombro) tienen pasador de pivote")
     center = np.asarray(face.center, float)
     box = _crop_box(center, crop_mm)
     limb_c = S.intersection(limb, box)
     torso_c = S.intersection(half, box)
     if limb_c.is_empty() or torso_c.is_empty():
-        raise ValueError(f"«{spec.name}»: el pasador de cadera queda fuera del cuerpo (revisá el plano de la pierna)")
+        raise ValueError(f"«{spec.name}»: el pasador queda fuera del cuerpo (revisá el plano del miembro)")
     torso_c = S.difference(torso_c, limb_c)
     before = float(torso_c.volume())
     pin = _pin_spec(spec, p)
@@ -261,4 +295,14 @@ def preview_hip(half: S.Manifold, limb: S.Manifold, face: ContactFace, spec: Lim
     build = HipBuild(center=center, axis=axis, tips=(reach, reach), proximal=proximal, distal=distal, flex=(float(a0), float(a1)))
     return HipPreview(limb=spec.name, build=build, carved_mm3=max(before - after, 0.0), proximal_mm3=after,
                       prox_before_mm3=before, flex_range=(float(a0), float(a1)), pin_margin_mm=margin, mechanism=mech,
-                      warnings=warnings)
+                      warnings=warnings, kind=spec.kind)
+
+
+def preview_shoulder(half: S.Manifold, limb: S.Manifold, face: ContactFace, spec: LimbSpec, p: Params,
+                     crop_mm: float = HIP_CROP_MM, step: float = PREVIEW_STEP) -> HipPreview:
+    """Vista previa del hombro de un brazo: el mismo armado que `preview_hip` (pasador + hueco del barrido en el torso)
+    con el brazo girando alrededor del pasador. Por defecto el brazo no tiene barrido (cuelga): `HipPreview.collision_mm3`
+    dice cuánto se mete en el torso al girarlo, para decidir el barrido (`LimbSpec.sweep_deg`)."""
+    if spec.kind != "arm":
+        raise ValueError(f"«{spec.name}» no es un brazo: el hombro solo existe en los brazos")
+    return preview_hip(half, limb, face, spec, p, crop_mm, step)

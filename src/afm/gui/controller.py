@@ -826,11 +826,12 @@ class Controller:
 
     def joint_editable(self, name: str) -> bool:
         """False para la articulación que trae una pieza de catálogo: se ve en la vista previa pero no se ajusta acá."""
-        return not self.session.is_catalog_joint(name) and not self.session.is_hip_preview(name)
+        return not self.session.is_catalog_joint(name) and not self.session.is_pivot_preview(name)
 
     def is_hip_preview(self, name: str | None) -> bool:
-        """True si la entrada de la vista previa es la cadera de una pierna (no se ajusta acá: se ve doblar el muslo)."""
-        return name is not None and self.session.is_hip_preview(name)
+        """True si la entrada de la vista previa es la cadera de una pierna o el hombro de un brazo (no se ajusta acá: se
+        ve girar el miembro alrededor del pasador)."""
+        return name is not None and self.session.is_pivot_preview(name)
 
     def no_joint_text(self) -> str:
         """Qué decir cuando no hay articulación para previsualizar."""
@@ -872,7 +873,9 @@ class Controller:
                 jp["flex"] = 0.0                      # la cadera arranca de pie; el giro lo elige quien mira
         jp["framed"] = None                          # al encender, la cámara se vuelve a encuadrar sobre la articulación
         self.show_joint_preview = True
-        if self.is_hip_preview(name):
+        if self.session.is_shoulder_preview(name):
+            self._changed(tr("controller.vista_previa_del_hombro", name=name))
+        elif self.is_hip_preview(name):
             hi = self.session.project.params.sit_angle
             self._changed(tr("controller.vista_previa_de_la_name_el", name=name, hi=f"{hi:g}"))
         elif self.joint_editable(name):
@@ -967,7 +970,15 @@ class Controller:
             return tr("controller.no_se_puede_previsualizar_error", error=jp['error'])
         if jp["pv"] is None:
             return tr("common.calculando_la_articulacion")
-        return jp["pv"].summary() + (('\n  ' + tr("common.actualizando")) if jp["busy"] else "")
+        pv = jp["pv"]
+        if getattr(pv, "kind", None) == "arm":          # hombro: además se dice si el brazo gira libre a la flexión mostrada
+            ck = (id(pv), round(float(jp["flex"]), 3))
+            if jp.get("coll_key") != ck:
+                jp["coll_key"], jp["coll_txt"] = ck, pv.summary(float(jp["flex"]))
+            text = jp["coll_txt"]
+        else:
+            text = pv.summary()
+        return text + (('\n  ' + tr("common.actualizando")) if jp["busy"] else "")
 
     def _request_joint_preview(self, name: str) -> None:
         """Lanza el cálculo si cambió algo desde el último (en un hilo si la ventana puso `call_in_main`)."""

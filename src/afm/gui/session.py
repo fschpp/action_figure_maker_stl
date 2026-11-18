@@ -816,14 +816,29 @@ class Session:
         return [hip_preview_name(l.name) for l in self.project.limbs if l.kind == "leg"]
 
     def preview_names(self) -> list[str]:
-        """Todo lo que se puede previsualizar: las articulaciones (rodilla, codo) y la cadera de cada pierna."""
-        return [j.name for j in self.joints_listed()] + self.hip_previews()
+        """Todo lo que se puede previsualizar: las articulaciones (rodilla, codo), la cadera de cada pierna y el hombro de cada brazo."""
+        return [j.name for j in self.joints_listed()] + self.hip_previews() + self.shoulder_previews()
 
     def is_hip_preview(self, name: str) -> bool:
         return name in self.hip_previews()
 
+    def shoulder_previews(self) -> list[str]:
+        """Entradas de hombro de la vista previa: una por brazo del modelo (como la cadera: se ve girar el brazo alrededor del
+        pasador). Con torso de catálogo no hay: la figura sale entera del catálogo y esos brazos no son los del modelo."""
+        from ..joint_preview import shoulder_preview_name
+        if self.catalog_only():
+            return []
+        return [shoulder_preview_name(l.name) for l in self.project.limbs if l.kind == "arm"]
+
+    def is_shoulder_preview(self, name: str) -> bool:
+        return name in self.shoulder_previews()
+
+    def is_pivot_preview(self, name: str) -> bool:
+        """True si la entrada es la cadera de una pierna o el hombro de un brazo (se ven girar; no se ajustan acá)."""
+        return self.is_hip_preview(name) or self.is_shoulder_preview(name)
+
     def preview_exists(self, name: str | None) -> bool:
-        return name is not None and (self.joint_any(name) is not None or self.is_hip_preview(name))
+        return name is not None and (self.joint_any(name) is not None or self.is_pivot_preview(name))
 
     def _refuse_catalog_joint(self, name: str) -> None:
         if self.is_catalog_joint(name):
@@ -1068,12 +1083,12 @@ class Session:
 
     def joint_preview_key(self, name: str) -> str:
         """Firma de todo lo que cambia el resultado de la vista previa de la articulación (si no cambia, no se recalcula)."""
-        if self.is_hip_preview(name):
-            from ..joint_preview import hip_limb_name
-            lname = hip_limb_name(name)
+        if self.is_pivot_preview(name):
+            from ..joint_preview import pivot_limb_name
+            lname = pivot_limb_name(name)
             spec = self.limb(lname)
             prj = self.project
-            blob = {"hip": lname, "limb": spec.to_dict() if spec is not None else None,
+            blob = {"hip": lname, "pivot": name.split(" ")[0], "limb": spec.to_dict() if spec is not None else None,
                     "trims": [t.to_dict() for t in prj.trims if t.target == lname], "params": prj.params.to_dict(),
                     "work": id(self.work), "part": prj.parts[lname].to_dict() if lname in prj.parts else None,
                     "catalog": self.catalog_root}
@@ -1102,7 +1117,7 @@ class Session:
         from ..customize import needed
         from ..joint_preview import prepare_limb, prepare_limb_from_part, preview_joint
 
-        if self.is_hip_preview(name):
+        if self.is_pivot_preview(name):
             return self._hip_preview_job(name)
         if self.is_catalog_joint(name):
             return self._catalog_joint_preview_job(name)
@@ -1140,15 +1155,15 @@ class Session:
         return run
 
     def _hip_preview_job(self, name: str):
-        """Trabajo de la vista previa de la cadera de una pierna (apto para un hilo; trabaja con copias). Devuelve
+        """Trabajo de la vista previa de la cadera de una pierna o del hombro de un brazo (apto para un hilo; trabaja con copias). Devuelve
         `run(cache) -> HipPreview`. El `cache` guarda la pierna ya cortada y la mitad del cuerpo (lo caro), que solo se rehacen
         si cambian la pierna, su pieza de catálogo, sus recortes o los parámetros. Falla con ValueError como la vista previa
         de las demás articulaciones (piezas escaladas, figura armada solo con catálogo)."""
         import copy
         from ..customize import needed
-        from ..joint_preview import hip_limb_name, prepare_limb, prepare_limb_from_part, preview_hip
+        from ..joint_preview import pivot_limb_name, prepare_limb, prepare_limb_from_part, preview_hip
 
-        lname = hip_limb_name(name)
+        lname = pivot_limb_name(name)
         spec = self.limb(lname) if lname else None
         if spec is None:
             raise KeyError(name)
