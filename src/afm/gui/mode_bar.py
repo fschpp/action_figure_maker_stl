@@ -6,7 +6,7 @@ y `update` la muestra u oculta según el modo del controlador. Cada ayuda queda 
 from __future__ import annotations
 from ..i18n import tr, lz, loc
 
-from .controller import Mode
+from .controller import JOINT_PREVIEW_FLEX_MAX, JOINT_PREVIEW_FLEX_MIN, Mode
 
 _PLANE3 = lz("mode_bar.clic_punto_sobre_la_figura_3")
 _PIN = lz("mode_bar.clic_poner_el_pasador_flechas_mover")
@@ -86,7 +86,7 @@ def build(win):
         buttons[key] = b
     win.mode_flex_box = Gtk.Box(spacing=6, visible=False)          # flexión de la simulación, a mano de la herramienta
     win.mode_flex_box.append(Gtk.Label(label=tr("common.flexion_mostrada")))
-    win.mode_flex = Gtk.SpinButton.new_with_range(-45.0, 150.0, 5.0)
+    win.mode_flex = Gtk.SpinButton.new_with_range(JOINT_PREVIEW_FLEX_MIN, JOINT_PREVIEW_FLEX_MAX, 5.0)
     win.mode_flex.connect("value-changed", lambda b: None if getattr(win, "_mode_flex_sync", False) else ctrl.set_joint_preview_flex(b.get_value()))
     win.mode_flex_box.append(win.mode_flex)
     for w in (win.mode_title, win.mode_hint, row, win.mode_flex_box):

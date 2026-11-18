@@ -214,6 +214,10 @@ PARAM_FIELDS = (
 )
 
 
+# Rango (°) del selector «Flexión mostrada» de la barra del visor; la simulación al costado se coloca midiendo todo este barrido.
+JOINT_PREVIEW_FLEX_MIN, JOINT_PREVIEW_FLEX_MAX = -45.0, 150.0
+
+
 class Controller:
     def __init__(self, session: Session | None = None):
         self.session = session or Session()
@@ -957,10 +961,15 @@ class Controller:
         lo que se está ajustando."""
         jp = self._jp
         axis, sign = jp.get("shift_axis") or (0, 1.0)
-        key = (id(pv), round(jp["flex"], 6), axis, sign)
+        key = (id(pv), axis, sign)                  # NO depende de la flexión mostrada: la simulación queda quieta mientras el brazo / la pierna gira
         if jp.get("layout_key") == key:
             return jp["layout"]
-        pb = np.vstack([pv.proximal_mesh().bounds, pv.distal_mesh(jp["flex"]).bounds])
+        # Se mide sobre todo el barrido (de «flex_range», más la flexión 0), no sobre la flexión actual: si no, al girar el brazo
+        # en el plano del corrimiento (p. ej. Y-Z mirando a lo largo de X) cambiaban los límites y la figura saltaba de lugar.
+        r0, r1 = (float(x) for x in (getattr(pv, "flex_range", None) or (0.0, 0.0)))
+        lo_f, hi_f = min(r0, r1, JOINT_PREVIEW_FLEX_MIN), max(r0, r1, JOINT_PREVIEW_FLEX_MAX)      # todo lo que puede mostrar el selector
+        flexes = sorted({0.0, *np.linspace(lo_f, hi_f, 14).tolist()})
+        pb = np.vstack([pv.proximal_mesh().bounds] + [pv.distal_mesh(f).bounds for f in flexes])
         lo, hi = pb.min(axis=0), pb.max(axis=0)
         v = np.asarray(self.session.work.vertices)
         slab = v[(v[:, 2] >= lo[2] - 5.0) & (v[:, 2] <= hi[2] + 5.0)]

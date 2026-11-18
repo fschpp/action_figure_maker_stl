@@ -8,7 +8,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk  # noqa: E402
 
 from .. import param_meta as PM
-from ..controller import PARAM_FIELDS
+from ..controller import JOINT_PREVIEW_FLEX_MAX, JOINT_PREVIEW_FLEX_MIN, PARAM_FIELDS
 from ..session import Session
 from ..widgets import collapsible as _collapsible
 from ..widgets import help_note as _help
@@ -96,7 +96,7 @@ def build(win) -> None:
                                       and win.ctrl.set_joint_plane_side_tilt(win._jprev_name(), 0.0))
     row.append(win.btn_jstraight)
     sec.append(row)
-    win.spin_jflex = win._joint_spin(sec, tr("common.flexion_mostrada"), -45.0, 150.0, 5.0, 0,
+    win.spin_jflex = win._joint_spin(sec, tr("common.flexion_mostrada"), JOINT_PREVIEW_FLEX_MIN, JOINT_PREVIEW_FLEX_MAX, 5.0, 0,
                                        lambda n, v: win.ctrl.set_joint_preview_flex(v))
     win.lbl_jprev = Gtk.Label(label="", xalign=0, wrap=True, selectable=True)
     sec.append(win.lbl_jprev)

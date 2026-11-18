@@ -66,11 +66,12 @@ def test_leg_silhouette_offers_the_hip_simulation(ctrl):
     assert ctrl.show_joint_preview and ctrl._jp["name"] == f"cadera de {leg}" and ctrl.joint_preview_beside()
 
 
-def test_arm_silhouette_has_no_hip_to_simulate(ctrl):
-    ctrl.start_polygon(_arm(ctrl))
-    assert ctrl.polygon_hip_name() is None and not ctrl.preview_here_available()
+def test_arm_silhouette_offers_the_shoulder_simulation(ctrl):
+    arm = _arm(ctrl)
+    ctrl.start_polygon(arm)
+    assert ctrl.polygon_hip_name() == f"hombro de {arm}" and ctrl.preview_here_available()
     ctrl.toggle_joint_preview_here()
-    assert not ctrl.show_joint_preview
+    assert ctrl.show_joint_preview and ctrl.joint_preview_beside()
 
 
 def test_simulation_sits_beside_the_figure_while_drawing_the_leg_silhouette(ctrl):
@@ -124,3 +125,30 @@ def test_recomputes_when_the_silhouette_changes(ctrl):
     spec = ctrl.session.limb(leg)
     ctrl.session.set_limb_polygon(leg, np.asarray(spec.polygon, float) + np.array([0.0, 0.0, -1.0]))
     assert ctrl.session.joint_preview_key(f"cadera de {leg}") != key0
+
+
+def _wait_preview(ctrl, scene, tries=200):
+    import time
+    for _ in range(tries):
+        ctrl.sync(scene)
+        if "junta:prox" in scene.items:
+            return
+        time.sleep(0.05)
+    raise AssertionError("la simulación no se calculó")
+
+
+@pytest.mark.parametrize("view", ["frente", "izquierda"])
+def test_simulation_stays_still_while_the_flexion_changes(ctrl, view):
+    """Girar «Flexión mostrada» solo mueve la pieza distal: el resto de la simulación (el torso / la pelvis tallados) no se corre."""
+    leg = _leg(ctrl)
+    ctrl.camera.set_view(view)                               # de costado el corrimiento va sobre Y, el plano en que gira la pierna
+    scene = FakeScene()
+    ctrl.start_polygon(leg)
+    ctrl.toggle_joint_preview_here()
+    _wait_preview(ctrl, scene)
+    lo, hi = ctrl._jp["pv"].flex_range
+    ref = np.array(scene.items["junta:prox"].bounds)
+    for flex in (lo, 0.0, 0.5 * (lo + hi), hi):
+        ctrl.set_joint_preview_flex(flex)
+        ctrl.sync(scene)
+        assert np.allclose(scene.items["junta:prox"].bounds, ref, atol=1e-6), flex

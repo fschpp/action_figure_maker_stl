@@ -2,6 +2,17 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — La simulación al costado queda quieta al cambiar la «Flexión mostrada» (2026-11-18, sobre main 4d1d7ba, sin commitear)
+**Objetivo:** que al girar el brazo / la pierna en la simulación, el resto (torso o pelvis tallados) no se desplace en pantalla.
+**Causa:** `Controller._joint_beside_layout` calculaba el corrimiento «al costado» con los límites de la pieza distal a la flexión mostrada. Con la cámara mirando a lo largo de X el corrimiento va sobre Y, que es el plano en que gira el brazo: cada flexión nueva recalculaba el corrimiento y toda la simulación saltaba (con Egon, a 30° y 75°).
+**Hecho:** el corrimiento y la caja de encuadre se miden una sola vez por simulación, sobre todo el barrido (14 flexiones entre -45° y 150°, más el `flex_range` y 0°); ya no dependen de la flexión mostrada. Nuevas constantes `JOINT_PREVIEW_FLEX_MIN/MAX` (el rango del selector, antes escrito a mano en `mode_bar.py` y `steps/parametros.py`). Efecto secundario: la simulación queda un poco más lejos de la figura (deja lugar al giro completo). Tests: nuevo `test_simulation_stays_still_while_the_flexion_changes` (frente y costado; falla sin el fix en vista de costado); `test_arm_silhouette_has_no_hip_to_simulate` pasó a `..._offers_the_shoulder_simulation` (estaba desactualizado desde el hombro al costado). Verificado con Egon (hombro): el torso tallado no se mueve a -10°, 30°, 75° ni 150°. Pasan los tests de `test_gui_*` relacionados, `test_gui_joint_beside`, `test_hip_preview` y `test_joint_preview`.
+**No verificado:** el aspecto en la ventana GTK/OpenGL; la suite completa; `test_gui_window_build` y los que necesitan GTK.
+
+### Todo List
+- [x] Corrimiento independiente de la flexión + tests.
+- [ ] Probar en la GUI con Egon: pasador del brazo → «Ver simulación» → cambiar «Flexión mostrada» de -45 a 150.
+- [ ] Decidir si la distancia extra entre la figura y la simulación molesta (hoy cubre todo el barrido).
+
 ## Current Focus — Cara de contacto del brazo con plano de corte inclinado (2026-11-18, sobre main 265283a, sin commitear)
 **Objetivo:** que el pasador del hombro de Egon (`kenner-real_ghostbusters-egon.proyecto`) tenga cara donde colocarse; «Achicar el pasador» decía «la cara no admite ni un vástago de Ø 2.6 mm».
 **Causa:** el plano de corte del brazo está inclinado 6,44° respecto de X y `find_contact_face` solo aceptaba caras con |normal·contact_axis| > 0,999 (~2,6°): se saltaba la cara real del corte (~255 mm², z≈82) y quedaba una astilla de ~1,1 mm² cerca de la mano. El parche 84871f3 (`toward_torso`) no lo resolvía, y además su filtro exigía |ax[0]| > 0,999.
