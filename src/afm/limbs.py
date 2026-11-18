@@ -176,8 +176,8 @@ class ContactFace:
 
 
 def find_contact_face(limb: S.Manifold, axis_hint, ignore_x: float | None = 0.0,
-                      tol: float = 1e-3) -> ContactFace:
-    """Cara plana más grande del miembro cuya normal es paralela al eje indicado.
+                      tol: float = 1e-3, toward_torso: bool = False) -> ContactFace:
+    """Cara plana más grande del miembro cuya normal es paralela al eje indicado (con `toward_torso`, en un eje lateral X solo las que miran hacia el torso).
 
     Se ignoran las caras sobre el plano de simetría (x = ignore_x), que son del corte a la mitad.
     """
@@ -190,6 +190,15 @@ def find_contact_face(limb: S.Manifold, axis_hint, ignore_x: float | None = 0.0,
     if ignore_x is not None:
         on_sym = np.all(np.abs(tm.vertices[tm.faces][:, :, 0] - ignore_x) < tol, axis=1)
         cand &= ~on_sym
+    if toward_torso and ignore_x is not None and abs(ax[0]) > 0.999:
+        # Brazo (eje lateral X): la cara de contacto es la que MIRA HACIA EL TORSO, o sea hacia el plano de simetría. La otra cara plana
+        # (el tope exterior del prisma de la silueta, del lado de la mano) no sirve: el pasador saldría hacia afuera del cuerpo.
+        # La pierna no lleva esta regla: su cadera puede entrar en la pared lateral de la pelvis, hacia afuera.
+        toward = np.sign(ignore_x - tm.triangles_center[:, 0])
+        facing = nrm[:, 0] * toward > 0
+        if not np.any(cand & facing):
+            raise ValueError("No se encontró una cara de contacto plana que mire hacia el torso; ajustá el plano de corte o la silueta")
+        cand &= facing
     idx = np.where(cand)[0]
     if len(idx) == 0:
         raise ValueError("No se encontró una cara de contacto plana; ajustá la silueta o indicá pin_center")
@@ -272,13 +281,13 @@ def _cut_limb(half: S.Manifold, spec: LimbSpec, burr: float) -> tuple[S.Manifold
     (con sus triángulos). Es la parte de `separate_limb` anterior a elegir el pasador y el extremo."""
     prism = limb_prism(spec)
     limb = S.largest_component(S.intersection(half, prism))
-    face = find_contact_face(limb, spec.contact_axis)
+    face = find_contact_face(limb, spec.contact_axis, toward_torso=spec.kind == "arm")
     burr = spec.burr if spec.burr is not None else burr
     if burr > 0:
         # Extrude Remove de `burr` mm sobre la huella de la cara de contacto (tutorial, paso 014)
         limb = S.difference(limb, _footprint_slab(face, burr))
         limb = S.largest_component(limb)
-        face = find_contact_face(limb, spec.contact_axis)
+        face = find_contact_face(limb, spec.contact_axis, toward_torso=spec.kind == "arm")
     return limb, face
 
 
