@@ -856,6 +856,10 @@ class MainWindow(Gtk.ApplicationWindow):
         return b
 
     def _rebuild_plane_list(self) -> None:
+        # Vaciar y rehacer la lista manda el scroll arriba (y si el botón tocado tenía el foco, GTK lo lleva al primer widget):
+        # se guarda la posición y se repone al terminar, también tras el layout.
+        adj = self.planes_scroller.get_vadjustment()
+        keep = adj.get_value()
         while (child := self.planes_box.get_first_child()) is not None:
             self.planes_box.remove(child)
         cuts = {r["id"]: r for r in self.ctrl.cut_rows()}
@@ -944,6 +948,19 @@ class MainWindow(Gtk.ApplicationWindow):
                 item.append(row)
                 item.append(sub)
                 self.planes_box.append(item)
+        self._restore_plane_scroll(keep)
+
+    def _restore_plane_scroll(self, value: float) -> None:
+        """Devuelve el scroll de la lista de planos a `value` (acotado al rango nuevo), ahora y cuando GTK termine el layout."""
+        adj = self.planes_scroller.get_vadjustment()
+
+        def apply() -> bool:
+            top = max(adj.get_upper() - adj.get_page_size(), adj.get_lower())
+            adj.set_value(min(value, top))
+            return GLib.SOURCE_REMOVE
+
+        apply()
+        GLib.idle_add(apply)
 
     # --------------------------------------------------------------------- GL
     def _ensure_gl(self, area: Gtk.GLArea) -> bool:
