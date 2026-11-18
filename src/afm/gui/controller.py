@@ -76,6 +76,8 @@ class Mode(Enum):
 DRAFT_PX = 6.0                               # grosor en pantalla (px) del borrador de silueta (el que se propone o se está dibujando)
 DRAFT_COLOR = (1.0, 0.0, 0.85, 1.0)          # magenta fosforescente: contrasta con la figura gris y con los amarillos/celestes de las siluetas ya guardadas
 DRAFT_SELECTED_COLOR = (0.1, 1.0, 0.2, 1.0)  # vértice elegido: verde flúor (el rojo se confundía con el magenta)
+GUIDE_PX = 4.0                               # grosor (px) de la guía: el contorno de la figura sobre el plano, de donde sale la propuesta
+GUIDE_COLOR = (1.0, 0.45, 0.0, 1.0)          # naranja flúor: se ve sobre la figura gris y no se confunde con el magenta del borrador
 SILHOUETTE_PX = 3.0                          # grosor en pantalla (px) del trazo de las siluetas: 1 px no se distingue sobre la figura
 EXPORT_ONLY_PARAMS = frozenset({"flat_depth"})   # parámetros que no cambian las piezas generadas
 
@@ -5747,7 +5749,7 @@ class Controller:
                 scene.remove(key)
             return
         guide = self.guide_outline(editing.plane)
-        scene.set_lines("guia", [editing.plane.to_world(g["exterior"]) for g in guide], (0.7, 0.72, 0.8, 1.0), closed=True)
+        scene.set_lines("guia", [editing.plane.to_world(g["exterior"]) for g in guide], GUIDE_COLOR, closed=True, on_top=True, width=GUIDE_PX)
         if editing.pts:
             w3 = editing.world()
             scene.set_lines("poligono", w3, DRAFT_COLOR, closed=editing.closed, on_top=True, width=DRAFT_PX)

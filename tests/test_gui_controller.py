@@ -728,3 +728,20 @@ def test_thick_lines_cover_more_pixels_than_thin_ones():
 
     thin, thick = lit(1.0), lit(4.0)
     assert thin > 0 and thick > 2.5 * thin
+
+
+def test_guide_outline_is_thick_loud_and_on_top(arm):
+    """Regresión: la guía del contorno (lo que se ve al empezar una silueta o al proponerla) iba en gris pálido de 1 px, detrás de la malla;
+    ahora es un trazo grueso, naranja flúor y por delante, distinto del magenta del borrador."""
+    from afm.gui.controller import DRAFT_COLOR, GUIDE_COLOR, GUIDE_PX, SILHOUETTE_PX
+    seen = {}
+
+    class _Scene(_RecordingScene):
+        def set_lines(self, name, pl, color=None, closed=False, on_top=False, width=1.0):
+            super().set_lines(name, pl, color, closed, on_top, width)
+            seen[name] = (color, on_top, width)
+
+    arm.start_polygon("brazo")
+    arm._sync_polygons(_Scene())
+    color, on_top, width = seen["guia"]
+    assert color == GUIDE_COLOR != DRAFT_COLOR and on_top and width == GUIDE_PX >= SILHOUETTE_PX
