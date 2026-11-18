@@ -1169,6 +1169,8 @@
   "el_vastago_no_toca_la_cara": "a haste não toca a face da cintura: o pino ficaria solto",
   "no_se_pudo_medir_el_corte": "não foi possível medir o corte nessa posição",
   "el_vastago_no_toca_la_cara_2": "a haste não toca a face de contato: o pino ficaria solto",
+  "pin_hint_silueta2": "na altura z=%{z} a 2.ª silhueta começa em x=%{x} mm, mais para fora que o plano de corte (x=%{plano} mm): sua borda interna corta o ombro e ali não há face plana. Leve essa borda para dentro (x ≤ %{plano}) com «Editar 2.ª silhueta» ou ajuste o corte",
+  "pin_hint_cara_chica": "a face de contato mede só %{area} mm² (a haste Ø%{shaft} precisa de %{need} mm² mais parede): são as áreas azuis",
   "la_linea_del_what_es_demasiado": "a linha do %{what} é curta demais vista de frente (menos de 2 mm)",
   "la_linea_del_what_tiene_que": "a linha do %{what} tem de ir de cima para baixo (a menos de 60° da vertical)",
   "el_rango_tiene_que_cumplir_45": "a faixa tem de cumprir −45° ≤ mínimo < máximo ≤ 150°",

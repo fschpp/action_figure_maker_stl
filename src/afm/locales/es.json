@@ -1169,6 +1169,8 @@
   "el_vastago_no_toca_la_cara": "el vástago no toca la cara de la cintura: el pasador quedaría suelto",
   "no_se_pudo_medir_el_corte": "no se pudo medir el corte en esa posición",
   "el_vastago_no_toca_la_cara_2": "el vástago no toca la cara de contacto: el pasador quedaría suelto",
+  "pin_hint_silueta2": "a la altura z=%{z} la 2.ª silueta empieza en x=%{x} mm, más afuera que el plano de corte (x=%{plano} mm): su borde interno recorta el hombro y ahí no hay cara plana. Corré ese borde hacia adentro (x ≤ %{plano}) con «Editar 2.ª silueta» o subí el corte",
+  "pin_hint_cara_chica": "la cara de contacto mide solo %{area} mm² (el vástago Ø%{shaft} necesita %{need} mm² más pared): son las áreas azules",
   "la_linea_del_what_es_demasiado": "la línea del %{what} es demasiado corta vista de frente (menos de 2 mm)",
   "la_linea_del_what_tiene_que": "la línea del %{what} tiene que ir de arriba hacia abajo (a menos de 60° de la vertical)",
   "el_rango_tiene_que_cumplir_45": "el rango tiene que cumplir −45° ≤ mínimo < máximo ≤ 150°",

@@ -684,9 +684,49 @@ class Session:
             uv = prev.project(point_world)
             _inside, margin = prev.fit(uv, self.pin_spec(name).shaft_d)
             if margin <= -self.pin_spec(name).shaft_d:        # centro a más de un diámetro del borde: ni lo roza
-                raise ValueError(tr("session.el_vastago_no_toca_la_cara_2"))
+                raise ValueError(tr("session.el_vastago_no_toca_la_cara_2") + self.pin_miss_hint(name, uv))
             spec.pin_center = tuple(float(x) for x in prev.plane.to_world(uv[None])[0])
         self.outcome = None
+
+    def pin_miss_hint(self, name: str, uv) -> str:
+        """Por qué NO hay cara de contacto donde se quiso poner el pasador (texto para sumar al aviso, '' si no se sabe).
+
+        La cara de contacto no es una cara del STL: es el corte del miembro con el plano x = plano de la silueta + `cut_offset`,
+        y solo existe donde hay material sobre ese plano DENTRO de las dos siluetas. Dos causas típicas:
+        * la 2.ª silueta (la de frente) empieza, a esa altura, más afuera que el plano de corte: su borde interno recorta el
+          hombro y la cara queda reducida a las astillas donde ese borde baja del plano;
+        * la cara entera es más chica que el vástago (el plano apenas roza el miembro).
+        """
+        try:
+            spec, prev = self.limb(name), self.pin_preview(name)
+            if spec is None:
+                return ""
+            shaft = self.pin_spec(name).shaft_d
+            hints = []
+            cross = spec.cross
+            if cross is not None and cross.valid():
+                from shapely.geometry import LineString, Polygon
+                world = prev.plane.to_world(np.asarray(uv, float)[None])[0]
+                out = np.asarray(prev.face.outward, float)
+                cp = np.asarray(cross.polygon, float)
+                # solo si la cara es ⟂ a X (hombro / cadera de costado) y la 2.ª silueta es un plano de frente (x, z)
+                if cp.ndim == 2 and len(cp) >= 3 and abs(out[0]) > 0.99 and abs(float(np.asarray(cross.plane.normal, float)[1])) > 0.99:
+                    from ..limbs import effective_cut_offset
+                    sx = 1.0 if float(prev.face.center[0]) >= 0 else -1.0     # el miembro vive de ese lado: se mide con |x|
+                    x_plane = float(spec.plane.origin[0]) + sx * effective_cut_offset(spec)   # el plano de corte (antes de la rebaba)
+                    poly = Polygon(np.c_[sx * cp[:, 0], cp[:, 2]]).buffer(0)
+                    z = float(world[2])
+                    cut = poly.intersection(LineString([(-1e4, z), (1e4, z)]))
+                    if not cut.is_empty:
+                        inner = float(cut.bounds[0])              # borde interno de la 2.ª silueta a esa altura (|x|)
+                        if inner > abs(x_plane) + 0.05:
+                            hints.append(tr("session.pin_hint_silueta2", z=f"{z:.0f}", x=f"{inner:.1f}", plano=f"{abs(x_plane):.1f}"))
+            if prev.face.area < np.pi * (shaft / 2) ** 2 * 1.5:
+                hints.append(tr("session.pin_hint_cara_chica", area=f"{prev.face.area:.0f}", shaft=f"{shaft:g}",
+                                need=f"{np.pi * (shaft / 2) ** 2:.0f}"))
+            return (" · " + ". ".join(h.rstrip(".") for h in hints)) if hints else ""
+        except Exception:      # el aviso es solo ayuda: nunca debe romper el clic
+            return ""
 
     # --------------------------------------------------- articulaciones (rodilla / codo)
     def joint(self, name: str) -> JointSpec | None:

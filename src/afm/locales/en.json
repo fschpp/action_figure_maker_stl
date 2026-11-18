@@ -1169,6 +1169,8 @@
   "el_vastago_no_toca_la_cara": "the shaft does not touch the waist face: the pin would be loose",
   "no_se_pudo_medir_el_corte": "the cut could not be measured at that position",
   "el_vastago_no_toca_la_cara_2": "the shaft does not touch the contact face: the pin would be loose",
+  "pin_hint_silueta2": "at height z=%{z} the 2nd silhouette starts at x=%{x} mm, further out than the cut plane (x=%{plano} mm): its inner edge trims the shoulder and there is no flat face there. Move that edge inward (x ≤ %{plano}) with «Edit 2nd silhouette» or lower the cut",
+  "pin_hint_cara_chica": "the contact face is only %{area} mm² (the Ø%{shaft} shaft needs %{need} mm² plus wall): those are the blue areas",
   "la_linea_del_what_es_demasiado": "the %{what} line is too short seen from the front (less than 2 mm)",
   "la_linea_del_what_tiene_que": "the %{what} line must run from top to bottom (within 60° of vertical)",
   "el_rango_tiene_que_cumplir_45": "the range must satisfy −45° ≤ minimum < maximum ≤ 150°",
