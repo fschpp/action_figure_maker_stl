@@ -2,6 +2,17 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — Cara de contacto del brazo con plano de corte inclinado (2026-11-18, sobre main 265283a, sin commitear)
+**Objetivo:** que el pasador del hombro de Egon (`kenner-real_ghostbusters-egon.proyecto`) tenga cara donde colocarse; «Achicar el pasador» decía «la cara no admite ni un vástago de Ø 2.6 mm».
+**Causa:** el plano de corte del brazo está inclinado 6,44° respecto de X y `find_contact_face` solo aceptaba caras con |normal·contact_axis| > 0,999 (~2,6°): se saltaba la cara real del corte (~255 mm², z≈82) y quedaba una astilla de ~1,1 mm² cerca de la mano. El parche 84871f3 (`toward_torso`) no lo resolvía, y además su filtro exigía |ax[0]| > 0,999.
+**Hecho:** `_contact_face_axis(spec)` en `src/afm/limbs.py` usa la normal del plano de corte si es lateral (`plane_is_lateral`); el filtro `toward_torso` pasa a |ax[0]| > 0,85. Con Egon: cara de 255 mm², círculo máximo Ø 8,7 mm; pierna sin cambios. Test nuevo en `tests/test_limb_outward.py`; 108 tests de pasadores/miembros pasan.
+**No verificado:** el aspecto en la ventana GTK; la suite completa; piernas con plano inclinado y extrusión «outward».
+
+### Todo List
+- [x] Reproducir con el proyecto de Egon y corregir la elección de la cara.
+- [ ] Probar en la GUI con Egon: Brazo → Pasador (la mira debería caer en el hombro).
+- [ ] Correr la suite completa.
+
 ## Current Focus — Simulación del hombro al costado de la figura, como la cadera (2026-11-18, sobre main 80e6941, sin commitear)
 **Objetivo:** que la simulación del hombro se vea en el visor 3D igual que la de la cadera (al costado de la figura, que sigue a la vista), y no escondida en «Parámetros → Ver solo la articulación».
 **Hecho:** `Controller.polygon_hip_name` ahora vale también para brazos (silueta y 2.ª silueta: botón «Ver simulación» en la barra del visor con la flexión mostrada). Nuevo `pin_pivot_name` / `tool_pivot_name`: en la colocación del pasador (`Mode.PIN`) la barra del visor ofrece «Ver simulación» y la casilla «Simular el giro con este pasador» ahora dibuja la simulación AL COSTADO (la figura y el fantasma del pasador siguen a la vista). La simulación se conserva al mover el pasador o cambiar la cara, y se apaga al terminar la herramienta. Al apagarla y volver a encenderla se reencuadra la cámara.

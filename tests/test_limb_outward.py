@@ -35,3 +35,21 @@ def test_session_defaults_and_roundtrip():
     assert arm.extrude == "outward" and arm.thickness == pytest.approx(ARM_SLAB_MM)
     assert leg.extrude == "symmetric" and leg.thickness == 100.0
     assert LimbSpec.from_dict(arm.to_dict()).extrude == "outward"
+
+
+def test_arm_tilted_cut_plane_contact_face_is_the_cut_face():
+    """Plano de corte del brazo inclinado ~6° respecto de X: la cara de contacto es la del corte (hacia el torso), no una astilla."""
+    from afm.limbs import _cut_limb
+
+    n = np.array([0.994, -0.111, 0.018])
+    n /= np.linalg.norm(n)
+    origin = np.array([11.0, 0.0, 70.0])
+    u = np.cross(n, (0, 0, 1.0)); u /= np.linalg.norm(u)
+    v = np.cross(n, u)
+    poly = np.array([origin + a * u + b * v for a, b in [(-6, -12), (6, -12), (6, 12), (-6, 12)]])
+    spec = LimbSpec("brazo", "arm", Plane.from_normal(origin, n), poly, 12.0, extrude="outward")
+    import trimesh
+    half = S.to_manifold(trimesh.creation.box((60, 60, 120), trimesh.transformations.translation_matrix((20, 0, 60))))
+    _, face = _cut_limb(half, spec, 0.0)
+    assert face.area > 100.0
+    assert float(face.outward @ n) == pytest.approx(-1.0, abs=1e-3)       # mira hacia el torso, con la normal del plano

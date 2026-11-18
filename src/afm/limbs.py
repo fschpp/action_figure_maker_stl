@@ -190,7 +190,7 @@ def find_contact_face(limb: S.Manifold, axis_hint, ignore_x: float | None = 0.0,
     if ignore_x is not None:
         on_sym = np.all(np.abs(tm.vertices[tm.faces][:, :, 0] - ignore_x) < tol, axis=1)
         cand &= ~on_sym
-    if toward_torso and ignore_x is not None and abs(ax[0]) > 0.999:
+    if toward_torso and ignore_x is not None and abs(ax[0]) > 0.85:
         # Brazo (eje lateral X): la cara de contacto es la que MIRA HACIA EL TORSO, o sea hacia el plano de simetría. La otra cara plana
         # (el tope exterior del prisma de la silueta, del lado de la mano) no sirve: el pasador saldría hacia afuera del cuerpo.
         # La pierna no lleva esta regla: su cadera puede entrar en la pared lateral de la pelvis, hacia afuera.
@@ -276,18 +276,28 @@ def _main_prism(spec: LimbSpec) -> S.Manifold:
                                 symmetric=True)
 
 
+def _contact_face_axis(spec: LimbSpec):
+    """Eje en que se busca la cara de contacto. Con un plano de corte de costado pero inclinado (p. ej. 6° respecto de X), la cara
+    que deja el corte tiene la normal del plano, no la de `contact_axis`: con `contact_axis` (tolerancia ~2,6°) se salteaba y se
+    elegía una astilla de ~1 mm². Se usa entonces la normal del plano de corte; sin plano de corte, `contact_axis`."""
+    plane = cut_plane(spec)
+    if plane is not None and plane_is_lateral(plane, spec.contact_axis):
+        return tuple(float(x) for x in plane.normal)
+    return spec.contact_axis
+
+
 def _cut_limb(half: S.Manifold, spec: LimbSpec, burr: float) -> tuple[S.Manifold, ContactFace]:
     """Recorta el miembro con el prisma de la silueta, rebaja la rebaba y devuelve la cara de contacto
     (con sus triángulos). Es la parte de `separate_limb` anterior a elegir el pasador y el extremo."""
     prism = limb_prism(spec)
     limb = S.largest_component(S.intersection(half, prism))
-    face = find_contact_face(limb, spec.contact_axis, toward_torso=spec.kind == "arm")
+    face = find_contact_face(limb, _contact_face_axis(spec), toward_torso=spec.kind == "arm")
     burr = spec.burr if spec.burr is not None else burr
     if burr > 0:
         # Extrude Remove de `burr` mm sobre la huella de la cara de contacto (tutorial, paso 014)
         limb = S.difference(limb, _footprint_slab(face, burr))
         limb = S.largest_component(limb)
-        face = find_contact_face(limb, spec.contact_axis, toward_torso=spec.kind == "arm")
+        face = find_contact_face(limb, _contact_face_axis(spec), toward_torso=spec.kind == "arm")
     return limb, face
 
 
