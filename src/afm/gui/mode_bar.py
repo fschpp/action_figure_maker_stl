@@ -11,7 +11,8 @@ from .controller import Mode
 _PLANE3 = lz("mode_bar.clic_punto_sobre_la_figura_3")
 _PIN = lz("mode_bar.clic_poner_el_pasador_flechas_mover")
 
-# modo -> (ayuda de una línea, acciones); acciones: undo_point, close, cancel, snap, heat, done
+# modo -> (ayuda de una línea, acciones); acciones: undo_point, close, cancel, snap, heat, done, preview, fix_ok / fix_no
+# (estas dos solo se muestran mientras el controlador tiene una propuesta de pasador a la espera del OK: ver `PROPOSAL_ACTIONS`)
 MODE_HELP: dict[Mode, tuple[str, tuple[str, ...]]] = {
     Mode.CROWN: (lz("mode_bar.clic_sobre_la_coronilla_de_la"), ("cancel",)),
     Mode.SYMMETRY: (_PLANE3, ("undo_point", "cancel")),
@@ -30,7 +31,7 @@ MODE_HELP: dict[Mode, tuple[str, tuple[str, ...]]] = {
     Mode.JOINT_AXIS: (lz("mode_bar.clic_sobre_la_figura_eje_de"), ("preview", "done")),
     Mode.POLYGON: (lz("mode_bar.clic_agregar_vertice_intro_cerrar_el"),
                    ("undo_point", "close", "cancel", "preview")),
-    Mode.PIN: (_PIN, ("snap", "heat", "preview", "done")),
+    Mode.PIN: (_PIN, ("fix_ok", "fix_no", "snap", "heat", "preview", "done")),
     Mode.HEAD_PIN: (_PIN, ("snap", "heat", "done")),
     Mode.WAIST_PIN: (_PIN, ("snap", "heat", "done")),
     Mode.TRIM_PICK: (lz("mode_bar.clic_sobre_la_figura_centro_del"), ("cancel",)),
@@ -44,7 +45,10 @@ ACTION_LABELS = {"undo_point": (lz("mode_bar.quitar_ultimo"), lz("mode_bar.quita
                  "done": (lz("mode_bar.terminar"), lz("mode_bar.sale_de_la_herramienta_esc")),
                  "snap": (lz("common.iman"), lz("mode_bar.lleva_el_pasador_al_punto_mas")),
                  "heat": (lz("mode_bar.calor"), lz("mode_bar.alterna_la_vista_de_mapa_de")),
-                 "preview": (lz("mode_bar.simulacion"), lz("mode_bar.muestra_u_oculta_la_simulacion_de"))}
+                 "preview": (lz("mode_bar.simulacion"), lz("mode_bar.muestra_u_oculta_la_simulacion_de")),
+                 "fix_ok": (lz("mode_bar.aceptar_pasador_propuesto"), lz("mode_bar.aplica_el_pasador_mas_chico_propuesto")),
+                 "fix_no": (lz("mode_bar.dejar_el_pasador_como_esta"), lz("mode_bar.no_cambia_el_pasador_ni_su_medida"))}
+PROPOSAL_ACTIONS = ("fix_ok", "fix_no")           # la pregunta «¿achicar el pasador?»: solo con una propuesta pendiente
 
 
 def help_for(mode: Mode) -> tuple[str, tuple[str, ...]] | None:
@@ -71,6 +75,7 @@ def build(win):
     actions = {
         "undo_point": ctrl.undo_point, "close": ctrl.close_polygon, "cancel": ctrl.cancel, "done": ctrl.cancel,
         "snap": ctrl.snap_pin, "heat": ctrl.toggle_heat, "preview": ctrl.toggle_joint_preview_here,
+        "fix_ok": ctrl.accept_pin_fix, "fix_no": ctrl.reject_pin_fix,
     }
     buttons = {}
     for key, (label, tip) in ACTION_LABELS.items():
@@ -103,6 +108,11 @@ def update(win, title: str) -> None:
     ctrl = win.ctrl
     if "preview" in acts and not ctrl.preview_here_available():
         acts = tuple(a for a in acts if a != "preview")     # p. ej. la silueta con torso de catálogo: no hay cadera ni hombro del modelo que simular
+    ask = ctrl.pin_proposal_text() if ctrl.pin_proposal is not None else ""
+    if not ask:
+        acts = tuple(a for a in acts if a not in PROPOSAL_ACTIONS)     # sin propuesta pendiente no hay nada que aceptar ni rechazar
+    else:
+        hint += "\n" + ask
     if ctrl.show_joint_preview and ctrl._jp["error"] and "preview" in acts:
         hint += "\n" + tr("mode_bar.simulacion_estado", status=ctrl.joint_preview_status())
     win.mode_title.set_text(title)

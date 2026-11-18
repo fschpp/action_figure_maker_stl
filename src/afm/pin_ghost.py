@@ -7,12 +7,15 @@ Sirve para ver y entender, ANTES de generar, si el pasador entra en la cara de c
   que la pared mínima entra justo.
 * `widest_point`: el punto de la cara donde más ancho cabe un vástago (centro del mayor círculo inscripto).
 * `fit_scale`: cuánto hay que achicar el pasador para que entre en la cara.
+* `propose_smaller_pin`: qué pasador más chico entraría y dónde (para PREGUNTARLE al usuario antes de cambiarlo: el Ø del
+  vástago es parte de la interfaz con el catálogo, así que nunca se achica en silencio).
 * `ghost_meshes`: la malla del pasador (vástago + cabeza) y la de su hueco (con la holgura) para dibujarlas translúcidas.
 
 Es geometría pura (numpy / shapely / trimesh): no depende de la GUI, así que se prueba sin ventana.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import numpy as np
@@ -23,6 +26,7 @@ from .params import PinSpec
 
 LEVEL_OK, LEVEL_WARN, LEVEL_NO = "ok", "aviso", "no"
 MIN_SHAFT_D = 0.2          # por debajo de esto no se sugiere nada (la cara no admite ni un vástago finito)
+MAX_MOVE_MM = 8.0          # lo más que la propuesta corre el pasador del punto pedido para ganar vástago (si no, achica donde está)
 
 
 @dataclass
@@ -105,6 +109,93 @@ def fit_scale(max_shaft_d: float, pin: PinSpec, min_wall: float = 0.0) -> float:
     if room < MIN_SHAFT_D:
         return 0.0
     return min(1.0, room / float(pin.shaft_d))
+
+
+def shrunk_dims(pin: PinSpec, room: float, min_wall: float) -> tuple[float, float] | None:
+    """(Ø vástago, Ø cabeza) del pasador achicado en proporción para que entre en un círculo de Ø `room` con `min_wall` de borde.
+
+    El vástago se redondea hacia abajo al 0,1 mm (que sobre borde, no que falte). El pasador intacto si ya entra; None si no hay lugar.
+    """
+    k = fit_scale(room, pin, min_wall)
+    if k <= 0.0:
+        return None
+    if k >= 1.0:
+        return float(pin.shaft_d), float(pin.head_d)
+    shaft = math.floor(pin.shaft_d * k * 10.0 + 1e-9) / 10.0
+    if shaft <= 0.0:
+        return None
+    return shaft, round(pin.head_d * shaft / pin.shaft_d, 1)
+
+
+@dataclass
+class PinProposal:
+    """Un pasador más chico que SÍ entra y dónde ponerlo. Es solo una propuesta: no cambia nada hasta que el usuario acepta."""
+
+    uv: tuple                    # centro propuesto en (u, v) de la cara (el mismo punto pedido o el más ancho de su trozo de cara)
+    shaft_d: float
+    head_d: float
+    room: float                  # mayor Ø de vástago que cabe en `uv`
+    moved_mm: float              # cuánto se corre del punto pedido (0 si se achica donde está)
+    old_shaft_d: float
+    old_head_d: float
+
+
+@dataclass
+class PinFixResult:
+    """Resultado de `propose_smaller_pin`: la propuesta o, si no hay, por qué (`reason`) y cuánto cabe (`room`, 0 si no se sabe).
+
+    `reason`: «» (hay propuesta) · «no_toca» (el vástago no toca ninguna cara: achicar no arregla nada) · «sin_lugar» (ni el
+    vástago mínimo con borde) · «bajo_minimo» (entraría, pero con un vástago menor que el mínimo que admite la herramienta).
+    """
+
+    proposal: PinProposal | None
+    reason: str = ""
+    room: float = 0.0
+
+
+def _pieces(shape) -> list:
+    geoms = list(shape.geoms) if hasattr(shape, "geoms") else [shape]
+    return [g for g in geoms if g.geom_type == "Polygon" and not g.is_empty]
+
+
+def propose_smaller_pin(shape, uv, pin: PinSpec, min_wall: float, lo_shaft: float = 0.0, lo_head: float = 0.0,
+                        max_move: float = MAX_MOVE_MM) -> PinFixResult:
+    """Qué pasador más chico entraría cerca de `uv` (la cara puede tener varios trozos: se trabaja SOLO en el más cercano).
+
+    * Si el trozo más cercano no toca el vástago en `uv`, no hay propuesta (`no_toca`): achicar no inventa cara donde no la hay.
+    * Nunca salta a otro trozo: si la cara tiene uno en el hombro y otro en la mano, un clic en el hombro solo se resuelve ahí
+      (el «punto más ancho» de TODA la cara podría estar en la mano).
+    * Si el punto pedido está dentro del trozo se achica ahí; si moviéndolo hasta el punto más ancho del trozo (a lo sumo
+      `max_move` mm) queda un vástago más grueso, se propone ese. Un pasador más grueso es más compatible con el catálogo.
+    * `lo_shaft` / `lo_head` son los mínimos de la herramienta (rango de los parámetros): por debajo no se propone (`bajo_minimo`).
+    """
+    from shapely.geometry import Point
+    from shapely.ops import polylabel
+
+    pieces = _pieces(shape)
+    if not pieces:
+        return PinFixResult(None, "sin_lugar")
+    pt = Point(float(uv[0]), float(uv[1]))
+    piece = min(pieces, key=lambda g: g.distance(pt))
+    if piece.distance(pt) > pin.shaft_d / 2.0:
+        return PinFixResult(None, "no_toca")
+    inside = bool(piece.contains(pt))
+    room_here = 2.0 * float(piece.boundary.distance(pt)) if inside else 0.0
+    wc = polylabel(piece, tolerance=0.02)
+    room_best = 2.0 * float(piece.boundary.distance(wc))
+    best_uv = (float(wc.x), float(wc.y))
+    moved = math.hypot(best_uv[0] - pt.x, best_uv[1] - pt.y)
+    here = shrunk_dims(pin, room_here, min_wall) if room_here > 0.0 else None
+    there = shrunk_dims(pin, room_best, min_wall)
+    if there is not None and (here is None or (there[0] > here[0] and moved <= max_move)):
+        (shaft, head), room, where, dist = there, room_best, best_uv, moved
+    elif here is not None:
+        (shaft, head), room, where, dist = here, room_here, (pt.x, pt.y), 0.0
+    else:
+        return PinFixResult(None, "sin_lugar", room_best)
+    if shaft < lo_shaft - 1e-9:
+        return PinFixResult(None, "bajo_minimo", room)
+    return PinFixResult(PinProposal(where, shaft, max(head, lo_head), room, dist, float(pin.shaft_d), float(pin.head_d)), "", room)
 
 
 def _along(direction, z_from: float, z_to: float, radius: float, origin, sections: int = 40) -> trimesh.Trimesh:

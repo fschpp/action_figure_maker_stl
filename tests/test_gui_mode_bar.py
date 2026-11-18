@@ -18,3 +18,10 @@ def test_hints_are_one_short_line_and_actions_exist():
 def test_polygon_bar_offers_close_and_undo():
     _, acts = MB.help_for(Mode.POLYGON)
     assert {"close", "undo_point", "cancel"} <= set(acts)
+
+
+def test_pin_bar_has_the_accept_reject_pair_only_as_a_proposal_answer():
+    _, acts = MB.help_for(Mode.PIN)
+    assert set(MB.PROPOSAL_ACTIONS) <= set(acts) <= set(MB.ACTION_LABELS)
+    for other in (Mode.HEAD_PIN, Mode.WAIST_PIN, Mode.POLYGON):              # la pregunta es solo del pasador de brazo / cadera
+        assert not set(MB.PROPOSAL_ACTIONS) & set(MB.help_for(other)[1])

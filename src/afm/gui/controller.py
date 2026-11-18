@@ -25,7 +25,7 @@ from ..pipeline import body_base_z, body_ref
 from ..waist import PELVIS_NAME, WAIST_NAME
 from .. import cut_ref as CR
 from ..limbs import cut_plane, silhouette_on_plane
-from ..pin_ghost import MIN_SHAFT_D, fit_scale, ghost_meshes, widest_point
+from ..pin_ghost import MIN_SHAFT_D, PinProposal, ghost_meshes, propose_smaller_pin, shrunk_dims, widest_point
 from ..orient import OrientResult, overhang_mask, pose_orientation
 from ..planes import Plane
 from ..trims import Trim
@@ -260,6 +260,7 @@ class Controller:
         self.cut_seated: dict | None = None          # último choque en pose sentada medido (`cut_aid.seated_summary` + su clave)
         self.pin_aim = None                          # última lectura de la mira bajo el puntero (AimReading)
         self.pin_hover = None                        # (u, v) de la cara bajo el puntero en el modo PIN: ahí se dibuja el pasador fantasma
+        self.pin_proposal: PinProposal | None = None   # pasador más chico que entraría, a la espera del OK del usuario (no cambia nada solo)
         self.mirror_live = False                     # con «un solo lado»: mostrar el espejo del lado de trabajo en vivo
         self.pose_view = False                       # vista previa de la figura generada con las piernas en la pose sentada
         self.pose_angle: float | None = None         # ángulo de cadera de la vista previa (None = el de la pose sentada)
@@ -1123,6 +1124,7 @@ class Controller:
         self.draft, self.edit_limb, self.edit_cross = None, None, False
         self.pin_limb, self.pin_prev = None, None
         self.pin_aid, self.pin_aim, self.pin_hover = None, None, None
+        self.pin_proposal = None
         self.head_pin_prev, self.waist_pin_prev, self.joint_prev = None, None, None
         self.joint_limb, self.joint_name = None, None
         was_trim = self.trim_cfg is not None
@@ -1675,8 +1677,10 @@ class Controller:
         shaft = self.session.pin_spec(name).shaft_d
         if prev.face.area < np.pi * (shaft / 2) ** 2:      # la cara es menor que el vástago: se explica y se ofrece qué hacer
             small = ' ' + tr("controller.pin_cara_chica", area=f"{prev.face.area:.1f}", shaft=f"{shaft:g}") + self.session.pin_miss_hint(name, prev.project(self._pin_center(name)))
+        self.pin_proposal = None
+        offer = self._offer_pin_fix(name, prev.project(self._pin_center(name)))
         self._changed(note + (tr("controller.pasador_de_name", name=name) + ' ') + self._pin_status(name) + self._reach_warning(name) + small
-                      + (' ' + tr("controller.clic_mover_flechas_0_1_mm")))
+                      + offer + (' ' + tr("controller.clic_mover_flechas_0_1_mm")))
 
     def _make_pin_aid(self, name: str, prev):
         """La mira asistida del pasador (`pin_aid.PinAid`) contra el catálogo abierto. None si no hay catálogo, no se puede abrir
@@ -1847,23 +1851,88 @@ class Controller:
             uv, room = wuv, wd
         else:
             room = fit.max_shaft_d
-        k = fit_scale(room, pin, prm.min_wall)
-        if k <= 0:
+        dims = shrunk_dims(pin, room, prm.min_wall)
+        if dims is None:
             self._changed(tr("controller.pin_sin_lugar", min=f"{MIN_SHAFT_D + 2 * prm.min_wall:g}"), scene=False)
             return
-        if k < 1.0:
-            shaft = float(np.floor(pin.shaft_d * k * 10.0 + 1e-9) / 10.0)
-            head = round(pin.head_d * shaft / pin.shaft_d, 1)
-            lo_s = next(f[2] for f in PARAM_FIELDS if f[0] == f"{pre}.shaft_d")
-            lo_h = next(f[2] for f in PARAM_FIELDS if f[0] == f"{pre}.head_d")
+        if dims != (pin.shaft_d, pin.head_d):
+            shaft, head = dims
+            lo_s, lo_h = self._pin_lower_bounds(pre)
             if shaft < lo_s - 1e-9:
                 self._changed(tr("controller.pin_minimo_vastago", shaft=f"{shaft:g}", lo=f"{lo_s:g}", room=f"{room:.1f}"), scene=False)
                 return
             if not (self.set_param(f"{pre}.shaft_d", shaft) and self.set_param(f"{pre}.head_d", max(head, lo_h))):
                 return
             self.pin_aid = self._make_pin_aid(name, self.pin_prev)           # la mira midió con el pasador anterior
+        self.pin_proposal = None
         self._place_pin(uv, tr("controller.pin_achicado", shaft=f"{self.session.pin_spec(name).shaft_d:g}",
                                head=f"{self.session.pin_spec(name).head_d:g}", d=f"{room:.1f}"))
+
+    # ------------------------------------------- «no entra»: proponer un pasador más chico y preguntar
+    def _pin_lower_bounds(self, pre: str) -> tuple[float, float]:
+        """Mínimos (Ø vástago, Ø cabeza) que admite la herramienta para el pasador `pre` («shoulder_pin» / «hip_pin»)."""
+        lo_s = next(f[2] for f in PARAM_FIELDS if f[0] == f"{pre}.shaft_d")
+        lo_h = next(f[2] for f in PARAM_FIELDS if f[0] == f"{pre}.head_d")
+        return lo_s, lo_h
+
+    def _offer_pin_fix(self, name: str, uv) -> str:
+        """Si el pasador NO entra en `uv`, arma la propuesta (queda en `pin_proposal`, sin cambiar nada) y devuelve la frase corta para
+        el estado; con propuesta, la barra del visor pregunta «¿achicarlo?». Si achicar no alcanza (queda bajo el mínimo de la herramienta)
+        lo dice en vez de ofrecer. '' si el pasador entra o no hay nada que proponer.
+
+        No se achica en silencio: el Ø del vástago es parte de la interfaz con el catálogo (la compatibilidad con otros torsos y
+        miembros), así que cambiarlo es una decisión del usuario."""
+        self.pin_proposal = None
+        try:
+            fit = self.session.pin_fit_at(name, uv)
+            if fit.level != "no":
+                return ""
+            spec, prm = self.session.limb(name), self.session.project.params
+            pre = "hip_pin" if spec.kind == "leg" else "shoulder_pin"
+            lo_s, lo_h = self._pin_lower_bounds(pre)
+            res = propose_smaller_pin(self.pin_prev.shape, uv, self.session.pin_spec(name), prm.min_wall, lo_s, lo_h)
+        except Exception:      # noqa: BLE001 — es solo ayuda: nunca debe romper el clic
+            return ""
+        if res.proposal is not None:
+            self.pin_proposal = res.proposal
+            if abs(res.proposal.shaft_d - res.proposal.old_shaft_d) < 1e-9:       # entra entero en otro punto de la cara: solo moverlo
+                return ' ' + tr("controller.pin_oferta_corta_mover")
+            return ' ' + tr("controller.pin_oferta_corta", shaft=f"{res.proposal.shaft_d:g}", head=f"{res.proposal.head_d:g}")
+        if res.reason == "bajo_minimo":
+            return ' ' + tr("controller.pin_oferta_bajo_minimo", lo=f"{lo_s:g}")
+        return ""
+
+    def pin_proposal_text(self) -> str:
+        """La pregunta de la barra del visor: qué cambiaría aceptar (vacía si no hay propuesta)."""
+        pr = self.pin_proposal
+        if pr is None or self.mode != Mode.PIN:
+            return ""
+        move = tr("controller.pin_oferta_mueve", mm=f"{pr.moved_mm:.1f}") if pr.moved_mm > 0.05 else ""
+        if abs(pr.shaft_d - pr.old_shaft_d) < 1e-9:
+            return tr("controller.pin_oferta_solo_mover", mm=f"{pr.moved_mm:.1f}", room=f"{pr.room:.1f}")
+        return tr("controller.pin_oferta", shaft=f"{pr.shaft_d:g}", head=f"{pr.head_d:g}", old_shaft=f"{pr.old_shaft_d:g}",
+                  old_head=f"{pr.old_head_d:g}", move=move)
+
+    def accept_pin_fix(self) -> None:
+        """El usuario dijo que sí: aplica el pasador achicado propuesto (cambia el parámetro del hombro / la cadera) y lo coloca."""
+        pr, name = self.pin_proposal, self.pin_limb
+        if self.mode != Mode.PIN or self.pin_prev is None or pr is None or name is None:
+            return
+        pre = "hip_pin" if self.session.limb(name).kind == "leg" else "shoulder_pin"
+        if abs(pr.shaft_d - pr.old_shaft_d) > 1e-9 or abs(pr.head_d - pr.old_head_d) > 1e-9:
+            if not (self.set_param(f"{pre}.shaft_d", pr.shaft_d) and self.set_param(f"{pre}.head_d", pr.head_d)):
+                return
+            self.pin_aid = self._make_pin_aid(name, self.pin_prev)           # la mira midió con el pasador anterior
+        self.pin_proposal = None
+        pin = self.session.pin_spec(name)
+        self._place_pin(pr.uv, tr("controller.pin_achicado", shaft=f"{pin.shaft_d:g}", head=f"{pin.head_d:g}", d=f"{pr.room:.1f}"))
+
+    def reject_pin_fix(self) -> None:
+        """El usuario dijo que no: el pasador queda como está (el fantasma sigue en rojo) y no se vuelve a preguntar hasta moverlo."""
+        if self.pin_proposal is None:
+            return
+        self.pin_proposal = None
+        self._changed(tr("controller.pin_oferta_rechazada"), scene=False)
 
     def set_pin_size(self, key: str, value: float) -> bool:
         """Cambia una medida del pasador / hueco (vástago, cabeza, largo, alto de cabeza, holgura) viendo el fantasma al instante."""
@@ -1874,7 +1943,8 @@ class Controller:
             self.pin_aid = self._make_pin_aid(name, self.pin_prev)
             self.pin_aim = None
             label = next((f[1] for f in PARAM_FIELDS if f[0] == key), key)
-            self._changed(f"{loc(label)}: {float(value):g}. " + self._pin_status(name))
+            offer = self._offer_pin_fix(name, self.pin_prev.project(self._pin_center(name)))
+            self._changed(f"{loc(label)}: {float(value):g}. " + self._pin_status(name) + offer)
         return True
 
     def pin_simulate_pivot(self, on: bool = True) -> None:
@@ -1912,7 +1982,8 @@ class Controller:
         except ValueError as e:
             self._changed(tr("controller.no_se_movio_e", e=e), scene=False)
             return False
-        self._changed(f"{what}: " + self._pin_status(name))
+        offer = self._offer_pin_fix(name, uv)          # si no entra: propone achicarlo y pregunta (no cambia nada solo)
+        self._changed(f"{what}: " + self._pin_status(name) + offer)
         return True
 
     def _click_pin(self, px: float, py: float, width: float, height: float) -> None:
@@ -1937,7 +2008,8 @@ class Controller:
         if self.mode != Mode.PIN or self.pin_prev is None:
             return
         self.session.set_limb_pin(self.pin_limb, None)
-        self._changed((tr("controller.pasador_restablecido") + ' ') + self._pin_status(self.pin_limb))
+        offer = self._offer_pin_fix(self.pin_limb, self.pin_prev.project(self._pin_center(self.pin_limb)))
+        self._changed((tr("controller.pasador_restablecido") + ' ') + self._pin_status(self.pin_limb) + offer)
 
     # ------------------------------------------------- pasador del cuello (vista de costado)
     def start_head_pin(self) -> None:
