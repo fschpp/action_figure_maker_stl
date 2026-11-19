@@ -1,6 +1,7 @@
 """Archivo de proyecto (.proyecto / JSON): planos, siluetas y parámetros (plan §4)."""
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass, field
 
@@ -44,6 +45,47 @@ def _scale_from_json(v):
     return float(v)
 
 
+def sha256_of(path: str) -> str:
+    """SHA-256 (hexadecimal) del contenido de un archivo, leído por bloques (un FBX con texturas pesa decenas de MB)."""
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+@dataclass
+class ColorSpec:
+    """Configuración de color del proyecto (plan §7, T23): qué FBX es la fuente y cómo se hornea. El hash permite saber si el FBX
+    que está en `source_path` es el mismo con el que se armó el proyecto (la GUI lo usa para relocalizarlo)."""
+    source_path: str = ""                 # ruta del FBX (como la dio el usuario; puede ser relativa al proyecto)
+    source_sha256: str = ""               # hash del contenido del FBX; "" = no se calculó
+    eps: float = 0.15                     # mm: distancia máxima para que un punto de la pieza «venga» de la figura original
+    texel_mm: float = 0.2                 # tamaño de texel del atlas de cada pieza
+    fill: str = "extend"                  # superficies nuevas: "extend" (color vecino) o un color plano "#RRGGBB"
+    symmetric: bool = False               # True: el lado derecho copia el color del izquierdo
+
+    def to_dict(self) -> dict:
+        return {"source_path": self.source_path, "source_sha256": self.source_sha256, "eps": float(self.eps),
+                "texel_mm": float(self.texel_mm), "fill": self.fill, "symmetric": bool(self.symmetric)}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "ColorSpec":
+        base = cls()
+        return cls(source_path=d.get("source_path", base.source_path), source_sha256=d.get("source_sha256", base.source_sha256),
+                   eps=float(d.get("eps", base.eps)), texel_mm=float(d.get("texel_mm", base.texel_mm)),
+                   fill=d.get("fill", base.fill), symmetric=bool(d.get("symmetric", base.symmetric)))
+
+    @classmethod
+    def from_file(cls, path: str, **kw) -> "ColorSpec":
+        """`ColorSpec` para el FBX `path`, con su hash calculado; `kw`: `eps`, `texel_mm`, `fill`, `symmetric`."""
+        return cls(source_path=path, source_sha256=sha256_of(path), **kw)
+
+    def matches(self, path: str) -> bool:
+        """¿El archivo `path` es el mismo FBX con el que se armó el proyecto? (sin hash guardado: no se puede saber → False)."""
+        return bool(self.source_sha256) and sha256_of(path) == self.source_sha256
+
+
 @dataclass
 class Project:
     params: Params = field(default_factory=Params)
@@ -64,6 +106,7 @@ class Project:
 
     # escala de la pieza de cada lugar (torso, pelvis, cabeza, nombre de miembro): un número = uniforme; [sx, sy, sz] = por eje
     part_scales: dict[str, float | list[float]] = field(default_factory=dict)
+    color: ColorSpec | None = None        # fuente y ajustes del color (FBX con textura); None = sin color
 
     def to_dict(self) -> dict:
         d = self._to_dict_base()
@@ -71,6 +114,8 @@ class Project:
             d["accesorios"] = [a.to_dict() for a in self.accesorios]
         if self.limbs_right is not None:
             d["limbs_right"] = [l.to_dict() for l in self.limbs_right]
+        if self.color is not None:                            # solo si hay: los proyectos anteriores no cambian
+            d["color"] = self.color.to_dict()
         return d
 
     def _to_dict_base(self) -> dict:
@@ -107,6 +152,7 @@ class Project:
             parts={k: PartRef.from_dict(v) for k, v in (d.get("parts") or {}).items()},
             part_scales={k: _scale_from_json(v) for k, v in (d.get("part_scales") or {}).items()},
             accesorios=[AccessoryRef.from_dict(x) for x in (d.get("accesorios") or [])],
+            color=None if d.get("color") is None else ColorSpec.from_dict(d["color"]),
         )
 
     def scale_geometry(self, k: float) -> None:

@@ -2,6 +2,19 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — Color FBX: T23 (2026-11-19, sobre main d535d3d)
+**Objetivo:** guardar y leer la configuración de color en el `.proyecto`.
+**Hecho:** `project.py`: `ColorSpec(source_path, source_sha256, eps=0.15, texel_mm=0.2, fill="extend", symmetric=False)` con `to_dict/from_dict` (campos faltantes → valores por defecto), `ColorSpec.from_file(path, **kw)` (calcula el hash) y `ColorSpec.matches(path)` (para relocalizar el FBX en T25; sin hash guardado devuelve False); `sha256_of` lee por bloques de 1 MiB; `Project.color: ColorSpec | None = None`, escrito solo si existe (como `accesorios`), `version` sigue en 1. `tests/test_project_color.py` (6 pruebas, 0,5 s).
+**Medido:** `to_dict()` de un proyecto sin color es idéntico a `_to_dict_base()` y el archivo guardado es byte a byte el mismo JSON; todos los `.proyecto` de `examples/` y `catalogo/` cargan con `color = None` y se guardan/leen sin cambios.
+**No verificado:** nadie escribe ni lee `project.color` todavía (CLI y GUI no se tocaron, como pide la ficha): lo cablea T25.
+
+### Todo List
+- [x] T09 · [x] T10–T16 (T20 no se hace) · [x] T17–T19 · [x] T21 · [x] T22 · [x] T23
+- [ ] T24–T30
+
+### Latest Blockers/Discoveries
+- Ninguno bloqueante. Camino abierto: T24 (◄ T15, T22), T27 (◄ T21), T28 (◄ T15); T25 (◄ T23, T24) y T26 siguen a T24.
+
 ## Current Focus — Color FBX: T22 (2026-11-19, sobre main 986ed22)
 **Objetivo:** `Session.load` acepta un `.fbx` y guarda la fuente de color y un resumen, sin widgets nuevos.
 **Hecho:** `gui/session.py`: `Session.color_source` (`TexturedMesh`, leído aparte sin reparar) y `Session.fbx_summary` (`triangulos`, `islas_uv`, `texturas`, `materiales`, `avisos`), ambos `None` con un STL (cargar un STL después de un FBX los limpia); `uv_island_count` (componentes de triángulos que comparten esquina con igual vértice y UV, `scipy`); `fbx_summary`; `Session.fbx_summary_text()`. `Controller.finish_open_stl` agrega el resumen y los avisos (sin textura base, más de un material) al mensaje de estado. Claves nuevas en `session` (es/en/pt): `resumen_fbx`, `ninguna`, `aviso_fbx_sin_textura_base`, `aviso_fbx_varios_materiales`. `tests/test_gui_session_fbx.py` (5 pruebas, ≈ 1 s, sin GTK).
