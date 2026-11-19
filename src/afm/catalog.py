@@ -3,6 +3,7 @@
 ```
 <RUTA>/                              # un directorio por línea
   linea.json                         # afm-linea-1: nombre, altura_mm, boquilla, params (perfil), lugares, motor
+  paleta.json                        # afm-paleta-1 (opcional, T39): roles de color de la línea; las piezas guardan ids de rol, nunca RGB
   piezas/<tipo>/<id>@<n>.stl         # malla cruda, mm reales (ver parts.py)
   piezas/<tipo>/<id>@<n>.pieza.json  # afm-pieza-1
   figuras/<personaje>.receta.json    # afm-receta-1 (Fase 6)
@@ -26,6 +27,7 @@ from dataclasses import dataclass
 
 from . import __version__
 from . import parts as P
+from .palette import Palette, PaletteError, Role
 from .params import Params
 from .ports import Compat, port_compat
 
@@ -35,6 +37,7 @@ REF_RE = re.compile(r"^(?P<id>[a-z0-9]+(?:-[a-z0-9]+)*)(?:@(?P<v>\d+))?$")
 LINE_HEIGHT_TOL_MM = 0.5
 
 
+PALETTE_FILE = "paleta.json"
 TRASH_DIR = ".papelera"        # dentro del catálogo, fuera de `piezas/`: lo eliminado se mueve acá y se puede recuperar
 TRASH_FILE = "lote.json"
 
@@ -192,6 +195,116 @@ class Catalog:
         del self.line["interfaz"]
         self._write_line()
         return True
+
+    # ------------------------------------------------------------------ paleta de color (plan de paleta de línea, T39)
+    @property
+    def palette_path(self) -> str:
+        return os.path.join(self.root, PALETTE_FILE)
+
+    def palette(self) -> Palette | None:
+        """Paleta de color de la línea, o `None` si no existe `paleta.json` (la línea abre igual que antes). `CatalogError` si el archivo no se puede leer."""
+        path = self.palette_path
+        if not os.path.isfile(path):
+            return None
+        try:
+            with open(path, encoding="utf-8") as f:
+                return Palette.from_dict(json.load(f))
+        except (OSError, ValueError) as exc:           # JSONDecodeError y PaletteError son ValueError
+            raise CatalogError(f"{PALETTE_FILE}: {exc}") from exc
+
+    def set_palette(self, palette: Palette) -> None:
+        """Guarda la paleta (archivo temporal + `os.replace`). No toca `linea.json`, las fichas ni los STL: las piezas guardan ids de rol, no colores.
+
+        Re-valida antes de escribir (si alguien armó un `Role` y lo cambió después, no se guarda un archivo que no se pueda volver a abrir)."""
+        try:
+            data = Palette.from_dict(palette.to_dict()).to_dict()
+        except PaletteError as exc:
+            raise CatalogError(f"la paleta no es válida: {exc}") from exc
+        os.makedirs(self.root, exist_ok=True)
+        tmp = self.palette_path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+            f.write("\n")
+        os.replace(tmp, self.palette_path)
+
+    def palette_usage(self, role_id: str) -> list[str]:
+        """Referencias `id@n` de las piezas cuyo bloque `color.roles` usa `role_id` (todas las versiones)."""
+        return [m.ref for m in self._metas() if role_id in ((m.color or {}).get("roles") or [])]
+
+    def _palette_or_raise(self) -> Palette:
+        pal = self.palette()
+        if pal is None:
+            raise CatalogError(f"la línea «{self.name}» no tiene paleta (falta {PALETTE_FILE}): crear un rol con `afm catalogo paleta agregar`")
+        return pal
+
+    def add_role(self, role_id: str, hex: str, nombre: str | None = None, anclas: list[str] | None = None) -> Palette:
+        """Agrega un rol (crea la paleta si la línea todavía no tenía). `CatalogError` si el id ya existe o no es válido."""
+        pal = self.palette() or Palette([])
+        if role_id in pal.ids():
+            raise CatalogError(f"el rol «{role_id}» ya existe")
+        try:
+            pal = Palette(pal.roles + [Role(role_id, nombre or role_id, hex, list(anclas or []))])
+        except PaletteError as exc:
+            raise CatalogError(str(exc)) from exc
+        self.set_palette(pal)
+        return pal
+
+    def set_role_color(self, role_id: str, hex: str) -> Palette:
+        """Cambia el color de un rol: lo ven todas las piezas que lo usan. Las anclas no cambian. Nada más se reescribe."""
+        pal = self._palette_or_raise()
+        try:
+            new = pal.with_overrides({role_id: hex})
+        except PaletteError as exc:
+            raise CatalogError(str(exc)) from exc
+        self.set_palette(new)
+        return new
+
+    def rename_role(self, role_id: str, nombre: str) -> Palette:
+        """Cambia el nombre visible del rol; el id (lo que guardan las piezas) no cambia."""
+        pal = self._palette_or_raise()
+        try:
+            pal.get(role_id)
+            roles = [Role(r.id, nombre if r.id == role_id else r.nombre, r.hex, list(r.anclas)) for r in pal.roles]
+            new = Palette(roles)
+        except PaletteError as exc:
+            raise CatalogError(str(exc)) from exc
+        self.set_palette(new)
+        return new
+
+    def delete_role(self, role_id: str) -> Palette:
+        """Quita un rol. Se niega si alguna pieza lo usa (el error lista cuáles): una pieza sin su rol quedaría sin color."""
+        pal = self._palette_or_raise()
+        try:
+            pal.get(role_id)
+        except PaletteError as exc:
+            raise CatalogError(str(exc)) from exc
+        used = self.palette_usage(role_id)
+        if used:
+            raise CatalogError(f"el rol «{role_id}» está en uso por {len(used)} pieza(s): {', '.join(used)}")
+        new = Palette([r for r in pal.roles if r.id != role_id])
+        self.set_palette(new)
+        return new
+
+    def import_palette(self, path: str) -> Palette:
+        """Reemplaza la paleta por la de un JSON `afm-paleta-1`. Si el archivo es inválido no cambia nada; si deja sin rol a alguna pieza, tampoco."""
+        try:
+            with open(path, encoding="utf-8") as f:
+                new = Palette.from_dict(json.load(f))
+        except (OSError, ValueError) as exc:
+            raise CatalogError(f"{path}: {exc}") from exc
+        lost = {rid: self.palette_usage(rid) for rid in {x for m in self._metas() for x in ((m.color or {}).get("roles") or [])} if rid not in new.ids()}
+        if lost:
+            raise CatalogError("la paleta importada no tiene roles en uso: " + "; ".join(f"«{r}» ({', '.join(refs)})" for r, refs in sorted(lost.items())))
+        self.set_palette(new)
+        return new
+
+    def export_palette(self, path: str) -> str:
+        """Escribe la paleta de la línea como JSON `afm-paleta-1` (para llevarla a otra línea con `import_palette`)."""
+        pal = self._palette_or_raise()
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(pal.to_dict(), f, indent=2, ensure_ascii=False)
+            f.write("\n")
+        return path
 
     # ------------------------------------------------------------------ piezas
     def _dir(self, tipo: str) -> str:
@@ -672,6 +785,12 @@ class Catalog:
         """Formato, hash, mallas cerradas, puertos, caras y altura de cada pieza; versiones salteadas."""
         problems, warnings = [], []
         by_id: dict[str, list[int]] = {}
+        palette, palette_error = None, None
+        try:
+            palette = self.palette()
+        except CatalogError as exc:        # T39: una paleta ilegible es un problema de la línea, no de una pieza
+            palette_error = str(exc)
+            problems.append(palette_error)
         for path in sorted(glob.glob(os.path.join(self.root, "piezas", "*", "*.pieza.json"))):
             try:
                 m = P.read_meta(path)
@@ -699,12 +818,19 @@ class Catalog:
                 continue
             if not mesh.is_watertight:
                 problems.append(f"{tag}: la malla no es estanca")
-            if m.color:                    # T35: el FBX de color existe y es el de la ficha
+            if m.color and m.color.get("modo", "rgb") == "rgb":     # T35: el FBX de color existe y es el de la ficha
                 fbx = os.path.join(os.path.dirname(path), m.color.get("fuente") or "")
                 if not m.color.get("fuente") or not os.path.isfile(fbx):
                     problems.append(f"{tag}: falta el FBX de color «{m.color.get('fuente', '')}»")
                 elif m.color.get("sha256") and P.sha256_file(fbx) != m.color["sha256"]:
                     problems.append(f"{tag}: el FBX de color no coincide con el hash guardado (¿se modificó?)")
+            used_roles = (m.color or {}).get("roles") or []         # T39: los roles de la ficha tienen que estar en la paleta de la línea
+            if used_roles and palette_error is None:
+                have = palette.ids() if palette else []
+                missing = [r for r in dict.fromkeys(used_roles) if r not in have]
+                if missing:
+                    problems.append(f"{tag}: usa roles que la paleta de la línea no tiene: {', '.join(missing)}"
+                                    + ("" if palette else f" (falta {PALETTE_FILE})"))
             ag = (m.mecanismo or {}).get("agarre")
             if ag is not None and m.tipo in ("mano", "accesorio"):
                 from .props import grip_problems

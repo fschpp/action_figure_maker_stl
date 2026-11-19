@@ -1772,5 +1772,27 @@
   "panel_fila": "%{pieza}: %{pct} % · %{estado}",
   "panel_titulo_dialogo": "FBX com textura",
   "panel_filtro_fbx": "Arquivos FBX"
+ },
+ "paleta_cli": {
+  "ayuda": "paleta de cores da linha (papéis): ver, agregar, cor, renomear, remover, importar, exportar",
+  "ayuda_ver": "mostrar os papéis, a cor e quantas peças os usam",
+  "ayuda_agregar": "adicionar um papel (cria paleta.json se a linha não tinha)",
+  "ayuda_rol": "identificador do papel (minúsculas, dígitos e «_»; p. ex. pele)",
+  "ayuda_nombre": "nome visível (por padrão, o id)",
+  "ayuda_ancla": "cor de referência para sugerir este papel na próxima figura (repetível, até 8)",
+  "ayuda_color": "mudar a cor de um papel: todas as peças que o usam mostram a nova, sem tocar em nenhuma peça",
+  "ayuda_renombrar": "mudar o nome visível de um papel (o id não muda)",
+  "ayuda_quitar": "remover um papel (recusado se alguma peça o usa)",
+  "ayuda_importar": "substituir a paleta pela de um JSON afm-paleta-1",
+  "ayuda_exportar": "gravar a paleta como JSON afm-paleta-1",
+  "sin_paleta": "A linha «%{line}» não tem paleta (criar um papel com `afm catalogo paleta agregar`)",
+  "titulo": "Paleta da linha «%{line}»: %{n} papel(éis)",
+  "fila": "  %{id}  %{hex}  «%{nombre}»  usado por %{n} peça(s)  âncoras: %{anclas}",
+  "agregado": "Papel «%{id}» adicionado (%{hex})",
+  "color": "Papel «%{id}»: %{antes} → %{despues} (usado por %{n} peça(s); nenhuma peça foi tocada)",
+  "renombrado": "O papel «%{id}» agora se chama «%{nombre}»",
+  "quitado": "Papel «%{id}» removido",
+  "importada": "Paleta importada de %{path}: %{n} papel(éis)",
+  "exportada": "Paleta exportada em %{path}"
  }
 }

@@ -9,13 +9,14 @@ from . import catalog_ops as OPS
 from . import parts as P
 from .catalog import Catalog, CatalogError, default_root
 from .certify import PLACE_OF_TIPO
+from .i18n import tr
 from .interface import ContractError
 from .ports import PortError, port_class, port_from_points
 from .recipe import RecipeError
 
 
 def add_parsers(sub) -> None:
-    c = sub.add_parser("catalogo", help="catálogo de piezas de una línea (crear, listar, verificar, importar-mano, agregar, agregar-stl, cortar-muneca, usos, eliminar, estado, compat, certificar, matriz, cobertura, contrato, capacidad)")
+    c = sub.add_parser("catalogo", help="catálogo de piezas de una línea (crear, listar, verificar, importar-mano, agregar, agregar-stl, cortar-muneca, usos, eliminar, estado, compat, certificar, matriz, cobertura, contrato, capacidad, paleta)")
     cs = c.add_subparsers(dest="catcmd", required=True)
 
     def root(p):
@@ -155,6 +156,33 @@ def add_parsers(sub) -> None:
     root(a)
     a.add_argument("refs", nargs="*", metavar="ID", help="piezas (id o id@n); por defecto las tomas de todo el catálogo")
     a.add_argument("--escribir", action="store_true", help="guardar lo medido en el .pieza.json (no toca el STL, el hash ni la versión); sin esto solo se muestra")
+    a = cs.add_parser("paleta", help=tr("paleta_cli.ayuda"))
+    ps = a.add_subparsers(dest="palcmd", required=True)
+    b = ps.add_parser("ver", help=tr("paleta_cli.ayuda_ver"))
+    root(b)
+    b = ps.add_parser("agregar", help=tr("paleta_cli.ayuda_agregar"))
+    root(b)
+    b.add_argument("rol", metavar="ROL", help=tr("paleta_cli.ayuda_rol"))
+    b.add_argument("hex", metavar="#RRGGBB")
+    b.add_argument("--nombre", default=None, help=tr("paleta_cli.ayuda_nombre"))
+    b.add_argument("--ancla", action="append", default=[], metavar="#RRGGBB", help=tr("paleta_cli.ayuda_ancla"))
+    b = ps.add_parser("color", help=tr("paleta_cli.ayuda_color"))
+    root(b)
+    b.add_argument("rol", metavar="ROL")
+    b.add_argument("hex", metavar="#RRGGBB")
+    b = ps.add_parser("renombrar", help=tr("paleta_cli.ayuda_renombrar"))
+    root(b)
+    b.add_argument("rol", metavar="ROL")
+    b.add_argument("nombre")
+    b = ps.add_parser("quitar", help=tr("paleta_cli.ayuda_quitar"))
+    root(b)
+    b.add_argument("rol", metavar="ROL")
+    b = ps.add_parser("importar", help=tr("paleta_cli.ayuda_importar"))
+    root(b)
+    b.add_argument("archivo", metavar="ARCHIVO.json")
+    b = ps.add_parser("exportar", help=tr("paleta_cli.ayuda_exportar"))
+    root(b)
+    b.add_argument("archivo", metavar="ARCHIVO.json")
     a = cs.add_parser("estado", help="cambiar el estado de una pieza (borrador, validada, impresa)")
     root(a)
     a.add_argument("ref", metavar="ID")
@@ -247,6 +275,46 @@ def _explicar(cat, ref: str, tipo: str | None = None) -> int:
     return 0
 
 
+def _run_palette(cat: Catalog, args) -> int:
+    """`afm catalogo paleta ver|agregar|color|renombrar|quitar|importar|exportar` (T39). Solo toca `paleta.json`; ninguna pieza se reescribe."""
+    cmd = args.palcmd
+    if cmd == "ver":
+        pal = cat.palette()
+        if pal is None or not pal.roles:
+            print(tr("paleta_cli.sin_paleta", line=cat.name))
+            return 0
+        print(tr("paleta_cli.titulo", line=cat.name, n=len(pal.roles)))
+        for r in pal.roles:
+            anchors = ", ".join(r.anclas) if r.anclas else "-"
+            print(tr("paleta_cli.fila", id=r.id, hex=r.hex, nombre=r.nombre, n=len(cat.palette_usage(r.id)), anclas=anchors))
+        return 0
+    if cmd == "agregar":
+        cat.add_role(args.rol, args.hex, args.nombre, args.ancla)
+        print(tr("paleta_cli.agregado", id=args.rol, hex=cat.palette().hex_of(args.rol)))
+        return 0
+    if cmd == "color":
+        before = cat._palette_or_raise().hex_of(args.rol) if args.rol in cat._palette_or_raise().ids() else None
+        pal = cat.set_role_color(args.rol, args.hex)
+        print(tr("paleta_cli.color", id=args.rol, antes=before, despues=pal.hex_of(args.rol), n=len(cat.palette_usage(args.rol))))
+        return 0
+    if cmd == "renombrar":
+        cat.rename_role(args.rol, args.nombre)
+        print(tr("paleta_cli.renombrado", id=args.rol, nombre=args.nombre))
+        return 0
+    if cmd == "quitar":
+        cat.delete_role(args.rol)
+        print(tr("paleta_cli.quitado", id=args.rol))
+        return 0
+    if cmd == "importar":
+        pal = cat.import_palette(args.archivo)
+        print(tr("paleta_cli.importada", path=args.archivo, n=len(pal.roles)))
+        return 0
+    if cmd == "exportar":
+        print(tr("paleta_cli.exportada", path=cat.export_palette(args.archivo)))
+        return 0
+    return 2
+
+
 def run_catalogo(args) -> int:
     try:
         return _run(args)
@@ -265,6 +333,8 @@ def _run(args) -> int:
         print(f"Catálogo «{cat.name}» creado en {cat.root} (altura {cat.height_mm:g} mm, holgura {cat.params.clearance:g} mm)")
         return 0
     cat = _open(args)
+    if cmd == "paleta":
+        return _run_palette(cat, args)
     if cmd == "explicar":
         return _explicar(cat, args.ref, args.con)
     if cmd == "listar":

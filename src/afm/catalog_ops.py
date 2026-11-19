@@ -37,6 +37,7 @@ COMMANDS: dict[str, tuple[str, bool, bool]] = {
     "contrato": (GUI, False, True),            # ver, calibrar (tolerancia 0,4 mm; otra tolerancia, en consola), guardar la propuesta y borrar
     "capacidad": (GUI, True, True),            # «Capacidad» de la pieza y «Medir y guardar capacidad…» del menú (sin rayo de selección de tolerancia)
     "estado": (GUI, False, True),             # «Estado: … Aplicar a las elegidas» (en lote)
+    "paleta": (CONSOLE, False, True),          # T39: paleta.json de la línea; la pestaña «Paleta» de la ventana es T46 (PLAN_paleta_color_linea.md)
 }
 
 

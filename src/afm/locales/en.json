@@ -1772,5 +1772,27 @@
   "panel_fila": "%{pieza}: %{pct} % · %{estado}",
   "panel_titulo_dialogo": "FBX with texture",
   "panel_filtro_fbx": "FBX files"
+ },
+ "paleta_cli": {
+  "ayuda": "line colour palette (roles): view, add, colour, rename, remove, import, export",
+  "ayuda_ver": "show the roles, their colour and how many pieces use them",
+  "ayuda_agregar": "add a role (creates paleta.json if the line had none)",
+  "ayuda_rol": "role identifier (lowercase letters, digits and «_»; e.g. skin)",
+  "ayuda_nombre": "display name (defaults to the id)",
+  "ayuda_ancla": "reference colour used to suggest this role on the next figure (repeatable, up to 8)",
+  "ayuda_color": "change a role's colour: every piece that uses it shows the new one, no piece is touched",
+  "ayuda_renombrar": "change a role's display name (the id does not change)",
+  "ayuda_quitar": "remove a role (refused if any piece uses it)",
+  "ayuda_importar": "replace the palette with the one in an afm-paleta-1 JSON",
+  "ayuda_exportar": "write the palette as an afm-paleta-1 JSON",
+  "sin_paleta": "Line «%{line}» has no palette (create a role with `afm catalogo paleta agregar`)",
+  "titulo": "Palette of line «%{line}»: %{n} role(s)",
+  "fila": "  %{id}  %{hex}  «%{nombre}»  used by %{n} piece(s)  anchors: %{anclas}",
+  "agregado": "Role «%{id}» added (%{hex})",
+  "color": "Role «%{id}»: %{antes} → %{despues} (used by %{n} piece(s); no piece was touched)",
+  "renombrado": "Role «%{id}» is now called «%{nombre}»",
+  "quitado": "Role «%{id}» removed",
+  "importada": "Palette imported from %{path}: %{n} role(s)",
+  "exportada": "Palette exported to %{path}"
  }
 }

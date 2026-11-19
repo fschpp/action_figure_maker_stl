@@ -1772,5 +1772,27 @@
   "panel_fila": "%{pieza}: %{pct} % · %{estado}",
   "panel_titulo_dialogo": "FBX con textura",
   "panel_filtro_fbx": "Archivos FBX"
+ },
+ "paleta_cli": {
+  "ayuda": "paleta de color de la línea (roles): ver, agregar, color, renombrar, quitar, importar, exportar",
+  "ayuda_ver": "mostrar los roles, su color y cuántas piezas los usan",
+  "ayuda_agregar": "agregar un rol (crea paleta.json si la línea no tenía)",
+  "ayuda_rol": "identificador del rol (minúsculas, dígitos y «_»; p. ej. piel)",
+  "ayuda_nombre": "nombre visible (por defecto, el id)",
+  "ayuda_ancla": "color de referencia para sugerir este rol en la próxima figura (repetible, hasta 8)",
+  "ayuda_color": "cambiar el color de un rol: lo ven todas las piezas que lo usan, sin tocar ninguna pieza",
+  "ayuda_renombrar": "cambiar el nombre visible de un rol (el id no cambia)",
+  "ayuda_quitar": "quitar un rol (se niega si alguna pieza lo usa)",
+  "ayuda_importar": "reemplazar la paleta por la de un JSON afm-paleta-1",
+  "ayuda_exportar": "escribir la paleta como JSON afm-paleta-1",
+  "sin_paleta": "La línea «%{line}» no tiene paleta (crear un rol con `afm catalogo paleta agregar`)",
+  "titulo": "Paleta de la línea «%{line}»: %{n} rol(es)",
+  "fila": "  %{id}  %{hex}  «%{nombre}»  usado por %{n} pieza(s)  anclas: %{anclas}",
+  "agregado": "Rol «%{id}» agregado (%{hex})",
+  "color": "Rol «%{id}»: %{antes} → %{despues} (lo usan %{n} pieza(s); no se tocó ninguna pieza)",
+  "renombrado": "El rol «%{id}» ahora se llama «%{nombre}»",
+  "quitado": "Rol «%{id}» quitado",
+  "importada": "Paleta importada de %{path}: %{n} rol(es)",
+  "exportada": "Paleta exportada en %{path}"
  }
 }

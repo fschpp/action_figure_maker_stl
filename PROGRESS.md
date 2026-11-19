@@ -2,6 +2,24 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — Paleta de línea: T39 (2026-11-19, sobre main ea50f65 = T38)
+**Objetivo:** que una línea tenga su `paleta.json` y se pueda ver y editar desde la terminal (`PLAN_paleta_color_linea.md` T39). Sin paquetes de roles (T41/T42) ni GUI.
+**Hecho:** `Catalog.palette()` (None si no hay `paleta.json`; `CatalogError` si es ilegible), `set_palette()` (archivo temporal + `os.replace`; no toca `linea.json`, fichas ni STL), `palette_usage(rol)`, `add_role`, `set_role_color`, `rename_role`, `delete_role` (se niega si hay uso y lista las piezas), `import_palette` / `export_palette`. `verify()` suma dos problemas: `paleta.json` ilegible, y pieza con `color.roles` que la paleta no tiene (o sin `paleta.json`). CLI `afm catalogo paleta ver|agregar|color|renombrar|quitar|importar|exportar RUTA …` con textos en `locales/{es,en,pt}.json` (sección `paleta_cli`). `tests/test_catalog_palette.py` (8 pruebas, 1 s). `docs/PLAN_paleta_color_linea.md` se agregó al repo (no estaba).
+**Decisiones (mías, fáciles de cambiar):** (1) `renombrar` cambia el nombre visible; el **id** no se cambia nunca (es lo que guardan las piezas). (2) `importar` **reemplaza** la paleta, pero se niega si dejaría sin rol a una pieza que lo usa (el plan no pide «mezclar»; si hiciera falta, se agrega después). (3) En `verify()`, una ficha con `color.modo == "roles"` ya no se revisa como FBX (el chequeo del `.npz` es de T42); sin `modo` se comporta como T35. (4) El subcomando figura como «solo consola» en `catalog_ops.COMMANDS` (la prueba que obliga a decidirlo lo exigió); la pestaña de la ventana es T46. (5) `add_role` crea la paleta si la línea no tenía; el resto de las operaciones sin paleta dan error claro.
+**Medido:** regresión R7 + `test_catalog_ops/_project/_import` + `test_catalog_palette`: 170 pasan, 1 se salta, 1 xfail previo, 2 fallos (193 s). Un fallo era mío (`test_every_catalog_subcommand_is_registered_for_the_window`) y se arregló; luego `test_catalog_ops`, `test_catalog_palette`, `test_i18n`, `test_gui_catalog`: 58 pasan. Comprobé con una mutación (borrado sin chequear uso; `verify` sin chequear roles) que 2 de las pruebas nuevas fallan. `catalogo/ejemplo` abre y verifica igual que antes (sin paleta).
+**No verificado:** fichas con `color.roles` reales (se escriben a mano en las pruebas: T42 todavía no las genera); la salida de la CLI en una terminal real y la lectura de `afm catalogo paleta` desde la ventana.
+**Falla previa (no es de T39):** `tests/test_catalog_import.py::test_parse_builds_the_arguments_of_catalog_ops` falla con `KeyError: 'bore_d'` también sobre `ea50f65` sin mis cambios; no la toqué.
+
+### Todo List
+- [x] T38 · [x] T39
+- [ ] T40 → T41 → T42 → T43 · T44 → T45 (opcional) · T46 · T47 · T48 → T49 → T50 → T51
+
+### Latest Blockers/Discoveries
+- Ninguno bloqueante para T40 (◄ T38). T41 y T42 siguen necesitando T40.
+- Las entradas de T34–T36 siguen sin bitácora (T51).
+
+---
+
 ## Current Focus — Paleta de línea: T38 (2026-11-19, sobre main 66bde84 = b33e425 + T37)
 **Objetivo:** modelo de paleta puro (`Role`, `Palette`, validación, LUT, overrides, hash, rol más cercano por ancla) de `PLAN_paleta_color_linea.md`.
 **Hecho:** `src/afm/palette.py` y `tests/test_palette.py` (26 pruebas, 0,6 s). Sin disco, catálogo ni GUI. `PaletteError` es un `ValueError`; `skimage.color` se importa solo dentro de `nearest`. Los errores son mensajes internos en español (como el resto de los módulos del motor): los textos visibles con `tr()` llegan con la CLI (T39) y la GUI (T46).
