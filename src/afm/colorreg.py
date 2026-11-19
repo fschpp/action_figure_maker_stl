@@ -25,6 +25,8 @@ MIRROR_X = np.diag([-1.0, 1.0, 1.0])
 SWEEP_STEP = 15.0        # barrido grueso (°)
 REFINE_HALF = 7.5        # refinado alrededor del mejor ángulo grueso (±°), en pasos de 1°
 SWEEP_CAP_MM = 4.0       # el barrido puntúa con la distancia media recortada a este valor (ver `register_piece`)
+TIE_MARGIN = 0.02        # una semilla posterior reemplaza a la mejor solo si la supera por más de esto (fracción de puntos):
+#                          en piezas de revolución (la cabeza sobre el cuello) todos los giros puntúan igual ± ruido (T17)
 IDENTITY_SEED = ([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 0.0)
 
 
@@ -153,7 +155,7 @@ def register_piece(piece_name: str, mesh, src, res, params, n_points: int = 1500
     """Lleva la pieza impresa `mesh` a la pose de reposo de la fuente `src` (`ColorSource`).
 
     (1) puntúa las semillas con la fracción de `n_points` puntos de la pieza a ≤ `thresh_mm` de la fuente y toma la mejor
-    (gana la primera en un empate: la exacta); (2) si ninguna llega a `min_score`: barrido de 0–360° cada 15° alrededor del eje
+    (gana la primera en un empate, o si la supera por ≤ `TIE_MARGIN`: la exacta); (2) si ninguna llega a `min_score`: barrido de 0–360° cada 15° alrededor del eje
     del miembro (el de `motion`, reflejado en `_der`) y refinado ±7,5° en pasos de 1°, eligiendo por distancia media recortada;
     el resultado se acepta si la fracción ≤ `thresh_mm` llega a `min_score`; (3) si no: `sin_origen`, matriz identidad.
     """
@@ -163,7 +165,7 @@ def register_piece(piece_name: str, mesh, src, res, params, n_points: int = 1500
     for i, sd in enumerate(seeds):
         inv = np.linalg.inv(seed_forward(sd))
         s = _score(inv, pts, src, thresh_mm)
-        if s > best_s + 1e-9:
+        if s > best_s + (TIE_MARGIN if best_i >= 0 else 1e-9):
             best_i, best_s, best_inv = i, s, inv
     if best_s >= min_score:
         sd = seeds[best_i]

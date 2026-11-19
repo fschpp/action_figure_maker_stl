@@ -2,6 +2,21 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — Color FBX: T17 (2026-11-19, sobre main 668b401)
+**Objetivo:** que la cabeza (giro libre sobre el cuello) y las dos mitades del torso con cintura (`torso` = pecho, `pelvis`) salgan con su color.
+**Hecho:** `tests/test_color_head_waist.py` (5 pruebas, ≈ 26 s) y un cambio en `colorreg.register_piece`: nuevo `TIE_MARGIN = 0.02`; una semilla posterior reemplaza a la mejor solo si la supera por más de 0,02 (antes 1e-9).
+**Por qué el cambio en `colorreg.py`:** la cabeza es una pieza de revolución sobre el eje del cuello, así que todas las semillas puntúan casi igual (0°: 0,894 · +90°: 0,895 · −90°: 0,893) y con el margen de 1e-9 ganaba −90° por ruido, aunque la pose impresa de la cabeza es 0°. Con el muñeco da igual (color liso por región), pero una cabeza con cara real habría salido girada. Con el margen gana la exacta (`identidad`, ángulo 0). Las 14 pruebas de `tests/test_colorreg.py` siguen pasando sin tocarlas.
+**Medido (muñeco, texel 0,3 mm, fuente a 0,1 mm):** cabeza `identidad`, puntaje 0,894, 88,6 % con origen, 81 % amarillo (el resto es la franja z < 78 mm del cuello, que en la fuente es «resto»). Pecho (`torso`): `identidad`, 56,2 % con origen, 80 % blanco. Pelvis: `identidad`, puntaje 0,427, 21,5 % con origen; 23 % blanco, 38 % rojo + 38 % azul y solo ≈ 0,3 % naranja (≈ 5 000 texeles).
+**Hallazgo sobre el fixture (no es un fallo del registro):** el muñeco mide ±23 mm en x a la altura de la pelvis y `region_of` (tests/color_helpers.py) pinta como brazo todo lo que tiene |x| > 15, así que los flancos de la pelvis salen rojo y azul. El naranja del muñeco es solo la cara de abajo del bloque de la pelvis (381 mm² de ≈ 9 900 mm²) y las piernas se llevan casi todo. Por eso `test_waist_pelvis_has_orange_and_white` cuenta texeles naranja (≥ 1 000) en vez de pedir un porcentaje. No se tocó `region_of` ni `doll_textured` (T06).
+**No verificado:** cabeza y cintura con una figura real (Güemes no tiene cintura ni cabeza articulada en `examples/guemes.py`); la pelvis con twist de cintura impreso (el motor no la gira al exportar: no hay `motion` de cintura).
+
+### Todo List
+- [x] T09 · [x] T10–T16 (T20 no se hace) · [x] T17
+- [ ] T18–T19 · [ ] T21–T30
+
+### Latest Blockers/Discoveries
+- Ninguno bloqueante. Camino abierto: T18, T19 (en paralelo) y T21 (modo A), T23 (libre).
+
 ## Current Focus — Color FBX: T16 (2026-11-18, sobre main 53ad1ef + parches T15 y T09)
 **Objetivo:** Güemes con color de punta a punta (texel 0,2 mm): medir tiempo, solapes, STL intactos, color en puntos conocidos y tamaño de atlas; y decidir T20.
 **Hecho:** `tests/test_color_guemes_e2e.py` (5 pruebas, `AFM_SLOW=1`, ≈ 36 s: dos corridas de Güemes, sin y con color) y `tools/render_color_compare.py` (rasterizador por software, sin GL: 3 vistas —frente, lado, espalda— de la fuente arriba y del GLB ensamblado abajo, en un PNG) con `tests/test_tool_render_color_compare.py` (3 pruebas, no lentas). `cli.run` ahora deja el `Colorizer` en `keep["colorizer"]` (None sin color) para que las pruebas lean los atlas.
