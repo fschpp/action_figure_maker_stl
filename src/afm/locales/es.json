@@ -1747,6 +1747,8 @@
   "ayuda_tolerancia": "distancia máxima (mm) para considerar que un punto de la pieza viene de la figura original (por defecto 0,15)",
   "aviso_sin_textura": "AVISO: el FBX «%{ruta}» no trae textura de color base: se exporta sin color.",
   "aviso_otra_figura": "AVISO: el FBX «%{ruta}» no es la misma figura que el STL (distancia media %{media} mm, se admite hasta %{max} mm): se exporta sin color.",
+  "aviso_cabeza_sin_fbx": "No se encuentra el FBX de color de la cabeza «%{ruta}»: la cabeza sale con el color de la figura.",
+  "aviso_cabeza_hash": "El FBX de la cabeza «%{ruta}» no es el mismo archivo con el que se configuró (el hash no coincide): la cabeza sale con el color de la figura.",
   "aviso_remallada": "AVISO: la reparación remalló la figura; la tolerancia de color sube a %{eps} mm.",
   "cargando_fuente": "Preparando la fuente de color…",
   "resumen": "Color: %{n} piezas en %{carpeta}/ (%{s} s)",

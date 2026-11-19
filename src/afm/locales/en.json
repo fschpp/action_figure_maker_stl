@@ -1747,6 +1747,8 @@
   "ayuda_tolerancia": "maximum distance (mm) for a point of the part to count as coming from the original figure (default 0.15)",
   "aviso_sin_textura": "WARNING: the FBX «%{ruta}» has no base colour texture: exporting without colour.",
   "aviso_otra_figura": "WARNING: the FBX «%{ruta}» is not the same figure as the STL (mean distance %{media} mm, up to %{max} mm allowed): exporting without colour.",
+  "aviso_cabeza_sin_fbx": "The head's color FBX «%{ruta}» was not found: the head uses the figure's color.",
+  "aviso_cabeza_hash": "The head's FBX «%{ruta}» is not the file it was set up with (hash mismatch): the head uses the figure's color.",
   "aviso_remallada": "WARNING: the repair remeshed the figure; the colour tolerance is raised to %{eps} mm.",
   "cargando_fuente": "Preparing the colour source…",
   "resumen": "Colour: %{n} parts in %{carpeta}/ (%{s} s)",

@@ -186,8 +186,23 @@ class Session:
         """(Colorizer | None, info) para exportar con color según `project.color` (lo mismo que hace `cli.run`): modo A con el marco del
         FBX abierto; modo B alineando el FBX contra la figura tal como se cargó. (None, None) sin `project.color`."""
         spec = self.project.color
-        if spec is None:
-            return None, None
+        from ..cli import head_color_sources, make_colorizer
+        from ..frame import FigureFrame
+
+        base_dir = os.path.dirname(os.path.abspath(self.project_path)) if self.project_path else None
+        head_src, head_info = head_color_sources(self.project.head, base_dir, progress or (lambda *_: None))
+        if spec is None:                 # T34: sin FBX de la figura, pero la cabeza importada puede traer el suyo
+            if not head_src:
+                return None, None
+            from ..colorexport import Colorizer
+            return Colorizer(None, self.project.params, sources=head_src), {"cabeza": head_info}
+        cz, info = self._make_figure_colorizer(spec, progress)
+        if cz is not None and head_src:
+            cz.sources.update(head_src)
+            info = {**(info or {}), "cabeza": head_info}
+        return cz, info
+
+    def _make_figure_colorizer(self, spec, progress=None):
         from ..cli import make_colorizer
         from ..frame import FigureFrame
 

@@ -15,13 +15,37 @@ from .project import Project, demo_project
 from .testfigure import make_doll
 
 
-def make_colorizer(color: dict, mesh, params, progress=print, post=None, frame=None):
+def head_color_sources(head, base_dir: str | None = None, progress=print) -> tuple[dict, dict]:
+    """(`sources`, info) con el proveedor de color de la cabeza importada (T34): `HeadSpec.replacement_color_path` (su FBX) contra
+    `replacement_path` (su STL). `({}, {})` si la cabeza no trae color propio. Un FBX perdido, de otro hash o sin textura de color se
+    avisa y la cabeza sale con el color de la figura (no se corta la exportación)."""
+    if head is None or not head.replacement_path or not head.replacement_color_path:
+        return {}, {}
+    from .colorpiece import head_color_provider
+    from .project import sha256_of
+
+    path = head.replacement_color_path
+    if not os.path.isabs(path) and base_dir and not os.path.isfile(path):
+        path = os.path.join(base_dir, path)
+    info: dict = {"fbx": os.path.abspath(path)}
+    if not os.path.isfile(path):
+        progress(tr("color.aviso_cabeza_sin_fbx", ruta=head.replacement_color_path))
+        info["omitido"] = "no_existe"
+        return {}, info
+    if head.replacement_color_sha256 and sha256_of(path) != head.replacement_color_sha256:
+        progress(tr("color.aviso_cabeza_hash", ruta=path))
+        info["omitido"] = "hash"
+        return {}, info
+    return {"cabeza": head_color_provider(path, head.replacement_path, out=info)}, info
+
+
+def make_colorizer(color: dict, mesh, params, progress=print, post=None, frame=None, sources: dict | None = None):
     """(Colorizer | None, info) para `run`: carga el FBX de `color["fbx"]`, lo alinea con `mesh` (la figura en el marco del motor, modo B)
     y arma la fuente de color. `mesh` es la figura TAL COMO SE CARGÓ (antes del giro de `front="-Y"` y de la simetría) y `post` la 4×4 de
     esos dos pasos (`FigureFrame.engine_post`): el FBX del cliente mira a −Y como el STL, así que se alinea antes de girar.
     Modo A (T21): `frame` (`FigureFrame.from_load`, archivo → marco del motor) reemplaza a la alineación por similitud: el FBX ES la entrada.
     Si el FBX no es la misma figura o no trae textura de color, avisa y devuelve `None` (la figura sale sin color).
-    `color`: `fbx`, `texel_mm`, `eps`, `fill`, `symmetric`. El `info` es serializable (R13)."""
+    `color`: `fbx`, `texel_mm`, `eps`, `fill`, `symmetric`. `sources` (T34): fuentes propias por pieza (ver `Colorizer`). El `info` es serializable (R13)."""
     from .colorexport import Colorizer
     from .colorsrc import ColorSource
     from .fbxio import load_textured
@@ -51,7 +75,7 @@ def make_colorizer(color: dict, mesh, params, progress=print, post=None, frame=N
     progress(tr("color.cargando_fuente"))
     src = ColorSource(tm, frame)
     cz = Colorizer(src, params, texel_mm=color.get("texel_mm", 0.2), eps=color.get("eps", 0.15),
-                   fill=color.get("fill", "extend"), symmetric=bool(color.get("symmetric", False)))
+                   fill=color.get("fill", "extend"), symmetric=bool(color.get("symmetric", False)), sources=sources)
     return cz, info
 
 
@@ -89,6 +113,19 @@ def run(stl_path: str, project: Project, outdir: str, name: str, progress=print,
         else:
             colorize, color_info = make_colorizer(color, mesh_loaded, project.params, progress,
                                                   post=FigureFrame.engine_post(project.front, project.symmetry))
+    head_src, head_info = head_color_sources(project.head, os.path.dirname(os.path.abspath(project.path)) if getattr(project, "path", None) else None,
+                                             progress)
+    if head_src:                      # T34: la cabeza importada trae su FBX; con o sin FBX de la figura, la pieza `cabeza` sale con el suyo
+        if colorize is None:
+            from .colorexport import Colorizer
+            c = color or {}
+            colorize = Colorizer(None, project.params, texel_mm=c.get("texel_mm", 0.2), eps=c.get("eps", 0.15),
+                                 fill=c.get("fill", "extend"), symmetric=bool(c.get("symmetric", False)), sources=head_src)
+            color_info = {}
+        else:
+            colorize.sources.update(head_src)
+    if head_info and color_info is not None:
+        color_info["cabeza"] = head_info
     body = S.to_manifold(mesh)
     from .customize import needed, build_model
     if needed(project):

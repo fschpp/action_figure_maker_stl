@@ -1747,6 +1747,8 @@
   "ayuda_tolerancia": "distância máxima (mm) para considerar que um ponto da peça vem da figura original (padrão 0,15)",
   "aviso_sin_textura": "AVISO: o FBX «%{ruta}» não traz textura de cor base: será exportado sem cor.",
   "aviso_otra_figura": "AVISO: o FBX «%{ruta}» não é a mesma figura do STL (distância média %{media} mm, admite-se até %{max} mm): será exportado sem cor.",
+  "aviso_cabeza_sin_fbx": "O FBX de cor da cabeça «%{ruta}» não foi encontrado: a cabeça usa a cor da figura.",
+  "aviso_cabeza_hash": "O FBX da cabeça «%{ruta}» não é o mesmo arquivo configurado (hash diferente): a cabeça usa a cor da figura.",
   "aviso_remallada": "AVISO: o reparo remalhou a figura; a tolerância de cor sobe para %{eps} mm.",
   "cargando_fuente": "Preparando a fonte de cor…",
   "resumen": "Cor: %{n} peças em %{carpeta}/ (%{s} s)",

@@ -37,16 +37,33 @@ class Colorizer:
         self.sources: dict = dict(sources or {})           # clave de pieza (sin _izq/_der) -> ColorSource propia (T31)
         self.texel_mm, self.eps, self.fill, self.symmetric, self.workers = float(texel_mm), float(eps), fill, bool(symmetric), int(workers)
         self.pieces: dict = {}                             # nombre -> (Unwrapped, BakeResult, Registration, info)
+        self.source_errors: dict = {}                      # clave de pieza -> por qué no se pudo usar su fuente propia (T34)
 
     # ------------------------------------------------------------------ fuente de cada pieza
-    def source_for(self, name: str):
-        """`(fuente, origen)` de la pieza `name`: la propia (`sources[clave]`, con la clave sin sufijo `_izq/_der`) o la de la figura.
+    def source_for(self, name: str, res=None):
+        """`(fuente, origen)` de la pieza `name`: la propia (`sources[clave]`, clave sin sufijo `_izq/_der`) o la de la figura.
 
-        `origen` es `"pieza"` o `"figura"`."""
+        `origen` es `"pieza"`, `"figura"` o `"plano"` (no hay ninguna fuente). Un valor de `sources` puede ser un PROVEEDOR, un
+        `callable(res)` que arma la `ColorSource` cuando la figura ya se construyó (la cabeza importada necesita la transformación
+        que calcula `fit_replacement`, T34). Se resuelve la primera vez y queda guardado; si falla (el FBX no coincide con el STL)
+        la pieza sigue con la fuente de la figura y el motivo queda en `source_errors[clave]`."""
         from .colorreg import _split_name
 
-        own = self.sources.get(_split_name(name)[0])
-        return (own, "pieza") if own is not None else (self.src, "figura")
+        key = _split_name(name)[0]
+        own = self.sources.get(key)
+        if own is not None and not hasattr(own, "query"):
+            try:
+                own = own(res)
+            except (ValueError, OSError) as exc:
+                self.source_errors[key] = str(exc)
+                own = None
+            if own is None:
+                self.sources.pop(key, None)
+            else:
+                self.sources[key] = own
+        if own is not None:
+            return own, "pieza"
+        return (self.src, "figura") if self.src is not None else (None, "plano")
 
     # ------------------------------------------------------------------ una pieza
     def __call__(self, name: str, mesh, res) -> dict:
@@ -59,14 +76,23 @@ class Colorizer:
         from .unwrap import unwrap_triangles
 
         t0 = time.perf_counter()
-        src, origen = self.source_for(name)
-        reg = register_piece(name, mesh, src, res, self.params)
+        src, origen = self.source_for(name, res)
+        if src is None:                                   # figura sin color y pieza sin fuente propia: todo plano (T34)
+            from .colorreg import Registration
+
+            reg = Registration("sin_origen", np.eye(4), 0.0, 0.0, None)
+        else:
+            reg = register_piece(name, mesh, src, res, self.params)
         unw = unwrap_triangles(mesh, texel_mm=self.texel_mm)
         bk = bake_piece(mesh, unw, src, reg, eps=self.eps, fill=self.fill, symmetric=self.symmetric, workers=self.workers)
         info = {"estado": reg.status, "fuente": "plano" if reg.status == "sin_origen" else origen, "pct_origen": round(float(bk.stats["pct_origen"]), 2), "angulo": round(float(reg.angle_deg), 3),
                 "puntaje_registro": round(float(reg.score), 3), "texel_mm": round(float(unw.texel_mm), 4),
                 "atlas": [int(unw.size[0]), int(unw.size[1])], "triangulos": int(len(unw.faces)),
                 "area_mm2": round(float(bk.stats["area_mm2"]), 2), "segundos": round(float(time.perf_counter() - t0), 2)}
+        from .colorreg import _split_name
+
+        if _split_name(name)[0] in self.source_errors:
+            info["aviso_fuente"] = self.source_errors[_split_name(name)[0]]
         self.pieces[name] = (unw, bk, reg, info)
         return dict(info)
 
@@ -141,8 +167,10 @@ class Colorizer:
         out = {"carpeta": COLOR_DIR, "glb": glb, "obj_ensamblado": f"{COLOR_DIR}/{obj_all}", "informe": f"{fig_name}_color_informe.json", "piezas": piezas,
                "accesorios_sin_color": int(accesorios_sin_color)}      # los accesorios de `export` no llevan color
         out["config"] = {"texel_mm": self.texel_mm, "eps": self.eps, "fill": self.fill, "simetrico": self.symmetric,
-                         "spacing_fuente_mm": round(float(self.src.spacing_mm), 4)}
+                         "spacing_fuente_mm": None if self.src is None else round(float(self.src.spacing_mm), 4)}
         out["config"]["fuentes_propias"] = sorted(self.sources)
+        if self.source_errors:
+            out["config"]["errores_fuentes"] = dict(self.source_errors)
         out["sin_origen"] = sorted(n for n, (_u, _b, r, _i) in self.pieces.items() if r.status == "sin_origen")
         out["segundos"] = round(float(sum(i["segundos"] for *_x, i in self.pieces.values())), 2)
         with open(os.path.join(outdir, out["informe"]), "w", encoding="utf-8") as fh:

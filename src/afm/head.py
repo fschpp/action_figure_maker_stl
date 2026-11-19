@@ -66,17 +66,23 @@ class HeadSpec:
     replacement_ry: float = 0.0           # idem sobre Y
     replacement_scale: float = 1.0        # factor manual sobre la escala automática (1 = base igual a la del cuello)
     replacement_cut_points: tuple | None = None   # 3 puntos (x, y, z) del plano que corta la base, en coordenadas del STL
+    replacement_color_path: str | None = None     # FBX con la textura de ESTA cabeza (T34); None = sin color propio
+    replacement_color_sha256: str | None = None   # hash del FBX (¿el archivo de esa ruta es el mismo?)
                                                   # importado (sin girar ni escalar); None = base plana propia o corte automático
 
     def to_dict(self) -> dict:
-        return {"name": self.name, "plane": self.plane.to_dict(),
-                "pin_center": None if self.pin_center is None else list(self.pin_center),
-                "auto": self.auto, "replacement_path": self.replacement_path,
-                "replacement_yaw": self.replacement_yaw, "replacement_up": self.replacement_up,
-                "replacement_rx": self.replacement_rx, "replacement_ry": self.replacement_ry,
-                "replacement_scale": self.replacement_scale,
-                "replacement_cut_points": None if self.replacement_cut_points is None
-                else [list(map(float, q)) for q in self.replacement_cut_points]}
+        d = {"name": self.name, "plane": self.plane.to_dict(),
+             "pin_center": None if self.pin_center is None else list(self.pin_center),
+             "auto": self.auto, "replacement_path": self.replacement_path,
+             "replacement_yaw": self.replacement_yaw, "replacement_up": self.replacement_up,
+             "replacement_rx": self.replacement_rx, "replacement_ry": self.replacement_ry,
+             "replacement_scale": self.replacement_scale,
+             "replacement_cut_points": None if self.replacement_cut_points is None
+             else [list(map(float, q)) for q in self.replacement_cut_points]}
+        if self.replacement_color_path:            # solo si existe: sin color propio el JSON queda igual que siempre
+            d["replacement_color_path"] = self.replacement_color_path
+            d["replacement_color_sha256"] = self.replacement_color_sha256 or ""
+        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> "HeadSpec":
@@ -89,7 +95,9 @@ class HeadSpec:
                    replacement_ry=float(d.get("replacement_ry", 0.0)),
                    replacement_scale=float(d.get("replacement_scale", 1.0)),
                    replacement_cut_points=None if d.get("replacement_cut_points") is None
-                   else tuple(tuple(map(float, q)) for q in d["replacement_cut_points"]))
+                   else tuple(tuple(map(float, q)) for q in d["replacement_cut_points"]),
+                   replacement_color_path=d.get("replacement_color_path") or None,
+                   replacement_color_sha256=d.get("replacement_color_sha256") or None)
 
 
 @dataclass

@@ -91,3 +91,27 @@ def piece_color_source(tm: TexturedMesh, piece_stl, to_host=None, *, similarity=
     report = {"alineacion": align, "escala": float(np.cbrt(abs(np.linalg.det(S[:3, :3])))),
               "espejo": bool(np.linalg.det(S[:3, :3]) < 0), "spacing_mm": round(float(src.spacing_mm), 4)}
     return PieceColor(src, A, T, S, report)
+
+
+def head_color_provider(fbx_path: str, stl_path: str, *, spacing_mm: float = 0.08, similarity=None, out: dict | None = None):
+    """Proveedor (`callable(res)`) de la fuente de color de la cabeza importada suelta (T34), para `Colorizer(sources={"cabeza": ...})`.
+
+    Se resuelve con la figura ya construida: `S = raw_a_mundo · A`, con `A` la alineación FBX → STL importado (se calcula, o
+    `similarity` si ya se tiene) y `raw_a_mundo` la 4×4 STL importado → marco de la figura que dejó `fit_replacement` (T33) en
+    `res.report["head"]["replacement"]`. Levanta `PieceColorError` (un `ValueError`) si no hay cabeza importada o el FBX no calza con
+    su STL; el `Colorizer` lo informa y deja la cabeza con el color de la figura. `out`, si se pasa, recibe el informe de `piece_color_source`."""
+    def provide(res):
+        import trimesh
+
+        from .fbxio import load_textured
+
+        rep = (getattr(res, "report", None) or {}).get("head", {}).get("replacement")
+        if not rep or "raw_a_mundo" not in rep:
+            raise PieceColorError("la figura no tiene una cabeza importada: el FBX de la cabeza no se usa")
+        stl = trimesh.load(stl_path, force="mesh", process=False)
+        pc = piece_color_source(load_textured(fbx_path), stl, np.asarray(rep["raw_a_mundo"], float), similarity=similarity,
+                                spacing_mm=spacing_mm)
+        if out is not None:
+            out.update(pc.report)
+        return pc.source
+    return provide
