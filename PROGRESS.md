@@ -2,6 +2,32 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — Color FBX: T26 (2026-11-19, sobre main 4f8c935 + parche T25)
+**Objetivo:** que ningún texto visible de la feature de color falte en un idioma ni sea copia del español.
+**Hecho:** `tests/test_color_i18n.py` (1 prueba): las 29 claves `color.*` existen en es/en/pt, no están vacías y no son copias del español salvo dos neutras declaradas (`color.panel_fila` en en/pt; `color.error_fbx` en en, «ERROR»). Revisión de literales: en `fbxio/texmesh/frame/colorsrc/colorreg/colorbake/colorexport` solo quedan mensajes de excepción internos en español (R5); CLI y GUI usan `tr()`. No hizo falta agregar claves ni tocar código.
+**Medido:** `test_color_i18n` + `test_i18n`: 10 pasan en 0,1 s.
+**No verificado:** la calidad de las traducciones en pt/en más allá de que no sean copias (revisión humana).
+
+### Todo List
+- [x] T09 · [x] T10–T16 (T20 no se hace) · [x] T17–T19 · [x] T21–T26
+- [ ] T27–T30
+
+### Latest Blockers/Discoveries
+- Ninguno bloqueante. Camino abierto: T27 (◄ T21, golden lento con `AFM_SLOW=1`), T28 (◄ T15). T29 y T30 esperan respuesta del cliente (P2, P1).
+
+## Current Focus — Color FBX: T25 (2026-11-19, sobre main 4f8c935)
+**Objetivo:** bloque «Color» en Parámetros, informe por pieza y `Session.export` con `colorize=` (la GUI no pasa por `cli.run`).
+**Hecho:** `Controller.set_color / update_color / remove_color / relocate_color / color_source_problem / color_report_rows / color_summary` (texel 0,05–1 mm, tolerancia 0,02–1 mm, relleno `extend` o `#RRGGBB`, lado original/simétrico); `Session.resolve_color_source` (ruta guardada o relativa al proyecto, valida el hash) y `Session.make_colorizer` (modo A con `FigureFrame.from_load`, modo B alineando contra la figura cargada); `Session.export` pasa `colorize=` solo si hay `project.color`; abrir un FBX activa el color. Un FBX perdido o cambiado frena la exportación antes de empezar. `gui/steps/parametros.py` y `window.py` (`_refresh_color`): botones elegir/relocalizar/quitar, campos y tabla de informe; claves es/en/pt. `tests/test_gui_color_panel.py` (13 pruebas, 20 s).
+**Medido:** T25 + R9 + `test_i18n`, `test_gui_session_fbx`, `test_project_color`: 54 pasan, 7 se saltan (las de render sin `moderngl`/EGL en este entorno).
+**No verificado:** el panel en pantalla con GTK real (no hay GTK acá; los archivos de la GUI solo se compilaron); diálogos de elegir y relocalizar FBX.
+
+### Todo List
+- [x] T09 · [x] T10–T16 (T20 no se hace) · [x] T17–T19 · [x] T21–T25
+- [ ] T26–T30
+
+### Latest Blockers/Discoveries
+- Ninguno bloqueante. Camino abierto: T26 (◄ T25), T27 (◄ T21), T28 (◄ T15).
+
 ## Current Focus — Color FBX: T24 (2026-11-19, sobre main e3c2885)
 **Objetivo:** que el visor dibuje mallas con textura (fuente de color del FBX o GLB de `Colorizer.write`).
 **Hecho:** `gui/render.py`: variante `TEXTURED` del shader de malla (misma fuente, `_with_define`), `_flat_vertices_uv` (8 floats por vértice, UV por esquina, sin indexar), `Item.tex`, `SceneRenderer.set_textured_mesh / set_textures / has_textures` (la textura se sube con la fila 0 invertida para que `v` hacia arriba muestree bien; se libera con la malla), `TexturedPart`, `load_glb_parts`, `part_from_textured_mesh`; las mallas de color plano siguen por `mesh_prog`, sin cambios. `catalog_manager.PreviewRenderer.render_textured(parts, textures_on, ...)` (no vuelve a subir a la GPU con el mismo `parts`). `figure_window`: al terminar el armado, si junto al `_ensamblada.stl` hay un `.glb` con textura se muestra con color y aparece el botón «Textura» (claves `figure_window.textura*` en es/en/pt); sin GLB, el STL como antes. `tests/test_gui_render_texture.py` (15 pruebas, 2,3 s).
