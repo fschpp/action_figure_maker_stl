@@ -86,7 +86,10 @@ class ColorSource:
             ok &= np.einsum("nc,nc->n", self.face_normals[face], np.asarray(normals, float)) > min_dot
         return ColorQuery(self.sample_rgb[idx], dist.astype(np.float32), ok, face.astype(np.int32))
 
-    def distance(self, points, workers: int = 1) -> np.ndarray:
-        """Distancia gruesa (una muestra de cada 4), para puntuar registros."""
+    def distance(self, points, workers: int = 1, upper: float | None = None) -> np.ndarray:
+        """Distancia gruesa (una muestra de cada 4), para puntuar registros. Con `upper`, los puntos más lejos que eso
+        devuelven `inf` sin terminar la búsqueda (mucho más rápido en los barridos del registro, donde casi todos los
+        giros de prueba dejan la pieza lejos de la fuente)."""
         P = np.atleast_2d(np.asarray(points, float))
-        return self._coarse.query(P, workers=workers)[0].astype(np.float32)
+        kw = {} if upper is None else {"distance_upper_bound": float(upper)}
+        return self._coarse.query(P, workers=workers, **kw)[0].astype(np.float32)

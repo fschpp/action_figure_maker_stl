@@ -2,6 +2,20 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — Color FBX: T18 (2026-11-19, sobre main 32f90a6)
+**Objetivo:** registrar piezas que pasan por DOS giros (cadera + rodilla, hombro + codo) y brazos con clic.
+**Hecho:** `colorreg.py`: (1) `seeds_for_piece` reconoce las piezas de una articulación por `res.report["joints"][j]["piezas"]` (antes `muslo`/`pantorrilla` no estaban en `res.motion`, que solo tiene la clave del miembro, y quedaban solo con identidad); la proximal lleva un paso (cadera/hombro, `print_hip`) y la distal la CADENA `[(centro, eje, sign·print_flex) de `res.joints[j]`, (centro, eje, print_hip) de `res.motion[limb]`]`, la exacta primero; de respaldo 3 flexiones (±, 0) × 5 giros (±print_hip, 0, ±sit_angle) = las 4 combinaciones de signo y los giros sin flexión; `_der` refleja cada paso (M·c, M·eje, −ángulo) y con `limbs_right` usa `res.right`. (2) `register_piece`: la cadena se describe por su último paso (`center/axis/angle_deg` = cadera/hombro, igual que la proximal) y `Registration.chain_deg` trae los dos ángulos (articulación, cadera). (3) Plan B de RG10: barrido en DOS ángulos (`_sweep_two_axes`: 24 × 24 pasos de 15° con 300 puntos, se refinan las 10 mejores casillas ±7,5° cada 2,5° y la mejor a 1° con 1500 puntos) cuando ninguna semilla llega a 0,4. `colorsrc.ColorSource.distance(points, workers=1, upper=None)`: parámetro nuevo opcional; con `upper` los puntos más lejos devuelven `inf` sin terminar la búsqueda (los barridos pasaban de 9 s a 3 s). Sin `upper` se comporta como antes. `tests/test_color_joints.py` (11 pruebas, ≈ 30 s).
+**Medido (muñeco con rodilla y codo, texel 0,3 mm):** pantorrilla `semilla`, cadena (85°, −90°), puntaje 0,69–0,70; muslo `semilla` −90° (un solo paso); brazo, antebrazo (codo a 0°, sin giro) y cabeza `identidad`. Barrido de dos ángulos con una pose fuera de las semillas (flexión 37° + giro 52°): recupera (−37°, −52°) exactos, puntaje 0,694, 3,3 s. Un barrido que solo mira la mejor casilla gruesa FALLA (la cuenca del óptimo es más angosta que 15° y el costo grueso de una pieza chica cerca de los ejes es casi plano): por eso se refinan 10 casillas.
+**Desvío respecto de la ficha (a decidir por el cliente):** la ficha pide `pct_origen ≥ 80` en la pantorrilla. Medido: **69,8 %** (muslo 31,8 %, antebrazo 49,4 %). El registro es el correcto (idéntico a la semilla exacta; el % por ÁREA de caras a ≤ 0,15 mm en esa misma registración da 70,4 %); el límite es la geometría del muñeco: su pierna es chica y los cortes, bisagra y holguras ocupan buena parte de la superficie (la misma pierna SIN articulación da 73,3 %). `test_chain_seed_recovers_knee_leg` usa ≥ 65 % y además comprueba que ≥ 50 % de los texeles sea el verde de la pierna. No se tocó ningún otro umbral.
+**No verificado:** cadenas con la mano articulada (la pieza `mano` no tiene entrada en `motion` ni en `joints`: sale con identidad y, si no coincide, `sin_origen`); articulaciones con `limbs_right` (el motor las admite pero ningún test de `main` las combina con `joints`: la prueba de `_der` usa el espejo simple); Güemes real (no tiene articulaciones).
+
+### Todo List
+- [x] T09 · [x] T10–T16 (T20 no se hace) · [x] T17 · [x] T18
+- [ ] T19 · [ ] T21–T30
+
+### Latest Blockers/Discoveries
+- Ninguno bloqueante. Camino abierto: T19 y T21 (modo A), T23 (libre).
+
 ## Current Focus — Color FBX: T17 (2026-11-19, sobre main 668b401)
 **Objetivo:** que la cabeza (giro libre sobre el cuello) y las dos mitades del torso con cintura (`torso` = pecho, `pelvis`) salgan con su color.
 **Hecho:** `tests/test_color_head_waist.py` (5 pruebas, ≈ 26 s) y un cambio en `colorreg.register_piece`: nuevo `TIE_MARGIN = 0.02`; una semilla posterior reemplaza a la mejor solo si la supera por más de 0,02 (antes 1e-9).

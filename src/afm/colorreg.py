@@ -39,6 +39,7 @@ class Registration:
     seed: object             # la semilla (o None si vino del barrido o no hay registro)
     center: tuple | None = None
     axis: tuple | None = None
+    chain_deg: tuple = ()    # ángulos registrados por eje, en el orden (articulación, cadera/hombro); solo en cadenas de dos giros (T18)
 
 
 # ------------------------------------------------------------------ geometría
@@ -98,6 +99,73 @@ def _split_name(name: str):
     return name, None
 
 
+def _uniq(vals) -> list[float]:
+    out: list[float] = []
+    for a in vals:
+        if all(abs(a - b) > 1e-6 for b in out):
+            out.append(float(a))
+    return out
+
+
+def _mirror_step(step):
+    c, ax, th = step
+    return (MIRROR_X @ np.asarray(c, float)).tolist(), (MIRROR_X @ np.asarray(ax, float)).tolist(), 0.0 - float(th)
+
+
+def _owner(res, side):
+    return res.right if (side == "der" and getattr(res, "right", None) is not None) else res
+
+
+def _joint_info(owner, key: str):
+    """Si `key` es una pieza de articulación (rodilla, codo…): `(nombre_art, informe, índice 0=proximal 1=distal)`."""
+    for jn, r in getattr(owner, "report", {}).get("joints", {}).items():
+        piezas = r.get("piezas", [])
+        if key in piezas and r.get("limb") in owner.motion and jn in getattr(owner, "joints", {}):
+            return jn, r, piezas.index(key)
+    return None
+
+
+def _axes_for_piece(piece_name: str, res):
+    """Ejes de giro de la pieza, en el orden de la cadena y ya reflejados en `_der`: `[(centro, eje)]`.
+
+    Miembro simple: el de `motion`. Pieza proximal de una articulación: el de cadera/hombro. Distal: primero el de la
+    articulación y luego el de cadera/hombro. Sin entrada en `motion`: lista vacía."""
+    key, side = _split_name(piece_name)
+    owner = _owner(res, side)
+    out = []
+    ji = _joint_info(owner, key)
+    if ji is not None:
+        jn, r, idx = ji
+        jb = owner.joints[jn]
+        mo = owner.motion[r["limb"]]
+        if idx == 1:
+            out.append((np.asarray(jb.center, float), np.asarray(jb.axis, float)))
+        out.append((np.asarray(mo[1], float), np.asarray(mo[2], float)))
+    elif key in owner.motion:
+        out.append((np.asarray(owner.motion[key][1], float), np.asarray(owner.motion[key][2], float)))
+    if side == "der":
+        out = [(MIRROR_X @ c, MIRROR_X @ a) for c, a in out]
+    return out
+
+
+def _joint_seeds(owner, key, jn, r, idx, params) -> list:
+    """Semillas de una pieza de articulación (lado izquierdo). Proximal: un solo paso (cadera/hombro). Distal: cadena
+    «flexión de la articulación y después cadera/hombro» (lo que hace `pipeline.build`), la exacta primero; de respaldo, las
+    4 combinaciones de signo (flexión ±, giro ±) y los giros sin flexión."""
+    jb = owner.joints[jn]
+    mo = owner.motion[r["limb"]]
+    c_h, ax_h = np.asarray(mo[1], float).tolist(), np.asarray(mo[2], float).tolist()
+    th, pf = float(r.get("print_hip", 0.0)), float(r.get("print_flex", 0.0))
+    sg = float(jb.sign)
+    sit = float(params.sit_angle)
+    hips = _uniq([th, -th, 0.0, sit, -sit])
+    if idx == 0:
+        return [[(c_h, ax_h, a)] for a in hips]
+    jc, jax = np.asarray(jb.center, float).tolist(), np.asarray(jb.axis, float).tolist()
+    flexes = _uniq([sg * pf, -sg * pf, 0.0])
+    return [[(jc, jax, f), (c_h, ax_h, a)] for f in flexes for a in hips]
+
+
 def seeds_for_piece(piece_name: str, res, params) -> list:
     """Semillas del registro de `piece_name`, la EXACTA primero.
 
@@ -105,12 +173,20 @@ def seeds_for_piece(piece_name: str, res, params) -> list:
     solo la identidad. Exacta (§7.4 (0)): `th` = `Params.sit_angle` en una pierna (miembro con barrido de cadera: `a1 > a0`,
     la misma regla que usa el pipeline para separar brazos de piernas), `res.detent[clave].print_angle` en un brazo con clic y 0
     en el resto (la cabeza sale sin girar). Respaldo: identidad, ±sit_angle, ±print_angle y ±a1 (tope del recorrido).
-    Cadenas de dos giros (rodilla, codo): T18.
+    Piezas de una articulación (T18): la proximal lleva un paso (cadera/hombro, `print_hip` del informe) y la distal una
+    CADENA `[(articulación, flexión), (cadera, giro)]` con la flexión `sign · print_flex`; ver `_joint_seeds`.
     """
     from .head import HEAD_NAME
 
     key, side = _split_name(piece_name)
-    owner = res.right if (side == "der" and getattr(res, "right", None) is not None) else res
+    owner = _owner(res, side)
+    ji = _joint_info(owner, key)
+    if ji is not None:
+        jn, r, idx = ji
+        seeds = _joint_seeds(owner, key, jn, r, idx, params)
+        if side == "der":
+            seeds = [[_mirror_step(st) for st in sd] for sd in seeds]
+        return seeds
     mo = owner.motion.get(key)
     if mo is None:
         return [IDENTITY_SEED]
@@ -124,11 +200,7 @@ def seeds_for_piece(piece_name: str, res, params) -> list:
     else:
         th = 0.0
     pa = float(params.detent.print_angle)         # el plan lo lista en `Params`; vive en `Params.detent` (DetentSpec)
-    cand = [th, 0.0, float(params.sit_angle), -float(params.sit_angle), pa, -pa, a1, -a1]
-    angles: list[float] = []
-    for a in cand:
-        if all(abs(a - b) > 1e-6 for b in angles):
-            angles.append(a)
+    angles = _uniq([th, 0.0, float(params.sit_angle), -float(params.sit_angle), pa, -pa, a1, -a1])
     c, ax = np.asarray(c, float), np.asarray(ax, float)
     if side == "der":                       # M·R(a, θ)·M = R(M·a, −θ)
         c, ax, angles = MIRROR_X @ c, MIRROR_X @ ax, [0.0 - a for a in angles]
@@ -143,11 +215,52 @@ def _score(M: np.ndarray, pts: np.ndarray, src, thresh_mm: float) -> float:
 def _cost(M: np.ndarray, pts: np.ndarray, src) -> float:
     """Distancia media recortada a `SWEEP_CAP_MM`: baja de forma continua al acercarse al ángulo bueno (el porcentaje ≤ 0,3 mm
     es casi cero hasta que se está a unos pocos grados y el barrido grueso no tendría cómo elegir)."""
-    return float(np.minimum(src.distance(_apply(M, pts)), SWEEP_CAP_MM).mean())
+    return float(np.minimum(src.distance(_apply(M, pts), upper=SWEEP_CAP_MM), SWEEP_CAP_MM).mean())
 
 
 def _wrap(a: float) -> float:
     return float((a + 180.0) % 360.0 - 180.0)
+
+
+SWEEP2_POINTS = 300      # puntos del barrido grueso en dos ángulos (24 × 24 = 576 giros)
+SWEEP2_TOP = 10          # casillas del barrido grueso que se refinan (la cuenca del óptimo es más angosta que 15° y el costo
+#                          grueso de una pieza chica cerca del eje es casi plano: la mejor casilla no siempre es la buena)
+FINE2_STEP = 2.5         # paso del refinado en dos ángulos (°); después, 1° alrededor del mejor
+
+
+def _sweep_two_axes(axes, pts, src, thresh_mm):
+    """Barrido en DOS ángulos (RG10): 24 × 24 pasos de 15° sobre los ejes `axes = [(c1, a1), (c2, a2)]` (articulación y
+    cadera); se refinan las `SWEEP2_TOP` mejores casillas (±7,5° cada 2,5°, con `SWEEP2_POINTS` puntos), la mejor de ellas
+    a 1° con todos los puntos. La matriz buscada es `R1(u1) · R2(u2)` (lleva la pieza a reposo). Devuelve `(M, u1, u2)`."""
+    (c1, a1), (c2, a2) = axes
+    grid = np.arange(0.0, 360.0, SWEEP_STEP)
+    sub = pts[np.linspace(0, len(pts) - 1, min(SWEEP2_POINTS, len(pts))).astype(int)]
+    R1 = [rotation_matrix(c1, a1, u) for u in grid]
+    R2 = [rotation_matrix(c2, a2, u) for u in grid]
+    P2 = np.stack([_apply(M, sub) for M in R2])                                  # (24, n, 3): R2(grid[j]) primero
+    allp = np.stack([_apply(M, P2.reshape(-1, 3)).reshape(P2.shape) for M in R1])   # (24 i, 24 j, n, 3): después R1(grid[i])
+    d = np.minimum(src.distance(allp.reshape(-1, 3), upper=SWEEP_CAP_MM).reshape(allp.shape[:3]), SWEEP_CAP_MM).mean(axis=2)
+    order = np.argsort(d, axis=None, kind="stable")[:SWEEP2_TOP]
+
+    def cost(u1, u2, pp):
+        return float(np.minimum(src.distance(_apply(rotation_matrix(c1, a1, u1) @ rotation_matrix(c2, a2, u2), pp),
+                                             upper=SWEEP_CAP_MM), SWEEP_CAP_MM).mean())
+
+    best, best_c = (0.0, 0.0), np.inf
+    for k in order:
+        i, j = np.unravel_index(int(k), d.shape)
+        r1 = np.arange(grid[i] - REFINE_HALF, grid[i] + REFINE_HALF + 1e-9, FINE2_STEP)
+        r2 = np.arange(grid[j] - REFINE_HALF, grid[j] + REFINE_HALF + 1e-9, FINE2_STEP)
+        for u1 in r1:
+            for u2 in r2:
+                c = cost(u1, u2, sub)
+                if c < best_c:
+                    best, best_c = (float(u1), float(u2)), c
+    r1 = np.arange(best[0] - FINE2_STEP, best[0] + FINE2_STEP + 1e-9, 1.0)
+    r2 = np.arange(best[1] - FINE2_STEP, best[1] + FINE2_STEP + 1e-9, 1.0)
+    cand = [(u1, u2) for u1 in r1 for u2 in r2]
+    u1, u2 = min(cand, key=lambda uu: cost(uu[0], uu[1], pts))
+    return rotation_matrix(c1, a1, u1) @ rotation_matrix(c2, a2, u2), u1, u2
 
 
 def register_piece(piece_name: str, mesh, src, res, params, n_points: int = 1500, thresh_mm: float = 0.3,
@@ -157,7 +270,11 @@ def register_piece(piece_name: str, mesh, src, res, params, n_points: int = 1500
     (1) puntúa las semillas con la fracción de `n_points` puntos de la pieza a ≤ `thresh_mm` de la fuente y toma la mejor
     (gana la primera en un empate, o si la supera por ≤ `TIE_MARGIN`: la exacta); (2) si ninguna llega a `min_score`: barrido de 0–360° cada 15° alrededor del eje
     del miembro (el de `motion`, reflejado en `_der`) y refinado ±7,5° en pasos de 1°, eligiendo por distancia media recortada;
-    el resultado se acepta si la fracción ≤ `thresh_mm` llega a `min_score`; (3) si no: `sin_origen`, matriz identidad.
+    el resultado se acepta si la fracción ≤ `thresh_mm` llega a `min_score`; en la pieza distal de una articulación el barrido es
+    en DOS ángulos (articulación y cadera, T18); (3) si no: `sin_origen`, matriz identidad.
+
+    En una cadena de dos giros, `center/axis/angle_deg` describen el giro de cadera/hombro (el último paso, igual que en la
+    pieza proximal) y `chain_deg` trae los dos ángulos registrados en el orden (articulación, cadera).
     """
     pts = _surface_points(mesh, n_points)
     seeds = seeds_for_piece(piece_name, res, params)
@@ -170,18 +287,22 @@ def register_piece(piece_name: str, mesh, src, res, params, n_points: int = 1500
     if best_s >= min_score:
         sd = seeds[best_i]
         steps = _steps(sd)
-        c, ax, th = steps[0]
+        c, ax, th = steps[-1]                       # una cadena se describe por su último paso (cadera/hombro)
         identity = np.allclose(best_inv, np.eye(4), atol=1e-9)
+        chain = tuple(float(_wrap(-st[2])) for st in steps) if len(steps) > 1 else ()
         return Registration("identidad" if identity else "semilla", best_inv, 0.0 if identity else float(_wrap(-th)), best_s, sd,
-                            tuple(map(float, c)), tuple(map(float, ax)))
-    key, side = _split_name(piece_name)
-    owner = res.right if (side == "der" and getattr(res, "right", None) is not None) else res
-    mo = owner.motion.get(key)
-    if mo is None:
+                            tuple(map(float, c)), tuple(map(float, ax)), () if identity else chain)
+    axes = _axes_for_piece(piece_name, res)
+    if not axes:
         return Registration("sin_origen", np.eye(4), 0.0, best_s, None)
-    c, ax = np.asarray(mo[1], float), np.asarray(mo[2], float)
-    if side == "der":
-        c, ax = MIRROR_X @ c, MIRROR_X @ ax
+    if len(axes) == 2:
+        M, u1, u2 = _sweep_two_axes(axes, pts, src, thresh_mm)
+        s = _score(M, pts, src, thresh_mm)
+        if s >= min_score:
+            return Registration("barrido", M, _wrap(u2), s, None, tuple(map(float, axes[1][0])), tuple(map(float, axes[1][1])),
+                                (_wrap(u1), _wrap(u2)))
+        return Registration("sin_origen", np.eye(4), 0.0, max(s, best_s), None)
+    c, ax = axes[0]
     coarse = [(_cost(rotation_matrix(c, ax, th), pts, src), th) for th in np.arange(0.0, 360.0, SWEEP_STEP)]
     th0 = min(coarse)[1]
     fine = [(_cost(rotation_matrix(c, ax, th), pts, src), th) for th in np.arange(th0 - REFINE_HALF, th0 + REFINE_HALF + 1e-9, 1.0)]
