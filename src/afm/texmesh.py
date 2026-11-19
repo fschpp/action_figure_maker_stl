@@ -48,6 +48,17 @@ class TexturedMesh:
         uv = np.einsum("nk,nkc->nc", bary, self.corner_uv[face].astype(np.float64))
         return sample_image(self.image(kind), uv)
 
+    def transformed(self, M) -> "TexturedMesh":
+        """Copia con los vértices llevados por la 4×4 `M` (similitud, con o sin espejo). Los UV y las texturas no se tocan: se comparten
+        con la original (también la imagen ya decodificada). Con det < 0 se invierte el orden de cada triángulo (y el de sus UV) para
+        que las normales sigan hacia afuera."""
+        M = np.asarray(M, float)
+        V = np.asarray(self.vertices, float) @ M[:3, :3].T + M[:3, 3]
+        F, UV = self.faces, self.corner_uv
+        if np.linalg.det(M[:3, :3]) < 0:
+            F, UV = F[:, ::-1].copy(), UV[:, ::-1].copy()
+        return TexturedMesh(V, F, UV, self.images, dict(self.info), self._cache)
+
     def to_trimesh(self):
         """Solo la geometría (sin UV ni color): lo que entra al motor."""
         import trimesh

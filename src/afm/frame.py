@@ -5,6 +5,7 @@ El motor aplica a la geometría: `orient_z_up` → escala → `repair` → `norm
 """
 from __future__ import annotations
 
+import itertools
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -87,6 +88,57 @@ class FigureFrame:
         rep = {"media_mm": mean, "p95_mm": p95, "max_mm": mx, "ok": bool(mean <= SIMILARITY_OK_MM), "iteraciones": int(iters)}
         return cls(M, scale, rep)
 
+    @classmethod
+    def from_piece_similarity(cls, source_vertices, piece_mesh, refine: bool | None = None, source_faces=None) -> "FigureFrame":
+        """Como `from_similarity`, pero para una PIEZA suelta (T32): no supone Z arriba ni la misma altura, porque el STL de una pieza
+        (una cabeza, una mano) puede estar en cualquier giro respecto del FBX.
+
+        (1) momentos de la superficie de ambas (muestras por área): escala = raíz del cociente de las trazas de covarianza, traslado de
+        centroide a centroide; (2) las 24 rotaciones propias que llevan los ejes principales de la fuente sobre los del destino se
+        puntúan con una submuestra de vértices del destino; (3) ICP de similitud sobre las 3 mejores (con `refine=True` siempre, con `False`
+        nunca y con None solo si la media sin ICP supera `ICP_AUTO_MEAN_MM`) y se queda la de menor media. Solo rotaciones propias.
+        El informe es el de `from_similarity`."""
+        V = np.asarray(source_vertices.vertices if hasattr(source_vertices, "vertices") else source_vertices, float)
+        if source_faces is None and hasattr(source_vertices, "faces"):
+            source_faces = source_vertices.faces
+        Q = np.asarray(piece_mesh.vertices, float)
+        QF = getattr(piece_mesh, "faces", None)
+        surf = _SourceSurface(V, source_faces)
+        mom_s = _surface_moments(V, source_faces)
+        mom_t = _surface_moments(Q, QF)
+        (cs, Cs), (ct, Ct) = mom_s, mom_t
+        s = float(np.sqrt(np.trace(Ct) / np.trace(Cs)))
+        _, Es = np.linalg.eigh(Cs)
+        _, Et = np.linalg.eigh(Ct)
+        sub = Q if len(Q) <= PIECE_SCORE_POINTS else Q[np.random.default_rng(0).choice(len(Q), PIECE_SCORE_POINTS, replace=False)]
+        cands = []
+        for perm in itertools.permutations(range(3)):
+            for signs in itertools.product((1.0, -1.0), repeat=3):
+                R = Et @ (np.eye(3)[list(perm)] * np.array(signs)[:, None]) @ Es.T
+                if np.linalg.det(R) < 0:
+                    continue
+                M = _similarity_matrix(s * R, ct - s * R @ cs)
+                cands.append((_target_distances(surf, M, sub)[0], M))
+        cands.sort(key=lambda c: c[0])
+        best, best_stats, iters = None, None, 0
+        for k, (_, M) in enumerate(cands[:3]):
+            stats = _target_distances(surf, M, Q)
+            it = 0
+            if refine is True or (refine is None and stats[0] > ICP_AUTO_MEAN_MM):
+                M2, stats2, it = _icp_similarity(surf, M, Q, stats)
+                if stats2[0] < stats[0] or refine is True:
+                    M, stats = M2, stats2
+                else:
+                    it = 0
+            if best_stats is None or stats[0] < best_stats[0]:
+                best, best_stats, iters = M, stats, it
+            if refine is None and stats[0] <= ICP_AUTO_MEAN_MM:     # ya calza sin ICP: las demás candidatas sobran
+                break
+        scale = float(np.cbrt(abs(np.linalg.det(best[:3, :3]))))
+        mean, p95, mx = best_stats
+        rep = {"media_mm": mean, "p95_mm": p95, "max_mm": mx, "ok": bool(mean <= SIMILARITY_OK_MM), "iteraciones": int(iters)}
+        return cls(best, scale, rep)
+
 
 # Z arriba (marco del motor y de los STL) -> Y arriba (convención de OBJ y glTF): (x, y, z) -> (x, z, -y). Es la inversa de la 3×3 que
 # `meshio.orient_z_up` aplica a un archivo Y-arriba. Bambu Studio y Blender convierten a Z arriba al importar un OBJ y los visores de glTF
@@ -95,8 +147,16 @@ Z_UP_TO_Y_UP = np.array([[1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, -1.0, 0.0]])
 
 ICP_AUTO_MEAN_MM = 0.05          # D11: el ICP es respaldo; sobra si la media sin ICP no pasa de esto
 SIMILARITY_OK_MM = 0.1           # §7.2: el FBX es la misma figura si la media ≤ 0,1 mm
+PIECE_SCORE_POINTS = 4000        # vértices del destino con que se puntúan las 24 rotaciones candidatas de `from_piece_similarity`
 ICP_MAX_ITER = 20
 ICP_STOP_DELTA = 1e-4
+
+
+def _surface_moments(V: np.ndarray, F=None, samples: int = 60_000):
+    """(centroide, covarianza 3×3) de la superficie (muestras por área; sin caras, de los vértices)."""
+    P = _SourceSurface(V, F, samples).xyz
+    c = P.mean(0)
+    return c, np.cov((P - c).T, bias=True)
 
 
 def _similarity_matrix(A: np.ndarray, t: np.ndarray) -> np.ndarray:
