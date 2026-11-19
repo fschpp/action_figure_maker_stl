@@ -2,6 +2,19 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — Color FBX: T27 (2026-11-19, sobre main d5eaa23)
+**Objetivo:** congelar el resultado de generar Güemes desde el FBX (modo A) y compararlo con el golden del STL.
+**Hecho:** `tools/golden.py`: figura `guemes_fbx` (`guemes.py` con el FBX de entrada y `crown_z = 101,769`, cota absoluta en unidades del FBX; se construye con `sin_color=True`: el golden congela geometría), `compare_cross` (mismas piezas, componentes y `ok`, volúmenes ±0,5 %; las holguras no se cruzan). `tests/golden/guemes_fbx.json` (5 piezas, `ok=True`, sin problemas). `tests/test_golden.py`: `test_compare_cross_tolerates_half_percent_only` (rápida), `test_golden_guemes_fbx_matches_frozen` y `test_guemes_fbx_vs_stl_within_half_percent` (`AFM_SLOW=1`, comparten una sola construcción); `guemes_fbx` queda fuera del parametrizado `AFM_GOLDEN_FULL`.
+**Medido (FBX vs STL, volumen):** brazos +0,104 %, piernas −0,053 %, torso −0,182 %; componentes 1 en todas; holgura mínima por pieza 0,470–0,475 mm (STL: 0,477). Todo dentro del ±0,5 % pedido, sin tocar el umbral (R8). Las 4 pruebas pasan en 13 s; R9 + `test_i18n` verdes (25 pasan). **`test_doll_matches_golden` falla, también sobre `main` limpio sin mis cambios:** holgura «cabeza» del muñeco 0,4705 contra 0,4772 congelado (diferencia 0,0067 mm, tolerancia 0,005); no se tocó el golden ni la tolerancia (R8). Causa no investigada (¿versión de manifold3d/trimesh en este entorno?). La construcción imprime «MeshFix could not fix everything» (reparación del FBX; la validación sigue `ok`).
+**No verificado:** si el fallo del muñeco se reproduce en tu máquina; el golden se generó una vez en este entorno (no se comparó con otra máquina); no se corrió `AFM_GOLDEN_FULL=1`.
+
+### Todo List
+- [x] T09 · [x] T10–T16 (T20 no se hace) · [x] T17–T19 · [x] T21–T27
+- [ ] T28–T30
+
+### Latest Blockers/Discoveries
+- Ninguno bloqueante. Camino abierto: T28 (◄ T15). T29 y T30 esperan al cliente (P2, P1).
+
 ## Current Focus — Color FBX: T26 (2026-11-19, sobre main 4f8c935 + parche T25)
 **Objetivo:** que ningún texto visible de la feature de color falte en un idioma ni sea copia del español.
 **Hecho:** `tests/test_color_i18n.py` (1 prueba): las 29 claves `color.*` existen en es/en/pt, no están vacías y no son copias del español salvo dos neutras declaradas (`color.panel_fila` en en/pt; `color.error_fbx` en en, «ERROR»). Revisión de literales: en `fbxio/texmesh/frame/colorsrc/colorreg/colorbake/colorexport` solo quedan mensajes de excepción internos en español (R5); CLI y GUI usan `tr()`. No hizo falta agregar claves ni tocar código.

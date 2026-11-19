@@ -26,8 +26,12 @@ GOLDEN_DIR = os.path.join(ROOT, "tests", "golden")
 EXAMPLES = os.path.join(ROOT, "examples")
 FIGURES = {"muneco": None, "guemes": ("guemes.py", "guemes_segmentado_lq_fixed_resized.stl"),
            "belgrano": ("belgrano.py", "belgrano_lq_segmentado.stl"), "azurduy": ("azurduy.py", "azurduy_lq_segmentado.stl"),
-           "mickey": ("mickey.py", "mickey_reescalado.stl")}
+           "mickey": ("mickey.py", "mickey_reescalado.stl"),
+           # Güemes por modo A (plan de color, T27): el mismo proyecto con el FBX de entrada. Su coronilla es una cota ABSOLUTA en
+           # unidades del FBX tras `Lcl Scaling` y orientar (plan §3.2: z mín. 0,048 + 100 / 0,983079 = 101,769).
+           "guemes_fbx": ("guemes.py", "guemes_segmentado_lq_texturas.fbx", {"crown_z": 101.769})}
 VOL_REL_TOL = 1e-4          # ±0,01 %
+CROSS_VOL_REL_TOL = 5e-3    # ±0,5 %: el FBX difiere del STL en 2 triángulos y hasta 0,265 mm en un vértice (plan de color §3.2)
 GAP_TOL_MM = 5e-3
 
 
@@ -48,8 +52,15 @@ def build_figure(name: str, outdir: str, progress=lambda *a: None) -> dict:
         stl = os.path.join(outdir, "muneco.stl")
         make_doll().export(stl)
         return run(stl, demo_project(), outdir, "muneco", progress=progress)
-    script, stl = FIGURES[name]
-    return run(os.path.join(EXAMPLES, stl), _load_example(script), outdir, name, progress=progress)
+    script, stl, *over = FIGURES[name]
+    proj = _load_example(script)
+    if over:
+        import copy
+        proj = copy.copy(proj)
+        for k, v in over[0].items():
+            setattr(proj, k, v)
+    kw = {"sin_color": True} if stl.lower().endswith(".fbx") else {}   # el golden congela la geometría; el color tiene sus pruebas
+    return run(os.path.join(EXAMPLES, stl), proj, outdir, name, progress=progress, **kw)
 
 
 def snapshot(info: dict) -> dict:
@@ -89,6 +100,25 @@ def compare(now: dict, gold: dict) -> list[str]:
         lost = sorted(set(gold[key]) - set(now[key]))
         if lost:
             diffs.append(f"{key}: desaparecieron {lost}")
+    return diffs
+
+
+def compare_cross(now: dict, gold: dict, vol_tol: float = CROSS_VOL_REL_TOL) -> list[str]:
+    """Comparación entre dos construcciones de la MISMA figura desde archivos distintos (STL vs FBX): mismas piezas, mismos componentes,
+    mismo `ok` y volúmenes dentro de `vol_tol` (relativo). Las holguras no se comparan aquí: dependen de la malla exacta."""
+    diffs = []
+    if now["ok"] != gold["ok"]:
+        diffs.append(f"validacion.ok: {gold['ok']} → {now['ok']}")
+    for k in sorted(set(gold["piezas"]) | set(now["piezas"])):
+        a, b = gold["piezas"].get(k), now["piezas"].get(k)
+        if a is None or b is None:
+            diffs.append(f"pieza «{k}»: {'desapareció' if b is None else 'nueva'}")
+            continue
+        rel = abs(b["volumen"] - a["volumen"]) / max(abs(a["volumen"]), 1e-9)
+        if rel > vol_tol:
+            diffs.append(f"pieza «{k}»: volumen {a['volumen']} → {b['volumen']} ({rel:.3%})")
+        if b["componentes"] != a["componentes"]:
+            diffs.append(f"pieza «{k}»: componentes {a['componentes']} → {b['componentes']}")
     return diffs
 
 
