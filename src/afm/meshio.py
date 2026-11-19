@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -23,6 +24,7 @@ class LoadReport:
     zmin_file: float = 0.0          # z mínimo de la malla orientada, en unidades del archivo
     center_xy: tuple = (0.0, 0.0)   # centro (x, y) de la caja, en mm de la figura, que `normalize` resta
     orient_matrix: tuple = ()       # la 3×3 que aplicó `orient_z_up`, como 9 números (fila por fila); vacío = identidad
+    color_source_path: str = ""     # modo A (T21): ruta del FBX de entrada (un `str`: `cli.run` vuelca este objeto a JSON); vacío = STL
 
     def to_figure(self, points) -> "np.ndarray":
         """Puntos del archivo (con Z arriba) → marco de la figura normalizada (mm, pies en z=0, centrada en X e Y):
@@ -348,9 +350,17 @@ def normalize(mesh: trimesh.Trimesh, ref_height: float = 100.0, crown_z: float |
 def load_figure(path: str, ref_height: float = 100.0, crown_z: float | None = None, progress=None
                 ) -> tuple[trimesh.Trimesh, LoadReport]:
     report = LoadReport()
-    if progress:
-        progress("leyendo el STL…")
-    mesh = trimesh.load(path, force="mesh")
+    if str(path).lower().endswith(".fbx"):          # modo A (T21): la geometría del FBX entra al mismo flujo que un STL
+        from .fbxio import load_textured
+
+        if progress:
+            progress("leyendo el FBX…")
+        mesh = load_textured(path).to_trimesh()
+        report.color_source_path = os.path.abspath(path)
+    else:
+        if progress:
+            progress("leyendo el STL…")
+        mesh = trimesh.load(path, force="mesh")
     report.orient_matrix = tuple(float(x) for x in orient_z_up_matrix(mesh).ravel())
     mesh = orient_z_up(mesh)
     report.zmin_file = float(mesh.bounds[0, 2])

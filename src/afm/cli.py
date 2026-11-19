@@ -15,10 +15,11 @@ from .project import Project, demo_project
 from .testfigure import make_doll
 
 
-def make_colorizer(color: dict, mesh, params, progress=print, post=None):
+def make_colorizer(color: dict, mesh, params, progress=print, post=None, frame=None):
     """(Colorizer | None, info) para `run`: carga el FBX de `color["fbx"]`, lo alinea con `mesh` (la figura en el marco del motor, modo B)
     y arma la fuente de color. `mesh` es la figura TAL COMO SE CARGÓ (antes del giro de `front="-Y"` y de la simetría) y `post` la 4×4 de
     esos dos pasos (`FigureFrame.engine_post`): el FBX del cliente mira a −Y como el STL, así que se alinea antes de girar.
+    Modo A (T21): `frame` (`FigureFrame.from_load`, archivo → marco del motor) reemplaza a la alineación por similitud: el FBX ES la entrada.
     Si el FBX no es la misma figura o no trae textura de color, avisa y devuelve `None` (la figura sale sin color).
     `color`: `fbx`, `texel_mm`, `eps`, `fill`, `symmetric`. El `info` es serializable (R13)."""
     from .colorexport import Colorizer
@@ -35,11 +36,14 @@ def make_colorizer(color: dict, mesh, params, progress=print, post=None):
         progress(tr("color.aviso_sin_textura", ruta=os.path.basename(path)))
         info["omitido"] = "sin_textura"
         return None, info
-    frame = FigureFrame.from_similarity(tm, mesh)
-    if post is not None:
-        frame = frame.then(post)
-    info["alineacion"] = dict(frame.report)
-    if not frame.report["ok"]:
+    if frame is None:
+        frame = FigureFrame.from_similarity(tm, mesh)
+        if post is not None:
+            frame = frame.then(post)
+        info["alineacion"] = dict(frame.report)
+    else:
+        info["alineacion"] = {"modo": "A", "ok": True}
+    if not frame.report.get("ok", True):
         progress(tr("color.aviso_otra_figura", ruta=os.path.basename(path), media=f"{frame.report['media_mm']:.2f}",
                     max=f"{SIMILARITY_OK_MM:g}"))
         info["omitido"] = "otra_figura"
@@ -53,25 +57,38 @@ def make_colorizer(color: dict, mesh, params, progress=print, post=None):
 
 def run(stl_path: str, project: Project, outdir: str, name: str, progress=print, orient: bool | str = False,
         max_angle: float = 45.0, flat: float | None = None, catalog_root: str | None = None,
-        keep: dict | None = None, color: dict | None = None) -> dict:
+        keep: dict | None = None, color: dict | None = None, sin_color: bool = False) -> dict:
     """Genera la figura. `keep`, si se pasa, recibe `res` (el `BuildResult`), `params` para la vista previa de la pose y `colorizer`.
     `color` (opcional, ver `make_colorizer`): FBX con textura de la misma figura; además de los STL (que no cambian) deja las
-    piezas con color en `piezas_color/` y `<nombre>_ensamblada.glb`."""
+    piezas con color en `piezas_color/` y `<nombre>_ensamblada.glb`. Modo A (T21): si `stl_path` es un `.fbx`, ese FBX es la entrada y la
+    fuente de color a la vez (`color` solo ajusta `texel_mm`, `eps`, `fill`, `symmetric`); `sin_color=True` lo usa solo como geometría."""
     from .assembly import resolve_parts
 
     parts = resolve_parts(project.parts, catalog_root) if project.parts else None
     mesh, rep = meshio.load_figure(stl_path, project.params.ref_height, project.crown_z)
     for w in rep.warnings:
         progress(f"AVISO: {w}")
-    mesh_loaded = mesh.copy() if color else None      # la fuente de color se alinea contra la figura tal como se cargó
+    mode_a = bool(rep.color_source_path) and not sin_color
+    if mode_a:
+        color = {**(color or {}), "fbx": rep.color_source_path}
+        if rep.remeshed:         # la reparación remalló: la superficie ya no coincide con la fuente a 0,15 mm (§7.2)
+            color["eps"] = max(float(color.get("eps", 0.15)), 0.3)
+            progress(tr("color.aviso_remallada", eps=f"{color['eps']:g}"))
+    elif color is not None and "fbx" not in color:
+        color = None
+    mesh_loaded = mesh.copy() if (color and not mode_a) else None      # la fuente de color se alinea contra la figura tal como se cargó
     if project.front == "-Y":      # girar 180° sobre Z para que el frente quede en +Y
         mesh.apply_transform([[-1, 0, 0, 0], [0, -1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]])
     mesh = P.align_to_symmetry(mesh, project.symmetry)
     colorize, color_info = (None, None)
     if color:                         # antes de construir: un FBX ilegible o de otra figura se sabe en segundos, no a los 30 s
         from .frame import FigureFrame
-        colorize, color_info = make_colorizer(color, mesh_loaded, project.params, progress,
-                                              post=FigureFrame.engine_post(project.front, project.symmetry))
+        if mode_a:
+            colorize, color_info = make_colorizer(color, None, project.params, progress,
+                                                  frame=FigureFrame.from_load(rep, project.front, project.symmetry))
+        else:
+            colorize, color_info = make_colorizer(color, mesh_loaded, project.params, progress,
+                                                  post=FigureFrame.engine_post(project.front, project.symmetry))
     body = S.to_manifold(mesh)
     from .customize import needed, build_model
     if needed(project):
@@ -541,7 +558,7 @@ def main(argv=None) -> int:
         from .fbxio import FbxError
         try:
             info = run(args.stl, project, args.out, name, orient="auto" if args.orient_auto else args.orient,
-                       max_angle=args.max_angle, flat=flat, catalog_root=args.catalogo, **run_kw)
+                       max_angle=args.max_angle, flat=flat, catalog_root=args.catalogo, sin_color=args.sin_color, **run_kw)
         except FbxError as exc:
             print(tr("color.error_fbx", err=str(exc)), file=sys.stderr)
             return 2

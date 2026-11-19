@@ -2,6 +2,19 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — Color FBX: T21 (2026-11-19, sobre main 07ee119)
+**Objetivo:** `afm build guemes.fbx proyecto.json` genera la figura y el color (modo A: el FBX es la geometría y la fuente de color).
+**Hecho:** `meshio.load_figure` despacha `.fbx` a `fbxio.load_textured(...).to_trimesh()` y sigue el flujo de siempre; `LoadReport.color_source_path` (un `str`, vacío con STL) guarda la ruta. `cli.run(..., sin_color=False)`: con FBX de entrada arma la fuente con `FigureFrame.from_load(rep, front, symmetry)` (sin alineación por similitud: `alineacion = {"modo": "A", "ok": True}`); si la reparación remalló, `eps` sube a `max(eps, 0,3)` y avisa (`color.aviso_remallada` en es/en/pt). `make_colorizer` acepta `frame=`. CLI: `afm build x.fbx` usa el color solo; `--sin-color` lo usa como geometría. `tests/test_mode_a.py` (8 pruebas, ≈ 72 s, muñeco sintético).
+**Medido (muñeco, texel 0,4 mm):** volúmenes de las piezas por FBX vs. STL dentro de ± 0,5 %; 0 piezas `sin_origen`; FBX sin textura: figura sin color y validación OK; flujo STL y modo B sin cambios.
+**No verificado:** Güemes real por modo A (lo cubre T27); FBX con varias mallas (usa la primera, con aviso); `crown_z` del proyecto en unidades FBX (la prueba usa el muñeco sin `crown_z`).
+
+### Todo List
+- [x] T09 · [x] T10–T16 (T20 no se hace) · [x] T17 · [x] T18 · [x] T19 · [x] T21
+- [ ] T22–T30
+
+### Latest Blockers/Discoveries
+- Ninguno bloqueante. Camino abierto: T22 (◄ T21), T23 (libre), T27 (◄ T21), T28 (◄ T15).
+
 ## Current Focus — Color FBX: T19 (2026-11-19, sobre main c98a02b)
 **Objetivo:** color correcto con base aplanada (`--sin-soportes`), con `limbs_right` y con piezas de catálogo sin origen.
 **Hecho:** `tests/test_color_cases.py` (7 pruebas, ≈ 42 s, muñeco) y `tests/test_color_egon.py` (5 pruebas con Egon real, solo con `AFM_SLOW=1`). **No hizo falta tocar `colorreg.py` ni `colorexport.py`:** el registro ya hallaba la pose con base aplanada, con `res.right` y con piezas de catálogo.
