@@ -28,7 +28,7 @@ from ..limbs import CROSS_THICKNESS_MM, LimbCut, LimbSpec, PinPreview, check_lim
 from ..params import PinSpec
 
 from ..planes import Plane, floor_height, floor_plane
-from ..project import Project
+from ..project import ColorSpec, Project
 
 ARM_SLAB_MM = 12 * 1.653      # losa del brazo: 12 mm del tutorial a la escala final (plan §5.1)
 from ..trims import Trim
@@ -102,6 +102,17 @@ def fbx_summary(tm) -> dict:
             "materiales": n_mat, "avisos": avisos}
 
 
+class ColorSourceError(ValueError):
+    """El FBX de la fuente de color no está en su ruta o no es el mismo archivo con el que se armó el proyecto (hash distinto)."""
+
+
+def color_rows(color_files: dict | None) -> list[tuple[str, float, str]]:
+    """Filas del informe de color de un export: (pieza, % con origen, estado), de `files["color"]` (`Colorizer.write`). Vacío sin color."""
+    if not color_files:
+        return []
+    return [(name, float(i.get("pct_origen", 0.0)), str(i.get("estado", ""))) for name, i in sorted(color_files.get("piezas", {}).items())]
+
+
 def json_sig(obj) -> str:
     """Firma de texto de un dict/lista con arreglos de numpy (para saber si algo cambió)."""
     return json.dumps(obj, sort_keys=True, default=lambda o: np.asarray(o).tolist())
@@ -138,6 +149,8 @@ class Session:
 
             self.color_source = fbxio.load_textured(rep.color_source_path)
             self.fbx_summary = fbx_summary(self.color_source)
+            if self.project.color is None:           # el FBX ES la fuente de color: el proyecto la recuerda (ruta y hash); «Quitar color» la borra
+                self.project.color = ColorSpec.from_file(rep.color_source_path)
         self.project.crown_z = crown_z
         self.outcome = None
         self._rebuild_frames()
@@ -151,6 +164,44 @@ class Session:
         texto = tr("session.resumen_fbx", tri=f"{sm['triangulos']:,}".replace(",", "."), islas=sm["islas_uv"],
                    texturas=", ".join(sm["texturas"]) or tr("session.ninguna"))
         return " ".join([texto, *sm["avisos"]])
+
+    # ------------------------------------------------------------------ color
+    def resolve_color_source(self) -> str:
+        """Ruta real del FBX de `project.color`: la guardada o, si es relativa, la de junto al proyecto. `ColorSourceError` si no existe
+        o su hash no coincide con el guardado (otro archivo: hay que relocalizarlo, ver `ColorSpec.matches`)."""
+        spec = self.project.color
+        if spec is None:
+            raise ColorSourceError(tr("session.color_sin_fuente"))
+        cands = [spec.source_path]
+        if self.project_path and not os.path.isabs(spec.source_path):
+            cands.append(os.path.join(os.path.dirname(os.path.abspath(self.project_path)), spec.source_path))
+        found = next((c for c in cands if c and os.path.isfile(c)), None)
+        if found is None:
+            raise ColorSourceError(tr("session.color_fbx_no_existe", ruta=spec.source_path))
+        if spec.source_sha256 and not spec.matches(found):
+            raise ColorSourceError(tr("session.color_fbx_distinto", ruta=found))
+        return found
+
+    def make_colorizer(self, progress=None):
+        """(Colorizer | None, info) para exportar con color según `project.color` (lo mismo que hace `cli.run`): modo A con el marco del
+        FBX abierto; modo B alineando el FBX contra la figura tal como se cargó. (None, None) sin `project.color`."""
+        spec = self.project.color
+        if spec is None:
+            return None, None
+        from ..cli import make_colorizer
+        from ..frame import FigureFrame
+
+        say = progress or (lambda *_: None)
+        color = {"fbx": self.resolve_color_source(), "texel_mm": spec.texel_mm, "eps": spec.eps, "fill": spec.fill, "symmetric": spec.symmetric}
+        prj, rep = self.project, self.report
+        if rep is not None and rep.color_source_path:                   # modo A
+            color["fbx"] = rep.color_source_path
+            if rep.remeshed:
+                color["eps"] = max(float(color["eps"]), 0.3)
+            return make_colorizer(color, None, prj.params, say, frame=FigureFrame.from_load(rep, prj.front, prj.symmetry))
+        if self.base is None:
+            raise ColorSourceError(tr("session.color_sin_fuente"))
+        return make_colorizer(color, self.base.copy(), prj.params, say, post=FigureFrame.engine_post(prj.front, prj.symmetry))
 
     @property
     def loaded(self) -> bool:
@@ -2531,9 +2582,11 @@ class Session:
         from ..accessories import finish_export, load_project_items
 
         items = load_project_items(self.project, progress=progress)              # las armas viajan con la figura
+        colorize, color_info = self.make_colorizer(progress)                    # None sin `project.color`: la llamada queda como siempre
+        extra = {"colorize": colorize} if colorize is not None else {}
         files = P.export(self.outcome.result, outdir, name, orient=orient, max_angle=max_angle,
                          flat=self.project.params.flat_depth if flat else None, params=self.project.params,
-                         progress=progress, extras=[i["mesh"] for i in items])
+                         progress=progress, extras=[i["mesh"] for i in items], **extra)
         acc_info = finish_export(items, outdir, name, progress)
         if acc_info:
             files["accesorios"] = [a["archivo"] for a in acc_info]
@@ -2542,6 +2595,8 @@ class Session:
         info = {"validacion": self.outcome.validation, "construccion": self.outcome.result.report, "archivos": files}
         if acc_info:
             info["accesorios"] = acc_info
+        if color_info is not None:
+            info["color"] = {**color_info, **({"salida": files["color"]} if "color" in files else {})}
         with open(os.path.join(outdir, f"{name}_informe.json"), "w") as f:
             json.dump(info, f, indent=2, default=float)
         self.save_project(os.path.join(outdir, f"{name}.proyecto"))

@@ -8,7 +8,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk  # noqa: E402
 
 from .. import param_meta as PM
-from ..controller import JOINT_PREVIEW_FLEX_MAX, JOINT_PREVIEW_FLEX_MIN, PARAM_FIELDS
+from ..controller import Controller, JOINT_PREVIEW_FLEX_MAX, JOINT_PREVIEW_FLEX_MIN, PARAM_FIELDS
 from ..session import Session
 from ..widgets import collapsible as _collapsible
 from ..widgets import help_note as _help
@@ -70,6 +70,39 @@ def build(win) -> None:
             groups[PM.group_of(key)].append(win._param_row(key, label, lo, hi, step, digits))
     win.lbl_param_none = Gtk.Label(label=tr("parametros.ningun_parametro_coincide_con_la_busqueda"), xalign=0, visible=False)
     sec.append(win.lbl_param_none)
+
+    sec = _collapsible(box, tr("common.color"), expanded=False)
+    _help(sec, tr("color.panel_ayuda"))
+    win.lbl_color = Gtk.Label(label="", xalign=0, wrap=True, selectable=True)
+    sec.append(win.lbl_color)
+    row = Gtk.Box(spacing=6)
+    win.btn_color_pick = win._button(tr("color.panel_elegir_fbx"), lambda *_: win._on_color_pick())
+    win.btn_color_relocate = win._button(tr("color.panel_relocalizar"), lambda *_: win._on_color_relocate())
+    win.btn_color_remove = win._button(tr("color.panel_quitar"), lambda *_: win.ctrl.remove_color())
+    for b in (win.btn_color_pick, win.btn_color_relocate, win.btn_color_remove):
+        row.append(b)
+    sec.append(row)
+    win.spin_color_texel = win._color_spin(sec, tr("color.panel_texel"), Controller.COLOR_TEXEL_RANGE, 0.05, 2, "texel_mm")
+    win.spin_color_eps = win._color_spin(sec, tr("color.panel_tolerancia"), Controller.COLOR_EPS_RANGE, 0.01, 2, "eps")
+    row = Gtk.Box(spacing=6)
+    row.append(Gtk.Label(label=tr("color.panel_relleno"), xalign=0, hexpand=True, wrap=True))
+    win.dd_color_fill = Gtk.DropDown.new_from_strings([tr("color.panel_relleno_extender"), tr("color.panel_relleno_plano")])
+    win.dd_color_fill.connect("notify::selected", lambda *_: win._on_color_fill())
+    row.append(win.dd_color_fill)
+    win.ent_color_fill = Gtk.Entry(text="#C8C8C8", width_chars=9, max_width_chars=9)
+    win.ent_color_fill.connect("activate", lambda *_: win._on_color_fill())
+    row.append(win.ent_color_fill)
+    sec.append(row)
+    row = Gtk.Box(spacing=6)
+    row.append(Gtk.Label(label=tr("color.panel_lado"), xalign=0, hexpand=True, wrap=True))
+    win.dd_color_side = Gtk.DropDown.new_from_strings([tr("color.panel_lado_original"), tr("color.panel_lado_simetrico")])
+    win.dd_color_side.connect("notify::selected", lambda *_: None if win._updating else win.ctrl.update_color(symmetric=win.dd_color_side.get_selected() == 1))
+    row.append(win.dd_color_side)
+    sec.append(row)
+    sec.append(Gtk.Label(label=tr("color.panel_tabla"), xalign=0, wrap=True))
+    win.lbl_color_report = Gtk.Label(label="", xalign=0, wrap=True, selectable=True)
+    win.lbl_color_report.add_css_class("monospace")
+    sec.append(win.lbl_color_report)
 
     sec = _collapsible(box, tr("parametros.vista_previa_de_la_articulacion"), expanded=False)
     _help(sec, tr("parametros.arma_solo_la_rodilla_el_codo"))

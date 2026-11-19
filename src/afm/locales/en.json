@@ -143,7 +143,8 @@
   "escalar_la_figura_a_la_altura": "Scale the figure to the line height",
   "sin_catalogo_abierto": "No catalog open",
   "si": "yes",
-  "no": "no"
+  "no": "no",
+  "color": "Color"
  },
  "catalog_manager": {
   "todos_los_tipos": "(all types)",
@@ -914,7 +915,25 @@
   "lado_izquierdo_activo": "Editing the left side (+X).",
   "lado_derecho_activo": "Editing the right side (−X). The figure is shown mirrored: the right side sits at +X so every tool works the same way.",
   "cortes_asimetricos_activados": "Per-side cuts enabled: the right side starts as a mirrored copy of the left one.",
-  "cortes_asimetricos_desactivados": "Symmetric cuts: the right side is mirrored from the left again."
+  "cortes_asimetricos_desactivados": "Symmetric cuts: the right side is mirrored from the left again.",
+  "color_elegi_un_fbx_existente": "Pick an FBX file that exists.",
+  "color_activado_con_ruta": "Color enabled with %{ruta}.",
+  "color_primero_elegi_un_fbx": "Pick an FBX for the color first.",
+  "color_campo_desconocido": "Unknown color field: %{campo}.",
+  "color_texel": "Texel size",
+  "color_tolerancia": "Tolerance",
+  "color_relleno_invalido": "Invalid fill «%{valor}»: use «extend» or a #RRGGBB color.",
+  "color_actualizado": "Color updated.",
+  "color_quitado": "Color removed: the figure is exported without color.",
+  "color_no_es_el_mismo_fbx": "«%{ruta}» is not the same FBX the project was built with.",
+  "color_fbx_relocalizado": "Color FBX relocated: %{ruta}.",
+  "color_sin_color": "No color.",
+  "color_relleno_extender": "extend the neighboring color",
+  "color_lado_simetrico": "symmetric sides",
+  "color_lado_original": "original side",
+  "color_resumen": "Color from %{fbx} · texel %{texel} mm · tolerance %{eps} mm · fill: %{relleno} · %{lado}.",
+  "color_exportado_n_piezas": "Color: %{n} pieces.",
+  "color_omitido_motivo": "Color skipped (%{motivo})."
  },
  "figure_builder": {
   "torso": "Torso",
@@ -1238,7 +1257,10 @@
   "asimetrica_no_con_catalogo": "Per-side cuts cannot be combined with catalog parts yet.",
   "lado_invalido": "The side must be “left” or “right”.",
   "primero_activa_los_cortes_distintos": "Enable “Different cuts for each side” first.",
-  "volve_al_lado_izquierdo_para_generar": "Go back to the left side to generate the figure."
+  "volve_al_lado_izquierdo_para_generar": "Go back to the left side to generate the figure.",
+  "color_sin_fuente": "The project has no color source.",
+  "color_fbx_no_existe": "The color FBX «%{ruta}» was not found: relocate it in Parameters › Color.",
+  "color_fbx_distinto": "The FBX «%{ruta}» is not the file the project was built with (hash mismatch)."
  },
  "step_state": {
   "y_v_mas": "and %{v} more",
@@ -1726,6 +1748,22 @@
   "cargando_fuente": "Preparing the colour source…",
   "resumen": "Colour: %{n} parts in %{carpeta}/ (%{s} s)",
   "error_no_existe": "--color-desde: the file «%{ruta}» does not exist",
-  "error_fbx": "ERROR (FBX): %{err}"
+  "error_fbx": "ERROR (FBX): %{err}",
+  "panel_ayuda": "The color comes from a textured FBX of the same figure. STL files do not change: color goes in separate files (piezas_color/ and the GLB).",
+  "panel_elegir_fbx": "Use an FBX for the color…",
+  "panel_relocalizar": "Relocate the FBX…",
+  "panel_quitar": "Remove color",
+  "panel_texel": "Texel size (mm)",
+  "panel_tolerancia": "Tolerance to the original (mm)",
+  "panel_relleno": "New surfaces (cuts, cavities)",
+  "panel_relleno_extender": "Extend the neighboring color",
+  "panel_relleno_plano": "Flat color",
+  "panel_lado": "Right side",
+  "panel_lado_original": "Keep the original color",
+  "panel_lado_simetrico": "Copy the left side",
+  "panel_tabla": "Last export report (piece · % with origin · state)",
+  "panel_fila": "%{pieza}: %{pct} % · %{estado}",
+  "panel_titulo_dialogo": "FBX with texture",
+  "panel_filtro_fbx": "FBX files"
  }
 }

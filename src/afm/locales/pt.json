@@ -143,7 +143,8 @@
   "escalar_la_figura_a_la_altura": "Escalar a figura para a altura da linha",
   "sin_catalogo_abierto": "Sem catálogo aberto",
   "si": "sim",
-  "no": "não"
+  "no": "não",
+  "color": "Cor"
  },
  "catalog_manager": {
   "todos_los_tipos": "(todos os tipos)",
@@ -914,7 +915,25 @@
   "lado_izquierdo_activo": "Editando o lado esquerdo (+X).",
   "lado_derecho_activo": "Editando o lado direito (−X). A figura aparece espelhada: o lado direito fica em +X, assim todas as ferramentas funcionam igual.",
   "cortes_asimetricos_activados": "Cortes diferentes por lado ativados: o lado direito começa como cópia espelhada do esquerdo.",
-  "cortes_asimetricos_desactivados": "Cortes simétricos: o lado direito volta a sair por espelho do esquerdo."
+  "cortes_asimetricos_desactivados": "Cortes simétricos: o lado direito volta a sair por espelho do esquerdo.",
+  "color_elegi_un_fbx_existente": "Escolha um arquivo FBX que exista.",
+  "color_activado_con_ruta": "Cor ativada com %{ruta}.",
+  "color_primero_elegi_un_fbx": "Escolha primeiro um FBX para a cor.",
+  "color_campo_desconocido": "Campo de cor desconhecido: %{campo}.",
+  "color_texel": "Tamanho do texel",
+  "color_tolerancia": "Tolerância",
+  "color_relleno_invalido": "Preenchimento inválido «%{valor}»: use «extend» ou uma cor #RRGGBB.",
+  "color_actualizado": "Cor atualizada.",
+  "color_quitado": "Cor removida: a figura é exportada sem cor.",
+  "color_no_es_el_mismo_fbx": "«%{ruta}» não é o mesmo FBX com que o projeto foi montado.",
+  "color_fbx_relocalizado": "FBX de cor relocalizado: %{ruta}.",
+  "color_sin_color": "Sem cor.",
+  "color_relleno_extender": "estender a cor vizinha",
+  "color_lado_simetrico": "lado simétrico",
+  "color_lado_original": "lado original",
+  "color_resumen": "Cor de %{fbx} · texel %{texel} mm · tolerância %{eps} mm · preenchimento: %{relleno} · %{lado}.",
+  "color_exportado_n_piezas": "Cor: %{n} peças.",
+  "color_omitido_motivo": "Cor omitida (%{motivo})."
  },
  "figure_builder": {
   "torso": "Torso",
@@ -1238,7 +1257,10 @@
   "asimetrica_no_con_catalogo": "Os cortes diferentes por lado ainda não se combinam com peças de catálogo.",
   "lado_invalido": "O lado deve ser “left” ou “right”.",
   "primero_activa_los_cortes_distintos": "Ative primeiro “Cortes diferentes para cada lado”.",
-  "volve_al_lado_izquierdo_para_generar": "Volte ao lado esquerdo para gerar a figura."
+  "volve_al_lado_izquierdo_para_generar": "Volte ao lado esquerdo para gerar a figura.",
+  "color_sin_fuente": "O projeto não tem fonte de cor.",
+  "color_fbx_no_existe": "O FBX de cor «%{ruta}» não foi encontrado: relocalize-o em Parâmetros › Cor.",
+  "color_fbx_distinto": "O FBX «%{ruta}» não é o arquivo com que o projeto foi montado (o hash não coincide)."
  },
  "step_state": {
   "y_v_mas": "e mais %{v}",
@@ -1726,6 +1748,22 @@
   "cargando_fuente": "Preparando a fonte de cor…",
   "resumen": "Cor: %{n} peças em %{carpeta}/ (%{s} s)",
   "error_no_existe": "--color-desde: o arquivo «%{ruta}» não existe",
-  "error_fbx": "ERRO (FBX): %{err}"
+  "error_fbx": "ERRO (FBX): %{err}",
+  "panel_ayuda": "A cor vem de um FBX com textura da mesma figura. Os STL não mudam: a cor vai em arquivos separados (piezas_color/ e o GLB).",
+  "panel_elegir_fbx": "Usar um FBX para a cor…",
+  "panel_relocalizar": "Relocalizar o FBX…",
+  "panel_quitar": "Remover cor",
+  "panel_texel": "Tamanho do texel (mm)",
+  "panel_tolerancia": "Tolerância ao original (mm)",
+  "panel_relleno": "Superfícies novas (cortes, cavidades)",
+  "panel_relleno_extender": "Estender a cor vizinha",
+  "panel_relleno_plano": "Cor plana",
+  "panel_lado": "Lado direito",
+  "panel_lado_original": "Respeitar a cor original",
+  "panel_lado_simetrico": "Copiar o do lado esquerdo",
+  "panel_tabla": "Relatório da última exportação (peça · % com origem · estado)",
+  "panel_fila": "%{pieza}: %{pct} % · %{estado}",
+  "panel_titulo_dialogo": "FBX com textura",
+  "panel_filtro_fbx": "Arquivos FBX"
  }
 }

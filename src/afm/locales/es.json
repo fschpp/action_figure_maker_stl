@@ -143,7 +143,8 @@
   "escalar_la_figura_a_la_altura": "Escalar la figura a la altura de la línea",
   "sin_catalogo_abierto": "Sin catálogo abierto",
   "si": "sí",
-  "no": "no"
+  "no": "no",
+  "color": "Color"
  },
  "catalog_manager": {
   "todos_los_tipos": "(todos los tipos)",
@@ -914,7 +915,25 @@
   "lado_izquierdo_activo": "Editando el lado izquierdo (+X).",
   "lado_derecho_activo": "Editando el lado derecho (−X). La figura se ve espejada: el lado derecho queda a +X, así todas las herramientas funcionan igual.",
   "cortes_asimetricos_activados": "Cortes distintos por lado activados: el lado derecho empieza como copia espejada del izquierdo.",
-  "cortes_asimetricos_desactivados": "Cortes simétricos: el lado derecho vuelve a salir por espejo del izquierdo."
+  "cortes_asimetricos_desactivados": "Cortes simétricos: el lado derecho vuelve a salir por espejo del izquierdo.",
+  "color_elegi_un_fbx_existente": "Elegí un archivo FBX que exista.",
+  "color_activado_con_ruta": "Color activado con %{ruta}.",
+  "color_primero_elegi_un_fbx": "Primero elegí un FBX para el color.",
+  "color_campo_desconocido": "Campo de color desconocido: %{campo}.",
+  "color_texel": "Tamaño de texel",
+  "color_tolerancia": "Tolerancia",
+  "color_relleno_invalido": "Relleno de color inválido «%{valor}»: usá «extend» o un color #RRGGBB.",
+  "color_actualizado": "Color actualizado.",
+  "color_quitado": "Color quitado: la figura se exporta sin color.",
+  "color_no_es_el_mismo_fbx": "«%{ruta}» no es el mismo FBX con el que se armó el proyecto.",
+  "color_fbx_relocalizado": "FBX de color relocalizado: %{ruta}.",
+  "color_sin_color": "Sin color.",
+  "color_relleno_extender": "extender el color vecino",
+  "color_lado_simetrico": "lado simétrico",
+  "color_lado_original": "lado original",
+  "color_resumen": "Color desde %{fbx} · texel %{texel} mm · tolerancia %{eps} mm · relleno: %{relleno} · %{lado}.",
+  "color_exportado_n_piezas": "Color: %{n} piezas.",
+  "color_omitido_motivo": "Color omitido (%{motivo})."
  },
  "figure_builder": {
   "torso": "Torso",
@@ -1238,7 +1257,10 @@
   "asimetrica_no_con_catalogo": "Los cortes distintos por lado todavía no se combinan con piezas de catálogo.",
   "lado_invalido": "El lado tiene que ser «left» o «right».",
   "primero_activa_los_cortes_distintos": "Primero activá «Cortes distintos para cada lado».",
-  "volve_al_lado_izquierdo_para_generar": "Volvé al lado izquierdo para generar la figura."
+  "volve_al_lado_izquierdo_para_generar": "Volvé al lado izquierdo para generar la figura.",
+  "color_sin_fuente": "El proyecto no tiene fuente de color.",
+  "color_fbx_no_existe": "No se encuentra el FBX de color «%{ruta}»: relocalizalo en Parámetros › Color.",
+  "color_fbx_distinto": "El FBX «%{ruta}» no es el mismo archivo con el que se armó el proyecto (el hash no coincide)."
  },
  "step_state": {
   "y_v_mas": "y %{v} más",
@@ -1726,6 +1748,22 @@
   "cargando_fuente": "Preparando la fuente de color…",
   "resumen": "Color: %{n} piezas en %{carpeta}/ (%{s} s)",
   "error_no_existe": "--color-desde: no existe el archivo «%{ruta}»",
-  "error_fbx": "ERROR (FBX): %{err}"
+  "error_fbx": "ERROR (FBX): %{err}",
+  "panel_ayuda": "El color sale de un FBX con textura de la misma figura. Los STL no cambian: el color va en archivos aparte (piezas_color/ y el GLB).",
+  "panel_elegir_fbx": "Usar un FBX para el color…",
+  "panel_relocalizar": "Relocalizar el FBX…",
+  "panel_quitar": "Quitar color",
+  "panel_texel": "Tamaño de texel (mm)",
+  "panel_tolerancia": "Tolerancia al original (mm)",
+  "panel_relleno": "Superficies nuevas (cortes, cavidades)",
+  "panel_relleno_extender": "Extender el color vecino",
+  "panel_relleno_plano": "Color plano",
+  "panel_lado": "Lado derecho",
+  "panel_lado_original": "Respetar el color original",
+  "panel_lado_simetrico": "Copiar el del lado izquierdo",
+  "panel_tabla": "Informe del último export (pieza · % con origen · estado)",
+  "panel_fila": "%{pieza}: %{pct} % · %{estado}",
+  "panel_titulo_dialogo": "FBX con textura",
+  "panel_filtro_fbx": "Archivos FBX"
  }
 }

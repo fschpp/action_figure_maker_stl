@@ -34,7 +34,7 @@ from .picking import Picker, PickResult
 from .polygon_editor import EDGE_PX, VERTEX_PX, PolygonDraft, ray_plane_uv
 from ..progress import TaskCancelled
 from .history import History
-from .session import Session, json_sig
+from .session import ColorSourceError, Session, color_rows, json_sig
 from ..messages import fill_hip_message   # noqa: F401  (se mantiene importable desde aquí; vive fuera de gui/ para que la CLI y el motor no dependan de la GUI)
 
 SYMMETRY_ID = "simetria"
@@ -292,6 +292,7 @@ class Controller:
         self.weapon = None                           # weapon_session.WeaponSession del arma que se está importando (None = ninguna)
         self.weapon_active = False                   # el visor muestra el arma en lugar de la figura
         self.weapon_catalog = ""                     # carpeta del catálogo de la línea para armas y accesorios del proyecto
+        self.color_report: dict | None = None        # `files["color"]` del último export con color (None = sin color o sin exportar)
         self._grip_fit_cache: tuple = (None, None)   # ((ruta, mtime), GripFit | None) de la mano pegada
         self._grip_prop_cache: tuple = (None, None)  # (clave, malla en el mundo)
         self._grip_prop_error = ""
@@ -3352,6 +3353,102 @@ class Controller:
         if self.hover_vertex is not None and self.hover_active():
             scene.set_points("hover:vertice", self.hover_vertex[None], (1.0, 0.0, 0.0, 1.0), 18.0, on_top=True)
 
+    # ------------------------------------------------------------------ color (FBX con textura, plan de color T25)
+    COLOR_TEXEL_RANGE = (0.05, 1.0)                  # mm por texel del atlas de cada pieza
+    COLOR_EPS_RANGE = (0.02, 1.0)                    # mm: distancia para decir que un punto «viene» de la figura original
+
+    def color_spec(self):
+        """`ColorSpec` del proyecto (None = la figura sale sin color)."""
+        return self.session.project.color
+
+    def _valid_color_fill(self, fill: str) -> bool:
+        return fill == "extend" or bool(re.fullmatch(r"#[0-9A-Fa-f]{6}", fill))
+
+    def set_color(self, path: str | None = None, **kw) -> bool:
+        """Activa el color con el FBX `path` (por defecto, el FBX abierto en modo A). `kw`: `texel_mm`, `eps`, `fill`, `symmetric`.
+        No invalida la figura generada: el color no cambia la geometría."""
+        from ..project import ColorSpec
+
+        path = path or (self.session.report.color_source_path if self.session.report is not None else "")
+        if not path or not os.path.isfile(path):
+            self._changed(tr("controller.color_elegi_un_fbx_existente"), scene=False)
+            return False
+        base = self.color_spec()
+        spec = ColorSpec.from_file(os.path.abspath(path), **({"eps": base.eps, "texel_mm": base.texel_mm, "fill": base.fill,
+                                                              "symmetric": base.symmetric} if base else {}))
+        self.session.project.color = spec
+        if kw and not self.update_color(**kw):
+            return False
+        self.color_report = None
+        self._changed(tr("controller.color_activado_con_ruta", ruta=os.path.basename(path)), scene=False)
+        return True
+
+    def update_color(self, **kw) -> bool:
+        """Cambia `texel_mm`, `eps`, `fill` («extend» o «#RRGGBB») o `symmetric` del color. False (y el motivo en `message`) si no vale."""
+        spec = self.color_spec()
+        if spec is None:
+            self._changed(tr("controller.color_primero_elegi_un_fbx"), scene=False)
+            return False
+        unknown = set(kw) - {"texel_mm", "eps", "fill", "symmetric"}
+        if unknown:
+            self._changed(tr("controller.color_campo_desconocido", campo=", ".join(sorted(unknown))), scene=False)
+            return False
+        for key, rng, label in (("texel_mm", self.COLOR_TEXEL_RANGE, tr("controller.color_texel")), ("eps", self.COLOR_EPS_RANGE, tr("controller.color_tolerancia"))):
+            if key in kw and not (rng[0] - 1e-9 <= float(kw[key]) <= rng[1] + 1e-9):
+                self._changed(tr("controller.label_value_esta_fuera_de_rango", label=label, value=f"{float(kw[key]):g}", lo=f"{rng[0]:g}", hi=f"{rng[1]:g}"), scene=False)
+                return False
+        if "fill" in kw and not self._valid_color_fill(str(kw["fill"])):
+            self._changed(tr("controller.color_relleno_invalido", valor=kw["fill"]), scene=False)
+            return False
+        for key, value in kw.items():
+            setattr(spec, key, bool(value) if key == "symmetric" else (str(value) if key == "fill" else float(value)))
+        self._changed(tr("controller.color_actualizado"), scene=False)
+        return True
+
+    def remove_color(self) -> bool:
+        """«Quitar color»: la figura se exporta sin color (los STL no cambian). El FBX no se borra."""
+        if self.color_spec() is None:
+            return False
+        self.session.project.color = None
+        self.color_report = None
+        self._changed(tr("controller.color_quitado"), scene=False)
+        return True
+
+    def relocate_color(self, path: str) -> bool:
+        """El FBX de la fuente cambió de lugar: se acepta `path` solo si es el mismo archivo (hash guardado en el proyecto)."""
+        spec = self.color_spec()
+        if spec is None or not os.path.isfile(path):
+            self._changed(tr("controller.color_elegi_un_fbx_existente"), scene=False)
+            return False
+        if not spec.matches(path):
+            self._changed(tr("controller.color_no_es_el_mismo_fbx", ruta=os.path.basename(path)), scene=False)
+            return False
+        spec.source_path = os.path.abspath(path)
+        self._changed(tr("controller.color_fbx_relocalizado", ruta=os.path.basename(path)), scene=False)
+        return True
+
+    def color_source_problem(self) -> str | None:
+        """Por qué el color no se puede usar al exportar (FBX perdido o cambiado); None si está bien o no hay color."""
+        if self.color_spec() is None:
+            return None
+        try:
+            self.session.resolve_color_source()
+        except ColorSourceError as exc:
+            return str(exc)
+        return None
+
+    def color_report_rows(self) -> list[tuple[str, float, str]]:
+        """(pieza, % con origen, estado) del último export con color, para la tabla del panel «Color»."""
+        return color_rows(self.color_report)
+
+    def color_summary(self) -> str:
+        spec = self.color_spec()
+        if spec is None:
+            return tr("controller.color_sin_color")
+        fill = tr("controller.color_relleno_extender") if spec.fill == "extend" else spec.fill
+        side = tr("controller.color_lado_simetrico") if spec.symmetric else tr("controller.color_lado_original")
+        return tr("controller.color_resumen", fbx=os.path.basename(spec.source_path), texel=f"{spec.texel_mm:g}", eps=f"{spec.eps:g}", relleno=fill, lado=side)
+
     # ------------------------------------------------------------------ accesorios del proyecto (viajan con la figura)
     def _accessory_catalog(self):
         """Catálogo de donde salen los accesorios: el elegido para armas, el abierto en la ventana o el último usado (None si no hay)."""
@@ -4729,6 +4826,10 @@ class Controller:
         if self.session.outcome is None:
             self._changed(tr("controller.primero_genera_la_figura_los_cambios"), scene=False)
             return None
+        problem = self.color_source_problem()          # un FBX perdido o cambiado se sabe antes de empezar, no a mitad de la exportación
+        if problem:
+            self._changed(problem, scene=False)
+            return None
         self.busy = True
         self._changed(tr("controller.exportando_las_piezas_puede_tardar"), scene=False)
         sess, angle = self.session, self.overhang_angle
@@ -4741,6 +4842,7 @@ class Controller:
             self._changed(tr("controller.fallo_la_exportacion_error", error=error), scene=False)
             return None
         files = info["archivos"]
+        self.color_report = files.get("color")
         msg = tr("controller.exportado_en_outdir_ensamblada_n_piezas", outdir=outdir, n=len(files['piezas']))
         ori = files.get("orientacion")
         if ori:
@@ -4753,6 +4855,11 @@ class Controller:
             msg += fill_hip_message(ss, self.session.project.params.flat_fill_hip)
             if ss["avisos"]:
                 msg += (' ' + tr("controller.aviso") + ' ') + "; ".join(ss["avisos"])
+        omitted = (info.get("color") or {}).get("omitido")
+        if self.color_report:
+            msg += ' ' + tr("controller.color_exportado_n_piezas", n=len(self.color_report.get("piezas", {})))
+        elif omitted:
+            msg += ' ' + tr("controller.color_omitido_motivo", motivo=omitted)
         self._changed(msg, scene=False)
         return info
 

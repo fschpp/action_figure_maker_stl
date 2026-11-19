@@ -591,6 +591,7 @@ class MainWindow(Gtk.ApplicationWindow):
                 if abs(spin.get_value() - ctrl.get_param(key)) > 1e-9:
                     spin.set_value(ctrl.get_param(key))
             self._sync_param_marks()
+            self._refresh_color()
             # la altura se sincroniza solo cuando cambia en el proyecto (abrir proyecto, aplicar): lo tipeado no se pisa
             ref = ctrl.session.project.params.ref_height
             if abs(ref - self._shown_height) > 1e-9:
@@ -2308,6 +2309,60 @@ class MainWindow(Gtk.ApplicationWindow):
 
     def _on_weapon_save(self, *_):
         self.ctrl.save_weapon(self.ent_weapon_id.get_text().strip() or None, self.chk_weapon_ver.get_active())
+
+    # ------------------------------------------------------- color (FBX con textura)
+    def _color_spin(self, parent, label: str, rng, step: float, digits: int, field: str) -> Gtk.SpinButton:
+        row = Gtk.Box(spacing=6)
+        row.append(Gtk.Label(label=label, xalign=0, hexpand=True, wrap=True))
+        spin = Gtk.SpinButton.new_with_range(rng[0], rng[1], step)
+        spin.set_digits(digits)
+        spin.connect("value-changed", lambda b: None if self._updating else self.ctrl.update_color(**{field: b.get_value()}))
+        row.append(spin)
+        parent.append(row)
+        return spin
+
+    def _on_color_pick(self) -> None:
+        self._pick_file(tr("color.panel_titulo_dialogo"), ["*.fbx", "*.FBX"], tr("color.panel_filtro_fbx"), lambda path: self.ctrl.set_color(path))
+
+    def _on_color_relocate(self) -> None:
+        self._pick_file(tr("color.panel_titulo_dialogo"), ["*.fbx", "*.FBX"], tr("color.panel_filtro_fbx"), lambda path: self.ctrl.relocate_color(path))
+
+    def _on_color_fill(self) -> None:
+        if self._updating:
+            return
+        self.ctrl.update_color(fill="extend" if self.dd_color_fill.get_selected() == 0 else self.ent_color_fill.get_text().strip())
+
+    def _refresh_color(self) -> None:
+        """Sincroniza el bloque «Color» con `project.color` y el informe del último export (se llama dentro de `_refresh`)."""
+        ctrl = self.ctrl
+        spec = ctrl.color_spec()
+        txt = ctrl.color_summary()
+        problem = ctrl.color_source_problem()
+        if problem:
+            txt += "\n" + problem
+        if self.lbl_color.get_text() != txt:
+            self.lbl_color.set_text(txt)
+        free = not ctrl.busy
+        for w in (self.spin_color_texel, self.spin_color_eps, self.dd_color_fill, self.ent_color_fill, self.dd_color_side):
+            w.set_sensitive(bool(spec is not None and free))
+        self.btn_color_pick.set_sensitive(free)
+        self.btn_color_relocate.set_sensitive(bool(spec is not None and free))
+        self.btn_color_remove.set_sensitive(bool(spec is not None and free))
+        if spec is not None:
+            if abs(self.spin_color_texel.get_value() - spec.texel_mm) > 1e-9:
+                self.spin_color_texel.set_value(spec.texel_mm)
+            if abs(self.spin_color_eps.get_value() - spec.eps) > 1e-9:
+                self.spin_color_eps.set_value(spec.eps)
+            want = 0 if spec.fill == "extend" else 1
+            if self.dd_color_fill.get_selected() != want:
+                self.dd_color_fill.set_selected(want)
+            if spec.fill != "extend" and self.ent_color_fill.get_text() != spec.fill:
+                self.ent_color_fill.set_text(spec.fill)
+            if self.dd_color_side.get_selected() != int(spec.symmetric):
+                self.dd_color_side.set_selected(int(spec.symmetric))
+        rows = "\n".join(tr("color.panel_fila", pieza=n, pct=f"{p:.0f}", estado=e) for n, p, e in ctrl.color_report_rows())
+        if self.lbl_color_report.get_text() != rows:
+            self.lbl_color_report.set_text(rows)
 
     def _refill_project_accessories(self) -> None:
         """Una casilla por accesorio del catálogo, marcada con cómo se lleva con la mano pegada; solo se rehace si algo cambió."""
