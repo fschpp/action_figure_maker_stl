@@ -671,6 +671,19 @@ Detalles que conviene saber:
 * Sin catálogo abierto, o con un catálogo sin piezas con ese puerto, la mira dice «sin catálogo para comparar»; el pasador y los planos
   se eligen igual que siempre.
 
+### 7.8 Color propio de la cabeza y de las piezas de catálogo (FBX)
+
+Además del FBX de la figura entera (**Parámetros › Color**), la cabeza reemplazada y las piezas de catálogo pueden traer **su propio FBX con textura**. Los STL no cambian: el color sale en `piezas_color/` (OBJ+MTL+PNG por pieza) y en `<nombre>_ensamblada.glb`.
+
+**Estado de la interfaz:** hoy estos dos usos se configuran fuera de la ventana (todavía no hay botón «Color de la cabeza (FBX)» ni «Agregar color (FBX)»; son parte pendiente de T34/T35).
+
+* **Cabeza importada suelta.** En el `.proyecto`, dentro de `head`, además de `replacement_path` (el STL de la cabeza) se agrega `replacement_color_path` (su FBX) y, si querés que avise cuando el archivo cambie, `replacement_color_sha256`. La pieza `cabeza` sale con el color de **ese** FBX y el resto con el de la figura. Si el FBX falta o cambió, la cabeza sale con el color de la figura y se avisa; la exportación no se corta.
+* **Una cabeza que termina en el mentón (sin cuello plano).** El programa mide la base de la cabeza nueva para escalarla al cuello: si la base es la punta del mentón, la cabeza sale del tamaño del FBX (≈ 105 mm en vez de ≈ 25 mm). Definí el **plano de corte de la base** (`replacement_cut_points`, 3 puntos en coordenadas del STL de la cabeza) a la altura de la mandíbula. Revisá hacia dónde mira: si la cara queda del lado de la espalda, cambiá `replacement_yaw` en 180°.
+* **Pieza de catálogo con color.** Al catalogarla con `Catalog.add_piece(..., color_fbx=ruta)` el FBX se alinea con la malla y se guarda junto al STL (si no calza, no se escribe nada). Las piezas sin FBX siguen saliendo en color plano gris y el informe las marca «sin origen».
+* **Armar desde el catálogo** (`afm armar`) pasa solo las piezas que traen color; no hace falta ningún FBX de figura.
+
+Para comparar: `python tools/render_head_compare.py --fbx cabeza.fbx --glb salida/figura_ensamblada.glb --escala K --corte-y Y --out comparar.png` dibuja la fuente (arriba) y la pieza horneada (abajo) en tres vistas. `K` es `color.cabeza.escala` del informe de `afm build`.
+
 ## 8. Lista de planos
 
 Debajo de los botones aparece la lista de planos creados: **Simetría**, uno por cada miembro, la **cabeza** (cuello), la **cintura** y las articulaciones.

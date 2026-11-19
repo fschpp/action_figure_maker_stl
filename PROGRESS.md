@@ -2,6 +2,24 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — Color catálogo y cabeza: T37, cabeza real de Güemes (2026-11-19, sobre main b33e425)
+**Objetivo:** probar T34–T36 con una cabeza real (`examples/guemes_cabeza_textura.fbx`) sobre Güemes y dejar documentado.
+**Hecho:** `tests/test_color_head_guemes.py` (4 pruebas, `AFM_SLOW=1`, ≈ 95 s): cabeza con su FBX, tamaño de cabeza, cara hacia +Y y control negativo con yaw 0. `tools/render_head_compare.py` (fuente arriba, pieza horneada abajo; resultado en `docs/color_cabeza_guemes_comparar.png`). Docs: `PLAN_fbx_textura_color.md` §7.8 (ya implementado), `tutorial_gui.md` §7.8.
+**Cómo se armó (supuestos míos, a confirmar):** el repo no trae un STL de la cabeza: se usó la malla del FBX exportada como STL (10 102 vértices, no estanca; `_repaired` la arregla). Es Y arriba y termina en el mentón: `replacement_up="+Y"`, plano del cuello z = 94 en la figura, plano de corte de la base y = −28 en el FBX (mandíbula), `replacement_yaw=180`.
+**Medido (Güemes, texel 0,2 mm, eps 0,15):** `cabeza` fuente = pieza, estado identidad, **pct_origen 86,35 %**, puntaje de registro 0,854, atlas 2048×432, 7,3 s; escala k = 0,2944; alineación FBX→STL media 4·10⁻⁵ mm, máx 0,157 mm. Resto de piezas con `fuente = figura` (brazos 81–82 %, piernas 83 %, torso 54,3 %). Color total 14,3 s (corrida completa 44,5 s). OBJ de la cabeza 3,6 MB, PNG 300 KB. Render: el pelo, la barba y la piel salen del FBX de la cabeza; la distancia fuente→pieza en el render es 0,01 mm.
+**Hallazgos:**
+- Sin plano de corte, `fit_replacement` mide como base la punta del mentón y la cabeza sale de ≈ 105 mm (pct_origen 98,8 %, pero inservible). Con el corte mide 22 × 19 × 27 mm.
+- Mi primer yaw (0) salió con la cabeza **mirando hacia atrás**: lo elegí por distancia de forma contra la cabeza original (1,9 mm contra 2,16 mm con 180°), que no distingue bien. Lo vi en el render y lo corregí a 180°; la prueba nueva lo detecta.
+- `pct_origen` de la cabeza (86,35 %) pasa el umbral de 85 % por poco; no se relajó nada (R8). Aviso del motor: «la base de la cabeza importada coincide solo 58 % con la del cuello» (la base de la cabeza real no se parece a la del cuello original).
+- El torso baja de 66,04 % (Güemes sin cabeza reemplazada, misma corrida) a 54,3 % con la cabeza nueva. No lo investigué (¿cavidad del cuello más grande?).
+- **Falta la interfaz:** no hay botón «Color de la cabeza (FBX)» (T34) ni «Agregar color (FBX)» al catalogar (T35), ni opción en `afm catalogo`; hoy se hace con `.proyecto` y con `Catalog.add_piece(color_fbx=…)`. El tutorial lo dice.
+**No verificado:** T36 con una cabeza real catalogada (solo con FBX sintéticos y esferas); la importación del OBJ/GLB en Bambu Studio; `test_pipeline` completo. Regresión corrida: `test_color_catalog_head`, `test_golden`, `test_i18n`, `test_colorexport`, `test_head_replacement`: 69 pasan, 6 se saltan.
+
+### Todo List
+- [x] T31–T37 (T37 con las faltas de interfaz de arriba)
+
+---
+
 ## Current Focus — Color catálogo y cabeza: T33 (2026-11-19, sobre main 16c7e78)
 **Objetivo:** que la cabeza importada suelta entregue la transformación archivo→marco de la pieza (T33 de `PLAN_color_catalogo_cabeza.md`), para que T34 lleve el FBX de la cabeza a ese marco.
 **Hallazgo:** no hizo falta tocar `head.py`. `fit_replacement` ya devuelve `info["raw_a_mundo"]` (4×4 = `plane.matrix() @ A @ T_raw`: pre-escala, `up`, giros, corte, giro Z, escala k y traslación a la base del cuello), agregada con el plano de corte de 3 puntos (`b2e4c62`). Es archivo→**mundo**, que es el marco en que sale la pieza `cabeza`; el plan decía «marco del cuello» y es el mismo marco que usa el resto del armado. Falta de T33 solo la prueba de aceptación.

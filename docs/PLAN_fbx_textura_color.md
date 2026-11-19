@@ -62,7 +62,7 @@ Hoy la herramienta toma un STL (geometría sola) y entrega las piezas de una fig
 
 **Idea central [I]:** no arrastrar UV por booleanos y offsets (el offset por campo de distancia + marching cubes destruye la topología). Se conserva **intacta la malla original con textura como «fuente de color»** y, al final, a cada pieza se le **hornea** el color buscando, por cada punto de su superficie, el punto más cercano de la fuente. La prueba de concepto lo confirma en Güemes [M].
 
-**Alcance v1:** FBX binario con 1 malla y 1 material; textura de color base (las otras tres solo para vista previa); registro de piezas giradas; atlas PNG por pieza; salida OBJ+MTL+PNG por pieza y GLB ensamblado; visor con textura. **Fuera:** animación/skinning, varios materiales, imprimir en varios filamentos (T30, depende de P1), color propio de piezas de catálogo (gancho en §7.8).
+**Alcance v1:** FBX binario con 1 malla y 1 material; textura de color base (las otras tres solo para vista previa); registro de piezas giradas; atlas PNG por pieza; salida OBJ+MTL+PNG por pieza y GLB ensamblado; visor con textura. **Fuera:** animación/skinning, varios materiales, imprimir en varios filamentos (T30, depende de P1), color propio de piezas de catálogo (v1; después hecho en T31–T37, §7.8).
 
 ## 3. Datos medidos
 
@@ -253,7 +253,9 @@ Se consulta en las **posiciones reales** de la pieza: la derecha toma el color d
 (1) **Extender** (defecto): color del punto más cercano sin importar `d`. (2) **Color plano** (`#C8C8C8`). (3) **Máscara** e informe por pieza.
 
 ### 7.8 Piezas de catálogo
-Marcadas «sin origen», color plano. Gancho: `PieceMeta.color` opcional (no se implementa en v1).
+Sin color propio: «sin origen», color plano `#C8C8C8`. **Implementado en T31–T37** (`PLAN_color_catalogo_cabeza.md`): una pieza de catálogo puede llevar su propio FBX
+(`PieceMeta.color`: hash + similitud FBX→STL; `Catalog.add_piece(..., color_fbx=…)`), la cabeza importada suelta lleva el suyo
+(`HeadSpec.replacement_color_path`) y `afm armar` / `Colorizer(sources=…)` usan una fuente por pieza. Medido con la cabeza real de Güemes: ver `PROGRESS.md` (T37).
 
 ## 8. Interfaz
 
