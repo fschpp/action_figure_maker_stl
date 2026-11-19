@@ -2,6 +2,25 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — Paleta de línea: T41 (2026-11-19, sobre main 33d0917 = T40)
+**Objetivo:** guardar/leer el paquete de roles y hacer que un `TexturedMesh` con etiquetas se comporte como una fuente RGB cuyos únicos colores son los de la paleta (`PLAN_paleta_color_linea.md` T41). Sin tocar `bake_piece` ni `dilate`.
+**Hecho:** (1) `RolesPackage.save/load/problems/to_textured` en `colorroles.py`: `.npz` comprimido, `allow_pickle=False`, escritura por archivo temporal + `os.replace`, y validación de formato, formas, índices de caras, ids de rol y etiquetas (< `len(roles)` o 255); todo error es `RolesError`. (2) `TexturedMesh.labels` / `.lut` (opcionales, fuera de `==`), `sample_labels` y `nearest_label`: el color de base sale de `lut[etiqueta]` por **vecino más cercano** (columna ⌊u·ancho⌋, fila ⌊(1−v)·alto⌋, tope en los bordes); `transformed()` los conserva. (3) `ColorSource.sample_label` y `ColorSource.recolor(lut)`: cambia `sample_rgb` sin rehacer los árboles. `tests/test_roles_package.py` (9 pruebas, 2 s).
+**Decisiones (mías, fáciles de cambiar):** (1) `to_textured` deja en `images["base_color"]` un PNG del atlas ya coloreado (≈ 0,1 s): el muestreo no pasa por él, pero así siguen valiendo sin tocarlos los chequeos `"base_color" not in tm.images` de `colorpiece.py`, `cli.py` y `gui/session.py`, y el visor (`render.py`) puede mostrarlo. (2) `save` valida antes de escribir y se niega a guardar un paquete inválido. (3) `info["roles"]` e `info["origen"]` viajan en el `TexturedMesh`. (4) Las etiquetas viven en un atlas ≤ 2048² propio, independiente del tamaño de la textura del FBX: la convención de UV es la misma.
+**Medido:** regresión R7 + `test_colorpiece` + paleta + `test_colorroles`: 161 pasan, 2 se saltan, 1 xfail previo (157 s); `test_legacy_sampling_unchanged` compara huellas SHA-256 del muestreo y de `ColorSource` tomadas sobre main@T40 antes de tocar nada: iguales. Mutación (`floor` → `rint` en `nearest_label`) → falla la prueba de convención de UV. **Güemes real** (los 10 clusters agrupados a mano en 6 roles): `build_package` 0,4 s; `.color.npz` **298 KB** (FBX 26,6 MB: −98,9 %; el plan estimaba ≈ 0,2 MB); `save` 0,04 s, `load` 0,01 s, `to_textured` 0,13 s; `ColorSource` desde roles 1,0 s (1 677 419 muestras, **6 colores únicos**) contra 1,5 s desde el FBX; `recolor` **14 ms**.
+**Premisa de una prueba que no se cumple tal cual:** el plan pide «paquete < 5 % del FBX sintético del muñeco». Con la textura de `doll_textured` (256², casi plana) el FBX pesa **33 KB** y el paquete ≈ 18 KB (≈ 53 %): la geometría pesa más que la textura. El −99 % del plan vale para el FBX real, cuyo peso son las texturas. `test_package_is_much_smaller_than_fbx` usa el muñeco con 4 mapas sombreados de 1024² (FBX 8,2 MB, paquete 17,7 KB, **0,22 %**) y lo explica en su docstring. Cambié la premisa de la prueba, no el umbral: avisar si se prefiere otra.
+**Pendiente de T40 (sigue igual):** el filtro de mayoría cambia 2,23 % de los píxeles con K=10 (criterio < 2 %); `test_real_guemes_roles_in_under_30s` con `AFM_SLOW=1` sigue fallando en esa aserción. Se mergeó sin decidir; no lo toqué.
+**No verificado:** `to_textured` con la cabeza ni con una segunda figura; `piece_color_source`/`bake_piece` alimentados con una fuente de roles (es T43); el PNG del atlas en el visor.
+
+### Todo List
+- [x] T38 · [x] T39 · [x] T40 (criterio del filtro sin cumplir) · [x] T41
+- [ ] T42 → T43 · T44 → T45 (opcional) · T46 · T47 · T48 → T49 → T50 → T51
+
+### Latest Blockers/Discoveries
+- Camino abierto: T42 (◄ T39, T41) y T44 (◄ T39, T41). T42 empieza por **medir** si el color de un torso/brazo/pierna recortado se obtiene con la matriz FBX→figura (§5.7) y se detiene si no calza (R1).
+- Fuente de roles: 1,0 s contra 1,5 s del FBX original; el cuello de botella del armado sigue siendo el registro/horneado, no la fuente.
+
+---
+
 ## Current Focus — Paleta de línea: T40 (2026-11-19, sobre main 06dbdbb = T39)
 **Objetivo:** proponer clusters de color de la textura de un FBX y convertirlos, con la asignación del usuario, en un mapa de roles (`PLAN_paleta_color_linea.md` T40). Sin archivos `.npz` (T41), sin GUI, sin tocar `ColorSource`.
 **Hecho:** `src/afm/colorroles.py` (parte 1) y `tests/test_colorroles.py` (8 pruebas: 7 rápidas y 1 `AFM_SLOW`). `propose(tm, palette, k, seed, n_samples)` → `Proposal` (`centers_rgb`, `share` en % de área, `labels_atlas` filtrado, `suggested`, y `raw_atlas` sin filtrar); `build_package(tm, proposal, assign)` → `RolesPackage` (solo el dataclass: `save`/`load`/`to_textured` son T41); `mode_filter` (mayoría 5×5 por bloques). K-means con `scipy.cluster.vq.kmeans2(minit="++")` en Lab; semilla fija. **No asigna roles solo**: sin `assign` completo levanta `RolesError` con los clusters que faltan.

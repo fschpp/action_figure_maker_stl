@@ -20,6 +20,8 @@ class TexturedMesh:
     images: dict = field(default_factory=dict)      # "base_color" | "normal" | "roughness" | "metallic" -> bytes PNG
     info: dict = field(default_factory=dict)        # {"avisos": [...], "up_axis": int, "scaling": [3], "n_materiales": int, ...}
     _cache: dict = field(default_factory=dict, repr=False, compare=False)
+    labels: np.ndarray | None = field(default=None, repr=False, compare=False)   # (H, W) uint8: rol de cada píxel (255 = sin rol), T41
+    lut: np.ndarray | None = field(default=None, repr=False, compare=False)      # (256, 3) uint8: color de cada etiqueta
 
     def image(self, kind: str = "base_color") -> np.ndarray:
         """Píxeles como `uint8 (H, W, 3)`. Se decodifica la primera vez y se cachea (un canal se replica; RGBA/paleta/16 bits pasan por `convert("RGB")`)."""
@@ -38,15 +40,30 @@ class TexturedMesh:
         """Libera la imagen decodificada (RG5: 4096² RGB pesa ≈ 50 MB)."""
         self._cache.pop(kind, None)
 
+    def _uv(self, face: np.ndarray, bary: np.ndarray) -> np.ndarray:
+        face = np.asarray(face, np.int64)
+        bary = np.asarray(bary, np.float64)
+        return np.einsum("nk,nkc->nc", bary, self.corner_uv[face].astype(np.float64))
+
+    def sample_labels(self, face: np.ndarray, bary: np.ndarray) -> np.ndarray:
+        """Etiqueta de rol `(n,) uint8` en el punto de baricéntricas `bary` del triángulo `face`. **Vecino más cercano** (nunca se
+        interpola: mezclar índices inventa roles en los bordes). Misma convención de píxel que `sample`: el texel que contiene el
+        punto (columna = ⌊u·ancho⌋, fila = ⌊(1 − v)·alto⌋, con tope en los bordes)."""
+        if self.labels is None:
+            raise ValueError("la malla no tiene etiquetas de rol")
+        return nearest_label(self.labels, self._uv(face, bary))
+
     def sample(self, face: np.ndarray, bary: np.ndarray, kind: str = "base_color") -> np.ndarray:
         """Color `(n, 3) uint8` en el punto de baricéntricas `bary` del triángulo `face`, con los UV de las esquinas de ESE triángulo.
 
         Convención de píxel [M3]: fila = (1 − v)·alto − 0,5; columna = u·ancho − 0,5; bilineal con borde «clamp».
+        Con `labels` (T41) el color de base sale de `lut[etiqueta]` por vecino más cercano: los únicos colores posibles son los de la LUT.
         """
-        face = np.asarray(face, np.int64)
-        bary = np.asarray(bary, np.float64)
-        uv = np.einsum("nk,nkc->nc", bary, self.corner_uv[face].astype(np.float64))
-        return sample_image(self.image(kind), uv)
+        if kind == "base_color" and self.labels is not None:
+            if self.lut is None:
+                raise ValueError("la malla tiene etiquetas de rol pero no la tabla de colores (lut)")
+            return np.asarray(self.lut)[self.sample_labels(face, bary)]
+        return sample_image(self.image(kind), self._uv(face, bary))
 
     def transformed(self, M) -> "TexturedMesh":
         """Copia con los vértices llevados por la 4×4 `M` (similitud, con o sin espejo). Los UV y las texturas no se tocan: se comparten
@@ -57,13 +74,21 @@ class TexturedMesh:
         F, UV = self.faces, self.corner_uv
         if np.linalg.det(M[:3, :3]) < 0:
             F, UV = F[:, ::-1].copy(), UV[:, ::-1].copy()
-        return TexturedMesh(V, F, UV, self.images, dict(self.info), self._cache)
+        return TexturedMesh(V, F, UV, self.images, dict(self.info), self._cache, labels=self.labels, lut=self.lut)
 
     def to_trimesh(self):
         """Solo la geometría (sin UV ni color): lo que entra al motor."""
         import trimesh
 
         return trimesh.Trimesh(np.array(self.vertices, float), np.array(self.faces), process=False)
+
+
+def nearest_label(labels: np.ndarray, uv: np.ndarray) -> np.ndarray:
+    """Etiqueta (uint8) del texel que contiene `uv` (n, 2) en el atlas `labels` (H, W): sin interpolar."""
+    h, w = labels.shape[:2]
+    c = np.clip(np.floor(uv[:, 0] * w).astype(np.int64), 0, w - 1)
+    r = np.clip(np.floor((1.0 - uv[:, 1]) * h).astype(np.int64), 0, h - 1)
+    return labels[r, c]
 
 
 def sample_image(img: np.ndarray, uv: np.ndarray) -> np.ndarray:

@@ -8,11 +8,15 @@ mismo uniforme aparece en tres grises (§4). El usuario agrupa los clusters en r
 **Nada se asigna solo**: `propose` solo *sugiere* un rol por cluster (`suggested`, a partir de las anclas de la paleta) y `build_package`
 se niega si falta decidir algún cluster (un umbral de distancia no detecta el error: el pelo oscuro cayó en el verde del cuello, §4).
 
-Guardar y leer el paquete (`save`/`load`) y llevarlo a un `TexturedMesh` con etiquetas es T41. `PIL`, `scipy.cluster` y `skimage` se importan
-dentro de las funciones (R3).
+`RolesPackage` se guarda y se lee como `<id>@<v>.color.npz` (`afm-color-roles-1`, T41, §6) y `to_textured` lo lleva a un `TexturedMesh` con
+etiquetas y LUT, que el motor muestrea como una fuente RGB cuyos únicos colores son los de la paleta. `PIL`, `scipy.cluster` y `skimage`
+se importan dentro de las funciones (R3).
 """
 from __future__ import annotations
 
+import io
+import json
+import os
 import warnings
 from dataclasses import dataclass, field
 
@@ -20,6 +24,7 @@ import numpy as np
 
 from .palette import NO_ROLE, Palette, PaletteError, Role
 
+FORMAT = "afm-color-roles-1"
 MAX_ATLAS = 2048                 # lado máximo del atlas de etiquetas (§5.2)
 FILTER_PX = 5                    # lado de la ventana del filtro de mayoría
 SUGGEST_MAX_DELTA_E = 18.0       # más lejos que esto de toda ancla → sin sugerencia (§4: es solo una sugerencia, no un control de calidad)
@@ -52,6 +57,100 @@ class RolesPackage:
     labels: np.ndarray                      # (h, w) uint8: índice en `roles`, o 255 = «sin rol»
     roles: list                             # ids de rol, en el orden de las etiquetas
     origen: dict = field(default_factory=dict)      # {"nombre": …, "sha256": …} del FBX de origen
+
+    # ------------------------------------------------------------------ disco (T41)
+    def problems(self) -> list[str]:
+        """Todo lo que está mal en el paquete (formas, rangos, ids de rol, etiquetas); vacío si sirve."""
+        out: list[str] = []
+        v, f, uv, lab = (np.asarray(x) for x in (self.vertices, self.faces, self.corner_uv, self.labels))
+        if v.ndim != 2 or v.shape[1] != 3 or len(v) == 0:
+            out.append(f"vertices: forma {v.shape}, se esperaba (V, 3)")
+        if f.ndim != 2 or f.shape[1] != 3 or len(f) == 0:
+            out.append(f"faces: forma {f.shape}, se esperaba (F, 3)")
+        elif v.ndim == 2 and len(v) and (f.min() < 0 or f.max() >= len(v)):
+            out.append("faces: hay índices fuera de los vértices")
+        if uv.shape != (len(f), 3, 2):
+            out.append(f"corner_uv: forma {uv.shape}, se esperaba ({len(f)}, 3, 2)")
+        elif not np.isfinite(uv).all():
+            out.append("corner_uv: hay valores no finitos")
+        if lab.ndim != 2 or lab.size == 0 or lab.dtype != np.uint8:
+            out.append(f"labels: debe ser un atlas 2-D uint8 (forma {lab.shape}, tipo {lab.dtype})")
+        elif max(lab.shape) > MAX_ATLAS:
+            out.append(f"labels: atlas de {lab.shape[1]}×{lab.shape[0]}, el máximo es {MAX_ATLAS} por lado")
+        roles = list(self.roles)
+        if len(set(roles)) != len(roles):
+            out.append("roles: hay ids repetidos")
+        for r in roles:
+            try:
+                Role(r, r, "#000000")
+            except (PaletteError, TypeError):
+                out.append(f"roles: id inválido {r!r}")
+        if lab.ndim == 2 and lab.dtype == np.uint8 and lab.size:
+            bad = np.unique(lab[(lab >= len(roles)) & (lab != NO_ROLE)])
+            if len(bad):
+                out.append("labels: usa etiquetas que no son un rol de la lista ni 255: " + ", ".join(str(int(b)) for b in bad[:8]))
+        return out
+
+    def save(self, path) -> str:
+        """Escribe el paquete (`np.savez_compressed`, sin pickle). Archivo temporal + `os.replace`: nunca queda un `.npz` a medias.
+        Valida antes de escribir. Devuelve la ruta."""
+        probs = self.problems()
+        if probs:
+            raise RolesError("el paquete no es válido: " + "; ".join(probs))
+        lab = np.asarray(self.labels, np.uint8)
+        meta = {"formato": FORMAT, "roles": list(self.roles), "atlas": [int(lab.shape[1]), int(lab.shape[0])], "origen": dict(self.origen)}
+        path = os.fspath(path)
+        tmp = path + ".tmp"
+        with open(tmp, "wb") as fh:                         # con un archivo abierto numpy no le agrega «.npz» al nombre
+            np.savez_compressed(fh, meta=np.frombuffer(json.dumps(meta, ensure_ascii=False).encode("utf-8"), np.uint8),
+                                vertices=np.asarray(self.vertices, np.float32), faces=np.asarray(self.faces, np.int32),
+                                corner_uv=np.asarray(self.corner_uv, np.float32), labels=lab)
+        os.replace(tmp, path)
+        return path
+
+    @classmethod
+    def load(cls, path) -> "RolesPackage":
+        """Lee un `.npz` con `allow_pickle=False`. Un archivo que no es del formato, con formas que no cierran o con etiquetas que no
+        son un rol → `RolesError` con el motivo."""
+        try:
+            with np.load(os.fspath(path), allow_pickle=False) as z:
+                missing = [k for k in ("meta", "vertices", "faces", "corner_uv", "labels") if k not in z.files]
+                if missing:
+                    raise RolesError("faltan arrays: " + ", ".join(missing))
+                meta = json.loads(bytes(np.asarray(z["meta"], np.uint8)).decode("utf-8"))
+                arrays = {k: z[k] for k in ("vertices", "faces", "corner_uv", "labels")}
+        except RolesError:
+            raise
+        except (OSError, ValueError, KeyError, UnicodeDecodeError, EOFError) as exc:     # incluye BadZipFile, pickle y JSON roto
+            raise RolesError(f"{os.path.basename(os.fspath(path))}: no es un paquete de roles legible ({exc})") from exc
+        if not isinstance(meta, dict) or meta.get("formato") != FORMAT:
+            raise RolesError(f"formato desconocido: {meta.get('formato') if isinstance(meta, dict) else meta!r} (se esperaba «{FORMAT}»)")
+        if not isinstance(meta.get("roles"), list):
+            raise RolesError("meta: falta la lista «roles»")
+        pkg = cls(arrays["vertices"], arrays["faces"], arrays["corner_uv"], arrays["labels"], list(meta["roles"]), dict(meta.get("origen") or {}))
+        probs = pkg.problems()
+        if meta.get("atlas") is not None and arrays["labels"].ndim == 2 and list(meta["atlas"]) != [arrays["labels"].shape[1], arrays["labels"].shape[0]]:
+            probs.append("meta: el tamaño del atlas no coincide con labels")
+        if probs:
+            raise RolesError("paquete inválido: " + "; ".join(probs))
+        return pkg
+
+    # ------------------------------------------------------------------ al motor (T41)
+    def to_textured(self, palette: Palette, overrides: dict | None = None):
+        """`TexturedMesh` con `labels` y `lut = palette.with_overrides(overrides).lut(roles)`: `sample` devuelve por vecino más cercano los
+        colores de la paleta. `info["roles"]` lleva los ids. Un rol que la paleta no tiene → `PaletteError` con la lista de los que faltan
+        (no se inventa color). Las `images["base_color"]` son un PNG del atlas ya coloreado (vista previa y chequeos de «trae textura»);
+        el muestreo no pasa por él."""
+        from PIL import Image
+
+        from .texmesh import TexturedMesh
+
+        lut = palette.with_overrides(overrides or {}).lut(self.roles)
+        buf = io.BytesIO()
+        Image.fromarray(lut[np.asarray(self.labels)]).save(buf, format="PNG")
+        info = {"avisos": [], "roles": list(self.roles), "origen": dict(self.origen), "n_materiales": 1}
+        return TexturedMesh(np.asarray(self.vertices, np.float64), np.asarray(self.faces, np.int32), np.asarray(self.corner_uv, np.float32),
+                            {"base_color": buf.getvalue()}, info, labels=np.asarray(self.labels, np.uint8), lut=lut)
 
 
 # ------------------------------------------------------------------ color

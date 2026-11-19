@@ -51,10 +51,22 @@ class ColorSource:
         bary = np.column_stack([1.0 - r.sum(axis=1), r]).astype(np.float32)
         self.sample_face, self.sample_bary = face, bary
         self.sample_xyz = np.einsum("nk,nkc->nc", bary.astype(np.float64), self._tris[face])
+        # T41: con etiquetas de rol se guarda también la etiqueta de cada muestra, así `recolor` cambia el color sin rehacer el árbol
+        self.sample_label = tm.sample_labels(face, bary) if tm.labels is not None else None
         self.sample_rgb = tm.sample(face, bary, "base_color")
         tm.release_image("base_color")                          # RG5: se libera la imagen decodificada
         self._tree = cKDTree(self.sample_xyz)
         self._coarse = cKDTree(self.sample_xyz[::4])
+
+    def recolor(self, lut) -> None:
+        """Cambia el color de las muestras con otra tabla `lut` (256, 3) uint8 (`sample_rgb = lut[etiqueta]`) sin tocar geometría ni
+        el `cKDTree`. Solo para fuentes armadas con etiquetas de rol."""
+        if self.sample_label is None:
+            raise ValueError("la fuente no se armó con etiquetas de rol: no se puede recolorear")
+        lut = np.asarray(lut)
+        if lut.shape != (256, 3) or lut.dtype != np.uint8:
+            raise ValueError("la tabla de colores debe ser (256, 3) uint8")
+        self.sample_rgb = lut[self.sample_label]
 
     def _counts(self, spacing: float) -> np.ndarray:
         return np.maximum(1, np.ceil(self.area / (spacing * spacing)).astype(np.int64))
