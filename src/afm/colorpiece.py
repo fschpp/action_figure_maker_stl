@@ -21,9 +21,18 @@ import numpy as np
 from .frame import SIMILARITY_OK_MM, FigureFrame
 from .texmesh import TexturedMesh
 
+_MIRROR_X = np.diag([-1.0, 1.0, 1.0, 1.0])       # el lado derecho es `mirror_x` del izquierdo (`pipeline`, `colorreg`)
+
 
 class PieceColorError(ValueError):
     """El FBX de la pieza no se puede usar como su fuente de color (no coincide con el STL, o no trae textura de color)."""
+
+
+class PaletteRolesError(PieceColorError):
+    """La paleta de la línea no sirve para colorear por roles las piezas elegidas (no hay paleta, no se puede leer o le faltan roles).
+
+    A diferencia de un FBX que no calza, que deja la pieza en color plano con un aviso, esto **frena el armado** antes de registrar nada:
+    no se inventa un color para un rol que no existe (plan de paleta de línea, §5.3, T43)."""
 
 
 @dataclass
@@ -118,41 +127,111 @@ def head_color_provider(fbx_path: str, stl_path: str, *, spacing_mm: float = 0.0
 
 
 def catalog_color_sources(placed: dict, catalog, scaled=(), *, spacing_mm: float = 0.08) -> tuple[dict, dict]:
-    """`(sources, info)` para `Colorizer(sources=...)` de una figura armada desde el catálogo (T36).
+    """`(sources, info)` para `Colorizer(sources=...)` de una figura armada desde el catálogo (T36, T43).
 
     `placed`: `BuildResult.placed` (nombre → `PlacedPart`). Para cada pieza cuya ficha trae `color` se arma un proveedor (se resuelve
-    al colorear la pieza, no antes) que lleva su FBX al marco del huésped con `S = T · A`: `T` es `PlacedPart.T` y `A` la similitud
+    al colorear la pieza, no antes) que lleva su color al marco del huésped con `S = T · A`: `T` es `PlacedPart.T` y `A` la similitud
     guardada en el catálogo (T35), así que no se vuelve a alinear. La clave es el nombre sin sufijo `_izq/_der`: con el lado derecho
     espejado la pieza `_der` se registra reflejada contra la misma fuente (como cualquier otra pieza). Un lado `_der` propio
     (figura asimétrica) no se mira: usa el color del izquierdo.
 
+    Dos modos de color de pieza (`PieceMeta.color["modo"]`):
+
+    * `rgb` (T35, el de siempre): el FBX entero de la pieza, con sus colores.
+    * `roles` (T42/T43): el paquete `.color.npz` + la **paleta de la línea** (`catalog.palette()`). La paleta se lee una sola vez, aquí,
+      y es la misma que va al informe (`info["paleta"]`), así lo que se informa es lo que se usó. El `TexturedMesh` se arma al colorear
+      (`RolesPackage.to_textured`), así que un cambio de color en la paleta se toma en el armado siguiente sin tocar la pieza ni su STL.
+      Si a la paleta le falta algún rol que usan las piezas elegidas (o no hay paleta, o no se puede leer) se levanta `PaletteRolesError`
+      con la lista, **antes** de registrar nada: ese error no se degrada a aviso.
+
     `scaled`: tipos de pieza que la receta escala (`scale_choice` cambia la malla y `T` no lo recoge): esas piezas quedan sin color
-    propio. `info` = `{clave: {"pieza": ref, "fbx": ruta}}` más `omitidas` `{clave: motivo}`."""
+    propio. `info` = `{"piezas": {clave: {"pieza": ref, "fbx": ruta}}, "omitidas": {clave: motivo}}`; las piezas `roles` llevan
+    `{"pieza", "modo": "roles", "paquete", "roles"}` en lugar de `fbx`, y si hay alguna `info["paleta"]` = `{"hash", "roles": {id: hex}}`.
+    Sin piezas `roles` el resultado es exactamente el de T36."""
     from .colorreg import _split_name
 
     sources: dict = {}
     info: dict = {"piezas": {}, "omitidas": {}}
+    pending: dict = {}                                   # clave -> (meta, T, paquete, ruta): piezas por roles, se resuelven con la paleta ya leída
     for name, pp in placed.items():
         meta = pp.choice.meta
         key, side = _split_name(name)
-        if not getattr(meta, "color", None) or side == "der" or key in sources:
+        if not getattr(meta, "color", None) or side == "der" or key in sources or key in pending:
             continue
         if meta.tipo in set(scaled):
             info["omitidas"][key] = f"{meta.ref} está escalada: el color no se lleva"
             continue
-        if (meta.color or {}).get("modo", "rgb") == "roles":     # T42: la pieza trae un paquete de roles, no un FBX; colorearla con la paleta es T43
-            info["omitidas"][key] = f"{meta.ref} trae color por roles: el armado con la paleta de la línea todavía no está (T43)"
-            continue
         try:
-            fbx = catalog.color_file(meta.ref)
-        except ValueError as exc:                       # CatalogError: sin FBX o con otro hash
+            path = catalog.color_file(meta.ref)         # CatalogError: sin archivo de color o con otro hash
+            roles_mode = (meta.color or {}).get("modo", "rgb") == "roles"
+            pkg = _load_roles(path) if roles_mode else None
+        except ValueError as exc:                       # también RolesError: un .npz ilegible
             info["omitidas"][key] = str(exc)
             continue
-        info["piezas"][key] = {"pieza": meta.ref, "fbx": fbx}
+        if roles_mode:
+            pending[key] = (meta, np.asarray(pp.T, float), pkg, path)
+            continue
+        info["piezas"][key] = {"pieza": meta.ref, "fbx": path}
 
-        def provide(res, _fbx=fbx, _T=np.asarray(pp.T, float), _A=meta.color["similitud"], _sp=spacing_mm):
+        def provide(res, _fbx=path, _T=np.asarray(pp.T, float), _A=meta.color["similitud"], _sp=spacing_mm):
             from .fbxio import load_textured
 
             return piece_color_source(load_textured(_fbx), None, _T, similarity=_A, spacing_mm=_sp).source
         sources[key] = provide
+    if pending:
+        _roles_sources(pending, catalog, spacing_mm, sources, info)
     return sources, info
+
+
+def _load_roles(path: str):
+    """El paquete de roles de `path`, **restringido a los roles que alguna etiqueta usa**.
+
+    Un paquete puede declarar un rol que ningún píxel usa (el catálogo solo anota en la ficha los usados): si ese rol se borra de la paleta
+    no debe frenar el armado, así que las etiquetas se renumeran sobre los roles usados y el resto de la lista se descarta.
+    """
+    from .colorroles import RolesPackage
+    from .palette import NO_ROLE
+
+    pkg = RolesPackage.load(path)
+    used_idx = [int(i) for i in np.unique(pkg.labels) if int(i) != NO_ROLE]
+    remap = np.full(256, NO_ROLE, np.uint8)
+    for new, old in enumerate(used_idx):
+        remap[old] = new
+    return RolesPackage(pkg.vertices, pkg.faces, pkg.corner_uv, remap[np.asarray(pkg.labels, np.uint8)],
+                        [pkg.roles[i] for i in used_idx], dict(pkg.origen or {}))
+
+
+def _roles_sources(pending: dict, catalog, spacing_mm: float, sources: dict, info: dict) -> None:
+    """Completa `sources`/`info` con las piezas por roles de `pending` (ver `catalog_color_sources`). Levanta `PaletteRolesError` si la
+    paleta de la línea no se puede usar para alguna de ellas."""
+    refs: dict = {}                                      # rol -> piezas que lo usan
+    for meta, _T, pkg, _path in pending.values():
+        for r in pkg.roles:
+            refs.setdefault(r, []).append(meta.ref)
+    try:
+        palette = catalog.palette()
+    except ValueError as exc:                            # CatalogError: paleta.json ilegible
+        raise PaletteRolesError(str(exc)) from exc
+    if palette is None:
+        raise PaletteRolesError(f"la línea «{catalog.name}» no tiene paleta (falta paleta.json) y las piezas {', '.join(sorted({v[0].ref for v in pending.values()}))} "
+                                "llevan color por roles: creá los roles con `afm catalogo paleta agregar`")
+    have = set(palette.ids())
+    missing = {r: sorted(set(p)) for r, p in refs.items() if r not in have}
+    if missing:
+        raise PaletteRolesError(f"la paleta de la línea «{catalog.name}» no tiene los roles que usan las piezas elegidas: "
+                                + "; ".join(f"{r} (en {', '.join(p)})" for r, p in sorted(missing.items()))
+                                + ". Agregalos con `afm catalogo paleta agregar` o elegí otras piezas")
+    for key, (meta, T, pkg, path) in pending.items():
+        info["piezas"][key] = {"pieza": meta.ref, "modo": "roles", "paquete": path, "roles": list(pkg.roles)}
+
+        def provide(res, _pkg=pkg, _pal=palette, _T=T, _A=meta.color["similitud"], _sp=spacing_mm):
+            return piece_color_source(_pkg.to_textured(_pal), None, _T, similarity=_A, spacing_mm=_sp).source
+        sources[key] = provide
+        if getattr(meta, "lado", "centro") != "centro":
+            # El lado derecho es `mirror_x` del izquierdo, y `register_piece` lleva la pieza IMPRESA al marco de su fuente: contra una fuente que
+            # es solo el miembro izquierdo (x > 0) la `_der` (x < 0) no solapa y queda `sin_origen` (medido: 0 %). Con la fuente reflejada,
+            # `M · T · A` (M = diag(−1, 1, 1)), registra igual que la izquierda. `Colorizer.source_for` mira primero el nombre completo.
+            def provide_right(res, _pkg=pkg, _pal=palette, _T=_MIRROR_X @ T, _A=meta.color["similitud"], _sp=spacing_mm):
+                return piece_color_source(_pkg.to_textured(_pal), None, _T, similarity=_A, spacing_mm=_sp).source
+            sources[f"{key}_der"] = provide_right
+    info["paleta"] = {"hash": palette.digest(), "roles": {r.id: r.hex for r in palette.roles}}

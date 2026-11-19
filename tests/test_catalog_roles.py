@@ -280,8 +280,9 @@ def test_cli_color_saves_a_new_version_with_roles(line, head, tmp_path, capsys):
     assert "faltan clusters" in capsys.readouterr().err and listing(line) == before
 
 
-def test_armed_figure_skips_a_roles_piece_until_t43(line, head):
-    """Hasta T43 una pieza con roles no rompe el armado: queda sin color propio y el informe lo dice."""
+def test_armed_figure_gives_a_roles_piece_its_own_color_source(line, head):
+    """T43 (antes `..._skips_a_roles_piece_until_t43`, que fijaba la omisión provisional de T42): una pieza con roles ya no se omite, aporta un
+    proveedor con la paleta de la línea y el informe lleva la paleta usada y los roles de la pieza."""
     from afm.colorpiece import catalog_color_sources
 
     meta, mesh, _fbx, pkg = head
@@ -299,7 +300,9 @@ def test_armed_figure_skips_a_roles_piece_until_t43(line, head):
     pp.choice.meta = v2
     pp.T = np.eye(4)
     sources, info = catalog_color_sources({"cabeza": pp}, cat)
-    assert sources == {} and "cabeza" in info["omitidas"] and "roles" in info["omitidas"]["cabeza"]
+    assert set(sources) == {"cabeza"} and not info["omitidas"]                  # la cabeza no tiene lado: sin fuente `cabeza_der`
+    assert info["piezas"]["cabeza"]["modo"] == "roles" and sorted(info["piezas"]["cabeza"]["roles"]) == ["azul", "rojo"]
+    assert info["paleta"]["hash"] == cat.palette().digest() and info["paleta"]["roles"] == {"rojo": "#C81E1E", "azul": "#1E3CC8"}
 
 
 # ------------------------------------------------------------------ figuras reales (AFM_SLOW)

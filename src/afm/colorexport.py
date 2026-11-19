@@ -29,7 +29,8 @@ COLOR_DIR = "piezas_color"
 
 class Colorizer:
     def __init__(self, src, params, *, texel_mm: float = 0.2, eps: float = 0.15, fill="extend", symmetric: bool = False,
-                 workers: int = 1, sources: dict | None = None):
+                 workers: int = 1, sources: dict | None = None, palette_report: dict | None = None,
+                 piece_roles: dict | None = None):
         from .colorbake import parse_fill
 
         parse_fill(fill)                                   # falla ya, no después de registrar todas las piezas
@@ -38,6 +39,10 @@ class Colorizer:
         self.texel_mm, self.eps, self.fill, self.symmetric, self.workers = float(texel_mm), float(eps), fill, bool(symmetric), int(workers)
         self.pieces: dict = {}                             # nombre -> (Unwrapped, BakeResult, Registration, info)
         self.source_errors: dict = {}                      # clave de pieza -> por qué no se pudo usar su fuente propia (T34)
+        # T43: color por roles. `palette_report` = {"hash", "roles": {id: hex}} de la paleta de la línea usada; `piece_roles` = clave -> roles
+        # que usa la pieza. Solo van al informe (no cambian el color): sin ellos el informe es el de antes.
+        self.palette_report: dict | None = dict(palette_report) if palette_report else None
+        self.piece_roles: dict = {k: list(v) for k, v in (piece_roles or {}).items()}
 
     # ------------------------------------------------------------------ fuente de cada pieza
     def source_for(self, name: str, res=None):
@@ -50,17 +55,18 @@ class Colorizer:
         from .colorreg import _split_name
 
         key = _split_name(name)[0]
-        own = self.sources.get(key)
+        slot = name if name in self.sources else key         # T43: un lado con su propia fuente (la reflejada de `_der`) va antes que la de la clave
+        own = self.sources.get(slot)
         if own is not None and not hasattr(own, "query"):
             try:
                 own = own(res)
             except (ValueError, OSError) as exc:
-                self.source_errors[key] = str(exc)
+                self.source_errors[slot] = str(exc)
                 own = None
             if own is None:
-                self.sources.pop(key, None)
+                self.sources.pop(slot, None)
             else:
-                self.sources[key] = own
+                self.sources[slot] = own
         if own is not None:
             return own, "pieza"
         return (self.src, "figura") if self.src is not None else (None, "plano")
@@ -91,8 +97,11 @@ class Colorizer:
                 "area_mm2": round(float(bk.stats["area_mm2"]), 2), "segundos": round(float(time.perf_counter() - t0), 2)}
         from .colorreg import _split_name
 
-        if _split_name(name)[0] in self.source_errors:
-            info["aviso_fuente"] = self.source_errors[_split_name(name)[0]]
+        ekey = name if name in self.source_errors else _split_name(name)[0]
+        if ekey in self.source_errors:
+            info["aviso_fuente"] = self.source_errors[ekey]
+        if info["fuente"] == "pieza" and self.piece_roles.get(_split_name(name)[0]):
+            info["roles"] = list(self.piece_roles[_split_name(name)[0]])
         self.pieces[name] = (unw, bk, reg, info)
         return dict(info)
 
@@ -171,6 +180,8 @@ class Colorizer:
         out["config"]["fuentes_propias"] = sorted(self.sources)
         if self.source_errors:
             out["config"]["errores_fuentes"] = dict(self.source_errors)
+        if self.palette_report:
+            out["paleta"] = dict(self.palette_report)
         out["sin_origen"] = sorted(n for n, (_u, _b, r, _i) in self.pieces.items() if r.status == "sin_origen")
         out["segundos"] = round(float(sum(i["segundos"] for *_x, i in self.pieces.values())), 2)
         with open(os.path.join(outdir, out["informe"]), "w", encoding="utf-8") as fh:

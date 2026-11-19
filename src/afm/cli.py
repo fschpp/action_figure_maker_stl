@@ -188,10 +188,12 @@ def run_armar(recipe_path: str, outdir: str, name: str | None = None, catalog_ro
 
         items = load_accessories(recipe, asm.catalog)
     colorize, color_info = None, None
-    from .colorpiece import catalog_color_sources
+    from .colorpiece import PaletteRolesError, catalog_color_sources
 
-    try:                           # T36: piezas de catálogo con su propio FBX; el resto de la figura sale en color plano
+    try:                           # T36: piezas de catálogo con su propio FBX; T43: o con roles + la paleta de la línea; el resto sale en color plano
         c_src, color_info = catalog_color_sources(asm.res.placed, asm.catalog, set(asm.recipe.scales()))
+    except PaletteRolesError:      # a la paleta le faltan roles de las piezas elegidas: no se inventa color, se frena antes de exportar
+        raise
     except (ValueError, OSError) as exc:
         progress(f"AVISO: no se pudo preparar el color de las piezas: {exc}")
         c_src = {}
@@ -200,7 +202,8 @@ def run_armar(recipe_path: str, outdir: str, name: str | None = None, catalog_ro
     if c_src:
         from .colorexport import Colorizer
 
-        colorize = Colorizer(None, asm.params, sources=c_src)
+        colorize = Colorizer(None, asm.params, sources=c_src, palette_report=(color_info or {}).get("paleta"),
+                             piece_roles={k: v["roles"] for k, v in (color_info or {}).get("piezas", {}).items() if v.get("roles")})
     progress("Exportando las piezas…")
     extra = {"colorize": colorize} if colorize is not None else {}
     files = P.export(asm.res, outdir, name, orient=orient, max_angle=max_angle, flat=flat, params=asm.params,
