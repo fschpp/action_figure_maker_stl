@@ -2,6 +2,24 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — Paleta de línea: T38 (2026-11-19, sobre main 66bde84 = b33e425 + T37)
+**Objetivo:** modelo de paleta puro (`Role`, `Palette`, validación, LUT, overrides, hash, rol más cercano por ancla) de `PLAN_paleta_color_linea.md`.
+**Hecho:** `src/afm/palette.py` y `tests/test_palette.py` (26 pruebas, 0,6 s). Sin disco, catálogo ni GUI. `PaletteError` es un `ValueError`; `skimage.color` se importa solo dentro de `nearest`. Los errores son mensajes internos en español (como el resto de los módulos del motor): los textos visibles con `tr()` llegan con la CLI (T39) y la GUI (T46).
+**Decisiones:** (1) `digest()` hashea solo `id` + `hex` con los roles ordenados por id: renombrar, agregar anclas o reordenar la lista no cambia ningún color, así que no cambia el hash (el plan decía «contenido normalizado»; es mi lectura, fácil de cambiar). (2) `nearest` usa distancia euclídea en Lab (CIE76) y solo mira las **anclas**, no el `hex` actual del rol; con empate gana la primera. (3) `lut` con un rol ausente levanta `PaletteError` con la lista de los que faltan (§5.3). (4) `palette.DEFAULT_FLAT` repite `colorbake.DEFAULT_FLAT` para no importar scipy; una prueba los compara.
+**Medido:** regresión R7 (`test_texmesh`, `test_colorsrc`, `test_colorbake_{fill,grid,query}`, `test_colorexport`, `test_color_catalog_head`, `test_catalog`, `test_i18n`, `test_palette`; en el repo `test_colorbake.py` no existe y son tres archivos): 120 pasan, 1 xfail (previo), 145 s. Ninguna prueba existente se tocó.
+**No verificado:** nada fuera de las pruebas; las anclas de la prueba son de a mano, no salen de un FBX real.
+**Falta de bitácora:** siguen sin entrada T34, T35 y T36 (solo T37 tiene) — se completan en T51.
+
+### Todo List
+- [x] T38
+- [ ] T39 · T40 (en paralelo) → T41 → T42 → T43 · T44 → T45 (opcional) · T46 · T47 · T48 → T49 → T50 → T51
+
+### Latest Blockers/Discoveries
+- Ninguno. Camino abierto: T39 (◄ T38) y T40 (◄ T38).
+- La primera línea de `PROGRESS.md` sigue citando T33 como foco anterior; las entradas más viejas no se tocaron.
+
+---
+
 ## Current Focus — Color catálogo y cabeza: T37, cabeza real de Güemes (2026-11-19, sobre main b33e425)
 **Objetivo:** probar T34–T36 con una cabeza real (`examples/guemes_cabeza_textura.fbx`) sobre Güemes y dejar documentado.
 **Hecho:** `tests/test_color_head_guemes.py` (4 pruebas, `AFM_SLOW=1`, ≈ 95 s): cabeza con su FBX, tamaño de cabeza, cara hacia +Y y control negativo con yaw 0. `tools/render_head_compare.py` (fuente arriba, pieza horneada abajo; resultado en `docs/color_cabeza_guemes_comparar.png`). Docs: `PLAN_fbx_textura_color.md` §7.8 (ya implementado), `tutorial_gui.md` §7.8.
