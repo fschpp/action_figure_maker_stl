@@ -8,6 +8,9 @@ Por cada pieza: registro contra la fuente de color (`colorreg`), despliegue (`un
     <fig>_ensamblada.glb                                                   (todas las piezas, cada una con su material)
     <fig>_color_informe.json                                               (estado de registro y % con origen por pieza)
 
+Los OBJ y el GLB se escriben con Y hacia arriba (convención de OBJ y glTF, `frame.Z_UP_TO_Y_UP`); los STL siguen en Z arriba. Así
+Bambu Studio, Blender y los visores de glTF dejan la figura parada y mirando hacia donde mira el STL.
+
 `PIL` y `trimesh` se importan dentro de las funciones que los usan (D10). Todo lo que va al informe es número, `str`, `bool`,
 lista o diccionario de eso (R13).
 """
@@ -18,6 +21,8 @@ import os
 import time
 
 import numpy as np
+
+from .frame import Z_UP_TO_Y_UP
 
 COLOR_DIR = "piezas_color"
 
@@ -61,6 +66,7 @@ class Colorizer:
         if orientation is not None:
             T = np.asarray(orientation, float)
             V = V @ T[:3, :3].T + T[:3, 3]
+        V = V @ Z_UP_TO_Y_UP.T                               # OBJ y GLB van con Y arriba (ver el docstring del módulo)
         uv = np.asarray(unw.uv, np.float64).reshape(-1, 2)
         F = np.arange(len(V), dtype=np.int64).reshape(-1, 3)
         return V, uv, F

@@ -561,7 +561,7 @@ class FigureBuilderWindow(Gtk.Window):
             if os.path.exists(glb):
                 from .render import load_glb_parts
 
-                parts = [p for p in load_glb_parts(glb)]
+                parts = [p for p in load_glb_parts(glb, y_up=True)]       # el GLB de `Colorizer.write` va en Y arriba
             if parts and any(p.image is not None for p in parts):
                 self._set_shown(parts[0].mesh, None)                     # deja `_shown` coherente y luego pasa a la vista con textura
                 self._tex_parts = parts

@@ -2,6 +2,13 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — Color FBX: OBJ y GLB en Y arriba (2026-11-19, sobre main 4f84209)
+**Objetivo:** que Bambu Studio (y Blender, y los visores de glTF) importen la figura de color parada y mirando hacia donde mira el STL.
+**Causa:** OBJ y glTF se definen con Y arriba y Bambu convierte a Z arriba al importar un OBJ; `Colorizer.write` los escribía en Z arriba (como los STL), así que el diálogo «Simplificar colores» los mostraba acostados, de espaldas, con las piernas hacia arriba. Con Egon real STL, OBJ y GLB tenían las mismas coordenadas.
+**Hecho:** `frame.Z_UP_TO_Y_UP` ((x, y, z) → (x, z, −y), inversa de `orient_z_up`); `Colorizer._corner_arrays` la aplica después de la orientación de impresión, así que cambian los OBJ por pieza, el OBJ ensamblado y el GLB; los STL no cambian. `render.load_glb_parts(path, y_up=True)` los devuelve al marco del visor (lo usa `figure_window`); `tools/render_color_compare.py` también. `tests/test_colorexport.py`: dos pruebas ajustadas y `test_obj_and_glb_are_y_up_and_come_back_to_the_piece_frame`.
+**Medido:** Egon real (`orient=True`, texel 0,4): OBJ y GLB con altura en Y (0 a 78,2) y, al volver a Z arriba, distancia máxima 0,00000 mm al vértice más cercano del STL ensamblado en 159.360 vértices. Color, GUI, modo A, golden e i18n: 84 pasan, 6 se saltan.
+**No verificado:** la importación en Bambu Studio con el archivo nuevo (no lo tengo acá): se deduce de la captura del diálogo que Bambu trata el OBJ como Y arriba.
+
 ## Current Focus — Color FBX: OBJ ensamblado para Bambu Studio y golden del muñeco (2026-11-19, sobre main 0e8b2b6)
 **Objetivo:** que Bambu Studio cargue la figura entera de una vez (OBJ+MTL+PNG), y dejar verde `test_doll_matches_golden`.
 **Hecho:** `Colorizer.write` agrega `piezas_color/<fig>_ensamblada.obj` + `.mtl`: un `o` y un material por pieza (cada uno con el PNG de su pieza, ya en la orientación de impresión), índices `v`/`vt` globales; clave `obj_ensamblado` en el informe. Los OBJ por pieza y el GLB no cambian. `tests/test_colorexport.py::test_assembled_obj_has_every_piece_and_valid_indices`. `tests/golden/muneco.json` regenerado (el cliente aceptó el cambio): el `git bisect` llevó a `f3319dd` (`S.compact` en `build`, WIP sin verificar), que movió la holgura de la cabeza de 0,4772 a 0,4705 mm.

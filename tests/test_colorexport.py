@@ -8,6 +8,7 @@ import trimesh
 
 from afm.colorexport import COLOR_DIR, Colorizer
 from afm.colorsrc import ColorSource
+from afm.frame import Z_UP_TO_Y_UP
 from color_helpers import REGIONS, doll_params, doll_pieces, doll_textured, piece_trimeshes
 
 FIG = "muneco"
@@ -114,12 +115,13 @@ def test_orientation_applied_to_outputs(colorizer, tmp_path):
     name = "brazo_izq"
     v0, vt0, _ = _read_obj(tmp_path / COLOR_DIR / f"{FIG}_{name}.obj")
     v1, vt1, _ = _read_obj(tmp_path / "t" / COLOR_DIR / f"{FIG}_{name}.obj")
-    assert np.allclose(v1, v0 @ T[:3, :3].T + T[:3, 3], atol=1e-5)
+    z0, z1 = v0 @ Z_UP_TO_Y_UP, v1 @ Z_UP_TO_Y_UP                           # los OBJ van en Y arriba: de vuelta al marco Z arriba
+    assert np.allclose(z1, z0 @ T[:3, :3].T + T[:3, 3], atol=1e-5)
     assert np.array_equal(vt0, vt1)                                       # los UV no cambian
     scene = trimesh.load(str(tmp_path / "t" / f"{FIG}_ensamblada.glb"))
-    zmax_out = max(g.bounds[1][2] for g in scene.geometry.values())
-    zmax_in = max(g.bounds[1][2] for g in trimesh.load(str(tmp_path / f"{FIG}_ensamblada.glb")).geometry.values())
-    assert zmax_out != pytest.approx(zmax_in, abs=1.0)                    # el conjunto sí quedó girado
+    ymax_out = max(g.bounds[1][1] for g in scene.geometry.values())          # el GLB va en Y arriba
+    ymax_in = max(g.bounds[1][1] for g in trimesh.load(str(tmp_path / f"{FIG}_ensamblada.glb")).geometry.values())
+    assert ymax_out != pytest.approx(ymax_in, abs=1.0)                    # el conjunto sí quedó girado
 
 
 def test_obj_reload_color_at_known_point(out):
@@ -181,3 +183,22 @@ def test_assembled_obj_has_every_piece_and_valid_indices(out, colorizer):
         assert f"newmtl {FIG}_{n}" in text and f"map_Kd {FIG}_{n}_color.png" in text
         assert os.path.isfile(os.path.join(cdir, f"{FIG}_{n}_color.png"))
     assert sum(l.startswith("usemtl ") for l in lines) == len(objs)
+
+
+def test_obj_and_glb_are_y_up_and_come_back_to_the_piece_frame(out, colorizer):
+    """OBJ y GLB van con Y arriba (como esperan Bambu Studio y los visores de glTF); multiplicando por `Z_UP_TO_Y_UP` vuelve el marco
+    Z arriba de la pieza impresa, con el mismo frente. Escritos en Z arriba, Bambu los importa acostados."""
+    from afm.gui.render import load_glb_parts
+
+    d, rep = out
+    for name, (unw, *_rest) in colorizer.pieces.items():
+        z_up = np.asarray(unw.vertices, float)[np.asarray(unw.faces, np.int64)].reshape(-1, 3)
+        v, _vt, _f = _read_obj(d / COLOR_DIR / f"{FIG}_{name}.obj")
+        assert np.allclose(v @ Z_UP_TO_Y_UP, z_up, atol=1e-5)
+        assert np.allclose(v[:, 1], z_up[:, 2], atol=1e-5) and np.allclose(v[:, 2], -z_up[:, 1], atol=1e-5)   # la altura (z) pasó a y; el frente cambió de signo
+    whole, _vt, _f = _read_obj(d / rep["obj_ensamblado"])
+    zs = np.vstack([np.asarray(u.vertices, float)[np.asarray(u.faces, np.int64)].reshape(-1, 3) for u, *_r in colorizer.pieces.values()])
+    assert whole[:, 1].max() == pytest.approx(zs[:, 2].max(), abs=1e-4) and whole[:, 1].min() == pytest.approx(zs[:, 2].min(), abs=1e-4)
+    parts = load_glb_parts(os.path.join(d, rep["glb"]), y_up=True)                  # la ventana de la figura lo lee así
+    assert max(p.mesh.bounds[1][2] for p in parts) == pytest.approx(zs[:, 2].max(), abs=1e-4)
+    assert min(p.mesh.bounds[0][2] for p in parts) == pytest.approx(zs[:, 2].min(), abs=1e-4)

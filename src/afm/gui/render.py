@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import trimesh
 
+from ..frame import Z_UP_TO_Y_UP
 from ..planes import Plane
 from .camera import OrbitCamera
 
@@ -177,9 +178,10 @@ def _rgb_array(img) -> np.ndarray:
     return np.ascontiguousarray(np.asarray(img.convert("RGB"), np.uint8))
 
 
-def load_glb_parts(path: str) -> list[TexturedPart]:
+def load_glb_parts(path: str, y_up: bool = False) -> list[TexturedPart]:
     """Lee un GLB (p. ej. `<fig>_ensamblada.glb` de `Colorizer.write`): una `TexturedPart` por malla, con las transformaciones de
-    nodo aplicadas. Las mallas sin textura de color base salen con `image=None`. Sin GL: se prueba sin contexto."""
+    nodo aplicadas. Las mallas sin textura de color base salen con `image=None`. Con `y_up=True` el GLB está en Y arriba (como lo escribe
+    `Colorizer.write`) y las mallas vuelven al marco Z arriba del visor. Sin GL: se prueba sin contexto."""
     scene = trimesh.load(path, process=False)
     if isinstance(scene, trimesh.Trimesh):
         scene = trimesh.Scene(scene)
@@ -188,6 +190,10 @@ def load_glb_parts(path: str) -> list[TexturedPart]:
         T, gname = scene.graph[node]
         geom = scene.geometry[gname].copy()
         geom.apply_transform(T)
+        if y_up:
+            to_z = np.eye(4)
+            to_z[:3, :3] = Z_UP_TO_Y_UP.T                    # la inversa (Y arriba -> Z arriba)
+            geom.apply_transform(to_z)
         vis = geom.visual
         uv = getattr(vis, "uv", None)
         tex = getattr(getattr(vis, "material", None), "baseColorTexture", None)

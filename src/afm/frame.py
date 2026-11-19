@@ -88,6 +88,11 @@ class FigureFrame:
         return cls(M, scale, rep)
 
 
+# Z arriba (marco del motor y de los STL) -> Y arriba (convención de OBJ y glTF): (x, y, z) -> (x, z, -y). Es la inversa de la 3×3 que
+# `meshio.orient_z_up` aplica a un archivo Y-arriba. Bambu Studio y Blender convierten a Z arriba al importar un OBJ y los visores de glTF
+# suponen Y arriba, así que un archivo de color escrito en Z arriba aparece acostado.
+Z_UP_TO_Y_UP = np.array([[1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, -1.0, 0.0]])
+
 ICP_AUTO_MEAN_MM = 0.05          # D11: el ICP es respaldo; sobra si la media sin ICP no pasa de esto
 SIMILARITY_OK_MM = 0.1           # §7.2: el FBX es la misma figura si la media ≤ 0,1 mm
 ICP_MAX_ITER = 20

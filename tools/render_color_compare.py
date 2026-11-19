@@ -5,7 +5,7 @@ Uso:
     python tools/render_color_compare.py --fbx figura.fbx --stl figura.stl --glb out/figura_ensamblada.glb --out comparar.png [--front -Y]
 
 `--stl` fija la escala de la fuente (se alinea con la similitud del modo B, sin ICP salvo que haga falta). `--front -Y` gira la fuente 180°
-sobre Z, como `Project.front`. El GLB es el que escribe `export`: las piezas están en la POSE DE IMPRESIÓN (las piernas giradas), no de pie;
+sobre Z, como `Project.front`. El GLB (en Y arriba, como OBJ/glTF) es el que escribe `export`: las piezas están en la POSE DE IMPRESIÓN (las piernas giradas), no de pie;
 las piezas de brazos y torso sí coinciden con la fuente. No toca `src/afm/`.
 """
 from __future__ import annotations
@@ -92,13 +92,16 @@ def glb_geometry(glb: str):
     """Los triángulos, UV y textura de cada pieza de un GLB escrito por `Colorizer.write`: lista de (tris, uv, tex)."""
     import trimesh
 
+    from afm.frame import Z_UP_TO_Y_UP
+
     scene = trimesh.load(glb)
     out = []
     for g in scene.geometry.values():
         tex = getattr(g.visual.material, "baseColorTexture", None)
         uv = np.asarray(g.visual.uv, float)
         F = np.asarray(g.faces)
-        out.append((np.asarray(g.vertices, float)[F], uv[F], None if tex is None else np.asarray(tex.convert("RGB"))))
+        V = np.asarray(g.vertices, float) @ Z_UP_TO_Y_UP                  # el GLB va en Y arriba: de vuelta al marco Z arriba del STL
+        out.append((V[F], uv[F], None if tex is None else np.asarray(tex.convert("RGB"))))
     return out
 
 
