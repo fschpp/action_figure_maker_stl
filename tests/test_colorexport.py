@@ -202,3 +202,56 @@ def test_obj_and_glb_are_y_up_and_come_back_to_the_piece_frame(out, colorizer):
     parts = load_glb_parts(os.path.join(d, rep["glb"]), y_up=True)                  # la ventana de la figura lo lee así
     assert max(p.mesh.bounds[1][2] for p in parts) == pytest.approx(zs[:, 2].max(), abs=1e-4)
     assert min(p.mesh.bounds[0][2] for p in parts) == pytest.approx(zs[:, 2].min(), abs=1e-4)
+
+
+# ------------------------------------------------------------------ T31 · una fuente de color por pieza
+def _recolored(rgb):
+    """El muñeco texturizado con TODO el atlas de un solo color: una fuente «distinta» fácil de reconocer."""
+    from afm.texmesh import TexturedMesh
+    from fbx_synth import png_bytes
+
+    tm = doll_textured()
+    return TexturedMesh(tm.vertices, tm.faces, tm.corner_uv, {"base_color": png_bytes(np.full((256, 256, 3), rgb, np.uint8))}, tm.info)
+
+
+def test_sources_default_is_unchanged(res, meshes, params, tmp_path):
+    """Sin `sources` (o con un diccionario vacío) los archivos de salida son idénticos byte a byte (R3, R6)."""
+    a = Colorizer(ColorSource(doll_textured(), spacing_mm=0.1), params, texel_mm=0.3)
+    b = Colorizer(ColorSource(doll_textured(), spacing_mm=0.1), params, texel_mm=0.3, sources={})
+    for n, m in meshes.items():
+        a(n, m, res)
+        b(n, m, res)
+    a.write(str(tmp_path / "a"), FIG)
+    b.write(str(tmp_path / "b"), FIG)
+    for sub in (COLOR_DIR,):
+        for f in sorted(os.listdir(tmp_path / "a" / sub)):
+            assert open(tmp_path / "a" / sub / f, "rb").read() == open(tmp_path / "b" / sub / f, "rb").read(), f
+    assert {i["fuente"] for _u, _b, _r, i in a.pieces.values()} == {"figura"}
+
+
+def test_two_pieces_baked_with_different_sources(res, meshes, params, tmp_path):
+    cyan = (0, 200, 220)
+    own = ColorSource(_recolored(cyan), spacing_mm=0.1)
+    cz = Colorizer(ColorSource(doll_textured(), spacing_mm=0.1), params, texel_mm=0.3, sources={"brazo": own})
+    infos = {n: cz(n, m, res) for n, m in meshes.items()}
+    brazos = [n for n in meshes if n.startswith("brazo")]
+    assert brazos and all(infos[n]["fuente"] == "pieza" for n in brazos)       # `brazo_izq` y `brazo_der` comparten la clave `brazo`
+    assert all(infos[n]["fuente"] == "figura" for n in meshes if n not in brazos)
+    for n in brazos:
+        _u, bk, _r, _i = cz.pieces[n]
+        assert np.abs(bk.atlas[bk.mask].astype(int) - np.array(cyan)).max() <= 10     # color de la fuente propia, no el rojo/azul de la figura
+    n = "pierna_izq" if "pierna_izq" in meshes else next(k for k in meshes if k not in brazos)
+    _u, bk, _r, _i = cz.pieces[n]
+    assert np.abs(bk.atlas[bk.mask].astype(int) - np.array(cyan)).max() > 30
+    rep = cz.write(str(tmp_path), FIG)
+    assert rep["config"]["fuentes_propias"] == ["brazo"]
+    assert all(rep["piezas"][n]["fuente"] == "pieza" for n in brazos)
+
+
+def test_unregistered_piece_reports_plano(res, params):
+    far = trimesh.creation.icosphere(subdivisions=2, radius=5.0)
+    far.apply_translation((500.0, 500.0, 500.0))
+    cz = Colorizer(ColorSource(doll_textured(), spacing_mm=0.2), params, texel_mm=0.5,
+                   sources={"pieza_ajena": ColorSource(_recolored((9, 9, 9)), spacing_mm=0.2)})
+    info = cz("pieza_ajena", far, res)
+    assert info["estado"] == "sin_origen" and info["fuente"] == "plano"

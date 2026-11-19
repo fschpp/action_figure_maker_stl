@@ -29,13 +29,24 @@ COLOR_DIR = "piezas_color"
 
 class Colorizer:
     def __init__(self, src, params, *, texel_mm: float = 0.2, eps: float = 0.15, fill="extend", symmetric: bool = False,
-                 workers: int = 1):
+                 workers: int = 1, sources: dict | None = None):
         from .colorbake import parse_fill
 
         parse_fill(fill)                                   # falla ya, no después de registrar todas las piezas
         self.src, self.params = src, params
+        self.sources: dict = dict(sources or {})           # clave de pieza (sin _izq/_der) -> ColorSource propia (T31)
         self.texel_mm, self.eps, self.fill, self.symmetric, self.workers = float(texel_mm), float(eps), fill, bool(symmetric), int(workers)
         self.pieces: dict = {}                             # nombre -> (Unwrapped, BakeResult, Registration, info)
+
+    # ------------------------------------------------------------------ fuente de cada pieza
+    def source_for(self, name: str):
+        """`(fuente, origen)` de la pieza `name`: la propia (`sources[clave]`, con la clave sin sufijo `_izq/_der`) o la de la figura.
+
+        `origen` es `"pieza"` o `"figura"`."""
+        from .colorreg import _split_name
+
+        own = self.sources.get(_split_name(name)[0])
+        return (own, "pieza") if own is not None else (self.src, "figura")
 
     # ------------------------------------------------------------------ una pieza
     def __call__(self, name: str, mesh, res) -> dict:
@@ -48,10 +59,11 @@ class Colorizer:
         from .unwrap import unwrap_triangles
 
         t0 = time.perf_counter()
-        reg = register_piece(name, mesh, self.src, res, self.params)
+        src, origen = self.source_for(name)
+        reg = register_piece(name, mesh, src, res, self.params)
         unw = unwrap_triangles(mesh, texel_mm=self.texel_mm)
-        bk = bake_piece(mesh, unw, self.src, reg, eps=self.eps, fill=self.fill, symmetric=self.symmetric, workers=self.workers)
-        info = {"estado": reg.status, "pct_origen": round(float(bk.stats["pct_origen"]), 2), "angulo": round(float(reg.angle_deg), 3),
+        bk = bake_piece(mesh, unw, src, reg, eps=self.eps, fill=self.fill, symmetric=self.symmetric, workers=self.workers)
+        info = {"estado": reg.status, "fuente": "plano" if reg.status == "sin_origen" else origen, "pct_origen": round(float(bk.stats["pct_origen"]), 2), "angulo": round(float(reg.angle_deg), 3),
                 "puntaje_registro": round(float(reg.score), 3), "texel_mm": round(float(unw.texel_mm), 4),
                 "atlas": [int(unw.size[0]), int(unw.size[1])], "triangulos": int(len(unw.faces)),
                 "area_mm2": round(float(bk.stats["area_mm2"]), 2), "segundos": round(float(time.perf_counter() - t0), 2)}
@@ -130,6 +142,7 @@ class Colorizer:
                "accesorios_sin_color": int(accesorios_sin_color)}      # los accesorios de `export` no llevan color
         out["config"] = {"texel_mm": self.texel_mm, "eps": self.eps, "fill": self.fill, "simetrico": self.symmetric,
                          "spacing_fuente_mm": round(float(self.src.spacing_mm), 4)}
+        out["config"]["fuentes_propias"] = sorted(self.sources)
         out["sin_origen"] = sorted(n for n, (_u, _b, r, _i) in self.pieces.items() if r.status == "sin_origen")
         out["segundos"] = round(float(sum(i["segundos"] for *_x, i in self.pieces.values())), 2)
         with open(os.path.join(outdir, out["informe"]), "w", encoding="utf-8") as fh:
