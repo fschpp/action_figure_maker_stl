@@ -139,6 +139,7 @@ class Item:
     restore: tuple | None = None      # (color, ghost, cull) de antes de `set_translucent`, para volver a pintarla opaca
     width: float = 1.0                # grosor en píxeles de un trazo («lines»); > 1 se dibuja como cinta (GL_LINES solo hace 1 px)
     tex: object = None                # textura de color (moderngl.Texture) de una malla con UV; None = malla de color plano
+    tex_key: object = None            # identidad de la malla+textura subidas: con la misma clave no se vuelve a subir (atlas de 4096²)
 
 
 def _flat_vertices(mesh: trimesh.Trimesh) -> np.ndarray:
@@ -201,12 +202,14 @@ def part_from_textured_mesh(tm, frame=None, name: str = "fuente") -> TexturedPar
     """La fuente de color (`texmesh.TexturedMesh`, p. ej. `Session.color_source`) como `TexturedPart` con su textura base. `frame`
     (un `FigureFrame`) la lleva al marco de la figura; sin él queda en las unidades y ejes del archivo."""
     mesh = tm.to_trimesh()
+    uv = np.asarray(tm.corner_uv, np.float32)
     if frame is not None:
         mesh.vertices = frame.apply(np.asarray(mesh.vertices, float))
-        if frame.det() < 0:                                        # un espejo invierte las caras (el plan no lo admite, pero no debe dibujar al revés)
+        if frame.det() < 0:                                        # un espejo invierte las caras: se invierte también el orden de las esquinas del UV
             mesh.invert()
+            uv = np.ascontiguousarray(uv[:, ::-1])
     img = tm.image("base_color") if "base_color" in tm.images else None
-    return TexturedPart(name, mesh, np.asarray(tm.corner_uv, np.float32) if img is not None else None, img)
+    return TexturedPart(name, mesh, uv if img is not None else None, img)
 
 
 def plane_quad(plane: Plane, half_size: float, center=None) -> np.ndarray:
@@ -258,12 +261,16 @@ class SceneRenderer:
         return self._put(name, Item("mesh", vao, vbo, len(data), color, clip_x=clip_x, clip_plane=clip_plane, ghost=ghost))
 
     def set_textured_mesh(self, name: str, mesh: trimesh.Trimesh | None, corner_uv, image, color=(0.78, 0.80, 0.84, 1.0),
-                          clip_x: float = -1e9, clip_plane=None, ghost: bool = False):
+                          clip_x: float = -1e9, clip_plane=None, ghost: bool = False, key=None):
         """Malla con color por textura. `corner_uv` (F,3,2) con v hacia arriba (convención FBX / trimesh) e `image` uint8 (H, W, 3)
         con la fila 0 ARRIBA (como un PNG): se sube invertida para que `v` hacia arriba muestree bien. `color` es el plano que se ve
         con las texturas apagadas (`set_textures(False)`)."""
         if mesh is None or len(mesh.faces) == 0:
             return self.remove(name)
+        old = self.items.get(name)
+        if key is not None and old is not None and old.tex is not None and old.tex_key == key:
+            old.color, old.clip_x, old.clip_plane, old.ghost = color, clip_x, clip_plane, ghost     # misma malla y textura: solo cambia el recorte
+            return old
         data = _flat_vertices_uv(mesh, corner_uv)
         img = _rgb_array(image)
         h, w = img.shape[:2]
@@ -277,7 +284,7 @@ class SceneRenderer:
             pass
         vbo = self.ctx.buffer(data.tobytes())
         vao = self.ctx.vertex_array(self.tex_prog, [(vbo, "3f 3f 2f", "in_pos", "in_nrm", "in_uv")])
-        return self._put(name, Item("mesh", vao, vbo, len(data), color, clip_x=clip_x, clip_plane=clip_plane, ghost=ghost, tex=tex))
+        return self._put(name, Item("mesh", vao, vbo, len(data), color, clip_x=clip_x, clip_plane=clip_plane, ghost=ghost, tex=tex, tex_key=key))
 
     def set_textures(self, on: bool) -> None:
         """Enciende o apaga el color por textura de todas las mallas que lo tienen (las demás no cambian)."""

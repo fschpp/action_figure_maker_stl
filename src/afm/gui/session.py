@@ -203,6 +203,59 @@ class Session:
             raise ColorSourceError(tr("session.color_sin_fuente"))
         return make_colorizer(color, self.base.copy(), prj.params, say, post=FigureFrame.engine_post(prj.front, prj.symmetry))
 
+    # ------------------------------------------------------------------ vista previa de la textura en el visor
+    def texture_available(self) -> bool:
+        """Hay de dónde sacar la textura: el FBX abierto (modo A) o el FBX de `project.color` (modo B)."""
+        return self.color_source is not None or self.project.color is not None
+
+    def preview_texture(self):
+        """`TexturedPart` del FBX en el marco de `work` (el que dibuja el visor), con su textura base. Modo A: el FBX abierto con
+        `FigureFrame.from_load`; modo B: el FBX de `project.color` alineado contra la figura cargada (el mismo cálculo de `make_colorizer`).
+        La alineación y la malla se guardan: pedirla otra vez con el mismo estado no recalcula. `ColorSourceError` si no se puede
+        (sin FBX, FBX perdido o cambiado, sin textura de color, no es la misma figura)."""
+        from .. import fbxio
+        from ..frame import SIMILARITY_OK_MM, FigureFrame
+        from .render import part_from_textured_mesh
+
+        if self.base is None:
+            raise ColorSourceError(tr("session.color_sin_fuente"))
+        rep, prj = self.report, self.project
+        mode_a = rep is not None and bool(rep.color_source_path) and self.color_source is not None
+        if mode_a:
+            ident = ("A", rep.color_source_path)
+        else:
+            path = self.resolve_color_source()                       # ColorSourceError si falta, o si el hash no coincide
+            ident = ("B", path, prj.color.source_sha256)
+        sym = prj.symmetry
+        full = (ident, id(self.base), prj.front, None if sym is None else (sym.origin.tobytes(), sym.normal.tobytes()), self.edit_side)
+        cache = getattr(self, "_tex_cache", None)
+        if cache is not None and cache[0] == full:
+            return cache[1]
+        align = getattr(self, "_tex_align", None)
+        if mode_a:
+            tm, frame = self.color_source, FigureFrame.from_load(rep, prj.front, sym)
+        else:
+            akey = (ident, id(self.base))
+            if align is None or align[0] != akey:                    # lo caro (segundos): depende solo del FBX y de la figura cargada
+                try:
+                    tm = fbxio.load_textured(path)
+                except (fbxio.FbxError, OSError) as exc:
+                    raise ColorSourceError(str(exc)) from exc
+                align = (akey, tm, FigureFrame.from_similarity(tm, self.base))
+                self._tex_align = align
+            tm = align[1]
+            frame = align[2].then(FigureFrame.engine_post(prj.front, sym))
+            if not frame.report.get("ok", True):
+                raise ColorSourceError(tr("color.aviso_otra_figura", ruta=os.path.basename(path), media=f"{frame.report['media_mm']:.2f}",
+                                          max=f"{SIMILARITY_OK_MM:g}"))
+        if "base_color" not in tm.images:
+            raise ColorSourceError(tr("session.aviso_fbx_sin_textura_base"))
+        if self.edit_side == "right":                                # vista espejada del lado derecho
+            frame = FigureFrame(MIRROR_X @ frame.matrix, frame.scale, frame.report)
+        part = part_from_textured_mesh(tm, frame, name="textura")
+        self._tex_cache = (full, part)
+        return part
+
     @property
     def loaded(self) -> bool:
         return self.base is not None

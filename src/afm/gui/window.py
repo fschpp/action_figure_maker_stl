@@ -2346,6 +2346,9 @@ class MainWindow(Gtk.ApplicationWindow):
         for w in (self.spin_color_texel, self.spin_color_eps, self.dd_color_fill, self.ent_color_fill, self.dd_color_side):
             w.set_sensitive(bool(spec is not None and free))
         self.btn_color_pick.set_sensitive(free)
+        self.chk_color_tex.set_sensitive(bool(free and ctrl.session.texture_available()))
+        if self.chk_color_tex.get_active() != ctrl.show_texture:
+            self.chk_color_tex.set_active(ctrl.show_texture)
         self.btn_color_relocate.set_sensitive(bool(spec is not None and free))
         self.btn_color_remove.set_sensitive(bool(spec is not None and free))
         if spec is not None:

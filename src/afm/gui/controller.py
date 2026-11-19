@@ -34,6 +34,7 @@ from .picking import Picker, PickResult
 from .polygon_editor import EDGE_PX, VERTEX_PX, PolygonDraft, ray_plane_uv
 from ..progress import TaskCancelled
 from .history import History
+from ..fbxio import FbxError
 from .session import ColorSourceError, Session, color_rows, json_sig
 from ..messages import fill_hip_message   # noqa: F401  (se mantiene importable desde aquí; vive fuera de gui/ para que la CLI y el motor no dependan de la GUI)
 
@@ -234,6 +235,7 @@ class Controller:
         self.pending_kind: str | None = None        # "arm" | "leg" mientras se elige el plano de un miembro
         self.message = tr("controller.abri_un_stl_para_empezar")
         self.one_side = False                        # trabajar un solo lado (oculta x < 0)
+        self.show_texture = False                    # el visor dibuja la figura con la textura del FBX (vista previa; no cambia la geometría)
         self.hidden: set[str] = set()                # ids de planos ocultos
         self.show_groups: dict[str, bool] = {g: False for g in SHOW_GROUPS}   # interruptores generales (planos / pines / contornos)
         self.busy = False                            # generando la figura (la ventana bloquea la edición)
@@ -3405,10 +3407,40 @@ class Controller:
         self._changed(tr("controller.color_actualizado"), scene=False)
         return True
 
+    def set_show_texture(self, on: bool) -> bool:
+        """Enciende o apaga la vista previa de la textura del FBX en el visor principal. Al encender alinea el FBX con la figura (en el
+        modo B puede tardar unos segundos). False, y el motivo en `message`, si no se puede; no toca el proyecto ni lo que se exporta."""
+        if not on:
+            self.show_texture = False
+            self._changed(tr("controller.textura_apagada"))
+            return True
+        try:
+            self.session.preview_texture()
+        except (ColorSourceError, FbxError, OSError, ValueError) as exc:
+            self.show_texture = False
+            self._changed(tr("controller.textura_no_disponible", motivo=str(exc)))
+            return False
+        self.show_texture = True
+        self._changed(tr("controller.textura_activada"))
+        return True
+
+    def _texture_for_scene(self):
+        """`TexturedPart` para el visor si la vista previa está encendida y la figura se dibuja tal cual; None = color plano. Un fallo
+        (otro STL, FBX cambiado) apaga la vista previa y lo dice, sin romper el repintado."""
+        if not self.show_texture:
+            return None
+        try:
+            return self.session.preview_texture()
+        except (ColorSourceError, FbxError, OSError, ValueError) as exc:
+            self.show_texture = False
+            self.message = tr("controller.textura_no_disponible", motivo=str(exc))
+            return None
+
     def remove_color(self) -> bool:
         """«Quitar color»: la figura se exporta sin color (los STL no cambian). El FBX no se borra."""
         if self.color_spec() is None:
             return False
+        self.show_texture = False
         self.session.project.color = None
         self.color_report = None
         self._changed(tr("controller.color_quitado"), scene=False)
@@ -4919,7 +4951,11 @@ class Controller:
                      if pv.mesh is not None and pv.kind not in ("arm", "leg")       # brazos y piernas ya llevan su espejo
                      and not (pl == "cabeza" and self._replacement_head_shown())]
         else:
-            scene.set_mesh("figura", base, clip_x=clip, **extra)
+            tpart = self._texture_for_scene() if (pin_plane is None and hfit is None and hprev is None) else None
+            if tpart is not None:                                   # vista previa: el FBX con su textura en lugar de la malla gris
+                scene.set_textured_mesh("figura", tpart.mesh, tpart.corner_uv, tpart.image, clip_x=clip, key=id(tpart), **extra)
+            else:
+                scene.set_mesh("figura", base, clip_x=clip, **extra)
             scene.remove("voladizos")
             drawn = [("figura", base, _MIRROR_COLOR)]
         if hfit is not None:

@@ -82,6 +82,10 @@ def build(win) -> None:
     for b in (win.btn_color_pick, win.btn_color_relocate, win.btn_color_remove):
         row.append(b)
     sec.append(row)
+    win.chk_color_tex = Gtk.CheckButton(label=tr("color.panel_ver_textura"))
+    win.chk_color_tex.set_tooltip_text(tr("color.panel_ver_textura_tooltip"))
+    win.chk_color_tex.connect("toggled", lambda b: None if win._updating else win.ctrl.set_show_texture(b.get_active()))
+    sec.append(win.chk_color_tex)
     win.spin_color_texel = win._color_spin(sec, tr("color.panel_texel"), Controller.COLOR_TEXEL_RANGE, 0.05, 2, "texel_mm")
     win.spin_color_eps = win._color_spin(sec, tr("color.panel_tolerancia"), Controller.COLOR_EPS_RANGE, 0.01, 2, "eps")
     row = Gtk.Box(spacing=6)
