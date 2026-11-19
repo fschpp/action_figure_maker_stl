@@ -2,6 +2,25 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — Paleta de línea: T40 (2026-11-19, sobre main 06dbdbb = T39)
+**Objetivo:** proponer clusters de color de la textura de un FBX y convertirlos, con la asignación del usuario, en un mapa de roles (`PLAN_paleta_color_linea.md` T40). Sin archivos `.npz` (T41), sin GUI, sin tocar `ColorSource`.
+**Hecho:** `src/afm/colorroles.py` (parte 1) y `tests/test_colorroles.py` (8 pruebas: 7 rápidas y 1 `AFM_SLOW`). `propose(tm, palette, k, seed, n_samples)` → `Proposal` (`centers_rgb`, `share` en % de área, `labels_atlas` filtrado, `suggested`, y `raw_atlas` sin filtrar); `build_package(tm, proposal, assign)` → `RolesPackage` (solo el dataclass: `save`/`load`/`to_textured` son T41); `mode_filter` (mayoría 5×5 por bloques). K-means con `scipy.cluster.vq.kmeans2(minit="++")` en Lab; semilla fija. **No asigna roles solo**: sin `assign` completo levanta `RolesError` con los clusters que faltan.
+**Decisiones (mías, fáciles de cambiar):** (1) `build_package` filtra por mayoría las etiquetas **ya en roles**, no las de cluster: dos tonos del mismo rol no cuentan como ruido entre sí; por eso `Proposal` guarda también `raw_atlas`. (2) La sugerencia usa `palette.nearest` con tope ΔE 18 (parámetro `max_delta_e`); el §4 ya dice que un umbral no detecta el error, es solo una sugerencia. (3) `centers_rgb` es el color **medio** de las muestras del cluster (no el centro Lab convertido). (4) Con menos colores distintos que `k`, salen menos clusters (`k = min(k, colores únicos)` y se descartan los vacíos). (5) En el filtro, un empate lo gana la etiqueta que el píxel ya tenía (no corre bordes rectos). (6) `build_package` acepta `origen=` (nombre y hash del FBX) además de lo que fija el §7.
+**Medido (Güemes real, `guemes_segmentado_lq_texturas.fbx`, textura 4096², atlas 2048²):** `propose` K=10 en **4,3 s** (límite 30 s). Clusters K=10 (rgb, % área): (192,186,174) 38,3 · (41,39,34) 14,5 · (24,24,22) 11,2 · (154,149,135) 10,4 · (109,105,94) 7,4 · (60,70,49) 5,1 · (124,101,68) 4,0 · (151,132,77) 3,5 · (172,133,104) 3,1 · (100,72,50) 2,5: los grises del uniforme y los dos negros son tonos del mismo material, como en el §4. **Píxeles que cambia el filtro: K=10 → 2,23 %; K=8 → 1,81 %; K=6 → 1,36 %; K=5 → 0,98 %; K=3 → 0,48 %.** Regresión R7 + `test_palette` + `test_catalog_palette` + `test_colorroles`: 134 pasan, 2 se saltan, 1 xfail previo (131 s).
+**CRITERIO NO CUMPLIDO (R6):** la aceptación pide «con Güemes real el filtro cambia < 2 %» (marcado [I] en el plan). Con K=10 mide **2,23 %**, así que `test_real_guemes_roles_in_under_30s` (solo con `AFM_SLOW=1`) **falla en esa aserción** y la dejé en 2 %, sin relajar. El 0,45 % del plan salió con 3 roles, lo que coincide con K=3 (0,48 %). Las otras pruebas, incluido el tiempo, pasan. Decidir: (a) subir el umbral a 2,5 % para K=10, (b) medir el cambio sobre los **roles** (5–6) y no sobre los 10 clusters, que es lo que filtra `build_package`, o (c) dejarlo así. No se avanza T41 sobre este punto hasta que se decida.
+**No verificado:** `propose` sobre la cabeza ni sobre otras figuras; la calidad de las sugerencias con anclas reales (las de las pruebas son de a mano); el atlas de etiquetas dibujado en pantalla.
+
+### Todo List
+- [x] T38 · [x] T39 · [x] T40 (con el criterio del filtro sin cumplir, ver arriba)
+- [ ] T41 → T42 → T43 · T44 → T45 (opcional) · T46 · T47 · T48 → T49 → T50 → T51
+
+### Latest Blockers/Discoveries
+- Pendiente de decisión: umbral del filtro (arriba). No bloquea el código de T41, solo el visto bueno de la aceptación de T40.
+- El filtro cambia más píxeles cuantos más clusters hay: con tonos de una misma tela (luz horneada) el borde entre tonos es difuso.
+- Las entradas de T34–T36 siguen sin bitácora (T51).
+
+---
+
 ## Current Focus — Paleta de línea: T39 (2026-11-19, sobre main ea50f65 = T38)
 **Objetivo:** que una línea tenga su `paleta.json` y se pueda ver y editar desde la terminal (`PLAN_paleta_color_linea.md` T39). Sin paquetes de roles (T41/T42) ni GUI.
 **Hecho:** `Catalog.palette()` (None si no hay `paleta.json`; `CatalogError` si es ilegible), `set_palette()` (archivo temporal + `os.replace`; no toca `linea.json`, fichas ni STL), `palette_usage(rol)`, `add_role`, `set_role_color`, `rename_role`, `delete_role` (se niega si hay uso y lista las piezas), `import_palette` / `export_palette`. `verify()` suma dos problemas: `paleta.json` ilegible, y pieza con `color.roles` que la paleta no tiene (o sin `paleta.json`). CLI `afm catalogo paleta ver|agregar|color|renombrar|quitar|importar|exportar RUTA …` con textos en `locales/{es,en,pt}.json` (sección `paleta_cli`). `tests/test_catalog_palette.py` (8 pruebas, 1 s). `docs/PLAN_paleta_color_linea.md` se agregó al repo (no estaba).
