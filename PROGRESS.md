@@ -2,6 +2,20 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — Color FBX: T19 (2026-11-19, sobre main c98a02b)
+**Objetivo:** color correcto con base aplanada (`--sin-soportes`), con `limbs_right` y con piezas de catálogo sin origen.
+**Hecho:** `tests/test_color_cases.py` (7 pruebas, ≈ 42 s, muñeco) y `tests/test_color_egon.py` (5 pruebas con Egon real, solo con `AFM_SLOW=1`). **No hizo falta tocar `colorreg.py` ni `colorexport.py`:** el registro ya hallaba la pose con base aplanada, con `res.right` y con piezas de catálogo.
+**Medido (muñeco, texel 0,3 mm):** aplanado: piernas 73,4 → 54,6 % con origen (el corte quita 2116 mm³ de cada una), brazos y cabeza sin cambio; `pierna_izq`/`pierna_der` `semilla` ±90°. Brazo derecho asimétrico (1080 vs 1381 mm³): `identidad`, azul 59 % con `symmetric=False`, rojo 59 % con `symmetric=True`; el izquierdo no cambia. Mano de catálogo: `sin_origen`, `#C8C8C8`, listada en el informe y escrita igual.
+**Egon real (medido al escribir las pruebas):** 6 piezas, ninguna `sin_origen` (torso 56,9 %, brazos 74,6 / 88,5 %, cabeza 87,1 %, piernas 86–88 %), alineación FBX→STL media 0,025 mm sin ICP, extra de 15 s, STL idénticos byte a byte con y sin color; el brazo derecho conserva su color propio (24,6 % de texeles difieren con `symmetric=True`).
+**No verificado:** `limbs_right` combinado con `joints` (rodilla/codo) y con clic (el motor los rechaza); catálogo con color propio (no se implementa, §7.8).
+
+### Todo List
+- [x] T09 · [x] T10–T16 (T20 no se hace) · [x] T17 · [x] T18 · [x] T19
+- [ ] T21–T30
+
+### Latest Blockers/Discoveries
+- Ninguno bloqueante. Camino abierto: T21 (modo A), T23 (libre), T28 (◄ T15).
+
 ## Current Focus — Color FBX: T18 (2026-11-19, sobre main 32f90a6)
 **Objetivo:** registrar piezas que pasan por DOS giros (cadera + rodilla, hombro + codo) y brazos con clic.
 **Hecho:** `colorreg.py`: (1) `seeds_for_piece` reconoce las piezas de una articulación por `res.report["joints"][j]["piezas"]` (antes `muslo`/`pantorrilla` no estaban en `res.motion`, que solo tiene la clave del miembro, y quedaban solo con identidad); la proximal lleva un paso (cadera/hombro, `print_hip`) y la distal la CADENA `[(centro, eje, sign·print_flex) de `res.joints[j]`, (centro, eje, print_hip) de `res.motion[limb]`]`, la exacta primero; de respaldo 3 flexiones (±, 0) × 5 giros (±print_hip, 0, ±sit_angle) = las 4 combinaciones de signo y los giros sin flexión; `_der` refleja cada paso (M·c, M·eje, −ángulo) y con `limbs_right` usa `res.right`. (2) `register_piece`: la cadena se describe por su último paso (`center/axis/angle_deg` = cadera/hombro, igual que la proximal) y `Registration.chain_deg` trae los dos ángulos (articulación, cadera). (3) Plan B de RG10: barrido en DOS ángulos (`_sweep_two_axes`: 24 × 24 pasos de 15° con 300 puntos, se refinan las 10 mejores casillas ±7,5° cada 2,5° y la mejor a 1° con 1500 puntos) cuando ninguna semilla llega a 0,4. `colorsrc.ColorSource.distance(points, workers=1, upper=None)`: parámetro nuevo opcional; con `upper` los puntos más lejos devuelven `inf` sin terminar la búsqueda (los barridos pasaban de 9 s a 3 s). Sin `upper` se comporta como antes. `tests/test_color_joints.py` (11 pruebas, ≈ 30 s).
