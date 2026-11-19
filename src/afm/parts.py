@@ -77,6 +77,50 @@ def meta_name(piece_id: str, version: int) -> str:
     return f"{piece_id}@{version}.pieza.json"
 
 
+def color_name(piece_id: str, version: int) -> str:
+    """Nombre del FBX de color de una pieza, junto a su STL (T35)."""
+    return f"{piece_id}@{version}.fbx"
+
+
+def color_problems(color) -> list[str]:
+    """Problemas de formato del bloque `color` de una pieza (no abre el FBX)."""
+    if not color:
+        return []
+    out = []
+    for k in ("fuente", "sha256", "similitud"):
+        if k not in color:
+            out.append(f"color: falta «{k}»")
+    sim = color.get("similitud")
+    if sim is not None:
+        try:
+            M = np.asarray(sim, float)
+            if M.shape != (4, 4) or not np.all(np.isfinite(M)) or abs(np.linalg.det(M[:3, :3])) < 1e-12:
+                out.append("color: «similitud» no es una matriz 4×4 válida")
+        except (TypeError, ValueError):
+            out.append("color: «similitud» no es una matriz 4×4 válida")
+    return out
+
+
+def color_block(mesh, fbx_path: str, **kw) -> dict:
+    """Bloque `color` para una pieza con su FBX: alinea el FBX con la malla de la pieza (`colorpiece.align_fbx_to_piece`, que levanta
+    `PieceColorError` si no calza) y devuelve `{fuente, sha256, similitud, texturas, estado, alineacion}`. `fuente` queda con el
+    nombre que se le pone al copiarlo (`write_piece(..., color_fbx=)`)."""
+    import io
+
+    from PIL import Image
+
+    from .colorpiece import align_fbx_to_piece
+    from .fbxio import load_textured
+
+    tm = load_textured(fbx_path)
+    frame = align_fbx_to_piece(tm, _as_trimesh(mesh), **kw)
+    with Image.open(io.BytesIO(tm.images["base_color"])) as im:
+        w, h = im.size
+    return {"fuente": "", "sha256": sha256_file(fbx_path), "similitud": np.asarray(frame.matrix, float).tolist(),
+            "texturas": {"base": f"{w}x{h}"}, "estado": "alineada",
+            "alineacion": {k: (round(float(v), 4) if isinstance(v, float) else v) for k, v in frame.report.items()}}
+
+
 def sha256_file(path: str) -> str:
     h = hashlib.sha256()
     with open(path, "rb") as f:
@@ -107,6 +151,7 @@ class PieceMeta:
     estado: str = "borrador"
     etiquetas: list = field(default_factory=list)
     nombre: str = ""                    # nombre para mostrar (opcional, editable); el `id` y la `ref` no cambian nunca
+    color: dict | None = None           # color propio (T35): {fuente, sha256, similitud 4×4 FBX→STL, texturas, estado}; None = sin color
 
     @property
     def display_name(self) -> str:
@@ -135,6 +180,7 @@ class PieceMeta:
         for t in self.etiquetas:
             if t not in TAGS:
                 out.append(f"etiqueta desconocida «{t}» (hay {', '.join(TAGS)})")
+        out += color_problems(self.color)
         spec = PORT_SPEC[self.tipo]
         for name, (rol, required) in spec.items():
             if required and name not in self.puertos:
@@ -160,6 +206,8 @@ class PieceMeta:
         d = self._base_dict()
         if self.nombre:                 # solo si se renombró: las fichas viejas quedan idénticas
             d["nombre"] = self.nombre
+        if self.color:                  # solo con color propio: las fichas sin color quedan idénticas
+            d["color"] = self.color
         return d
 
     def _base_dict(self) -> dict:
@@ -183,7 +231,7 @@ class PieceMeta:
                    volumen_mm3=float(d.get("volumen_mm3", 0.0)), bbox=d.get("bbox", [[0.0] * 3, [0.0] * 3]),
                    articulaciones=d.get("articulaciones", []), mecanismo=d.get("mecanismo"),
                    estado=d.get("estado", "borrador"), etiquetas=list(d.get("etiquetas", [])),
-                   nombre=str(d.get("nombre") or ""))
+                   nombre=str(d.get("nombre") or ""), color=d.get("color") or None)
 
 
 def _as_trimesh(mesh):
@@ -201,8 +249,9 @@ def make_origin(figure: str = "", project: str = "", note: str = "") -> dict:
     return o
 
 
-def write_piece(directory: str, meta: PieceMeta, mesh) -> PieceMeta:
+def write_piece(directory: str, meta: PieceMeta, mesh, color_fbx: str | None = None) -> PieceMeta:
     """Escribe `<id>@<version>.stl` y `<id>@<version>.pieza.json` en `directory` y completa el hash, el volumen y la caja.
+    Con `color_fbx` copia además el FBX como `<id>@<version>.fbx` (`meta.color` ya armado con `color_block`).
 
     `mesh` puede ser un `trimesh.Trimesh` o un `Manifold`. No sobrescribe: si el archivo ya existe es un error (las
     piezas son inmutables; un cambio es una versión nueva)."""
@@ -219,6 +268,13 @@ def write_piece(directory: str, meta: PieceMeta, mesh) -> PieceMeta:
         raise PieceError(f"«{meta.ref}» ya existe: las piezas son inmutables, guardá una versión nueva")
     os.makedirs(directory, exist_ok=True)
     meshio.save_stl(tm, stl)
+    if color_fbx:                       # T35: el FBX se copia entero junto al STL; la ficha (que va al final) es lo que lo da por guardado
+        import shutil
+
+        if not meta.color:
+            raise PieceError(f"«{meta.ref}»: falta el bloque `color` (usá `color_block`)")
+        meta.color["fuente"] = color_name(meta.id, meta.version)
+        shutil.copyfile(color_fbx, os.path.join(directory, meta.color["fuente"]))
     saved = load_mesh(stl)
     meta.stl = stl_name(meta.id, meta.version)
     meta.sha256 = sha256_file(stl)

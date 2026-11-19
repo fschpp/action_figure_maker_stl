@@ -219,11 +219,16 @@ class Catalog:
         m = self.meta(ref)
         return P.read_piece(self._dir(m.tipo), m.id, m.version, check_hash)
 
-    def add_piece(self, mesh, meta: P.PieceMeta, new_version: bool = False) -> tuple[P.PieceMeta, list[str]]:
+    def add_piece(self, mesh, meta: P.PieceMeta, new_version: bool = False,
+                  color_fbx: str | None = None) -> tuple[P.PieceMeta, list[str]]:
         """Guarda una pieza. Si el id ya existe hace falta `new_version=True` (crea la versión siguiente); nunca sobrescribe.
 
         Devuelve (meta ya completa con hash y volumen, avisos). Avisa si la altura de la figura de origen difiere de la
-        de la línea (mm reales: la pieza no se reescala)."""
+        de la línea (mm reales: la pieza no se reescala).
+
+        `color_fbx` (T35): FBX con la textura de esta pieza. Se alinea contra la malla (si no calza, `CatalogError` y no se escribe nada),
+        se copia junto al STL y la ficha guarda `color` con el hash y la similitud FBX→STL. Sin `color_fbx` la pieza NO lleva color: una
+        versión nueva no hereda el de la anterior (la geometría pudo cambiar y la similitud ya no valdría)."""
         existing = self.versions(meta.id)
         if existing and not new_version:
             raise CatalogError(f"«{meta.id}» ya existe (versiones {existing}): las piezas son inmutables; "
@@ -238,9 +243,33 @@ class Catalog:
         if meta.altura_figura_mm is not None and abs(meta.altura_figura_mm - self.height_mm) > LINE_HEIGHT_TOL_MM:
             warnings.append(f"la figura de origen mide {meta.altura_figura_mm:g} mm y la línea «{self.name}» {self.height_mm:g} mm: "
                             "las piezas no se reescalan")
-        P.write_piece(self._dir(meta.tipo), meta, mesh)
+        if color_fbx:
+            from .colorpiece import PieceColorError
+            from .fbxio import FbxError
+
+            try:
+                meta.color = P.color_block(mesh, color_fbx)
+            except (PieceColorError, FbxError, OSError) as exc:
+                raise CatalogError(f"el FBX de color de «{meta.id}» no sirve: {exc}") from exc
+        elif meta.color:
+            meta.color = None
+            warnings.append(f"«{meta.id}» no lleva color en la versión {meta.version}: el color no se hereda entre versiones")
+        P.write_piece(self._dir(meta.tipo), meta, mesh, color_fbx=color_fbx)
         self.write_index()
         return meta, warnings
+
+    def color_file(self, ref: str) -> str | None:
+        """Ruta del FBX de color de la pieza `ref` (`id` o `id@n`), o `None` si no lleva color. `CatalogError` si falta el archivo o su
+        hash no coincide con el de la ficha."""
+        m = self.meta(ref)
+        if not m.color:
+            return None
+        path = os.path.join(self._dir(m.tipo), m.color.get("fuente") or P.color_name(m.id, m.version))
+        if not os.path.isfile(path):
+            raise CatalogError(f"{m.ref}: falta el FBX de color «{os.path.basename(path)}»")
+        if m.color.get("sha256") and P.sha256_file(path) != m.color["sha256"]:
+            raise CatalogError(f"{m.ref}: el FBX de color no coincide con el hash guardado (¿se modificó?)")
+        return path
 
     def import_hand(self, stl_path: str, piece_id: str | None = None, new_version: bool = False):
         """Importa una mano estándar `afm-mano-1` (la de `afm extraer-mano`) como pieza `mano`."""
@@ -670,6 +699,12 @@ class Catalog:
                 continue
             if not mesh.is_watertight:
                 problems.append(f"{tag}: la malla no es estanca")
+            if m.color:                    # T35: el FBX de color existe y es el de la ficha
+                fbx = os.path.join(os.path.dirname(path), m.color.get("fuente") or "")
+                if not m.color.get("fuente") or not os.path.isfile(fbx):
+                    problems.append(f"{tag}: falta el FBX de color «{m.color.get('fuente', '')}»")
+                elif m.color.get("sha256") and P.sha256_file(fbx) != m.color["sha256"]:
+                    problems.append(f"{tag}: el FBX de color no coincide con el hash guardado (¿se modificó?)")
             ag = (m.mecanismo or {}).get("agarre")
             if ag is not None and m.tipo in ("mano", "accesorio"):
                 from .props import grip_problems
