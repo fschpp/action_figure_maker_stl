@@ -1263,7 +1263,9 @@
   "volve_al_lado_izquierdo_para_generar": "Volte ao lado esquerdo para gerar a figura.",
   "color_sin_fuente": "O projeto não tem fonte de cor.",
   "color_fbx_no_existe": "O FBX de cor «%{ruta}» não foi encontrado: relocalize-o em Parâmetros › Cor.",
-  "color_fbx_distinto": "O FBX «%{ruta}» não é o arquivo com que o projeto foi montado (o hash não coincide)."
+  "color_fbx_distinto": "O FBX «%{ruta}» não é o arquivo com que o projeto foi montado (o hash não coincide).",
+  "color_roles_no_existe": "O pacote de papéis de cor «%{ruta}» não foi encontrado: relocalize-o em Parâmetros › Cor.",
+  "color_roles_sin_vista_previa": "A pré-visualização da textura ainda não mostra a cor por papéis (chega com a aba de paleta); ao exportar ela é usada."
  },
  "step_state": {
   "y_v_mas": "e mais %{v}",
@@ -1754,6 +1756,11 @@
   "resumen": "Cor: %{n} peças em %{carpeta}/ (%{s} s)",
   "error_no_existe": "--color-desde: o arquivo «%{ruta}» não existe",
   "error_fbx": "ERRO (FBX): %{err}",
+  "ayuda_roles": "pacote de papéis de cor (.color.npz) da figura: substitui o FBX como fonte de cor e usa a paleta da linha de --catalogo (ou $AFM_CATALOGO). Os STL não mudam",
+  "ayuda_cambio": "muda a cor de um papel SÓ nesta figura (PAPEL=#RRGGBB; repetível). A paleta da linha não é alterada",
+  "error_roles_no_existe": "o pacote de papéis de cor «%{ruta}» não existe",
+  "error_roles_y_desde": "--color-roles e --color-desde não se combinam: escolha uma única fonte de cor",
+  "error_cambio_sin_roles": "--color-cambio precisa de cor por papéis: passe --color-roles PACOTE ou use um projeto que tenha papéis de cor",
   "panel_ayuda": "A cor vem de um FBX com textura da mesma figura. Os STL não mudam: a cor vai em arquivos separados (piezas_color/ e o GLB).",
   "panel_elegir_fbx": "Usar um FBX para a cor…",
   "panel_relocalizar": "Relocalizar o FBX…",

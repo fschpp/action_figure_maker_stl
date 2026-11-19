@@ -14,6 +14,7 @@ Una pieza que trae su propio FBX con color necesita su fuente de color en el MIS
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -235,3 +236,57 @@ def _roles_sources(pending: dict, catalog, spacing_mm: float, sources: dict, inf
                 return piece_color_source(_pkg.to_textured(_pal), None, _T, similarity=_A, spacing_mm=_sp).source
             sources[f"{key}_der"] = provide_right
     info["paleta"] = {"hash": palette.digest(), "roles": {r.id: r.hex for r in palette.roles}}
+
+
+# ------------------------------------------------------------------ figura base con roles (T44)
+def line_palette(catalog_root: str | None):
+    """`(paleta, nombre de la línea)` del catálogo abierto en `catalog_root`: la paleta con la que se colorea una figura por roles.
+
+    Una figura que no sale solo de catálogo no tiene «su» línea (plan de paleta, §12.2): se usa la línea que está abierta (`--catalogo`,
+    `$AFM_CATALOGO` o la de la sesión). Sin catálogo, sin `paleta.json` o con uno ilegible → `PaletteRolesError` (frena antes de armar)."""
+    from .catalog import Catalog
+
+    if not catalog_root:
+        raise PaletteRolesError("la figura lleva color por roles y no hay una línea abierta de la que sacar la paleta: pasá --catalogo RUTA "
+                                "(o definí AFM_CATALOGO, o abrí el catálogo en la ventana)")
+    try:
+        cat = Catalog.open(catalog_root)
+        palette = cat.palette()
+    except (ValueError, OSError) as exc:                 # CatalogError / paleta.json ilegible / carpeta que no existe
+        raise PaletteRolesError(f"no se pudo leer la paleta de la línea en «{catalog_root}»: {exc}") from exc
+    if palette is None:
+        raise PaletteRolesError(f"la línea «{cat.name}» no tiene paleta (falta paleta.json) y la figura lleva color por roles: "
+                                "creá los roles con `afm catalogo paleta agregar`")
+    return palette, cat.name
+
+
+def figure_roles_textured(path: str, palette, overrides: dict | None = None, *, line: str = ""):
+    """`(TexturedMesh, informe)` de la figura base con el paquete de roles `path` y la `palette` de la línea con los cambios de la figura
+    (`overrides` = `{rol: "#RRGGBB"}`, solo para esta figura: la paleta que se pasa no se modifica).
+
+    Falla con `PaletteRolesError` —antes de registrar nada— si el paquete no se puede leer, si a la paleta le faltan roles que usa la
+    figura (los lista) o si un cambio nombra un rol que la paleta no tiene. Como en las piezas (T43), un rol que el paquete declara pero
+    que ningún píxel usa no frena nada. `informe` (serializable, R5): `{"modo", "paquete", "roles", "origen", "paleta": {hash, roles},
+    "cambios"}`; `hash` es el de la paleta **con** los cambios: es la que se usó."""
+    from .colorroles import RolesError
+    from .palette import PaletteError
+
+    try:
+        pkg = _load_roles(path)
+    except (RolesError, OSError) as exc:
+        raise PaletteRolesError(f"no se pudo leer el paquete de roles de la figura «{path}»: {exc}") from exc
+    where = f" de la línea «{line}»" if line else ""
+    missing = [r for r in pkg.roles if r not in set(palette.ids())]
+    if missing:
+        raise PaletteRolesError(f"la paleta{where} no tiene los roles que usa la figura: {', '.join(missing)}. "
+                                "Agregalos con `afm catalogo paleta agregar` o abrí otra línea")
+    try:
+        used = palette.with_overrides(overrides or {})
+    except PaletteError as exc:
+        raise PaletteRolesError(f"los cambios de color de la figura no valen para la paleta{where}: {exc}") from exc
+    tm = pkg.to_textured(used)
+    report: dict = {"modo": "roles", "paquete": os.path.abspath(path), "roles": list(pkg.roles), "origen": dict(pkg.origen or {}),
+                    "paleta": {"hash": used.digest(), "roles": {r.id: r.hex for r in used.roles}}}
+    if overrides:
+        report["cambios"] = {str(k): used.hex_of(k) for k in sorted(overrides)}     # el hex ya normalizado (mayúscula), el que se usó
+    return tm, report

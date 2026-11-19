@@ -172,6 +172,8 @@ class Session:
         spec = self.project.color
         if spec is None:
             raise ColorSourceError(tr("session.color_sin_fuente"))
+        if spec.roles:                           # T44: el color de la figura sale del paquete de roles, no de un FBX
+            return self.resolve_roles_package()
         cands = [spec.source_path]
         if self.project_path and not os.path.isabs(spec.source_path):
             cands.append(os.path.join(os.path.dirname(os.path.abspath(self.project_path)), spec.source_path))
@@ -180,6 +182,20 @@ class Session:
             raise ColorSourceError(tr("session.color_fbx_no_existe", ruta=spec.source_path))
         if spec.source_sha256 and not spec.matches(found):
             raise ColorSourceError(tr("session.color_fbx_distinto", ruta=found))
+        return found
+
+    def resolve_roles_package(self) -> str:
+        """Ruta real del paquete de roles de `project.color.roles` (T44): la guardada o, si es relativa, la de junto al proyecto.
+        `ColorSourceError` si el proyecto no usa roles o el archivo no existe."""
+        spec = self.project.color
+        if spec is None or not spec.roles:
+            raise ColorSourceError(tr("session.color_sin_fuente"))
+        cands = [spec.roles]
+        if self.project_path and not os.path.isabs(spec.roles):
+            cands.append(os.path.join(os.path.dirname(os.path.abspath(self.project_path)), spec.roles))
+        found = next((c for c in cands if c and os.path.isfile(c)), None)
+        if found is None:
+            raise ColorSourceError(tr("session.color_roles_no_existe", ruta=spec.roles))
         return found
 
     def make_colorizer(self, progress=None):
@@ -207,7 +223,14 @@ class Session:
         from ..frame import FigureFrame
 
         say = progress or (lambda *_: None)
-        color = {"fbx": self.resolve_color_source(), "texel_mm": spec.texel_mm, "eps": spec.eps, "fill": spec.fill, "symmetric": spec.symmetric}
+        if spec.roles:                                                  # T44: paquete de roles + paleta de la línea abierta (+ cambios de esta figura)
+            from ..colorpiece import line_palette
+
+            palette, linea = line_palette(self.catalog_root)           # PaletteRolesError: sin línea abierta o sin paleta
+            color = {"roles": self.resolve_roles_package(), "palette": palette, "linea": linea, "paleta_override": dict(spec.paleta_override),
+                     "texel_mm": spec.texel_mm, "eps": spec.eps, "fill": spec.fill, "symmetric": spec.symmetric}
+        else:
+            color = {"fbx": self.resolve_color_source(), "texel_mm": spec.texel_mm, "eps": spec.eps, "fill": spec.fill, "symmetric": spec.symmetric}
         prj, rep = self.project, self.report
         if rep is not None and rep.color_source_path:                   # modo A
             color["fbx"] = rep.color_source_path
@@ -235,6 +258,8 @@ class Session:
         if self.base is None:
             raise ColorSourceError(tr("session.color_sin_fuente"))
         rep, prj = self.report, self.project
+        if prj.color is not None and prj.color.roles:                # T44: la vista previa con roles es de la ventana de paleta (T46/T48)
+            raise ColorSourceError(tr("session.color_roles_sin_vista_previa"))
         mode_a = rep is not None and bool(rep.color_source_path) and self.color_source is not None
         if mode_a:
             ident = ("A", rep.color_source_path)

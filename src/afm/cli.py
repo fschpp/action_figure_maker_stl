@@ -45,15 +45,29 @@ def make_colorizer(color: dict, mesh, params, progress=print, post=None, frame=N
     esos dos pasos (`FigureFrame.engine_post`): el FBX del cliente mira a −Y como el STL, así que se alinea antes de girar.
     Modo A (T21): `frame` (`FigureFrame.from_load`, archivo → marco del motor) reemplaza a la alineación por similitud: el FBX ES la entrada.
     Si el FBX no es la misma figura o no trae textura de color, avisa y devuelve `None` (la figura sale sin color).
-    `color`: `fbx`, `texel_mm`, `eps`, `fill`, `symmetric`. `sources` (T34): fuentes propias por pieza (ver `Colorizer`). El `info` es serializable (R13)."""
+    `color`: `fbx`, `texel_mm`, `eps`, `fill`, `symmetric`. `sources` (T34): fuentes propias por pieza (ver `Colorizer`). El `info` es serializable (R13).
+    T44 · color por roles: con `color["roles"]` (ruta del paquete `.color.npz` de la figura) la fuente sale de `RolesPackage.to_textured(paleta, cambios)`
+    y `fbx` no hace falta; hay que pasar además `palette` (la de la línea abierta, ver `colorpiece.line_palette`), y opcionalmente `paleta_override`
+    (`{rol: "#RRGGBB"}`, solo de esta figura) y `linea` (su nombre, para los mensajes). La alineación (modo A o B) es la de siempre."""
     from .colorexport import Colorizer
     from .colorsrc import ColorSource
     from .fbxio import load_textured
     from .frame import SIMILARITY_OK_MM, FigureFrame
 
-    path = color["fbx"]
-    tm = load_textured(path)
-    info: dict = {"fuente": os.path.abspath(path)}
+    palette_report = None
+    if color.get("roles"):            # T44: el color de la figura sale del paquete de roles + la paleta de la línea (no del FBX)
+        from .colorpiece import PaletteRolesError, figure_roles_textured
+
+        if color.get("palette") is None:
+            raise PaletteRolesError("la figura lleva color por roles y no se le pasó la paleta de la línea")
+        path = color["roles"]
+        tm, rinfo = figure_roles_textured(path, color["palette"], color.get("paleta_override"), line=color.get("linea", ""))
+        palette_report = {**rinfo["paleta"], **({"cambios": rinfo["cambios"]} if "cambios" in rinfo else {})}
+        info: dict = {"fuente": os.path.abspath(path), **rinfo, "paleta": palette_report}
+    else:
+        path = color["fbx"]
+        tm = load_textured(path)
+        info = {"fuente": os.path.abspath(path)}
     for w in tm.info.get("avisos", []):
         progress(f"AVISO: {w}")
     if "base_color" not in tm.images:
@@ -75,30 +89,65 @@ def make_colorizer(color: dict, mesh, params, progress=print, post=None, frame=N
     progress(tr("color.cargando_fuente"))
     src = ColorSource(tm, frame)
     cz = Colorizer(src, params, texel_mm=color.get("texel_mm", 0.2), eps=color.get("eps", 0.15),
-                   fill=color.get("fill", "extend"), symmetric=bool(color.get("symmetric", False)), sources=sources)
+                   fill=color.get("fill", "extend"), symmetric=bool(color.get("symmetric", False)), sources=sources,
+                   palette_report=palette_report)
     return cz, info
+
+
+def _with_roles(color: dict | None, project: Project, catalog_root: str | None, project_dir: str | None = None) -> dict | None:
+    """`color` con las claves del color por roles (T44) si la figura lo usa: `roles` (de `color` o de `project.color.roles`), `paleta_override`
+    (la del proyecto con lo que `color` cambie encima), `palette` y `linea` (del catálogo abierto). Sin roles devuelve `color` TAL CUAL:
+    el flujo de siempre no cambia. `PaletteRolesError` si falta el paquete, el catálogo o la paleta."""
+    from .colorpiece import PaletteRolesError, line_palette
+
+    spec = project.color
+    explicit_fbx = bool((color or {}).get("fbx"))                 # `--color-desde` pedido a mano gana sobre los roles que recuerda el proyecto
+    roles = (color or {}).get("roles") or ("" if explicit_fbx or spec is None else spec.roles)
+    if not roles:
+        if (color or {}).get("paleta_override"):
+            raise PaletteRolesError(tr("color.error_cambio_sin_roles"))
+        return color
+
+    if not os.path.isabs(roles) and project_dir and not os.path.isfile(roles):
+        roles = os.path.join(project_dir, roles)
+    if not os.path.isfile(roles):
+        raise PaletteRolesError(tr("color.error_roles_no_existe", ruta=roles))
+    out = dict(color or {})
+    if spec is not None and not (color or {}).get("roles"):        # color por proyecto: sus ajustes de textura valen donde `color` no dice nada
+        for k in ("texel_mm", "eps", "fill", "symmetric"):
+            out.setdefault(k, getattr(spec, k))
+    out["roles"] = roles
+    out["paleta_override"] = {**(dict(spec.paleta_override) if spec is not None else {}), **dict(out.get("paleta_override") or {})}
+    if out.get("palette") is None:
+        out["palette"], out["linea"] = line_palette(catalog_root or os.environ.get("AFM_CATALOGO"))
+    return out
 
 
 def run(stl_path: str, project: Project, outdir: str, name: str, progress=print, orient: bool | str = False,
         max_angle: float = 45.0, flat: float | None = None, catalog_root: str | None = None,
-        keep: dict | None = None, color: dict | None = None, sin_color: bool = False) -> dict:
+        keep: dict | None = None, color: dict | None = None, sin_color: bool = False, project_dir: str | None = None) -> dict:
     """Genera la figura. `keep`, si se pasa, recibe `res` (el `BuildResult`), `params` para la vista previa de la pose y `colorizer`.
     `color` (opcional, ver `make_colorizer`): FBX con textura de la misma figura; además de los STL (que no cambian) deja las
     piezas con color en `piezas_color/` y `<nombre>_ensamblada.glb`. Modo A (T21): si `stl_path` es un `.fbx`, ese FBX es la entrada y la
-    fuente de color a la vez (`color` solo ajusta `texel_mm`, `eps`, `fill`, `symmetric`); `sin_color=True` lo usa solo como geometría."""
+    fuente de color a la vez (`color` solo ajusta `texel_mm`, `eps`, `fill`, `symmetric`); `sin_color=True` lo usa solo como geometría.
+    T44 · color por roles: `color["roles"]` (o, si `color` no lo trae, `project.color.roles`, relativo a `project_dir`) es el paquete de la figura y la
+    paleta es la del catálogo `catalog_root` (o `$AFM_CATALOGO`); `project.color.paleta_override` (y `color["paleta_override"]`, que gana) cambian
+    colores solo en esta figura. Sin paleta o con roles que le faltan, `PaletteRolesError` antes de construir. `--sin-color` lo apaga."""
     from .assembly import resolve_parts
 
     parts = resolve_parts(project.parts, catalog_root) if project.parts else None
     mesh, rep = meshio.load_figure(stl_path, project.params.ref_height, project.crown_z)
     for w in rep.warnings:
         progress(f"AVISO: {w}")
+    if not sin_color:
+        color = _with_roles(color, project, catalog_root, project_dir)
     mode_a = bool(rep.color_source_path) and not sin_color
     if mode_a:
         color = {**(color or {}), "fbx": rep.color_source_path}
         if rep.remeshed:         # la reparación remalló: la superficie ya no coincide con la fuente a 0,15 mm (§7.2)
             color["eps"] = max(float(color.get("eps", 0.15)), 0.3)
             progress(tr("color.aviso_remallada", eps=f"{color['eps']:g}"))
-    elif color is not None and "fbx" not in color:
+    elif color is not None and "fbx" not in color and "roles" not in color:
         color = None
     mesh_loaded = mesh.copy() if (color and not mode_a) else None      # la fuente de color se alinea contra la figura tal como se cargó
     if project.front == "-Y":      # girar 180° sobre Z para que el frente quede en +Y
@@ -352,6 +401,8 @@ def main(argv=None) -> int:
                         "(la pelvis sola cambia solo la del modelo y necesita su plano de cintura); "
                         "repetible. Queda guardada en el .proyecto de salida")
     b.add_argument("--color-desde", default=None, metavar="FBX", help=tr("color.ayuda_desde"))
+    b.add_argument("--color-roles", default=None, metavar="PAQUETE", help=tr("color.ayuda_roles"))
+    b.add_argument("--color-cambio", action="append", default=[], metavar="ROL=#RRGGBB", help=tr("color.ayuda_cambio"))
     b.add_argument("--sin-color", action="store_true", help=tr("color.ayuda_sin_color"))
     b.add_argument("--textura-mm", type=float, default=0.2, metavar="MM", help=tr("color.ayuda_textura"))
     b.add_argument("--color-simetrico", action="store_true", help=tr("color.ayuda_simetrico"))
@@ -601,7 +652,28 @@ def main(argv=None) -> int:
             flat = project.params.flat_depth
         from .assembly import AssemblyError
         from .hand import HandError
-        run_kw: dict = {}
+        run_kw: dict = {"project_dir": os.path.dirname(os.path.abspath(args.proyecto))}
+        if args.color_roles and args.color_desde:
+            ap.error(tr("color.error_roles_y_desde"))
+        if (args.color_roles or args.color_cambio) and not args.sin_color:      # T44: color por roles (el FBX no hace falta)
+            from .palette import PaletteError, normalize_hex
+            cambios: dict = {}
+            for item in args.color_cambio:
+                rol, sep, hx = item.partition("=")
+                try:
+                    if not sep or not rol:
+                        raise PaletteError("se espera ROL=#RRGGBB")
+                    cambios[rol] = normalize_hex(hx, f"rol {rol}")
+                except PaletteError as exc:
+                    ap.error(f"--color-cambio «{item}»: {exc}")
+            c: dict = {"texel_mm": args.textura_mm, "eps": args.color_tolerancia, "fill": args.color_relleno, "symmetric": args.color_simetrico}
+            if args.color_roles:
+                if not os.path.isfile(args.color_roles):
+                    ap.error(tr("color.error_roles_no_existe", ruta=args.color_roles))
+                c["roles"] = os.path.abspath(args.color_roles)
+            if cambios:
+                c["paleta_override"] = cambios
+            run_kw["color"] = c
         if args.color_desde and not args.sin_color:      # sin el flag `run` no recibe `color`: el flujo de siempre queda igual
             from .colorbake import parse_fill
             try:
@@ -610,8 +682,9 @@ def main(argv=None) -> int:
                 ap.error(f"--color-relleno: {exc}")
             if not os.path.isfile(args.color_desde):
                 ap.error(tr("color.error_no_existe", ruta=args.color_desde))
-            run_kw["color"] = {"fbx": args.color_desde, "texel_mm": args.textura_mm, "eps": args.color_tolerancia,
+            run_kw["color"] = {**run_kw.get("color", {}), "fbx": args.color_desde, "texel_mm": args.textura_mm, "eps": args.color_tolerancia,
                                "fill": args.color_relleno, "symmetric": args.color_simetrico}
+        from .colorpiece import PieceColorError
         from .fbxio import FbxError
         try:
             info = run(args.stl, project, args.out, name, orient="auto" if args.orient_auto else args.orient,
@@ -624,6 +697,9 @@ def main(argv=None) -> int:
             return 2
         except AssemblyError as exc:
             print(f"ERROR (pieza de catálogo): {exc}", file=sys.stderr)
+            return 2
+        except PieceColorError as exc:           # T44: PaletteRolesError (paleta, roles, paquete); ya traen el motivo
+            print(f"ERROR (color por roles): {exc}", file=sys.stderr)
             return 2
     val = info["validacion"]
     print("Validación:", "OK" if val["ok"] else "CON PROBLEMAS")

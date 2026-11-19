@@ -1263,7 +1263,9 @@
   "volve_al_lado_izquierdo_para_generar": "Go back to the left side to generate the figure.",
   "color_sin_fuente": "The project has no color source.",
   "color_fbx_no_existe": "The color FBX «%{ruta}» was not found: relocate it in Parameters › Color.",
-  "color_fbx_distinto": "The FBX «%{ruta}» is not the file the project was built with (hash mismatch)."
+  "color_fbx_distinto": "The FBX «%{ruta}» is not the file the project was built with (hash mismatch).",
+  "color_roles_no_existe": "The color roles package «%{ruta}» was not found: relocate it in Parameters › Color.",
+  "color_roles_sin_vista_previa": "The texture preview does not show role-based color yet (it comes with the palette tab); it is used when exporting."
  },
  "step_state": {
   "y_v_mas": "and %{v} more",
@@ -1754,6 +1756,11 @@
   "resumen": "Colour: %{n} parts in %{carpeta}/ (%{s} s)",
   "error_no_existe": "--color-desde: the file «%{ruta}» does not exist",
   "error_fbx": "ERROR (FBX): %{err}",
+  "ayuda_roles": "color roles package (.color.npz) of the figure: replaces the FBX as the color source and uses the palette of the line in --catalogo (or $AFM_CATALOGO). The STLs do not change",
+  "ayuda_cambio": "change the color of a role ONLY in this figure (ROLE=#RRGGBB; repeatable). The line's palette is not touched",
+  "error_roles_no_existe": "the color roles package «%{ruta}» does not exist",
+  "error_roles_y_desde": "--color-roles and --color-desde cannot be combined: choose a single color source",
+  "error_cambio_sin_roles": "--color-cambio needs role-based color: pass --color-roles PACKAGE or use a project that has color roles",
   "panel_ayuda": "The color comes from a textured FBX of the same figure. STL files do not change: color goes in separate files (piezas_color/ and the GLB).",
   "panel_elegir_fbx": "Use an FBX for the color…",
   "panel_relocalizar": "Relocate the FBX…",

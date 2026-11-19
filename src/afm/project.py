@@ -45,6 +45,17 @@ def _scale_from_json(v):
     return float(v)
 
 
+def _override_from_json(v) -> dict:
+    """`paleta_override` guardado → `{rol: "#RRGGBB"}` con el hex en mayúscula. Un hex mal escrito es `PaletteError` (un `ValueError`) con el rol."""
+    if not v:
+        return {}
+    if not isinstance(v, dict):
+        from .palette import PaletteError
+        raise PaletteError("paleta_override: se esperaba un objeto {rol: \"#RRGGBB\"}")
+    from .palette import normalize_hex                      # `palette` no importa nada pesado
+    return {str(k): normalize_hex(h, f"paleta_override[{k}]") for k, h in v.items()}
+
+
 def sha256_of(path: str) -> str:
     """SHA-256 (hexadecimal) del contenido de un archivo, leído por bloques (un FBX con texturas pesa decenas de MB)."""
     h = hashlib.sha256()
@@ -64,17 +75,26 @@ class ColorSpec:
     texel_mm: float = 0.2                 # tamaño de texel del atlas de cada pieza
     fill: str = "extend"                  # superficies nuevas: "extend" (color vecino) o un color plano "#RRGGBB"
     symmetric: bool = False               # True: el lado derecho copia el color del izquierdo
+    # T44 · color por roles de la figura base (plan de paleta de línea, §6). Ambos son aditivos: sin ellos el JSON es el de siempre.
+    roles: str = ""                       # paquete de roles `.color.npz` de la figura (ruta; relativa = junto al proyecto); "" = el color sale del FBX
+    paleta_override: dict = field(default_factory=dict)   # {rol: "#RRGGBB"}: colores de ESTA figura; la paleta de la línea no cambia
 
     def to_dict(self) -> dict:
-        return {"source_path": self.source_path, "source_sha256": self.source_sha256, "eps": float(self.eps),
-                "texel_mm": float(self.texel_mm), "fill": self.fill, "symmetric": bool(self.symmetric)}
+        d = {"source_path": self.source_path, "source_sha256": self.source_sha256, "eps": float(self.eps),
+             "texel_mm": float(self.texel_mm), "fill": self.fill, "symmetric": bool(self.symmetric)}
+        if self.roles:                                     # solo si hay: los proyectos anteriores no cambian ni un byte
+            d["roles"] = self.roles
+        if self.paleta_override:
+            d["paleta_override"] = {str(k): str(v) for k, v in self.paleta_override.items()}
+        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> "ColorSpec":
         base = cls()
         return cls(source_path=d.get("source_path", base.source_path), source_sha256=d.get("source_sha256", base.source_sha256),
                    eps=float(d.get("eps", base.eps)), texel_mm=float(d.get("texel_mm", base.texel_mm)),
-                   fill=d.get("fill", base.fill), symmetric=bool(d.get("symmetric", base.symmetric)))
+                   fill=d.get("fill", base.fill), symmetric=bool(d.get("symmetric", base.symmetric)),
+                   roles=str(d.get("roles") or ""), paleta_override=_override_from_json(d.get("paleta_override")))
 
     @classmethod
     def from_file(cls, path: str, **kw) -> "ColorSpec":
