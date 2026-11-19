@@ -160,3 +160,24 @@ def test_pieces_without_registration_marked_sin_origen(res, params, tmp_path):
 def test_invalid_fill_fails_at_construction(params):
     with pytest.raises(ValueError):
         Colorizer(ColorSource(doll_textured(), spacing_mm=0.5), params, fill="azul")
+
+
+def test_assembled_obj_has_every_piece_and_valid_indices(out, colorizer):
+    d, rep = out
+    cdir = os.path.join(d, COLOR_DIR)
+    obj = os.path.join(d, rep["obj_ensamblado"])
+    mtl = obj[:-4] + ".mtl"
+    assert os.path.isfile(obj) and os.path.isfile(mtl)
+    lines = open(obj, encoding="utf-8").read().splitlines()
+    assert lines[0] == f"mtllib {os.path.basename(mtl)}"
+    objs = [l[2:] for l in lines if l.startswith("o ")]
+    assert objs == [f"{FIG}_{n}" for n in sorted(colorizer.pieces)]
+    nv = sum(l.startswith("v ") for l in lines)
+    assert nv == sum(l.startswith("vt ") for l in lines) == sum(3 * len(u.faces) for u, *_ in colorizer.pieces.values())
+    idx = [int(x.split("/")[0]) for l in lines if l.startswith("f ") for x in l.split()[1:]]
+    assert min(idx) == 1 and max(idx) == nv
+    text = open(mtl, encoding="utf-8").read()
+    for n in colorizer.pieces:
+        assert f"newmtl {FIG}_{n}" in text and f"map_Kd {FIG}_{n}_color.png" in text
+        assert os.path.isfile(os.path.join(cdir, f"{FIG}_{n}_color.png"))
+    assert sum(l.startswith("usemtl ") for l in lines) == len(objs)

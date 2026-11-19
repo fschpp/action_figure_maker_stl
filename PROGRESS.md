@@ -2,6 +2,12 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — Color FBX: OBJ ensamblado para Bambu Studio y golden del muñeco (2026-11-19, sobre main 0e8b2b6)
+**Objetivo:** que Bambu Studio cargue la figura entera de una vez (OBJ+MTL+PNG), y dejar verde `test_doll_matches_golden`.
+**Hecho:** `Colorizer.write` agrega `piezas_color/<fig>_ensamblada.obj` + `.mtl`: un `o` y un material por pieza (cada uno con el PNG de su pieza, ya en la orientación de impresión), índices `v`/`vt` globales; clave `obj_ensamblado` en el informe. Los OBJ por pieza y el GLB no cambian. `tests/test_colorexport.py::test_assembled_obj_has_every_piece_and_valid_indices`. `tests/golden/muneco.json` regenerado (el cliente aceptó el cambio): el `git bisect` llevó a `f3319dd` (`S.compact` en `build`, WIP sin verificar), que movió la holgura de la cabeza de 0,4772 a 0,4705 mm.
+**Medido:** `test_golden` + `test_colorexport` + `test_export_clean` + `test_i18n`: 26 pasan, 6 se saltan. Con el golden nuevo, las holguras del muñeco ya no son simétricas (brazo_der 0,4733 contra brazo_izq 0,4773; antes ambas 0,4772) y el volumen total bajó 0,0001 %: efecto de `S.compact`, no investigado.
+**No verificado:** que Bambu Studio acepte el OBJ ensamblado y lea `map_Kd` (la wiki solo dice «geometría y color»; falta probar con una figura real); la regresión completa R9 (`test_pipeline`) no se corrió tras este cambio.
+
 ## Current Focus — Color FBX: T27 (2026-11-19, sobre main d5eaa23)
 **Objetivo:** congelar el resultado de generar Güemes desde el FBX (modo A) y compararlo con el golden del STL.
 **Hecho:** `tools/golden.py`: figura `guemes_fbx` (`guemes.py` con el FBX de entrada y `crown_z = 101,769`, cota absoluta en unidades del FBX; se construye con `sin_color=True`: el golden congela geometría), `compare_cross` (mismas piezas, componentes y `ok`, volúmenes ±0,5 %; las holguras no se cruzan). `tests/golden/guemes_fbx.json` (5 piezas, `ok=True`, sin problemas). `tests/test_golden.py`: `test_compare_cross_tolerates_half_percent_only` (rápida), `test_golden_guemes_fbx_matches_frozen` y `test_guemes_fbx_vs_stl_within_half_percent` (`AFM_SLOW=1`, comparten una sola construcción); `guemes_fbx` queda fuera del parametrizado `AFM_GOLDEN_FULL`.

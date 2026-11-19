@@ -4,6 +4,7 @@ Por cada pieza: registro contra la fuente de color (`colorreg`), despliegue (`un
 (`colorbake`). Al final `write` deja, sin tocar los STL:
 
     piezas_color/<fig>_<pieza>.obj  +  .mtl  +  <fig>_<pieza>_color.png      (un OBJ por pieza, con su textura)
+    piezas_color/<fig>_ensamblada.obj + .mtl                              (todas las piezas en un OBJ, para Bambu Studio)
     <fig>_ensamblada.glb                                                   (todas las piezas, cada una con su material)
     <fig>_color_informe.json                                               (estado de registro y % con origen por pieza)
 
@@ -64,6 +65,26 @@ class Colorizer:
         F = np.arange(len(V), dtype=np.int64).reshape(-1, 3)
         return V, uv, F
 
+    @staticmethod
+    def _write_assembled_obj(cdir: str, fig_name: str, parts: list) -> str:
+        """`<fig>_ensamblada.obj` + `.mtl` en la carpeta de color: todas las piezas en un solo archivo (un `o` y un material por pieza, cada
+        material con el PNG de su pieza), para importar la figura entera en Bambu Studio. Los índices `v`/`vt` son globales."""
+        base = f"{fig_name}_ensamblada"
+        with open(os.path.join(cdir, f"{base}.mtl"), "w", encoding="utf-8") as fh:
+            for b, *_rest, png in parts:
+                fh.write(f"newmtl {b}\nKa 1 1 1\nKd 1 1 1\nKs 0 0 0\nd 1\nillum 1\nmap_Kd {png}\n\n")
+        off = 0
+        with open(os.path.join(cdir, f"{base}.obj"), "w", encoding="utf-8") as fh:
+            fh.write(f"mtllib {base}.mtl\n")
+            for b, V, uv, F, _png in parts:
+                fh.write(f"o {b}\n")
+                fh.write("".join(f"v {x:.6f} {y:.6f} {z:.6f}\n" for x, y, z in V))
+                fh.write("".join(f"vt {u:.6f} {v:.6f}\n" for u, v in uv))
+                fh.write(f"usemtl {b}\n")
+                fh.write("".join(f"f {a + off + 1}/{a + off + 1} {b2 + off + 1}/{b2 + off + 1} {c + off + 1}/{c + off + 1}\n" for a, b2, c in F))
+                off += len(V)
+        return f"{base}.obj"
+
     def write(self, outdir: str, fig_name: str, orientation=None, accesorios_sin_color: int = 0) -> dict:
         """Escribe OBJ + MTL + PNG por pieza, el GLB ensamblado y el informe. `orientation` es la 4×4 de la orientación de impresión
         (la `T` de `print_orientation`): se aplica a las mallas de salida igual que a los STL."""
@@ -74,6 +95,7 @@ class Colorizer:
         os.makedirs(cdir, exist_ok=True)
         scene = trimesh.Scene()
         piezas: dict = {}
+        parts: list = []                                  # (base, V, uv, F, png) de cada pieza, para el OBJ ensamblado
         for name in sorted(self.pieces):
             unw, bk, _reg, info = self.pieces[name]
             V, uv, F = self._corner_arrays(unw, orientation)
@@ -89,14 +111,16 @@ class Colorizer:
                 fh.write("".join(f"vt {u:.6f} {v:.6f}\n" for u, v in uv))
                 fh.write(f"usemtl {base}\n")
                 fh.write("".join(f"f {a + 1}/{a + 1} {b + 1}/{b + 1} {c + 1}/{c + 1}\n" for a, b, c in F))
+            parts.append((base, V, uv, F, png))
             mesh = trimesh.Trimesh(V, F, process=False)
             mesh.visual = trimesh.visual.TextureVisuals(uv=uv, material=trimesh.visual.material.PBRMaterial(
                 baseColorTexture=img, metallicFactor=0.0, roughnessFactor=1.0, name=base))
             scene.add_geometry(mesh, node_name=name, geom_name=name)
             piezas[name] = {**info, "obj": f"{COLOR_DIR}/{base}.obj", "mtl": f"{COLOR_DIR}/{base}.mtl", "png": f"{COLOR_DIR}/{png}"}
+        obj_all = self._write_assembled_obj(cdir, fig_name, parts)
         glb = f"{fig_name}_ensamblada.glb"
         scene.export(os.path.join(outdir, glb))
-        out = {"carpeta": COLOR_DIR, "glb": glb, "informe": f"{fig_name}_color_informe.json", "piezas": piezas,
+        out = {"carpeta": COLOR_DIR, "glb": glb, "obj_ensamblado": f"{COLOR_DIR}/{obj_all}", "informe": f"{fig_name}_color_informe.json", "piezas": piezas,
                "accesorios_sin_color": int(accesorios_sin_color)}      # los accesorios de `export` no llevan color
         out["config"] = {"texel_mm": self.texel_mm, "eps": self.eps, "fill": self.fill, "simetrico": self.symmetric,
                          "spacing_fuente_mm": round(float(self.src.spacing_mm), 4)}

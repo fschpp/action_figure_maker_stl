@@ -16,15 +16,16 @@
     "mano",
     "ok",
     "pieces",
+    "piezas",
     "problems",
     "recorrido"
   ],
   "gaps": {
-    "brazo_der": 0.4772,
-    "brazo_izq": 0.4772,
-    "cabeza": 0.4772,
-    "pierna_der": 0.4811,
-    "pierna_izq": 0.4811
+    "brazo_der": 0.4733,
+    "brazo_izq": 0.4773,
+    "cabeza": 0.4705,
+    "pierna_der": 0.4762,
+    "pierna_izq": 0.4771
   },
   "ok": true,
   "piezas": {
@@ -50,7 +51,7 @@
     },
     "torso": {
       "componentes": 1,
-      "volumen": 13661.5053
+      "volumen": 13661.3796
     }
   },
   "problems": []
