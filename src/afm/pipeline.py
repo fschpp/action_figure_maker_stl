@@ -1613,15 +1613,19 @@ def attach_accessories_to_parts_list(outdir: str, name: str, accesorios: list[di
 
 def export(res: BuildResult, outdir: str, name: str = "figura", orient: bool | str = False,
            max_angle: float = 45.0, extra_tilts=(0.0,), flat: float | None = None, params: Params | None = None,
-           progress=None, extras=None) -> dict:
+           progress=None, extras=None, colorize=None) -> dict:
     """Escribe el ensamblado y un STL por parte. Con `orient=True` apoya todo el conjunto en la cama en la pose de
     la vista previa (sentada, cabeza arriba); con `orient="auto"` lo gira a la orientación de menor voladizo.
     En ambos casos informa la orientación. Con `flat` (altura del corte en mm sobre la cola; `Params.flat_depth`) antes se aplana la base y se
-    giran los brazos para imprimir sin soportes (`flat_for_print`); el informe va en `info["sin_soportes"]`."""
+    giran los brazos para imprimir sin soportes (`flat_for_print`); el informe va en `info["sin_soportes"]`.
+    `colorize` (opcional, `colorexport.Colorizer`): por cada pieza se llama `colorize(nombre, malla, res)` con la malla en su pose,
+    antes de la orientación de impresión, y al final `colorize.write(...)` deja los archivos de color en `info["color"]`. No cambia
+    ningún STL (plan T15, D7)."""
     say = progress or (lambda *_: None)
     os.makedirs(os.path.join(outdir, "piezas"), exist_ok=True)
     T = None
     info: dict = {}
+    res0 = res                       # el `res` completo (con `right`, `right_limbs`) para el registro del color
     if flat is not None:
         say("Aplanando la base…")
         pieces, rep = flat_for_print(res, flat, params)
@@ -1642,9 +1646,16 @@ def export(res: BuildResult, outdir: str, name: str = "figura", orient: bool | s
         info["orientacion"] = {"etiqueta": o.label, "voladizo_mm2": round(o.overhang_area, 2),
                                "base_mm2": round(o.base_area, 2), "angulo_max": max_angle}
     meshes = []
+    if colorize is not None:
+        import dataclasses
+        # `flat`/decimación rearman el `BuildResult` sin el lado derecho; el registro de las piezas `_der` lo necesita
+        hook_res = dataclasses.replace(res, right=res0.right, right_limbs=res0.right_limbs)
     for part, mf in res.pieces.items():
         say(f"Escribiendo «{part}»…")
         tm = S.to_printable_trimesh(mf)
+        if colorize is not None:
+            say(f"Coloreando «{part}»…")
+            colorize(part, tm.copy(), hook_res)
         if T is not None:
             tm.apply_transform(T)
         tm.export(os.path.join(outdir, "piezas", f"{name}_{part}.stl"))
@@ -1658,6 +1669,9 @@ def export(res: BuildResult, outdir: str, name: str = "figura", orient: bool | s
         info["accesorios_en_ensamblada"] = len(extras)
     asm.export(os.path.join(outdir, f"{name}_ensamblada.stl"))
     info.update({"ensamblada": f"{name}_ensamblada.stl", "piezas": sorted(res.pieces)})
+    if colorize is not None:
+        say("Escribiendo los archivos de color…")
+        info["color"] = colorize.write(outdir, name, T, accesorios_sin_color=len(extras or []))
     say("Escribiendo la lista de piezas…")
     lst = parts_list(res, name)
     if lst is not None:

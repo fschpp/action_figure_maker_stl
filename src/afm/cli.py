@@ -10,23 +10,68 @@ import sys
 import time
 
 from . import __version__, meshio, pipeline as P, solids as S
+from .i18n import tr
 from .project import Project, demo_project
 from .testfigure import make_doll
 
 
+def make_colorizer(color: dict, mesh, params, progress=print, post=None):
+    """(Colorizer | None, info) para `run`: carga el FBX de `color["fbx"]`, lo alinea con `mesh` (la figura en el marco del motor, modo B)
+    y arma la fuente de color. `mesh` es la figura TAL COMO SE CARGÓ (antes del giro de `front="-Y"` y de la simetría) y `post` la 4×4 de
+    esos dos pasos (`FigureFrame.engine_post`): el FBX del cliente mira a −Y como el STL, así que se alinea antes de girar.
+    Si el FBX no es la misma figura o no trae textura de color, avisa y devuelve `None` (la figura sale sin color).
+    `color`: `fbx`, `texel_mm`, `eps`, `fill`, `symmetric`. El `info` es serializable (R13)."""
+    from .colorexport import Colorizer
+    from .colorsrc import ColorSource
+    from .fbxio import load_textured
+    from .frame import SIMILARITY_OK_MM, FigureFrame
+
+    path = color["fbx"]
+    tm = load_textured(path)
+    info: dict = {"fuente": os.path.abspath(path)}
+    for w in tm.info.get("avisos", []):
+        progress(f"AVISO: {w}")
+    if "base_color" not in tm.images:
+        progress(tr("color.aviso_sin_textura", ruta=os.path.basename(path)))
+        info["omitido"] = "sin_textura"
+        return None, info
+    frame = FigureFrame.from_similarity(tm, mesh)
+    if post is not None:
+        frame = frame.then(post)
+    info["alineacion"] = dict(frame.report)
+    if not frame.report["ok"]:
+        progress(tr("color.aviso_otra_figura", ruta=os.path.basename(path), media=f"{frame.report['media_mm']:.2f}",
+                    max=f"{SIMILARITY_OK_MM:g}"))
+        info["omitido"] = "otra_figura"
+        return None, info
+    progress(tr("color.cargando_fuente"))
+    src = ColorSource(tm, frame)
+    cz = Colorizer(src, params, texel_mm=color.get("texel_mm", 0.2), eps=color.get("eps", 0.15),
+                   fill=color.get("fill", "extend"), symmetric=bool(color.get("symmetric", False)))
+    return cz, info
+
+
 def run(stl_path: str, project: Project, outdir: str, name: str, progress=print, orient: bool | str = False,
         max_angle: float = 45.0, flat: float | None = None, catalog_root: str | None = None,
-        keep: dict | None = None) -> dict:
-    """Genera la figura. `keep`, si se pasa, recibe `res` (el `BuildResult`) y `params` para la vista previa de la pose."""
+        keep: dict | None = None, color: dict | None = None) -> dict:
+    """Genera la figura. `keep`, si se pasa, recibe `res` (el `BuildResult`), `params` para la vista previa de la pose y `colorizer`.
+    `color` (opcional, ver `make_colorizer`): FBX con textura de la misma figura; además de los STL (que no cambian) deja las
+    piezas con color en `piezas_color/` y `<nombre>_ensamblada.glb`."""
     from .assembly import resolve_parts
 
     parts = resolve_parts(project.parts, catalog_root) if project.parts else None
     mesh, rep = meshio.load_figure(stl_path, project.params.ref_height, project.crown_z)
     for w in rep.warnings:
         progress(f"AVISO: {w}")
+    mesh_loaded = mesh.copy() if color else None      # la fuente de color se alinea contra la figura tal como se cargó
     if project.front == "-Y":      # girar 180° sobre Z para que el frente quede en +Y
         mesh.apply_transform([[-1, 0, 0, 0], [0, -1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]])
     mesh = P.align_to_symmetry(mesh, project.symmetry)
+    colorize, color_info = (None, None)
+    if color:                         # antes de construir: un FBX ilegible o de otra figura se sabe en segundos, no a los 30 s
+        from .frame import FigureFrame
+        colorize, color_info = make_colorizer(color, mesh_loaded, project.params, progress,
+                                              post=FigureFrame.engine_post(project.front, project.symmetry))
     body = S.to_manifold(mesh)
     from .customize import needed, build_model
     if needed(project):
@@ -40,19 +85,24 @@ def run(stl_path: str, project: Project, outdir: str, name: str, progress=print,
         progress("Validando la figura…")
         val = P.validate(res, project.params, project.limbs, joints=project.joints)
     if keep is not None:
-        keep.update(res=res, params=project.params)
+        keep.update(res=res, params=project.params, colorizer=colorize)      # `colorizer`: el `Colorizer` (None sin color); se llena en `export`
     from .accessories import finish_export, load_project_items
 
     items = load_project_items(project, progress=print)
     progress("Exportando las piezas…")
     files = P.export(res, outdir, name, orient=orient, max_angle=max_angle, flat=flat, params=project.params,
-                     extras=[i["mesh"] for i in items])
+                     extras=[i["mesh"] for i in items], colorize=colorize)
     acc_info = finish_export(items, outdir, name, progress=print)
     if acc_info:
         files["accesorios"] = [a["archivo"] for a in acc_info]
     info = {"carga": rep.__dict__, "construccion": res.report, "validacion": val, "archivos": files}
     if acc_info:
         info["accesorios"] = acc_info
+    if color_info is not None:
+        info["color"] = {**color_info, **({"salida": files["color"]} if "color" in files else {})}
+        if "color" in files:
+            progress(tr("color.resumen", n=len(files["color"]["piezas"]), carpeta=files["color"]["carpeta"],
+                        s=files["color"]["segundos"]))
     with open(os.path.join(outdir, f"{name}_informe.json"), "w") as f:
         json.dump(info, f, indent=2, default=float)
     project.save(os.path.join(outdir, f"{name}.proyecto"))
@@ -227,6 +277,12 @@ def main(argv=None) -> int:
                    help="usar la pieza de catálogo REF (id o id@versión) en el miembro LUGAR del proyecto (p. ej. pierna=pierna-guemes-01), en «cabeza», «mano» o «pelvis» "
                         "(la pelvis sola cambia solo la del modelo y necesita su plano de cintura); "
                         "repetible. Queda guardada en el .proyecto de salida")
+    b.add_argument("--color-desde", default=None, metavar="FBX", help=tr("color.ayuda_desde"))
+    b.add_argument("--sin-color", action="store_true", help=tr("color.ayuda_sin_color"))
+    b.add_argument("--textura-mm", type=float, default=0.2, metavar="MM", help=tr("color.ayuda_textura"))
+    b.add_argument("--color-simetrico", action="store_true", help=tr("color.ayuda_simetrico"))
+    b.add_argument("--color-relleno", default="extend", metavar="#RRGGBB", help=tr("color.ayuda_relleno"))
+    b.add_argument("--color-tolerancia", type=float, default=0.15, metavar="MM", help=tr("color.ayuda_tolerancia"))
     b.add_argument("--max-angle", type=float, default=45.0, help="ángulo de voladizo tolerado (grados desde la vertical)")
     a = sub.add_parser("armar", help="armar una figura solo con piezas de catálogo a partir de una receta (afm-receta-1)")
     a.add_argument("catalogo", metavar="RUTA", help="catálogo de piezas de la línea de la receta")
@@ -471,9 +527,24 @@ def main(argv=None) -> int:
             flat = project.params.flat_depth
         from .assembly import AssemblyError
         from .hand import HandError
+        run_kw: dict = {}
+        if args.color_desde and not args.sin_color:      # sin el flag `run` no recibe `color`: el flujo de siempre queda igual
+            from .colorbake import parse_fill
+            try:
+                parse_fill(args.color_relleno)
+            except ValueError as exc:
+                ap.error(f"--color-relleno: {exc}")
+            if not os.path.isfile(args.color_desde):
+                ap.error(tr("color.error_no_existe", ruta=args.color_desde))
+            run_kw["color"] = {"fbx": args.color_desde, "texel_mm": args.textura_mm, "eps": args.color_tolerancia,
+                               "fill": args.color_relleno, "symmetric": args.color_simetrico}
+        from .fbxio import FbxError
         try:
             info = run(args.stl, project, args.out, name, orient="auto" if args.orient_auto else args.orient,
-                       max_angle=args.max_angle, flat=flat, catalog_root=args.catalogo)
+                       max_angle=args.max_angle, flat=flat, catalog_root=args.catalogo, **run_kw)
+        except FbxError as exc:
+            print(tr("color.error_fbx", err=str(exc)), file=sys.stderr)
+            return 2
         except HandError as exc:
             print(f"ERROR (mano): {exc}", file=sys.stderr)
             return 2

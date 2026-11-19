@@ -2,6 +2,51 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — Color FBX: T16 (2026-11-18, sobre main 53ad1ef + parches T15 y T09)
+**Objetivo:** Güemes con color de punta a punta (texel 0,2 mm): medir tiempo, solapes, STL intactos, color en puntos conocidos y tamaño de atlas; y decidir T20.
+**Hecho:** `tests/test_color_guemes_e2e.py` (5 pruebas, `AFM_SLOW=1`, ≈ 36 s: dos corridas de Güemes, sin y con color) y `tools/render_color_compare.py` (rasterizador por software, sin GL: 3 vistas —frente, lado, espalda— de la fuente arriba y del GLB ensamblado abajo, en un PNG) con `tests/test_tool_render_color_compare.py` (3 pruebas, no lentas). `cli.run` ahora deja el `Colorizer` en `keep["colorizer"]` (None sin color) para que las pruebas lean los atlas.
+**Medido (Güemes real):** tiempo sin color 12,4 s · con color 22,2 s → **extra 9,7 s** (límite 60 s); el registro + horneado de las 5 piezas suma 7,1 s (torso 3,2 s). 0 texeles solapados en las 5 piezas. STL de las 5 piezas y el ensamblado idénticos byte a byte con y sin color. Atlas (texel 0,2 mm, sin agrandar en ninguna): torso 2048×724 · brazos 1024×280 · piernas 1024×324; % con origen: torso 66,0 · brazos 81,4–82,0 · piernas 82,8–83,0. Texeles de islas / píxeles del atlas: torso 9,3 % · brazos 13,2–13,3 % · piernas 17,0 %.
+**Colores (5 puntos por coordenada, marco de la figura, frente +Y):** sombrero (0,5; 6,3; 113,3) ≈ (52,51,46) · cara (0,1; 9,9; 101,4) ≈ (170,133,109) · charretera dorada (16,3; −0,1; 90,5) ≈ (157,130,76) en `brazo_izq` · puño verde (23,2; −5,0; 62,9) ≈ (51,69,46) en `brazo_izq` · bota izquierda (11,3; 9,1; 1,5) ≈ (36,35,33) en `pierna_izq`. El color horneado en la pieza coincide con el de la textura original (muestreo bilineal exacto de la fuente) a ≤ 40/255 por canal en los 5; el punto de la bota pasa por el registro (−90° sobre X).
+**Decisión sobre T20:** el criterio del plan («si el atlas ocupa < 35 % útil, hacer T20») daría «hacer T20» (9–17 % de uso), pero ningún atlas pasa de 2048×724 (≈ 1,5 MP, 4,4 MB en PNG sin comprimir) ni agranda el texel, y el despliegue tarda ≤ 3 s: **decisión del cliente: no hace falta T20**. T20 queda sin hacer.
+**Hallazgo menor:** el punto (−0,8; 8,5; 110,8) del sombrero queda a 0,38 mm de la pieza (una de las pocas zonas donde el FBX se aparta del STL, §3.2); se eligió otro punto del sombrero (arriba) a < 0,05 mm.
+**No verificado:** el GLB en un visor externo (solo con el rasterizador propio: charreteras, puños y botones se ven bien; el GLB está en la **pose de impresión**, con las piernas giradas, y los cortes de los brazos muestran el gris de relleno de las superficies nuevas). La imagen de comparación quedó en el parche de T16 solo como PNG de ejemplo (`comparar_guemes_T16.png`, no se versiona).
+
+### Todo List
+- [x] T09 · [x] T10–T16 (T20 no se hace)
+- [ ] T17–T19 · [ ] T21–T30
+
+### Latest Blockers/Discoveries
+- Ninguno bloqueante. Camino abierto: T17, T18, T19 (en paralelo) y T21 (modo A), T23 (libre).
+
+## Current Focus — Color FBX: T09 (2026-11-18, sobre main 53ad1ef + parche T15)
+**Objetivo:** reproducir con código del repo la tabla del §3.3 (registro de las 5 piezas reales de Güemes contra el FBX).
+**Hecho:** `tests/test_color_guemes_registration.py` (5 pruebas, `AFM_SLOW=1`, ≈ 45 s): corre Güemes con `examples/guemes.py` (≈ 13 s), alinea el FBX con `FigureFrame.from_similarity(...).then(FigureFrame.engine_post(front, symmetry))`, registra las piezas de `res.pieces` y mide la cobertura (`d ≤ 0,6 mm`, 20 000 puntos) con `src.query`.
+**Bug de T15 corregido (lo encontró T09):** `cli.run` le pasaba a `make_colorizer` la malla DESPUÉS del giro de 180° de `front="-Y"` y de `align_to_symmetry`; el FBX de Güemes mira a −Y sin girar, así que la alineación daba media 1,42 mm → `ok=False` y la figura salía sin color. Ahora `run` guarda la malla tal como se cargó (`mesh_loaded`), `make_colorizer` alinea contra ella y compone `post` = `FigureFrame.engine_post(front, symmetry)` (nuevos `engine_post` y `FigureFrame.then` en `frame.py`). Prueba de regresión `test_run_color_with_front_minus_y` (no lenta): el muñeco es simétrico, así que **la cobertura geométrica no distingue el giro**; la prueba mira el color del PNG (brazo izquierdo rojo, derecho azul) y se comprobó que falla sin la corrección.
+**Medido (Güemes real):** nombres `sorted(res.pieces)` = `brazo_der, brazo_izq, pierna_der, pierna_izq, torso`; `res.motion` = `brazo, pierna`. Alineación FBX→STL con `refine=None`: media 0,020 · p95 0,043 · máx 0,062 mm, 0 iteraciones de ICP. Fuente: 1,65 s (spacing 0,08). Registro: torso, brazo_izq, brazo_der → `identidad`; pierna_izq → `semilla` −90° sobre +X; pierna_der → `semilla` +90° sobre −X (= −90° sobre +X). Cobertura (≤ 0,6 mm): torso 72,9 % · brazos 84,6–84,8 % · piernas 84,7–85,2 % · pierna sin registrar 6,6–6,7 % (§3.3: 72,7 / 84,4 / 84,9 / 6,3). Tiempo de registro por pieza ≤ 0,7 s (torso 0,02 s).
+**No verificado:** colores horneados de Güemes (T16). R9 + frame + color: pasan.
+
+### Todo List
+- [x] T10 · [x] T11 · [x] T12 · [x] T13 · [x] T14 · [x] T15 · [x] T09
+- [ ] T16 · [ ] T17–T30
+
+### Latest Blockers/Discoveries
+- Ninguno bloqueante. `Colorizer.__call__` usa el `res` entero; T16 mide tiempos y tamaño de atlas con Güemes real.
+
+## Current Focus — Color FBX: T15 (2026-11-18, sobre main 53ad1ef)
+**Objetivo:** conectar el color al motor sin cambiar la salida STL: gancho `colorize` en `pipeline.export` y flags del CLI.
+**Hecho:** `export(..., colorize=None)` al final de la firma: por cada pieza llama `colorize(nombre, copia_de_la_malla, res)` **antes** de `apply_transform(T)` y, al final, `info["color"] = colorize.write(outdir, name, T, accesorios_sin_color=len(extras))`. Sin `colorize` no cambia nada. `cli.make_colorizer(color, mesh, params, progress)`: carga el FBX, `FigureFrame.from_similarity` contra la malla del motor (marco de la figura) y arma `ColorSource` + `Colorizer`; si el FBX no es la misma figura (media > 0,1 mm) o no trae textura base, avisa y la figura sale sin color (`info["color"]["omitido"]`). `run(..., color=None)` lo arma **antes** de construir (un FBX ilegible o de otra figura se sabe en segundos); `main` pasa `color=` solo con `--color-desde` y sin `--sin-color` (el flujo de siempre no recibe ningún kwarg nuevo, así `test_flat_print::test_cli_flag_parses` no cambia). Flags: `--color-desde FBX`, `--sin-color`, `--textura-mm`, `--color-simetrico`, `--color-relleno`, `--color-tolerancia`; `--color-relleno` inválido y FBX inexistente fallan en el parser; `FbxError` → «ERROR (FBX)», código 2. i18n: sección `color.*` (es/en/pt, 12 claves) agregada como texto, sin reformatear los JSON. `tests/color_helpers.py` parte 3 (`write_textured_fbx`, `write_doll_fbx`, `write_sphere_fbx`) y `tests/test_color_cli.py` (9 pruebas).
+**Medido (muñeco):** STL de las 5 piezas y el ensamblado, con y sin `orient`, idénticos byte a byte antes y después del cambio (sha256 calculados con el commit 53ad1ef y fijados en la prueba); exportar con color deja los mismos hashes. `cli.run` con el FBX del muñeco: alineación `ok`, media < 0,1 mm, 5 piezas en `piezas_color/`; con una esfera como FBX: aviso y sin color, STL intactos. R9 + `test_flat_print` + `test_i18n` + color: 55 pruebas pasan en 94 s.
+**Desvío respecto de la ficha:** la ficha pone `colorize=None` en `run()`; `run` recibe en cambio `color` (dict) porque el marco de la fuente depende de la malla que arma `run` (después de `load_figure` y la simetría) y de ahí sale el `Colorizer`. `export` sí recibe `colorize`, como pide la ficha.
+**Para T19 (hecho aquí):** `export` rearma `BuildResult` al aplanar y al decimar sin `right`/`right_limbs`; el gancho recibe una copia de `res` con ambos campos del original (`dataclasses.replace`), sin tocar el `res` que usa el resto de `export`. Prueba `test_colorize_hook_gets_full_res_with_right`. Sigue pendiente comprobar el registro `_der` con `limbs_right` real.
+**No verificado:** Güemes real (T16); los STL con otras versiones de trimesh/manifold podrían dar otros hashes (la prueba de bytes los fija para este entorno); la GUI y la web no pasan por `cli.run` (T25, T28).
+
+### Todo List
+- [x] T10 · [x] T11 · [x] T12 · [x] T13 · [x] T14 · [x] T15
+- [ ] T09 verificación con Güemes real · [ ] T16 · [ ] T17–T30
+
+### Latest Blockers/Discoveries
+- Ninguno bloqueante.
+
 ## Current Focus — Color FBX: T14 (2026-11-18, sobre main a4bfef2 + parches T10–T13)
 **Objetivo:** `src/afm/colorexport.py`: el objeto que recibe `export(colorize=...)` y escribe los archivos de color.
 **Hecho:** `Colorizer(src, params, *, texel_mm, eps, fill, symmetric, workers)`: `__call__(name, mesh, res)` = `register_piece` → `unwrap_triangles` → `bake_piece`, guarda `(Unwrapped, BakeResult, Registration, info)` y devuelve `{estado, pct_origen, angulo, puntaje_registro, texel_mm, atlas, triangulos, area_mm2, segundos}` (todo serializable, R13); `fill` inválido falla en el constructor. `write(outdir, fig_name, orientation=None, accesorios_sin_color=0)`: `piezas_color/<fig>_<pieza>.obj|.mtl|_color.png` (un vértice por esquina de cara, así cada `vt` es el suyo), `<fig>_ensamblada.glb` (una malla y un material por pieza) y `<fig>_color_informe.json` (+ `config`, `sin_origen`, `accesorios_sin_color`, `segundos`). `orientation` (la 4×4 de `print_orientation`) se aplica a los vértices de salida, no a los UV. `tests/color_helpers.py` parte 2: `doll_params()`, `doll_pieces(params=None)` → `res` y `piece_trimeshes(res)`. `tests/test_colorexport.py` (9 pruebas).

@@ -82,3 +82,32 @@ def piece_trimeshes(res) -> dict:
     from afm import solids as S
 
     return {n: S.to_printable_trimesh(m) for n, m in res.pieces.items()}
+
+
+# ------------------------------------------------------------------ parte 3 (T15): FBX de prueba en disco
+def write_textured_fbx(path, tm: TexturedMesh) -> str:
+    """Escribe `tm` como FBX binario sintético (UV por esquina, textura de color base embebida)."""
+    from fbx_synth import write_fbx
+
+    n = len(tm.faces)
+    write_fbx(str(path), tm.vertices, tm.faces.tolist(), np.arange(3 * n), np.asarray(tm.corner_uv, float).reshape(-1, 2),
+              texture=tm.image("base_color"))
+    return str(path)
+
+
+def write_doll_fbx(path) -> str:
+    """FBX del muñeco texturizado de T06: la misma figura que `make_doll()` (modo B)."""
+    return write_textured_fbx(path, doll_textured())
+
+
+def write_sphere_fbx(path, radius: float = 40.0) -> str:
+    """FBX de una esfera con textura lisa: «otra figura» frente al muñeco."""
+    import trimesh
+
+    s = trimesh.creation.icosphere(subdivisions=2, radius=radius)
+    s.apply_translation([0, 0, radius])
+    n = len(s.faces)
+    tm = TexturedMesh(vertices=np.asarray(s.vertices, float), faces=np.asarray(s.faces, np.int32),
+                      corner_uv=np.full((n, 3, 2), 0.5, np.float32),
+                      images={"base_color": png_bytes(np.full((8, 8, 3), 90, np.uint8))}, info={"avisos": []})
+    return write_textured_fbx(path, tm)

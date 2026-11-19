@@ -1706,5 +1706,19 @@
   "quitar_la_3_a_silueta_de_name": "Remove the 3rd outline of “%{name}”",
   "editar_3_a_silueta": "Edit 3rd outline",
   "dibujar_3_a_silueta": "Draw 3rd outline"
+ },
+ "color": {
+  "ayuda_desde": "FBX with the colour texture of the same figure (mode B): besides the STLs it writes piezas_color/ (OBJ+MTL+PNG per part) and <name>_ensamblada.glb. The STLs do not change",
+  "ayuda_sin_color": "do not generate colour even if --color-desde is given",
+  "ayuda_textura": "texel size of the colour atlas in mm (default 0.2)",
+  "ayuda_simetrico": "the right side copies the left side's colour (by default each side keeps its own)",
+  "ayuda_relleno": "new surfaces (cuts, cavities, pins): «extend» takes the neighbouring colour; or a flat #RRGGBB colour",
+  "ayuda_tolerancia": "maximum distance (mm) for a point of the part to count as coming from the original figure (default 0.15)",
+  "aviso_sin_textura": "WARNING: the FBX «%{ruta}» has no base colour texture: exporting without colour.",
+  "aviso_otra_figura": "WARNING: the FBX «%{ruta}» is not the same figure as the STL (mean distance %{media} mm, up to %{max} mm allowed): exporting without colour.",
+  "cargando_fuente": "Preparing the colour source…",
+  "resumen": "Colour: %{n} parts in %{carpeta}/ (%{s} s)",
+  "error_no_existe": "--color-desde: the file «%{ruta}» does not exist",
+  "error_fbx": "ERROR (FBX): %{err}"
  }
 }

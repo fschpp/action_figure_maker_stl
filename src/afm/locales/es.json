@@ -1706,5 +1706,19 @@
   "quitar_la_3_a_silueta_de_name": "Quitar la 3.ª silueta de «%{name}»",
   "editar_3_a_silueta": "Editar 3.ª silueta",
   "dibujar_3_a_silueta": "Dibujar 3.ª silueta"
+ },
+ "color": {
+  "ayuda_desde": "FBX con la textura de color de la misma figura (modo B): además de los STL, deja piezas_color/ (OBJ+MTL+PNG por pieza) y <nombre>_ensamblada.glb. Los STL no cambian",
+  "ayuda_sin_color": "no generar color aunque se pase --color-desde",
+  "ayuda_textura": "tamaño de texel del atlas de color en mm (por defecto 0,2)",
+  "ayuda_simetrico": "el lado derecho copia el color del izquierdo (por defecto cada lado conserva el suyo)",
+  "ayuda_relleno": "superficies nuevas (cortes, cavidades, pasadores): «extend» toma el color vecino; o un color plano #RRGGBB",
+  "ayuda_tolerancia": "distancia máxima (mm) para considerar que un punto de la pieza viene de la figura original (por defecto 0,15)",
+  "aviso_sin_textura": "AVISO: el FBX «%{ruta}» no trae textura de color base: se exporta sin color.",
+  "aviso_otra_figura": "AVISO: el FBX «%{ruta}» no es la misma figura que el STL (distancia media %{media} mm, se admite hasta %{max} mm): se exporta sin color.",
+  "cargando_fuente": "Preparando la fuente de color…",
+  "resumen": "Color: %{n} piezas en %{carpeta}/ (%{s} s)",
+  "error_no_existe": "--color-desde: no existe el archivo «%{ruta}»",
+  "error_fbx": "ERROR (FBX): %{err}"
  }
 }

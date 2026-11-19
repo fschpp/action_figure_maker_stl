@@ -37,6 +37,17 @@ class FigureFrame:
         A = _symmetry_matrix(symmetry)
         return cls(A @ F @ N, float(report.scale))
 
+    @staticmethod
+    def engine_post(front: str = "+Y", symmetry=None) -> np.ndarray:
+        """4×4 de lo que el motor hace DESPUÉS de cargar la figura: giro de 180° sobre Z si el frente es −Y y `align_to_symmetry`
+        (`A · F` de `from_load`). Sirve para llevar a la fuente al marco del motor cuando se alineó contra el STL tal como se cargó."""
+        F = np.diag([-1.0, -1.0, 1.0, 1.0]) if front == "-Y" else np.eye(4)
+        return _symmetry_matrix(symmetry) @ F
+
+    def then(self, post: np.ndarray) -> "FigureFrame":
+        """Marco compuesto: primero este, después `post` (4×4 rígida, sin escala). Conserva `scale` y `report`."""
+        return FigureFrame(np.asarray(post, float) @ self.matrix, self.scale, self.report)
+
     @classmethod
     def from_similarity(cls, source_vertices, target_mesh, refine: bool | None = None, source_faces=None) -> "FigureFrame":
         """Modo B (plan §7.2, T04): lleva los vértices de la fuente (FBX) al marco de la geometría `target_mesh` (el STL ya trabajado).
