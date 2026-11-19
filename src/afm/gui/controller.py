@@ -480,6 +480,8 @@ class Controller:
         msg += self._auto_catalog()
         if session.report.warnings:
             msg += " — " + " ".join(session.report.warnings)
+        if session.fbx_summary:                      # modo A: resumen del FBX y avisos (sin textura base, varios materiales)
+            msg += " — " + session.fbx_summary_text()
         self._changed(msg)
 
     def new_project(self) -> bool:

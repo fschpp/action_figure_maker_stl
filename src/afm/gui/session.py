@@ -72,6 +72,36 @@ def _cut_sig(c) -> tuple | None:
     return None if c is None else (np.asarray(c.polygon).tobytes(), c.plane.origin.tobytes(), c.plane.normal.tobytes(), c.thickness)
 
 
+def uv_island_count(tm) -> int:
+    """Islas UV de un `TexturedMesh`: componentes de triángulos que comparten una esquina con el mismo vértice y el mismo UV."""
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+
+    F = np.asarray(tm.faces, np.int64)
+    if len(F) == 0:
+        return 0
+    uv = np.round(np.asarray(tm.corner_uv, float).reshape(-1, 2), 5)
+    keys = np.column_stack([F.reshape(-1), uv])
+    _u, corner_id = np.unique(keys, axis=0, return_inverse=True)
+    face_of = np.repeat(np.arange(len(F)), 3)
+    corner_id = corner_id.reshape(-1)
+    inc = coo_matrix((np.ones(len(face_of)), (face_of, corner_id)), shape=(len(F), corner_id.max() + 1)).tocsr()
+    n, _lab = connected_components(inc @ inc.T, directed=False)
+    return int(n)
+
+
+def fbx_summary(tm) -> dict:
+    """Resumen del FBX abierto: triángulos, islas UV, texturas embebidas y avisos (falta la textura base, varios materiales)."""
+    avisos = [str(a) for a in tm.info.get("avisos", [])]
+    if "base_color" not in tm.images:
+        avisos.append(tr("session.aviso_fbx_sin_textura_base"))
+    n_mat = int(tm.info.get("n_materiales", 1) or 1)
+    if n_mat > 1:
+        avisos.append(tr("session.aviso_fbx_varios_materiales", n=n_mat))
+    return {"triangulos": int(len(tm.faces)), "islas_uv": uv_island_count(tm), "texturas": sorted(tm.images),
+            "materiales": n_mat, "avisos": avisos}
+
+
 def json_sig(obj) -> str:
     """Firma de texto de un dict/lista con arreglos de numpy (para saber si algo cambió)."""
     return json.dumps(obj, sort_keys=True, default=lambda o: np.asarray(o).tolist())
@@ -88,6 +118,8 @@ class Session:
         self.work: trimesh.Trimesh | None = None
         self.outcome: BuildOutcome | None = None
         self._zmin_file = 0.0
+        self.color_source = None                     # `TexturedMesh` del FBX abierto (modo A, T22); None con un STL
+        self.fbx_summary: dict | None = None         # {"triangulos", "islas_uv", "texturas", "materiales", "avisos"}; None con un STL
         self.catalog_origin: dict | None = None      # bloque `catalogo_solo` del .proyecto: figura toda de catálogo, sin STL
         self._catalog_joint_cache: dict | None = None  # articulaciones de las piezas de catálogo ya colocadas (ver `catalog_joints`)
         self.edit_side = "left"                      # «left»: se editan los miembros +X; «right»: los del −X, sobre la figura espejada
@@ -100,10 +132,25 @@ class Session:
         mesh, rep = meshio.load_figure(path, self.project.params.ref_height, crown_z, progress=progress)
         self._zmin_file = rep.zmin_file
         self.stl_path, self.report, self.base = path, rep, mesh
+        self.color_source, self.fbx_summary = None, None
+        if rep.color_source_path:                    # modo A: el FBX es la geometría y la fuente de color (la fuente se lee aparte, sin reparar)
+            from .. import fbxio
+
+            self.color_source = fbxio.load_textured(rep.color_source_path)
+            self.fbx_summary = fbx_summary(self.color_source)
         self.project.crown_z = crown_z
         self.outcome = None
         self._rebuild_frames()
         return rep
+
+    def fbx_summary_text(self) -> str:
+        """Resumen de una línea del FBX abierto (vacío con un STL), con sus avisos, para el mensaje de estado."""
+        sm = self.fbx_summary
+        if not sm:
+            return ""
+        texto = tr("session.resumen_fbx", tri=f"{sm['triangulos']:,}".replace(",", "."), islas=sm["islas_uv"],
+                   texturas=", ".join(sm["texturas"]) or tr("session.ninguna"))
+        return " ".join([texto, *sm["avisos"]])
 
     @property
     def loaded(self) -> bool:

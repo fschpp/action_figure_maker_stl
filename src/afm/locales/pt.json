@@ -1121,6 +1121,10 @@
   "casi": "quase"
  },
  "session": {
+  "resumen_fbx": "FBX: %{tri} triângulos, %{islas} ilhas UV, texturas: %{texturas}.",
+  "ninguna": "nenhuma",
+  "aviso_fbx_sin_textura_base": "AVISO: o FBX não traz textura de cor base: será exportado sem cor.",
+  "aviso_fbx_varios_materiales": "AVISO: o FBX tem %{n} materiais; só se usa a textura de cor base do primeiro.",
   "se_quito_join_del_modelo_place": "“%{join}” foi removido do modelo: “%{place}” usa a articulação da peça.",
   "la_ultima_vez_estaba_en_last": "(da última vez estava em %{last_root})",
   "este_proyecto_se_armo_con_el": "Este projeto foi montado com o catálogo da linha “%{line}”%{where} e não o encontro: escolha a pasta do catálogo.",

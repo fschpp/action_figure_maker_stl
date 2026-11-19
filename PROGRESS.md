@@ -2,6 +2,19 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — Color FBX: T22 (2026-11-19, sobre main 986ed22)
+**Objetivo:** `Session.load` acepta un `.fbx` y guarda la fuente de color y un resumen, sin widgets nuevos.
+**Hecho:** `gui/session.py`: `Session.color_source` (`TexturedMesh`, leído aparte sin reparar) y `Session.fbx_summary` (`triangulos`, `islas_uv`, `texturas`, `materiales`, `avisos`), ambos `None` con un STL (cargar un STL después de un FBX los limpia); `uv_island_count` (componentes de triángulos que comparten esquina con igual vértice y UV, `scipy`); `fbx_summary`; `Session.fbx_summary_text()`. `Controller.finish_open_stl` agrega el resumen y los avisos (sin textura base, más de un material) al mensaje de estado. Claves nuevas en `session` (es/en/pt): `resumen_fbx`, `ninguna`, `aviso_fbx_sin_textura_base`, `aviso_fbx_varios_materiales`. `tests/test_gui_session_fbx.py` (5 pruebas, ≈ 1 s, sin GTK).
+**Medido (muñeco):** los planos del FBX llevados con `report.to_figure` coinciden con `FigureFrame.from_load` (1e-6); toda la fuente cae sobre la caja de la figura cargada (0,05 mm).
+**No verificado:** la barra de estado en pantalla con GTK real (no hay GTK acá); `Session.load` con el FBX de Güemes real; el aviso de varios materiales se probó forzando `info["n_materiales"]` (el escritor sintético no emite más de un material).
+
+### Todo List
+- [x] T09 · [x] T10–T16 (T20 no se hace) · [x] T17–T19 · [x] T21 · [x] T22
+- [ ] T23–T30
+
+### Latest Blockers/Discoveries
+- Ninguno bloqueante. Camino abierto: T23 (libre), T24 (◄ T15, T22), T27 (◄ T21), T28 (◄ T15).
+
 ## Current Focus — Color FBX: T21 (2026-11-19, sobre main 07ee119)
 **Objetivo:** `afm build guemes.fbx proyecto.json` genera la figura y el color (modo A: el FBX es la geometría y la fuente de color).
 **Hecho:** `meshio.load_figure` despacha `.fbx` a `fbxio.load_textured(...).to_trimesh()` y sigue el flujo de siempre; `LoadReport.color_source_path` (un `str`, vacío con STL) guarda la ruta. `cli.run(..., sin_color=False)`: con FBX de entrada arma la fuente con `FigureFrame.from_load(rep, front, symmetry)` (sin alineación por similitud: `alineacion = {"modo": "A", "ok": True}`); si la reparación remalló, `eps` sube a `max(eps, 0,3)` y avisa (`color.aviso_remallada` en es/en/pt). `make_colorizer` acepta `frame=`. CLI: `afm build x.fbx` usa el color solo; `--sin-color` lo usa como geometría. `tests/test_mode_a.py` (8 pruebas, ≈ 72 s, muñeco sintético).

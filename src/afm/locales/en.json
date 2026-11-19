@@ -1121,6 +1121,10 @@
   "casi": "almost"
  },
  "session": {
+  "resumen_fbx": "FBX: %{tri} triangles, %{islas} UV islands, textures: %{texturas}.",
+  "ninguna": "none",
+  "aviso_fbx_sin_textura_base": "WARNING: the FBX has no base colour texture: it will be exported without colour.",
+  "aviso_fbx_varios_materiales": "WARNING: the FBX has %{n} materials; only the base colour texture of the first is used.",
   "se_quito_join_del_modelo_place": "“%{join}” was removed from the model: “%{place}” uses the part's joint.",
   "la_ultima_vez_estaba_en_last": "(last time it was at %{last_root})",
   "este_proyecto_se_armo_con_el": "This project was assembled with the catalog of the “%{line}” line%{where} and I cannot find it: choose the catalog folder.",
