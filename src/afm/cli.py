@@ -187,9 +187,24 @@ def run_armar(recipe_path: str, outdir: str, name: str | None = None, catalog_ro
         from .recipe import load_accessories
 
         items = load_accessories(recipe, asm.catalog)
+    colorize, color_info = None, None
+    from .colorpiece import catalog_color_sources
+
+    try:                           # T36: piezas de catálogo con su propio FBX; el resto de la figura sale en color plano
+        c_src, color_info = catalog_color_sources(asm.res.placed, asm.catalog, set(asm.recipe.scales()))
+    except (ValueError, OSError) as exc:
+        progress(f"AVISO: no se pudo preparar el color de las piezas: {exc}")
+        c_src = {}
+    for key, why in (color_info or {}).get("omitidas", {}).items():
+        progress(f"AVISO: «{key}» sin color propio: {why}")
+    if c_src:
+        from .colorexport import Colorizer
+
+        colorize = Colorizer(None, asm.params, sources=c_src)
     progress("Exportando las piezas…")
+    extra = {"colorize": colorize} if colorize is not None else {}
     files = P.export(asm.res, outdir, name, orient=orient, max_angle=max_angle, flat=flat, params=asm.params,
-                     progress=progress, extras=[i["mesh"] for i in items])
+                     progress=progress, extras=[i["mesh"] for i in items], **extra)
     from .accessories import finish_export
 
     acc_info = finish_export(items, outdir, name, progress)
@@ -198,6 +213,8 @@ def run_armar(recipe_path: str, outdir: str, name: str | None = None, catalog_ro
     info = {"receta": recipe.to_dict(), "construccion": asm.res.report, "validacion": val, "archivos": files}
     if acc_info:
         info["accesorios"] = acc_info
+    if colorize is not None:
+        info["color"] = {**color_info, **({"salida": files["color"]} if "color" in files else {})}
     with open(os.path.join(outdir, f"{name}_informe.json"), "w") as f:
         json.dump(info, f, indent=2, default=float)
     recipe.save(os.path.join(outdir, f"{name}.receta.json"))

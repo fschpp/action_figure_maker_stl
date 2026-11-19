@@ -50,6 +50,7 @@ class BuildResult:
     torso_half: S.Manifold | None = None         # mitad +X del torso ya tallada, antes de espejar (la usa el lado derecho de una figura asimétrica)
     right: "BuildResult | None" = None           # figura asimétrica: construcción completa del lado −X, hecha sobre el cuerpo espejado (marco espejado)
     right_limbs: list = field(default_factory=list)   # miembros del lado derecho llevados al marco espejado (los de `right`)
+    placed: dict = field(default_factory=dict)   # nombre -> assembly.PlacedPart de las piezas de catálogo (con su `T`); lo usa el color (T36)
 
 
 def align_to_symmetry(mesh: trimesh.Trimesh, sym: Plane | None) -> trimesh.Trimesh:
@@ -429,7 +430,7 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
         report["waist"] = _waist_report(waist_build, built, by_limb, head_build is not None)
     return BuildResult(pieces=pieces, report=report, motion=res_motion, joints=res_joints, detent=detents, detent_ref=ref,
                        waist=waist_build, hand=hand_res, joint_specs=list(joints), torso_half=torso_half,
-                       right=right_res, right_limbs=right_limbs)
+                       right=right_res, right_limbs=right_limbs, placed=placed)
 
 
 def check_asymmetric(limbs: list[LimbSpec], limbs_right: list[LimbSpec]) -> None:
@@ -1649,7 +1650,7 @@ def export(res: BuildResult, outdir: str, name: str = "figura", orient: bool | s
     if colorize is not None:
         import dataclasses
         # `flat`/decimación rearman el `BuildResult` sin el lado derecho; el registro de las piezas `_der` lo necesita
-        hook_res = dataclasses.replace(res, right=res0.right, right_limbs=res0.right_limbs)
+        hook_res = dataclasses.replace(res, right=res0.right, right_limbs=res0.right_limbs, placed=res0.placed)
     for part, mf in res.pieces.items():
         say(f"Escribiendo «{part}»…")
         tm = S.to_printable_trimesh(mf)

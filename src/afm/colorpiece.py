@@ -115,3 +115,41 @@ def head_color_provider(fbx_path: str, stl_path: str, *, spacing_mm: float = 0.0
             out.update(pc.report)
         return pc.source
     return provide
+
+
+def catalog_color_sources(placed: dict, catalog, scaled=(), *, spacing_mm: float = 0.08) -> tuple[dict, dict]:
+    """`(sources, info)` para `Colorizer(sources=...)` de una figura armada desde el catálogo (T36).
+
+    `placed`: `BuildResult.placed` (nombre → `PlacedPart`). Para cada pieza cuya ficha trae `color` se arma un proveedor (se resuelve
+    al colorear la pieza, no antes) que lleva su FBX al marco del huésped con `S = T · A`: `T` es `PlacedPart.T` y `A` la similitud
+    guardada en el catálogo (T35), así que no se vuelve a alinear. La clave es el nombre sin sufijo `_izq/_der`: con el lado derecho
+    espejado la pieza `_der` se registra reflejada contra la misma fuente (como cualquier otra pieza). Un lado `_der` propio
+    (figura asimétrica) no se mira: usa el color del izquierdo.
+
+    `scaled`: tipos de pieza que la receta escala (`scale_choice` cambia la malla y `T` no lo recoge): esas piezas quedan sin color
+    propio. `info` = `{clave: {"pieza": ref, "fbx": ruta}}` más `omitidas` `{clave: motivo}`."""
+    from .colorreg import _split_name
+
+    sources: dict = {}
+    info: dict = {"piezas": {}, "omitidas": {}}
+    for name, pp in placed.items():
+        meta = pp.choice.meta
+        key, side = _split_name(name)
+        if not getattr(meta, "color", None) or side == "der" or key in sources:
+            continue
+        if meta.tipo in set(scaled):
+            info["omitidas"][key] = f"{meta.ref} está escalada: el color no se lleva"
+            continue
+        try:
+            fbx = catalog.color_file(meta.ref)
+        except ValueError as exc:                       # CatalogError: sin FBX o con otro hash
+            info["omitidas"][key] = str(exc)
+            continue
+        info["piezas"][key] = {"pieza": meta.ref, "fbx": fbx}
+
+        def provide(res, _fbx=fbx, _T=np.asarray(pp.T, float), _A=meta.color["similitud"], _sp=spacing_mm):
+            from .fbxio import load_textured
+
+            return piece_color_source(load_textured(_fbx), None, _T, similarity=_A, spacing_mm=_sp).source
+        sources[key] = provide
+    return sources, info
