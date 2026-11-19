@@ -2,6 +2,74 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — Color FBX: T14 (2026-11-18, sobre main a4bfef2 + parches T10–T13)
+**Objetivo:** `src/afm/colorexport.py`: el objeto que recibe `export(colorize=...)` y escribe los archivos de color.
+**Hecho:** `Colorizer(src, params, *, texel_mm, eps, fill, symmetric, workers)`: `__call__(name, mesh, res)` = `register_piece` → `unwrap_triangles` → `bake_piece`, guarda `(Unwrapped, BakeResult, Registration, info)` y devuelve `{estado, pct_origen, angulo, puntaje_registro, texel_mm, atlas, triangulos, area_mm2, segundos}` (todo serializable, R13); `fill` inválido falla en el constructor. `write(outdir, fig_name, orientation=None, accesorios_sin_color=0)`: `piezas_color/<fig>_<pieza>.obj|.mtl|_color.png` (un vértice por esquina de cara, así cada `vt` es el suyo), `<fig>_ensamblada.glb` (una malla y un material por pieza) y `<fig>_color_informe.json` (+ `config`, `sin_origen`, `accesorios_sin_color`, `segundos`). `orientation` (la 4×4 de `print_orientation`) se aplica a los vértices de salida, no a los UV. `tests/color_helpers.py` parte 2: `doll_params()`, `doll_pieces(params=None)` → `res` y `piece_trimeshes(res)`. `tests/test_colorexport.py` (9 pruebas).
+**Medido (muñeco, texel 0,3 mm, fuente a 0,1 mm):** las 6 pruebas de la ficha más informe serializable, accesorios, `fill` inválido y orientación en el GLB; recargando el OBJ + PNG, > 90 % de las caras exteriores del brazo izquierdo dan rojo ± 10/255; una pieza lejana sale `sin_origen`, con `#C8C8C8` plano.
+**Para T15 (se ve en `pipeline.export`):** `export` reconstruye `BuildResult(...)` al aplanar (`flat`) y al decimar (`cap_export_triangles`) **sin** el campo `right`: con `limbs_right` el registro de las piezas `_der` perdería `res.right`. T19 debe comprobarlo; si es cierto, el `BuildResult` del gancho tiene que conservarlo (cambio en `export`, no en el motor).
+**No verificado:** Güemes real (T16); abrir los OBJ/GLB en un visor (no se renderizó). R9: pasan.
+
+### Todo List
+- [x] T10 · [x] T11 · [x] T12 · [x] T13 · [x] T14
+- [ ] T09 verificación con Güemes real · [ ] T15–T16 · [ ] T17–T30
+
+### Latest Blockers/Discoveries
+- Ninguno bloqueante.
+
+## Current Focus — Color FBX: T13 (2026-11-18, sobre main a4bfef2 + parches T10–T12)
+**Objetivo:** cerrar el atlas: dilatar los bordes de cada celda y aplicar las políticas de superficies sin origen.
+**Hecho (en `colorbake.py`):** `parse_fill` (`"extend"` o `"#RRGGBB"`; otra cosa → `ValueError`), `dilate(atlas, mask, px)` (`scipy.ndimage.distance_transform_edt(~mask, return_indices=True)`, solo rellena píxeles sin cubrir a ≤ `px`), `shrink_to_interior(grid, unw, edge_px)` (RG12) y `bake_piece` con `fill`, `dilate_px` y el nuevo `edge_px=1.0`. `fill="#RRGGBB"` pinta solo los texeles sin origen; una pieza con registro `sin_origen` sale toda de `#C8C8C8` con `extend` (§7.8) o del color de `fill`; `BakeResult.mask` = islas + dilatación (`stats["n_texeles"]` sigue contando solo los consultados). `tests/test_colorbake_fill.py` (9 pruebas; las 6 de la ficha más `sin_origen` gris, máscara dilatada y contracción sobre el atlas).
+**Desvío (RG12, contracción de bordes):** la ficha dice «sustituir la baricéntrica por la del punto movido hacia el baricentro». En triángulos muy angostos (sliver de 2,4 px de alto) el baricentro queda más cerca de una arista (0,80 px) que un texel que ya estaba a 0,81: moverlo empeoraba. Ahora solo se mueven los texeles que con ello ganan distancia al borde. Se midió con el brazo del muñeco a 0,3 mm: 9 450 texeles de borde, 1 928 de ellos en triángulos así. La contracción es del lado de la **pieza**; el borde borroso de las islas de la **fuente** (la preocupación de P4) se mide aparte: ver el bloque «P4» más abajo si ya está hecho.
+**No verificado:** el efecto de la contracción en Güemes real (T16); no hay prueba de que mejore el color en el borde de islas de la fuente. R9: pasan.
+
+### Todo List
+- [x] T10 · [x] T11 · [x] T12 · [x] T13
+- [ ] T09 verificación con Güemes real · [ ] T14–T16 · [ ] T17–T30
+
+### Latest Blockers/Discoveries
+- Ninguno bloqueante.
+
+## Current Focus — Color FBX: T12 (2026-11-18, sobre main a4bfef2 + parches T10 y T11)
+**Objetivo:** `colorbake.bake_piece`: color de cada texel de una pieza a partir de la fuente y del registro.
+**Hecho:** `BakeResult(atlas, mask, stats, origin)` (`origin` es un campo extra, (alto, ancho) bool: lo usa la política de relleno de T13) y `bake_piece(mesh, unw, src, reg, *, eps, fill, symmetric, dilate_px, workers)`: `texel_points` → puntos y normales a reposo con `reg.matrix` (las normales solo giran) → con `symmetric` y x medio en reposo < 0 refleja x → `src.query` en bloques de `CHUNK = 200 000` → atlas con el color de todos los texeles consultados (`extend`). `stats = {pct_origen (0–100), area_mm2, n_texeles, segundos}`. `fill` y `dilate_px` se aceptan pero no actúan todavía (T13). `tests/test_colorbake_query.py` (6 pruebas).
+**Medido (muñeco, fuente a 0,1 mm, texel 0,3 mm):** brazo izquierdo mayormente rojo, derecho mayormente azul (> 60 %); pierna izquierda con registro 58 % verde y 73,5 % con origen, sin registro 36 % y 58,8 % (la pierna girada aún roza la fuente); torso 47,7 % con origen; con `symmetric=True` el brazo derecho sale rojo y el izquierdo no cambia; torso a 0,4 mm < 15 s; en bloques de 777 puntos el resultado es idéntico.
+**Umbrales míos (no del plan):** las pruebas piden pierna > 50 % verde (y > 15 puntos sobre la no registrada) y torso > 30 % con origen: los fijé con lo medido, no relajé ninguno del plan.
+**No verificado:** Güemes real (T16). R9: pasan.
+
+### Todo List
+- [x] T10 · [x] T11 · [x] T12
+- [ ] T09 verificación con Güemes real · [ ] T13–T16 · [ ] T17–T30
+
+### Latest Blockers/Discoveries
+- Ninguno bloqueante. Para piezas `sin_origen`, `extend` pintaría el color del punto más cercano de un lugar equivocado: T13 las pasa a color plano.
+
+## Current Focus — Color FBX: T11 (2026-11-18, sobre main a4bfef2 + parche T10)
+**Objetivo:** `src/afm/colorbake.py` (parte 1): rasterizar un `Unwrapped` y dar, por cada texel cubierto, su cara, baricéntricas, punto 3D y normal.
+**Hecho:** `TexelGrid` y `texel_points(unw)`: centros de píxel de la caja de cada triángulo con `np.repeat`/`arange` (sin bucle por píxel), baricéntricas contra `tri_px`, se conserva `min(bary) ≥ −1e-6`; un triángulo sin texel recibe el píxel de su baricentro (bary 1/3); `bary` se recorta y renormaliza a suma 1; `points = Σ bary·vértices`; `normals` = normal plana unitaria (cara degenerada: ceros). `tests/test_colorbake_grid.py` (9 pruebas: las 6 de la ficha más triángulos diminutos, normales unitarias y centro de píxel dentro del triángulo).
+**Medido:** esfera de 20 480 caras a 0,2 mm: 693 014 texeles en 0,24 s (límite de la ficha: 5 s); texeles ≈ área / texel² ± 25 %; puntos a ≤ 1e-6 de la malla original.
+**No verificado:** el torso real (T16). R9: 22 pruebas pasan en 28 s.
+
+### Todo List
+- [x] T10 · [x] T11
+- [ ] T09 verificación con Güemes real · [ ] T12–T16 · [ ] T17–T30
+
+### Latest Blockers/Discoveries
+- Ninguno bloqueante.
+
+## Current Focus — Color FBX: T10 (2026-11-18, sobre main a4bfef2)
+**Objetivo:** `src/afm/unwrap.py`: despliegue base «una celda por triángulo» (D9). Cada triángulo recibe su celda del atlas, sin solapes por construcción.
+**Hecho:** `Unwrapped` (con el campo extra `cells`, (m,4) = x, y, ancho, alto de cada celda), `unwrap_triangles(mesh, texel_mm=0.2, margin_px=2, max_cell_px=64, max_atlas=4096, max_edge_mm=None)` y `check_no_overlap(unw)` (cobertura por arreglo de diferencias 2D, vectorizado). Subdivide con `trimesh.remesh.subdivide_to_size(..., return_index=True)` (`src_face`); aplana de forma isométrica; empaqueta por estantes (ancho potencia de 2, alto múltiplo de 4); si no entra, agranda `texel_mm` por `1,15·√(usada/máx)` hasta 6 veces y luego `ValueError`. `tests/test_unwrap.py` (10 pruebas).
+**Medido:** esfera de 20 480 caras (aristas ≈ 1,7 mm, como el torso de Güemes) a 0,2 mm: atlas 4096 × 780, 0,02 s, 0 solapes, **área útil de triángulos ≈ 20 % del atlas** (los triángulos ocupan ~½ de su celda y los márgenes y estantes hacen el resto). Es una medida sintética: la que decide T20 es la del torso real en T16.
+**Desvío respecto de la ficha:** la base del aplanado es la arista MÁS LARGA (no `v0→v1`): así el tercer vértice cae entre 0 y L, la caja mide L × h con h ≤ L·√3/2 y ninguna celda supera `0,9·max_cell_px + 4` px. Con `v0→v1` un triángulo obtuso podía medir hasta el doble. La isometría y el contrato no cambian.
+**No verificado:** el torso real de Güemes (T16). R9: 22 pruebas pasan en 28 s.
+
+### Todo List
+- [x] T10
+- [ ] T09 verificación con Güemes real · [ ] T11–T16 · [ ] T17–T30
+
+### Latest Blockers/Discoveries
+- Ninguno bloqueante. Si T16 mide < 35 % útil en el torso real, anotar «hacer T20».
+
 ## Current Focus — Color FBX: T08 (2026-11-18, sobre main fd872b1 + parches T04 y T05)
 **Objetivo:** `src/afm/colorreg.py`: hallar la rotación de un grado de libertad que lleva una pieza en pose a la pose de reposo de la fuente de color.
 **Hecho:** `seeds_for_piece(name, res, params)` y `register_piece(name, mesh, src, res, params, n_points=1500, thresh_mm=0.3, min_score=0.4)` → `Registration(status, matrix, angle_deg, score, seed, center, axis)` (los dos últimos campos son extra, con valor por defecto). Semilla exacta primero (pierna: `sit_angle`; brazo con clic: `res.detent[m].print_angle`; resto: 0), respaldo (identidad, ±sit_angle, ±print_angle, ±a1), barrido 0–360° cada 15° con refinado ±7,5° en pasos de 1°, y `sin_origen`. `_der`: centro y eje reflejados y ángulo de signo contrario, siempre; con `res.right` usa su `motion`. Las semillas aceptan listas de pasos (`seed_forward`), base para las cadenas de T18. `tests/test_colorreg.py` (14 pruebas). No toca `pipeline.py`.

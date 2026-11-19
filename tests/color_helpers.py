@@ -55,3 +55,30 @@ def doll_textured() -> TexturedMesh:
     uv = np.array([uv_of[n] for n in names], np.float32)
     corner_uv = np.repeat(uv[:, None, :], 3, axis=1)
     return TexturedMesh(V, F, corner_uv, {"base_color": png_bytes(img)}, {"avisos": [], "scaling": [1, 1, 1], "n_materiales": 1})
+
+
+# ------------------------------------------------------------------ parte 2 (T14): piezas del muñeco
+def doll_params():
+    """Parámetros del muñeco sin decimar (más rápido), como los fixtures de `test_head.py`."""
+    import dataclasses
+
+    from afm.project import demo_project
+
+    return dataclasses.replace(demo_project().params, decimate=0)
+
+
+def doll_pieces(params=None):
+    """Construye el muñeco con los miembros del proyecto de demostración y devuelve el `BuildResult` (`res`)."""
+    from afm import pipeline as P, solids as S
+    from afm.project import demo_project
+
+    pr = demo_project()
+    params = params if params is not None else doll_params()
+    return P.build(S.to_manifold(make_doll()), pr.limbs, params, pr.symmetry)
+
+
+def piece_trimeshes(res) -> dict:
+    """`{nombre: trimesh}` de cada pieza de `res`, como las escribe `export` (antes de la orientación de impresión)."""
+    from afm import solids as S
+
+    return {n: S.to_printable_trimesh(m) for n, m in res.pieces.items()}
