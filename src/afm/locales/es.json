@@ -1794,5 +1794,17 @@
   "quitado": "Rol «%{id}» quitado",
   "importada": "Paleta importada de %{path}: %{n} rol(es)",
   "exportada": "Paleta exportada en %{path}"
+ },
+ "color_cli": {
+  "ayuda": "guardar una versión nueva de una pieza con el color de un FBX reducido a roles de la paleta de la línea",
+  "ayuda_ref": "pieza a la que se le agrega color (id@n o id): se guarda su versión siguiente, la anterior no cambia",
+  "ayuda_fbx": "FBX con la textura de color de la pieza (o de la figura entera de la que sale)",
+  "ayuda_roles": "JSON {cluster: rol | null} con la asignación de cada cluster de color a un rol de la paleta",
+  "ayuda_k": "cantidad de clusters de color que se proponen (los índices de la asignación son los de esta propuesta)",
+  "ayuda_similitud": "JSON con la 4×4 FBX → pieza; para un trozo de una figura, la matriz de la figura entera (sin ella se alinea por momentos)",
+  "sin_paleta": "La línea «%{line}» no tiene paleta: creá los roles con `afm catalogo paleta agregar` antes de guardar color con roles",
+  "json_malo": "No se pudo leer la asignación o la similitud: %{error}",
+  "no_sirve": "No se pudo armar el paquete de roles: %{error}",
+  "listo": "«%{ref}» guardada con color por roles (%{roles}); paquete de %{kb} KB. «%{antes}» no cambió."
  }
 }

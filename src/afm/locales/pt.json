@@ -1794,5 +1794,17 @@
   "quitado": "Papel «%{id}» removido",
   "importada": "Paleta importada de %{path}: %{n} papel(éis)",
   "exportada": "Paleta exportada em %{path}"
+ },
+ "color_cli": {
+  "ayuda": "guardar uma nova versão de uma peça com a cor de um FBX reduzida aos papéis da paleta da linha",
+  "ayuda_ref": "peça que recebe cor (id@n ou id): guarda-se a versão seguinte, a anterior não muda",
+  "ayuda_fbx": "FBX com a textura de cor da peça (ou da figura inteira da qual ela sai)",
+  "ayuda_roles": "JSON {cluster: papel | null} com a atribuição de cada cluster de cor a um papel da paleta",
+  "ayuda_k": "quantidade de clusters de cor propostos (os índices da atribuição são os desta proposta)",
+  "ayuda_similitud": "JSON com a 4×4 FBX → peça; para um pedaço de uma figura, a matriz da figura inteira (sem ela alinha-se por momentos)",
+  "sin_paleta": "A linha «%{line}» não tem paleta: crie os papéis com `afm catalogo paleta agregar` antes de guardar cor por papéis",
+  "json_malo": "Não foi possível ler a atribuição ou a similaridade: %{error}",
+  "no_sirve": "Não foi possível montar o pacote de papéis: %{error}",
+  "listo": "«%{ref}» guardada com cor por papéis (%{roles}); pacote de %{kb} KB. «%{antes}» não mudou."
  }
 }

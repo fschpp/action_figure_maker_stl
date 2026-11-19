@@ -16,7 +16,7 @@ from .recipe import RecipeError
 
 
 def add_parsers(sub) -> None:
-    c = sub.add_parser("catalogo", help="catálogo de piezas de una línea (crear, listar, verificar, importar-mano, agregar, agregar-stl, cortar-muneca, usos, eliminar, estado, compat, certificar, matriz, cobertura, contrato, capacidad, paleta)")
+    c = sub.add_parser("catalogo", help="catálogo de piezas de una línea (crear, listar, verificar, importar-mano, agregar, agregar-stl, cortar-muneca, usos, eliminar, estado, compat, certificar, matriz, cobertura, contrato, capacidad, paleta, color)")
     cs = c.add_subparsers(dest="catcmd", required=True)
 
     def root(p):
@@ -183,6 +183,13 @@ def add_parsers(sub) -> None:
     b = ps.add_parser("exportar", help=tr("paleta_cli.ayuda_exportar"))
     root(b)
     b.add_argument("archivo", metavar="ARCHIVO.json")
+    a = cs.add_parser("color", help=tr("color_cli.ayuda"))
+    root(a)
+    a.add_argument("ref", metavar="REF", help=tr("color_cli.ayuda_ref"))
+    a.add_argument("--fbx", required=True, metavar="ARCHIVO.fbx", help=tr("color_cli.ayuda_fbx"))
+    a.add_argument("--roles", required=True, metavar="ASIGNACION.json", help=tr("color_cli.ayuda_roles"))
+    a.add_argument("--k", type=int, default=10, help=tr("color_cli.ayuda_k"))
+    a.add_argument("--similitud", default=None, metavar="SIMILITUD.json", help=tr("color_cli.ayuda_similitud"))
     a = cs.add_parser("estado", help="cambiar el estado de una pieza (borrador, validada, impresa)")
     root(a)
     a.add_argument("ref", metavar="ID")
@@ -315,6 +322,45 @@ def _run_palette(cat: Catalog, args) -> int:
     return 2
 
 
+def _run_color(cat: Catalog, args) -> int:
+    """`afm catalogo color RUTA REF --fbx F --roles A.json [--k N] [--similitud S.json]` (T42): guarda una **versión nueva** de la pieza `REF` (misma
+    malla y mismos puertos) con el color del FBX reducido a roles de la paleta de la línea. `A.json` es `{cluster: rol | null}` sobre los clusters
+    que propone `colorroles.propose` con `--k` (la ventana de T47 lo arma sola). Para una pieza recortada de una figura, `S.json` es la 4×4
+    FBX → figura entera; sin ella se alinea por momentos, que solo sirve con una pieza completa (plan §5.7)."""
+    import json
+
+    from .colorroles import RolesError, build_package, propose
+    from .fbxio import FbxError, load_textured
+
+    pal = cat.palette()
+    if pal is None:
+        raise CatalogError(tr("color_cli.sin_paleta", line=cat.name))
+    try:
+        with open(args.roles) as f:
+            raw = json.load(f)
+        assign = {int(k): (None if v in (None, "") else str(v)) for k, v in raw.items()}
+        sim = None
+        if args.similitud:
+            with open(args.similitud) as f:
+                sim = json.load(f)
+            sim = sim.get("similitud", sim) if isinstance(sim, dict) else sim
+    except (OSError, ValueError, AttributeError) as exc:
+        raise CatalogError(tr("color_cli.json_malo", error=exc)) from exc
+    try:
+        tm = load_textured(args.fbx)
+        prop = propose(tm, pal, k=args.k)
+        origen = {"nombre": os.path.basename(args.fbx), "sha256": P.sha256_file(args.fbx)}
+        pkg = build_package(tm, prop, assign, origen=origen)
+    except (FbxError, RolesError, OSError) as exc:
+        raise CatalogError(tr("color_cli.no_sirve", error=exc)) from exc
+    meta, mesh = cat.load(args.ref)
+    new, warns = cat.add_piece(mesh, P.PieceMeta.from_dict(meta.to_dict()), new_version=True, color_roles=pkg, similarity=sim)
+    for w in warns:
+        print(f"AVISO: {w}")
+    print(tr("color_cli.listo", ref=new.ref, antes=meta.ref, roles=", ".join(new.color["roles"]), kb=os.path.getsize(cat.color_file(new.ref)) // 1024))
+    return 0
+
+
 def run_catalogo(args) -> int:
     try:
         return _run(args)
@@ -335,6 +381,8 @@ def _run(args) -> int:
     cat = _open(args)
     if cmd == "paleta":
         return _run_palette(cat, args)
+    if cmd == "color":
+        return _run_color(cat, args)
     if cmd == "explicar":
         return _explicar(cat, args.ref, args.con)
     if cmd == "listar":

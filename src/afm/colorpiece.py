@@ -140,6 +140,9 @@ def catalog_color_sources(placed: dict, catalog, scaled=(), *, spacing_mm: float
         if meta.tipo in set(scaled):
             info["omitidas"][key] = f"{meta.ref} está escalada: el color no se lleva"
             continue
+        if (meta.color or {}).get("modo", "rgb") == "roles":     # T42: la pieza trae un paquete de roles, no un FBX; colorearla con la paleta es T43
+            info["omitidas"][key] = f"{meta.ref} trae color por roles: el armado con la paleta de la línea todavía no está (T43)"
+            continue
         try:
             fbx = catalog.color_file(meta.ref)
         except ValueError as exc:                       # CatalogError: sin FBX o con otro hash

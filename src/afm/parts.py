@@ -82,14 +82,37 @@ def color_name(piece_id: str, version: int) -> str:
     return f"{piece_id}@{version}.fbx"
 
 
+ROLE_ID_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")        # igual que `palette.Role`
+
+
+def roles_name(piece_id: str, version: int) -> str:
+    """Nombre del paquete de roles de color de una pieza, junto a su STL (T42)."""
+    return f"{piece_id}@{version}.color.npz"
+
+
+COLOR_MODES = ("rgb", "roles")
+
+
+def color_mode(color) -> str:
+    """Modo del bloque `color`: `"rgb"` (el FBX entero, T35; es el de las fichas sin `modo`) o `"roles"` (paquete `.color.npz`, T42)."""
+    return str((color or {}).get("modo") or "rgb")
+
+
 def color_problems(color) -> list[str]:
-    """Problemas de formato del bloque `color` de una pieza (no abre el FBX)."""
+    """Problemas de formato del bloque `color` de una pieza (no abre el FBX ni el paquete). Valida los dos modos."""
     if not color:
         return []
     out = []
-    for k in ("fuente", "sha256", "similitud"):
+    mode = color_mode(color)
+    if mode not in COLOR_MODES:
+        return [f"color: modo desconocido «{mode}» (hay {', '.join(COLOR_MODES)})"]
+    for k in ("fuente", "sha256", "similitud") + (("roles",) if mode == "roles" else ()):
         if k not in color:
             out.append(f"color: falta «{k}»")
+    if mode == "roles" and "roles" in color:
+        r = color["roles"]
+        if not isinstance(r, list) or not r or not all(isinstance(x, str) and ROLE_ID_RE.match(x) for x in r) or len(set(r)) != len(r):
+            out.append("color: «roles» tiene que ser una lista no vacía de ids de rol sin repetir")
     sim = color.get("similitud")
     if sim is not None:
         try:
@@ -249,9 +272,11 @@ def make_origin(figure: str = "", project: str = "", note: str = "") -> dict:
     return o
 
 
-def write_piece(directory: str, meta: PieceMeta, mesh, color_fbx: str | None = None) -> PieceMeta:
+def write_piece(directory: str, meta: PieceMeta, mesh, color_fbx: str | None = None, color_roles=None) -> PieceMeta:
     """Escribe `<id>@<version>.stl` y `<id>@<version>.pieza.json` en `directory` y completa el hash, el volumen y la caja.
-    Con `color_fbx` copia además el FBX como `<id>@<version>.fbx` (`meta.color` ya armado con `color_block`).
+    Con `color_fbx` copia además el FBX como `<id>@<version>.fbx` (`meta.color` ya armado con `color_block`). Con `color_roles`
+    (un `colorroles.RolesPackage`, T42) guarda `<id>@<version>.color.npz` y completa `meta.color["fuente"]` y `["sha256"]`
+    (`meta.color` ya trae `modo`, `similitud`, `roles`, `origen`). Los dos a la vez no.
 
     `mesh` puede ser un `trimesh.Trimesh` o un `Manifold`. No sobrescribe: si el archivo ya existe es un error (las
     piezas son inmutables; un cambio es una versión nueva)."""
@@ -266,8 +291,24 @@ def write_piece(directory: str, meta: PieceMeta, mesh, color_fbx: str | None = N
     stl, js = os.path.join(directory, stl_name(meta.id, meta.version)), os.path.join(directory, meta_name(meta.id, meta.version))
     if os.path.exists(stl) or os.path.exists(js):
         raise PieceError(f"«{meta.ref}» ya existe: las piezas son inmutables, guardá una versión nueva")
+    if color_fbx and color_roles is not None:
+        raise PieceError(f"«{meta.ref}»: el color es o un FBX entero o un paquete de roles, no los dos")
     os.makedirs(directory, exist_ok=True)
     meshio.save_stl(tm, stl)
+    if color_roles is not None:         # T42: paquete de roles; si falla algo no queda el STL a medias
+        if color_mode(meta.color) != "roles":
+            os.remove(stl)
+            raise PieceError(f"«{meta.ref}»: falta el bloque `color` con modo «roles»")
+        npz = os.path.join(directory, roles_name(meta.id, meta.version))
+        try:
+            color_roles.save(npz)
+            meta.color["fuente"] = roles_name(meta.id, meta.version)
+            meta.color["sha256"] = sha256_file(npz)
+        except Exception:
+            for f in (stl, npz):
+                if os.path.exists(f):
+                    os.remove(f)
+            raise
     if color_fbx:                       # T35: el FBX se copia entero junto al STL; la ficha (que va al final) es lo que lo da por guardado
         import shutil
 

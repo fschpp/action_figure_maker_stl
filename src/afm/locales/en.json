@@ -1794,5 +1794,17 @@
   "quitado": "Role «%{id}» removed",
   "importada": "Palette imported from %{path}: %{n} role(s)",
   "exportada": "Palette exported to %{path}"
+ },
+ "color_cli": {
+  "ayuda": "save a new version of a piece with the colour of an FBX reduced to roles of the line's palette",
+  "ayuda_ref": "piece that gets colour (id@n or id): its next version is saved, the previous one does not change",
+  "ayuda_fbx": "FBX with the piece's colour texture (or the whole figure it was cut from)",
+  "ayuda_roles": "JSON {cluster: role | null} assigning every colour cluster to a palette role",
+  "ayuda_k": "number of colour clusters to propose (the assignment indices are those of this proposal)",
+  "ayuda_similitud": "JSON with the 4×4 FBX → piece; for a part cut from a figure, the whole-figure matrix (without it the FBX is aligned by moments)",
+  "sin_paleta": "Line “%{line}” has no palette: create roles with `afm catalogo paleta agregar` before saving role colour",
+  "json_malo": "Could not read the assignment or the similarity: %{error}",
+  "no_sirve": "Could not build the roles package: %{error}",
+  "listo": "“%{ref}” saved with role colour (%{roles}); %{kb} KB package. “%{antes}” did not change."
  }
 }

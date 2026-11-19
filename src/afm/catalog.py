@@ -25,6 +25,8 @@ import re
 import shutil
 from dataclasses import dataclass
 
+import numpy as np
+
 from . import __version__
 from . import parts as P
 from .palette import Palette, PaletteError, Role
@@ -333,7 +335,7 @@ class Catalog:
         return P.read_piece(self._dir(m.tipo), m.id, m.version, check_hash)
 
     def add_piece(self, mesh, meta: P.PieceMeta, new_version: bool = False,
-                  color_fbx: str | None = None) -> tuple[P.PieceMeta, list[str]]:
+                  color_fbx: str | None = None, color_roles=None, similarity=None) -> tuple[P.PieceMeta, list[str]]:
         """Guarda una pieza. Si el id ya existe hace falta `new_version=True` (crea la versión siguiente); nunca sobrescribe.
 
         Devuelve (meta ya completa con hash y volumen, avisos). Avisa si la altura de la figura de origen difiere de la
@@ -341,7 +343,14 @@ class Catalog:
 
         `color_fbx` (T35): FBX con la textura de esta pieza. Se alinea contra la malla (si no calza, `CatalogError` y no se escribe nada),
         se copia junto al STL y la ficha guarda `color` con el hash y la similitud FBX→STL. Sin `color_fbx` la pieza NO lleva color: una
-        versión nueva no hereda el de la anterior (la geometría pudo cambiar y la similitud ya no valdría)."""
+        versión nueva no hereda el de la anterior (la geometría pudo cambiar y la similitud ya no valdría).
+
+        `color_roles` (T42): `colorroles.RolesPackage` con el atlas de roles de la pieza. Se guarda como `<id>@<v>.color.npz` junto al STL y la ficha
+        anota `color = {modo: "roles", fuente, sha256, similitud, roles (los usados), estado, origen}`. Todos los roles que use tienen que estar en la
+        paleta de la línea: si falta alguno (o la línea no tiene paleta) es `CatalogError` y **no se escribe nada**. `similarity` (4×4 FBX → STL de
+        la pieza) viene de quien llama: para una pieza recortada de una figura es la matriz FBX → figura entera (no la alineación por momentos, que no
+        calza con un trozo: plan §5.7); sin ella se calcula con `colorpiece.align_fbx_to_piece`, que solo sirve para una pieza completa. `color_fbx` y
+        `color_roles` no se pueden dar juntos."""
         existing = self.versions(meta.id)
         if existing and not new_version:
             raise CatalogError(f"«{meta.id}» ya existe (versiones {existing}): las piezas son inmutables; "
@@ -356,6 +365,8 @@ class Catalog:
         if meta.altura_figura_mm is not None and abs(meta.altura_figura_mm - self.height_mm) > LINE_HEIGHT_TOL_MM:
             warnings.append(f"la figura de origen mide {meta.altura_figura_mm:g} mm y la línea «{self.name}» {self.height_mm:g} mm: "
                             "las piezas no se reescalan")
+        if color_fbx and color_roles is not None:
+            raise CatalogError(f"«{meta.id}»: el color es o un FBX entero o un paquete de roles, no los dos")
         if color_fbx:
             from .colorpiece import PieceColorError
             from .fbxio import FbxError
@@ -364,24 +375,72 @@ class Catalog:
                 meta.color = P.color_block(mesh, color_fbx)
             except (PieceColorError, FbxError, OSError) as exc:
                 raise CatalogError(f"el FBX de color de «{meta.id}» no sirve: {exc}") from exc
+        elif color_roles is not None:
+            meta.color = self._roles_block(meta, mesh, color_roles, similarity)
         elif meta.color:
             meta.color = None
             warnings.append(f"«{meta.id}» no lleva color en la versión {meta.version}: el color no se hereda entre versiones")
-        P.write_piece(self._dir(meta.tipo), meta, mesh, color_fbx=color_fbx)
+        P.write_piece(self._dir(meta.tipo), meta, mesh, color_fbx=color_fbx, color_roles=color_roles)
         self.write_index()
         return meta, warnings
 
+    def _roles_block(self, meta: P.PieceMeta, mesh, pkg, similarity) -> dict:
+        """Bloque `color` (modo `roles`) de una pieza con paquete de roles. No escribe nada: si algo no sirve levanta `CatalogError` antes."""
+        from .colorpiece import PieceColorError, align_fbx_to_piece
+        from .colorroles import RolesError
+
+        pal = self.palette()
+        used_ids = sorted({int(x) for x in set(pkg.labels.ravel().tolist()) if x != 255})
+        try:
+            bad = pkg.problems()
+        except RolesError as exc:
+            raise CatalogError(f"el paquete de roles de «{meta.id}» no sirve: {exc}") from exc
+        if bad:
+            raise CatalogError(f"el paquete de roles de «{meta.id}» no sirve: " + "; ".join(bad))
+        used = [pkg.roles[i] for i in used_ids]
+        if not used:
+            raise CatalogError(f"el paquete de roles de «{meta.id}» no usa ningún rol: todos los píxeles quedaron «sin rol»")
+        if pal is None:
+            raise CatalogError(f"la línea «{self.name}» no tiene paleta ({PALETTE_FILE}): creá los roles antes de catalogar color con roles")
+        missing = [r for r in used if r not in pal.ids()]
+        if missing:
+            raise CatalogError(f"«{meta.id}» usa roles que la paleta de la línea no tiene: {', '.join(missing)}")
+        block = {"modo": "roles", "fuente": "", "sha256": "", "roles": used, "estado": "alineada",
+                 "origen": {k: v for k, v in dict(pkg.origen or {}).items() if isinstance(v, (str, int, float, bool))},
+                 "texturas": {"atlas": f"{pkg.labels.shape[1]}x{pkg.labels.shape[0]}"}}
+        if similarity is not None:
+            try:
+                A = np.asarray(similarity, float)
+            except (TypeError, ValueError):
+                A = None
+            if A is None or A.shape != (4, 4) or not np.all(np.isfinite(A)) or abs(np.linalg.det(A[:3, :3])) < 1e-12:
+                raise CatalogError(f"«{meta.id}»: la similitud FBX → pieza tiene que ser una matriz 4×4 válida")
+            block["similitud"] = A.tolist()
+            block["alineacion"] = {"origen": "figura"}      # la dio quien llama (matriz de la figura entera): no se midió contra esta pieza
+        else:
+            try:
+                frame = align_fbx_to_piece(pkg.to_textured(pal), P._as_trimesh(mesh))
+            except (PieceColorError, RolesError, PaletteError) as exc:
+                raise CatalogError(f"el paquete de roles de «{meta.id}» no coincide con la pieza: {exc}. Si la pieza es un trozo de una figura, "
+                                   "pasá la similitud FBX → figura (`similarity=`)") from exc
+            block["similitud"] = np.asarray(frame.matrix, float).tolist()
+            block["alineacion"] = {k: (round(float(v), 4) if isinstance(v, float) else v) for k, v in frame.report.items()}
+        return block
+
     def color_file(self, ref: str) -> str | None:
-        """Ruta del FBX de color de la pieza `ref` (`id` o `id@n`), o `None` si no lleva color. `CatalogError` si falta el archivo o su
-        hash no coincide con el de la ficha."""
+        """Ruta del archivo de color de la pieza `ref` (`id` o `id@n`): el FBX entero (modo `rgb`, T35) o el paquete `.color.npz` (modo `roles`, T42);
+        `None` si no lleva color. `CatalogError` si falta el archivo o su hash no coincide con el de la ficha."""
         m = self.meta(ref)
         if not m.color:
             return None
-        path = os.path.join(self._dir(m.tipo), m.color.get("fuente") or P.color_name(m.id, m.version))
+        roles = P.color_mode(m.color) == "roles"
+        default = P.roles_name(m.id, m.version) if roles else P.color_name(m.id, m.version)
+        path = os.path.join(self._dir(m.tipo), m.color.get("fuente") or default)
+        what = "el paquete de roles de color" if roles else "el FBX de color"
         if not os.path.isfile(path):
-            raise CatalogError(f"{m.ref}: falta el FBX de color «{os.path.basename(path)}»")
+            raise CatalogError(f"{m.ref}: falta {what} «{os.path.basename(path)}»")
         if m.color.get("sha256") and P.sha256_file(path) != m.color["sha256"]:
-            raise CatalogError(f"{m.ref}: el FBX de color no coincide con el hash guardado (¿se modificó?)")
+            raise CatalogError(f"{m.ref}: {what} no coincide con el hash guardado (¿se modificó?)")
         return path
 
     def import_hand(self, stl_path: str, piece_id: str | None = None, new_version: bool = False):
@@ -632,6 +691,11 @@ class Catalog:
         stl = os.path.join(folder, os.path.basename(meta.stl or P.stl_name(meta.id, meta.version)))
         if os.path.isfile(stl):
             files.append(stl)
+        if meta.color:                  # el FBX (T35) o el paquete de roles (T42) viaja con la pieza a la papelera y vuelve con ella
+            default = P.roles_name(meta.id, meta.version) if P.color_mode(meta.color) == "roles" else P.color_name(meta.id, meta.version)
+            col = os.path.join(folder, os.path.basename(meta.color.get("fuente") or default))
+            if os.path.isfile(col):
+                files.append(col)
         return files
 
     def delete_pieces(self, refs: list[str]) -> "DeleteResult":
@@ -818,12 +882,13 @@ class Catalog:
                 continue
             if not mesh.is_watertight:
                 problems.append(f"{tag}: la malla no es estanca")
-            if m.color and m.color.get("modo", "rgb") == "rgb":     # T35: el FBX de color existe y es el de la ficha
-                fbx = os.path.join(os.path.dirname(path), m.color.get("fuente") or "")
-                if not m.color.get("fuente") or not os.path.isfile(fbx):
-                    problems.append(f"{tag}: falta el FBX de color «{m.color.get('fuente', '')}»")
-                elif m.color.get("sha256") and P.sha256_file(fbx) != m.color["sha256"]:
-                    problems.append(f"{tag}: el FBX de color no coincide con el hash guardado (¿se modificó?)")
+            if m.color and P.color_mode(m.color) in P.COLOR_MODES:   # T35/T42: el archivo de color (FBX o paquete de roles) existe y es el de la ficha
+                what = "el paquete de roles de color" if P.color_mode(m.color) == "roles" else "el FBX de color"
+                col = os.path.join(os.path.dirname(path), m.color.get("fuente") or "")
+                if not m.color.get("fuente") or not os.path.isfile(col):
+                    problems.append(f"{tag}: falta {what} «{m.color.get('fuente', '')}»")
+                elif m.color.get("sha256") and P.sha256_file(col) != m.color["sha256"]:
+                    problems.append(f"{tag}: {what} no coincide con el hash guardado (¿se modificó?)")
             used_roles = (m.color or {}).get("roles") or []         # T39: los roles de la ficha tienen que estar en la paleta de la línea
             if used_roles and palette_error is None:
                 have = palette.ids() if palette else []
