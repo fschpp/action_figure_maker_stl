@@ -2,6 +2,20 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — Color catálogo y cabeza: T33 (2026-11-19, sobre main 16c7e78)
+**Objetivo:** que la cabeza importada suelta entregue la transformación archivo→marco de la pieza (T33 de `PLAN_color_catalogo_cabeza.md`), para que T34 lleve el FBX de la cabeza a ese marco.
+**Hallazgo:** no hizo falta tocar `head.py`. `fit_replacement` ya devuelve `info["raw_a_mundo"]` (4×4 = `plane.matrix() @ A @ T_raw`: pre-escala, `up`, giros, corte, giro Z, escala k y traslación a la base del cuello), agregada con el plano de corte de 3 puntos (`b2e4c62`). Es archivo→**mundo**, que es el marco en que sale la pieza `cabeza`; el plan decía «marco del cuello» y es el mismo marco que usa el resto del armado. Falta de T33 solo la prueba de aceptación.
+**Hecho:** `tests/test_head_replacement.py::test_raw_to_world_matrix_lands_the_stl_vertices_on_the_produced_head` (5 casos: sin corte, yaw+rx+escala manual, corte horizontal, corte inclinado con giros, «arriba» invertido). Comprueba que `raw_a_mundo` es una similitud sin espejo (columnas de norma `info["escala"]`, det > 0), y que los vértices del STL por encima del plano del cuello caen sobre la cabeza producida. También se agregó `docs/PLAN_color_catalogo_cabeza.md` (v0.1) al repo.
+**Medido:** distancia máxima vértice→cabeza ≤ 4,2·10⁻⁶ mm en los 5 casos (umbral del plan 0,05 mm; 839–1137 de 1173 vértices comparados). Control negativo: con +0,2 mm de traslación la distancia sube a 0,2 mm y con escala ×1,01 a 0,9–1,2 mm, o sea la prueba detecta errores de ese tamaño. `test_head_replacement`, `test_colorpiece`, `test_colorexport`, `test_golden`, `test_i18n`: 74 pasan, 6 se saltan (89 s). Sin cambios de código: golden y salida geométrica idénticos.
+**No verificado:** con una cabeza real (STL de Güemes u otra) ni con `_repaired` modificando la malla (los STL de prueba son esferas limpias); lo cubre T34/T37. La regresión completa (`test_pipeline`) no se corrió. T31 y T32 no tienen entrada en este archivo (commits `606ad9d`, `16c7e78`).
+
+### Todo List
+- [x] T31 · [x] T32 · [x] T33
+- [ ] T34–T37
+
+### Latest Blockers/Discoveries
+- Ninguno bloqueante. Camino abierto: T34 (◄ T32, T33). Preguntas abiertas §7 del plan (formato de guardado, versionado, STL = malla del FBX) pendientes para T35.
+
 ## Current Focus — Color FBX: OBJ y GLB en Y arriba (2026-11-19, sobre main 4f84209)
 **Objetivo:** que Bambu Studio (y Blender, y los visores de glTF) importen la figura de color parada y mirando hacia donde mira el STL.
 **Causa:** OBJ y glTF se definen con Y arriba y Bambu convierte a Z arriba al importar un OBJ; `Colorizer.write` los escribía en Z arriba (como los STL), así que el diálogo «Simplificar colores» los mostraba acostados, de espaldas, con las piernas hacia arriba. Con Egon real STL, OBJ y GLB tenían las mismas coordenadas.

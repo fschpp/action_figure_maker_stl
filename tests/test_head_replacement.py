@@ -231,6 +231,41 @@ def test_raw_to_world_matrix_maps_cut_points_onto_the_neck_plane(body, params, a
     assert np.allclose(world[:, 2], 80.0, atol=1e-6)                              # los 3 puntos quedan en el plano del cuello
 
 
+RAW_TO_WORLD_CASES = {
+    "sin_corte": {},
+    "yaw_rx_escala": dict(replacement_yaw=40.0, replacement_rx=10.0, replacement_scale=1.1),
+    "corte_horizontal": dict(replacement_cut_points=HORIZ),
+    "corte_inclinado_y_giros": dict(replacement_cut_points=TILTED, replacement_yaw=-25.0, replacement_ry=15.0),
+    "arriba_invertido": dict(replacement_up="-Z", replacement_yaw=90.0),
+}
+
+
+@pytest.mark.parametrize("case", list(RAW_TO_WORLD_CASES))
+def test_raw_to_world_matrix_lands_the_stl_vertices_on_the_produced_head(body, params, assets, case):
+    """T33: `raw_a_mundo` (archivo -> mundo) aplicada a los vértices del STL cae sobre la cabeza producida.
+
+    Es la transformación que T34 usará para llevar el FBX de la cabeza al marco de la pieza: pre-escala, `up`,
+    giros, corte, giro Z, escala k y traslación a la base del cuello, todo en una sola 4×4. Se compara solo la zona
+    no cortada (por encima del plano del cuello): ahí la superficie del STL sigue siendo superficie de la cabeza."""
+    from trimesh.proximity import closest_point
+
+    sp = split_head(body, _neck(replacement_path=assets["asym"], **RAW_TO_WORLD_CASES[case]), params)
+    W = np.array(sp.replacement["raw_a_mundo"])
+    assert W.shape == (4, 4) and np.allclose(W[3], [0, 0, 0, 1])
+    # es una similitud (rotación propia × escala): la escala informada es la de la matriz, sin espejo
+    sc = np.linalg.norm(W[:3, :3], axis=0)
+    assert np.allclose(sc, sp.replacement["escala"], rtol=1e-6)
+    assert np.linalg.det(W[:3, :3]) > 0
+    assert np.allclose(W[:3, :3].T @ W[:3, :3], np.eye(3) * sp.replacement["escala"] ** 2, atol=1e-6)
+
+    raw = trimesh.load(assets["asym"], force="mesh")
+    world = (W[:3, :3] @ raw.vertices.T).T + W[:3, 3]
+    kept = world[world[:, 2] > 80.0 + 0.2]                       # zona no cortada (el plano del cuello está en z = 80)
+    assert len(kept) > 0.3 * len(world)
+    _pt, dist, _tri = closest_point(S.to_trimesh(sp.head), kept)
+    assert dist.max() <= 0.05, f"{case}: distancia máxima {dist.max():.4f} mm"
+
+
 def test_bad_cut_planes_are_rejected(body, params, assets):
     vertical = ((0.0, 0.0, -5.0), (0.0, 1.0, -5.0), (0.0, 0.0, 5.0))
     with pytest.raises(ValueError, match="casi vertical"):
