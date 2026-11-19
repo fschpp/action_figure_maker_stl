@@ -22,6 +22,7 @@ class LoadReport:
     remeshed: bool = False
     zmin_file: float = 0.0          # z mínimo de la malla orientada, en unidades del archivo
     center_xy: tuple = (0.0, 0.0)   # centro (x, y) de la caja, en mm de la figura, que `normalize` resta
+    orient_matrix: tuple = ()       # la 3×3 que aplicó `orient_z_up`, como 9 números (fila por fila); vacío = identidad
 
     def to_figure(self, points) -> "np.ndarray":
         """Puntos del archivo (con Z arriba) → marco de la figura normalizada (mm, pies en z=0, centrada en X e Y):
@@ -291,21 +292,27 @@ def repair(mesh: trimesh.Trimesh, report: LoadReport | None = None, voxel_res: i
     return mesh
 
 
+def orient_z_up_matrix(mesh: trimesh.Trimesh) -> np.ndarray:
+    """La rotación 3×3 (propia, det = +1) que `orient_z_up` aplica a `mesh`: el eje más largo de la caja es la altura."""
+    ax = int(np.argmax(mesh.extents))
+    if ax == 1:  # Y arriba -> Z arriba (rotación +90° sobre X)
+        return np.array([[1.0, 0, 0], [0, 0, -1.0], [0, 1.0, 0]])
+    if ax == 0:  # X arriba -> Z arriba
+        return np.array([[0.0, 0, 1.0], [0, 1.0, 0], [-1.0, 0, 0]])
+    return np.eye(3)
+
+
 def orient_z_up(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
     """Si la figura viene con otro eje vertical (p. ej. Y arriba), la gira para que Z quede arriba.
 
     Heurística: el eje más largo de la caja envolvente es la altura.
     """
-    ext = mesh.extents
-    ax = int(np.argmax(ext))
-    if ax == 2:
+    R3 = orient_z_up_matrix(mesh)
+    if np.allclose(R3, np.eye(3)):
         return mesh
     mesh = mesh.copy()
     R = np.eye(4)
-    if ax == 1:  # Y arriba -> Z arriba (rotación +90° sobre X)
-        R[:3, :3] = [[1, 0, 0], [0, 0, -1], [0, 1, 0]]
-    else:  # X arriba -> Z arriba
-        R[:3, :3] = [[0, 0, 1], [0, 1, 0], [-1, 0, 0]]
+    R[:3, :3] = R3
     mesh.apply_transform(R)
     return mesh
 
@@ -344,6 +351,7 @@ def load_figure(path: str, ref_height: float = 100.0, crown_z: float | None = No
     if progress:
         progress("leyendo el STL…")
     mesh = trimesh.load(path, force="mesh")
+    report.orient_matrix = tuple(float(x) for x in orient_z_up_matrix(mesh).ravel())
     mesh = orient_z_up(mesh)
     report.zmin_file = float(mesh.bounds[0, 2])
     # Las tolerancias de la reparación son absolutas: se escala a mm ANTES de reparar, para que un STL
