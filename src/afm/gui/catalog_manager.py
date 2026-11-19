@@ -390,6 +390,33 @@ class PreviewRenderer:
             self._marks(off, marks)
             return off.render(preview_camera(bounds, off.width / off.height, yaw_off, pitch_off, zoom, pan))
 
+    def render_textured(self, parts, textures_on: bool = True, yaw_off: float = 0.0, pitch_off: float = 0.0, marks=None, bounds=None,
+                        zoom: float = 1.0, pan=(0.0, 0.0)) -> np.ndarray:
+        """Imagen RGBA de piezas con color por textura (`render.TexturedPart`, p. ej. la fuente de color de un FBX o un GLB de
+        `Colorizer.write`). `textures_on=False` las dibuja de color plano (el botón «Textura»). Con el mismo objeto `parts` que la llamada
+        anterior no se vuelve a subir nada a la GPU: girar la vista o encender/apagar la textura solo cambia la cámara y un indicador."""
+        off = self._ensure()
+        if off is None:
+            raise RuntimeError(self.error or tr("catalog_manager.sin_vista_previa"))
+        if not parts:
+            raise ValueError(tr("catalog_manager.no_hay_piezas_para_dibujar"))
+        with off.ctx:
+            if self._mesh is not parts:
+                off.scene.clear()
+                for part in parts:
+                    if part.image is not None and part.corner_uv is not None:
+                        off.scene.set_textured_mesh(part.name, part.mesh, part.corner_uv, part.image, self.PIECE_COLOR)
+                    else:
+                        off.scene.set_mesh(part.name, part.mesh, self.PIECE_COLOR)
+                self._mesh = parts
+            off.scene.set_textures(textures_on)
+            if bounds is None:
+                lo = np.min([np.asarray(p.mesh.bounds, float)[0] for p in parts], axis=0)
+                hi = np.max([np.asarray(p.mesh.bounds, float)[1] for p in parts], axis=0)
+                bounds = np.array([lo, hi])
+            self._marks(off, marks)
+            return off.render(preview_camera(bounds, off.width / off.height, yaw_off, pitch_off, zoom, pan))
+
     def clear(self) -> None:
         """Suelta la malla de la GPU (cuando ya no hay nada elegido)."""
         if self._off is not None and self._mesh is not None:

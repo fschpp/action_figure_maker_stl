@@ -38,6 +38,7 @@ class FigureBuilderWindow(Gtk.Window):
         self._t0 = 0.0
         self._shown = None                      # (malla, meta | None) en la vista previa
         self._group = None                      # [(nombre, malla, color)] de «todas las piezas juntas»
+        self._tex_parts = None                  # [TexturedPart] de la figura armada con color (GLB); None = se dibuja el STL
         self._dyaw = self._dpitch = 0.0
         self._drag0 = (0.0, 0.0)
         self._last_dir = remember_dir
@@ -232,6 +233,10 @@ class FigureBuilderWindow(Gtk.Window):
         self.tgl_all.set_tooltip_text(tr("figure_window.pone_las_piezas_elegidas_en_su"))
         self.tgl_all.connect("toggled", self._on_toggle_all)
         row.append(self.tgl_all)
+        self.tgl_tex = Gtk.ToggleButton(label=tr("figure_window.textura"), active=True, visible=False)
+        self.tgl_tex.set_tooltip_text(tr("figure_window.textura_tooltip"))
+        self.tgl_tex.connect("toggled", lambda *_: self._redraw())
+        row.append(self.tgl_tex)                # solo aparece cuando la figura armada trae color
         row.append(Gtk.Label(label=tr("figure_window.arrastra_para_girar"), xalign=0, hexpand=True))
         self.spinner = Gtk.Spinner()
         row.append(self.spinner)
@@ -441,16 +446,20 @@ class FigureBuilderWindow(Gtk.Window):
 
     def _set_shown(self, mesh, meta) -> None:
         self._shown = (mesh, meta)
+        self._tex_parts = None
+        self.tgl_tex.set_visible(False)
         self._dyaw = self._dpitch = 0.0
         self._redraw()
 
     def _redraw(self) -> None:
         group = self._group if self.tgl_all.get_active() else None
-        if group is None and self._shown is None:
+        if group is None and self._shown is None and self._tex_parts is None:
             return
         try:
             if group is not None:
                 img = self.preview.render_parts(group, self._dyaw, self._dpitch)
+            elif self._tex_parts is not None:
+                img = self.preview.render_textured(self._tex_parts, self.tgl_tex.get_active(), self._dyaw, self._dpitch)
             else:
                 mesh, meta = self._shown
                 img = self.preview.render(mesh, meta, self._dyaw, self._dpitch)
@@ -547,8 +556,20 @@ class FigureBuilderWindow(Gtk.Window):
         try:
             import trimesh
 
-            mesh = trimesh.load(info["ensamblada"], force="mesh")
-            self._set_shown(mesh, None)
+            glb = os.path.splitext(info["ensamblada"])[0] + ".glb"      # `Colorizer.write` lo deja junto al STL ensamblado
+            parts = None
+            if os.path.exists(glb):
+                from .render import load_glb_parts
+
+                parts = [p for p in load_glb_parts(glb)]
+            if parts and any(p.image is not None for p in parts):
+                self._set_shown(parts[0].mesh, None)                     # deja `_shown` coherente y luego pasa a la vista con textura
+                self._tex_parts = parts
+                self.tgl_tex.set_visible(True)
+                self._redraw()
+            else:
+                mesh = trimesh.load(info["ensamblada"], force="mesh")
+                self._set_shown(mesh, None)
         except Exception as exc:                              # noqa: BLE001
             self.lbl_result.set_text(self.lbl_result.get_text() + ('\n' + tr("figure_window.sin_vista_previa_exc", exc=exc)))
         return False

@@ -2,6 +2,19 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — Color FBX: T24 (2026-11-19, sobre main e3c2885)
+**Objetivo:** que el visor dibuje mallas con textura (fuente de color del FBX o GLB de `Colorizer.write`).
+**Hecho:** `gui/render.py`: variante `TEXTURED` del shader de malla (misma fuente, `_with_define`), `_flat_vertices_uv` (8 floats por vértice, UV por esquina, sin indexar), `Item.tex`, `SceneRenderer.set_textured_mesh / set_textures / has_textures` (la textura se sube con la fila 0 invertida para que `v` hacia arriba muestree bien; se libera con la malla), `TexturedPart`, `load_glb_parts`, `part_from_textured_mesh`; las mallas de color plano siguen por `mesh_prog`, sin cambios. `catalog_manager.PreviewRenderer.render_textured(parts, textures_on, ...)` (no vuelve a subir a la GPU con el mismo `parts`). `figure_window`: al terminar el armado, si junto al `_ensamblada.stl` hay un `.glb` con textura se muestra con color y aparece el botón «Textura» (claves `figure_window.textura*` en es/en/pt); sin GLB, el STL como antes. `tests/test_gui_render_texture.py` (15 pruebas, 2,3 s).
+**Medido:** las 15 pruebas pasan con EGL por software (`pip install moderngl`, llvmpipe), incluida la del FBX real de Güemes (4096²): con textura hay > 300 px saturados y sin ella < 50. R9 + `test_i18n`, `test_gui_render`, `test_catalog_manager`, `test_figure_builder`: verdes.
+**No verificado:** nada en pantalla con GTK real (este entorno no tiene GTK): el botón «Textura» y la carga del GLB en `figure_window._build_done` no se ejecutaron. El visor principal (`window.py`/`GLArea`) no se tocó: mostrar `Session.color_source` ahí lo cablea T25 (`part_from_textured_mesh` ya existe). El armado por catálogo no genera GLB (no pasa `colorize`), así que hoy el botón solo aparece si el GLB viene de otra corrida.
+
+### Todo List
+- [x] T09 · [x] T10–T16 (T20 no se hace) · [x] T17–T19 · [x] T21 · [x] T22 · [x] T23 · [x] T24
+- [ ] T25–T30
+
+### Latest Blockers/Discoveries
+- Ninguno bloqueante. Camino abierto: T25 (◄ T23, T24), T27 (◄ T21), T28 (◄ T15); T26 sigue a T25.
+
 ## Current Focus — Color FBX: T23 (2026-11-19, sobre main d535d3d)
 **Objetivo:** guardar y leer la configuración de color en el `.proyecto`.
 **Hecho:** `project.py`: `ColorSpec(source_path, source_sha256, eps=0.15, texel_mm=0.2, fill="extend", symmetric=False)` con `to_dict/from_dict` (campos faltantes → valores por defecto), `ColorSpec.from_file(path, **kw)` (calcula el hash) y `ColorSpec.matches(path)` (para relocalizar el FBX en T25; sin hash guardado devuelve False); `sha256_of` lee por bloques de 1 MiB; `Project.color: ColorSpec | None = None`, escrito solo si existe (como `accesorios`), `version` sigue en 1. `tests/test_project_color.py` (6 pruebas, 0,5 s).

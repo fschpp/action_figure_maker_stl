@@ -1000,7 +1000,9 @@
   "no_se_guardo_la_receta_exc": "A receita não foi salva: %{exc}",
   "no_se_pudo_abrir_en_la": "Não foi possível abrir na janela principal: %{exc}",
   "el_catalogo_no_tiene_piezas_de": "O catálogo não tem peças deste tipo.",
-  "sin_vista_previa_exc": "(sem visualização: %{exc})"
+  "sin_vista_previa_exc": "(sem visualização: %{exc})",
+  "textura": "Textura",
+  "textura_tooltip": "Mostra a cor da figura (GLB colorido) ou, desligado, as peças de um só tom."
  },
  "hero_wizard": {
   "el_heroe": "O herói",

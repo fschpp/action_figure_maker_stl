@@ -1000,7 +1000,9 @@
   "no_se_guardo_la_receta_exc": "The recipe was not saved: %{exc}",
   "no_se_pudo_abrir_en_la": "It could not be opened in the main window: %{exc}",
   "el_catalogo_no_tiene_piezas_de": "The catalog has no parts of this type.",
-  "sin_vista_previa_exc": "(no preview: %{exc})"
+  "sin_vista_previa_exc": "(no preview: %{exc})",
+  "textura": "Texture",
+  "textura_tooltip": "Shows the figure's color (colored GLB) or, when off, plain single-tone pieces."
  },
  "hero_wizard": {
   "el_heroe": "The hero",

@@ -21,9 +21,16 @@ in vec3 in_pos;
 in vec3 in_nrm;
 out vec3 v_nrm;
 out vec3 v_pos;
+#ifdef TEXTURED
+in vec2 in_uv;
+out vec2 v_uv;
+#endif
 void main() {
     v_pos = in_pos;
     v_nrm = u_view_rot * in_nrm;
+#ifdef TEXTURED
+    v_uv = in_uv;
+#endif
     gl_Position = u_mvp * vec4(in_pos, 1.0);
 }
 """
@@ -35,6 +42,11 @@ uniform vec3 u_clip_n;      // plano de recorte genérico: se descarta lo que cu
 uniform float u_clip_d;
 in vec3 v_nrm;
 in vec3 v_pos;
+#ifdef TEXTURED
+uniform sampler2D u_tex;
+uniform int u_use_tex;      // 1: el color sale de la textura; 0: color plano `u_color` (el botón «Textura» apagado)
+in vec2 v_uv;
+#endif
 out vec4 f_color;
 void main() {
     if (v_pos.x < u_clip_x) discard;
@@ -44,7 +56,11 @@ void main() {
     float key = max(dot(n, normalize(vec3(0.35, 0.45, 0.85))), 0.0);
     float fill = max(dot(n, normalize(vec3(-0.6, -0.2, 0.5))), 0.0);
     float l = 0.30 + 0.62 * key + 0.18 * fill;
-    f_color = vec4(u_color.rgb * l, u_color.a);
+    vec3 base = u_color.rgb;
+#ifdef TEXTURED
+    if (u_use_tex == 1) base = texture(u_tex, v_uv).rgb;
+#endif
+    f_color = vec4(min(base * l, vec3(1.0)), u_color.a);
 }
 """
 _FLAT_VS = """
@@ -100,6 +116,11 @@ void main() {
 """
 
 
+def _with_define(src: str, name: str) -> str:
+    """Fuente GLSL con `#define name` justo después de `#version` (las variantes de un mismo shader)."""
+    return src.replace("#version 330", f"#version 330\n#define {name} 1", 1)
+
+
 @dataclass
 class Item:
     kind: str                       # "mesh" | "lines" | "points" | "quad"
@@ -117,12 +138,75 @@ class Item:
     cull: bool = False                # descarta las caras de atrás (una malla translúcida se ve limpia: solo su frente)
     restore: tuple | None = None      # (color, ghost, cull) de antes de `set_translucent`, para volver a pintarla opaca
     width: float = 1.0                # grosor en píxeles de un trazo («lines»); > 1 se dibuja como cinta (GL_LINES solo hace 1 px)
+    tex: object = None                # textura de color (moderngl.Texture) de una malla con UV; None = malla de color plano
 
 
 def _flat_vertices(mesh: trimesh.Trimesh) -> np.ndarray:
     tris = np.asarray(mesh.triangles, np.float32)
     nrm = np.repeat(np.asarray(mesh.face_normals, np.float32)[:, None, :], 3, axis=1)
     return np.concatenate([tris, nrm], axis=2).reshape(-1, 6).astype("f4")
+
+
+def _flat_vertices_uv(mesh: trimesh.Trimesh, corner_uv) -> np.ndarray:
+    """Como `_flat_vertices` pero con el UV de cada esquina: 8 floats por vértice (xyz, normal, uv), 3 vértices por triángulo sin
+    indexar (así cada esquina lleva su propio UV, también en las costuras). `corner_uv`: (F, 3, 2) con v hacia arriba."""
+    uv = np.asarray(corner_uv, np.float32)
+    if uv.shape != (len(mesh.faces), 3, 2):
+        raise ValueError(f"corner_uv debe ser (F,3,2) = {(len(mesh.faces), 3, 2)}, no {uv.shape}")
+    base = _flat_vertices(mesh).reshape(-1, 3, 6)
+    return np.concatenate([base, uv], axis=2).reshape(-1, 8).astype("f4")
+
+
+@dataclass
+class TexturedPart:
+    """Una malla con color por textura lista para el visor: `corner_uv` (F,3,2) con v hacia arriba (convención FBX / trimesh) e
+    `image` uint8 (H, W, 3) con la fila 0 ARRIBA (como un PNG). Sin imagen, se dibuja de color plano."""
+    name: str
+    mesh: trimesh.Trimesh
+    corner_uv: np.ndarray | None = None
+    image: np.ndarray | None = None
+
+
+def _rgb_array(img) -> np.ndarray:
+    """PIL.Image / arreglo → uint8 (H, W, 3)."""
+    from PIL import Image
+
+    if not isinstance(img, Image.Image):
+        img = Image.fromarray(np.asarray(img))
+    return np.ascontiguousarray(np.asarray(img.convert("RGB"), np.uint8))
+
+
+def load_glb_parts(path: str) -> list[TexturedPart]:
+    """Lee un GLB (p. ej. `<fig>_ensamblada.glb` de `Colorizer.write`): una `TexturedPart` por malla, con las transformaciones de
+    nodo aplicadas. Las mallas sin textura de color base salen con `image=None`. Sin GL: se prueba sin contexto."""
+    scene = trimesh.load(path, process=False)
+    if isinstance(scene, trimesh.Trimesh):
+        scene = trimesh.Scene(scene)
+    parts: list[TexturedPart] = []
+    for node in scene.graph.nodes_geometry:
+        T, gname = scene.graph[node]
+        geom = scene.geometry[gname].copy()
+        geom.apply_transform(T)
+        vis = geom.visual
+        uv = getattr(vis, "uv", None)
+        tex = getattr(getattr(vis, "material", None), "baseColorTexture", None)
+        if uv is None or tex is None or len(uv) != len(geom.vertices):
+            parts.append(TexturedPart(str(node), geom))
+            continue
+        parts.append(TexturedPart(str(node), geom, np.asarray(uv, np.float32)[np.asarray(geom.faces)], _rgb_array(tex)))
+    return parts
+
+
+def part_from_textured_mesh(tm, frame=None, name: str = "fuente") -> TexturedPart:
+    """La fuente de color (`texmesh.TexturedMesh`, p. ej. `Session.color_source`) como `TexturedPart` con su textura base. `frame`
+    (un `FigureFrame`) la lleva al marco de la figura; sin él queda en las unidades y ejes del archivo."""
+    mesh = tm.to_trimesh()
+    if frame is not None:
+        mesh.vertices = frame.apply(np.asarray(mesh.vertices, float))
+        if frame.det() < 0:                                        # un espejo invierte las caras (el plan no lo admite, pero no debe dibujar al revés)
+            mesh.invert()
+    img = tm.image("base_color") if "base_color" in tm.images else None
+    return TexturedPart(name, mesh, np.asarray(tm.corner_uv, np.float32) if img is not None else None, img)
 
 
 def plane_quad(plane: Plane, half_size: float, center=None) -> np.ndarray:
@@ -142,10 +226,13 @@ class SceneRenderer:
         self.mgl = moderngl
         self.ctx = ctx
         self.mesh_prog = ctx.program(vertex_shader=_MESH_VS, fragment_shader=_MESH_FS)
+        # la misma fuente con `TEXTURED`: las mallas con UV usan este programa; las de color plano siguen en `mesh_prog`, sin cambios
+        self.tex_prog = ctx.program(vertex_shader=_with_define(_MESH_VS, "TEXTURED"), fragment_shader=_with_define(_MESH_FS, "TEXTURED"))
         self.flat_prog = ctx.program(vertex_shader=_FLAT_VS, fragment_shader=_FLAT_FS)
         self.thick_prog = ctx.program(vertex_shader=_THICK_VS, fragment_shader=_FLAT_FS)
         self.items: dict[str, Item] = {}
         self.background = (0.13, 0.14, 0.16, 1.0)
+        self.textures_on = True            # el botón «Textura»: apagado, las mallas con UV se dibujan de su color plano
 
     # ------------------------------------------------------------- objetos
     def _put(self, name: str, item: Item) -> Item:
@@ -157,7 +244,7 @@ class SceneRenderer:
 
     @staticmethod
     def _free(item: Item) -> None:
-        for o in (item.vao, item.vbo):
+        for o in (item.vao, item.vbo, item.tex):
             if o is not None:
                 o.release()
 
@@ -169,6 +256,35 @@ class SceneRenderer:
         vbo = self.ctx.buffer(data.tobytes())
         vao = self.ctx.vertex_array(self.mesh_prog, [(vbo, "3f 3f", "in_pos", "in_nrm")])
         return self._put(name, Item("mesh", vao, vbo, len(data), color, clip_x=clip_x, clip_plane=clip_plane, ghost=ghost))
+
+    def set_textured_mesh(self, name: str, mesh: trimesh.Trimesh | None, corner_uv, image, color=(0.78, 0.80, 0.84, 1.0),
+                          clip_x: float = -1e9, clip_plane=None, ghost: bool = False):
+        """Malla con color por textura. `corner_uv` (F,3,2) con v hacia arriba (convención FBX / trimesh) e `image` uint8 (H, W, 3)
+        con la fila 0 ARRIBA (como un PNG): se sube invertida para que `v` hacia arriba muestree bien. `color` es el plano que se ve
+        con las texturas apagadas (`set_textures(False)`)."""
+        if mesh is None or len(mesh.faces) == 0:
+            return self.remove(name)
+        data = _flat_vertices_uv(mesh, corner_uv)
+        img = _rgb_array(image)
+        h, w = img.shape[:2]
+        tex = self.ctx.texture((w, h), 3, np.ascontiguousarray(img[::-1]).tobytes(), alignment=1)
+        tex.repeat_x = tex.repeat_y = False                  # los bordes de isla llevan relleno: no se repite el atlas
+        tex.filter = (self.mgl.LINEAR_MIPMAP_LINEAR, self.mgl.LINEAR)
+        tex.build_mipmaps()
+        try:
+            tex.anisotropy = 4.0
+        except Exception:                                    # noqa: BLE001  (sin anisotropía en este GL: queda trilineal)
+            pass
+        vbo = self.ctx.buffer(data.tobytes())
+        vao = self.ctx.vertex_array(self.tex_prog, [(vbo, "3f 3f 2f", "in_pos", "in_nrm", "in_uv")])
+        return self._put(name, Item("mesh", vao, vbo, len(data), color, clip_x=clip_x, clip_plane=clip_plane, ghost=ghost, tex=tex))
+
+    def set_textures(self, on: bool) -> None:
+        """Enciende o apaga el color por textura de todas las mallas que lo tienen (las demás no cambian)."""
+        self.textures_on = bool(on)
+
+    def has_textures(self) -> bool:
+        return any(it.tex is not None for it in self.items.values())
 
     def set_translucent(self, name: str, alpha: float | None, cull: bool = True) -> None:
         """Pinta la malla `name` translúcida con ese alfa (o la vuelve a opaca con `alpha=None`), sin volver a subirla. Translúcida no escribe
@@ -272,13 +388,18 @@ class SceneRenderer:
         ctx.enable(mgl.DEPTH_TEST | mgl.PROGRAM_POINT_SIZE)
         ctx.disable(mgl.BLEND)
         def draw_mesh(it: Item) -> None:
-            self.mesh_prog["u_mvp"].write(mvp.T.tobytes())
-            self.mesh_prog["u_view_rot"].write(view_rot.T.tobytes())
-            self.mesh_prog["u_color"].value = it.color
-            self.mesh_prog["u_clip_x"].value = it.clip_x
+            prog = self.tex_prog if it.tex is not None else self.mesh_prog
+            prog["u_mvp"].write(mvp.T.tobytes())
+            prog["u_view_rot"].write(view_rot.T.tobytes())
+            prog["u_color"].value = it.color
+            prog["u_clip_x"].value = it.clip_x
             cp = it.clip_plane if it.clip_plane is not None else (0.0, 0.0, 0.0, 1e9)
-            self.mesh_prog["u_clip_n"].value = tuple(float(x) for x in cp[:3])
-            self.mesh_prog["u_clip_d"].value = float(cp[3])
+            prog["u_clip_n"].value = tuple(float(x) for x in cp[:3])
+            prog["u_clip_d"].value = float(cp[3])
+            if it.tex is not None:
+                it.tex.use(location=0)
+                prog["u_tex"].value = 0
+                prog["u_use_tex"].value = 1 if self.textures_on else 0
             it.vao.render(mgl.TRIANGLES, vertices=it.count)
 
         for it in self.items.values():

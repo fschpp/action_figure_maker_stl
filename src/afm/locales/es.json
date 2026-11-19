@@ -1000,7 +1000,9 @@
   "no_se_guardo_la_receta_exc": "No se guardó la receta: %{exc}",
   "no_se_pudo_abrir_en_la": "No se pudo abrir en la ventana principal: %{exc}",
   "el_catalogo_no_tiene_piezas_de": "El catálogo no tiene piezas de este tipo.",
-  "sin_vista_previa_exc": "(sin vista previa: %{exc})"
+  "sin_vista_previa_exc": "(sin vista previa: %{exc})",
+  "textura": "Textura",
+  "textura_tooltip": "Muestra el color de la figura (GLB con color) o, apagado, las piezas de un solo tono."
  },
  "hero_wizard": {
   "el_heroe": "El héroe",
