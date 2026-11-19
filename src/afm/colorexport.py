@@ -43,6 +43,7 @@ class Colorizer:
         # que usa la pieza. Solo van al informe (no cambian el color): sin ellos el informe es el de antes.
         self.palette_report: dict | None = dict(palette_report) if palette_report else None
         self.piece_roles: dict = {k: list(v) for k, v in (piece_roles or {}).items()}
+        self._last_write: tuple | None = None              # T45: argumentos del último `write`, para que `recolor` reescriba los mismos archivos
 
     # ------------------------------------------------------------------ fuente de cada pieza
     def source_for(self, name: str, res=None):
@@ -138,12 +139,57 @@ class Colorizer:
                 off += len(V)
         return f"{base}.obj"
 
-    def write(self, outdir: str, fig_name: str, orientation=None, accesorios_sin_color: int = 0) -> dict:
+    # ------------------------------------------------------------------ recolor (T45)
+    def recolor(self, palette, overrides: dict | None = None, *, rewrite: bool = True) -> dict:
+        """Cambia el color de lo ya horneado con otra `palette` (más `overrides` = `{rol: "#RRGGBB"}`, solo para esta corrida) **sin registrar ni
+        hornear de nuevo** (plan §5.5, T45): por cada pieza cuya fuente traía etiquetas de rol, `atlas = lut[etiquetas]` en los texeles que
+        tienen rol; los de etiqueta 255 (color plano del relleno) y los que ningún triángulo cubre no cambian. El resultado es el mismo,
+        píxel por píxel, que el de volver a correr el color con esa paleta. Las piezas sin etiquetas (fuente RGB, plana) quedan como están.
+
+        Todo o nada: si a la paleta le falta un rol que usa alguna pieza, `PaletteError` (lista los que faltan) y no cambia nada. Las fuentes
+        ya resueltas también se recolorean, así una pieza que se hornee después sale con la paleta nueva, y el informe pasa a llevar la paleta
+        **usada** (`hash` y `roles`; con `overrides`, también `cambios`). Con `rewrite` (por defecto) y un `write` previo, reescribe los mismos
+        PNG, el GLB y el informe (los OBJ/MTL no cambian: salen byte a byte iguales y no se vuelven a escribir); los STL no se tocan nunca. Devuelve `{"piezas": [recoloreadas], "sin_etiquetas": [...], "segundos": s}` y,
+        si reescribió, `"salida"` con lo que devuelve `write`."""
+        import dataclasses
+
+        t0 = time.perf_counter()
+        used = palette.with_overrides(overrides or {})
+        luts = {}                                          # nombre -> LUT de la pieza (se calculan todas antes de tocar nada)
+        for name, (_unw, bk, _reg, _info) in self.pieces.items():
+            if bk.labels is not None:
+                luts[name] = used.lut(bk.label_roles)
+        srcs: dict = {}                                    # fuentes con etiquetas, sin repetir objetos
+        for s in [self.src, *self.sources.values()]:
+            if s is not None and hasattr(s, "query") and getattr(s, "sample_label", None) is not None:
+                srcs[id(s)] = (s, used.lut(s.label_roles))
+        for name, lut in luts.items():
+            unw, bk, reg, info = self.pieces[name]
+            atlas = bk.atlas.copy()
+            has_role = bk.mask & (bk.labels != 255)
+            atlas[has_role] = lut[bk.labels[has_role]]
+            self.pieces[name] = (unw, dataclasses.replace(bk, atlas=atlas), reg, info)
+        for s, lut in srcs.values():
+            s.recolor(lut)
+        self.palette_report = {"hash": used.digest(), "roles": {r.id: r.hex for r in used.roles}}
+        if overrides:
+            self.palette_report["cambios"] = {str(k): used.hex_of(k) for k in sorted(overrides)}
+        out: dict = {"piezas": sorted(luts), "sin_etiquetas": sorted(n for n in self.pieces if n not in luts)}
+        if rewrite and self._last_write is not None:
+            out["salida"] = self.write(*self._last_write, textures_only=True)
+        out["segundos"] = round(float(time.perf_counter() - t0), 3)
+        return out
+
+    def write(self, outdir: str, fig_name: str, orientation=None, accesorios_sin_color: int = 0, *, textures_only: bool = False) -> dict:
         """Escribe OBJ + MTL + PNG por pieza, el GLB ensamblado y el informe. `orientation` es la 4×4 de la orientación de impresión
-        (la `T` de `print_orientation`): se aplica a las mallas de salida igual que a los STL."""
+        (la `T` de `print_orientation`): se aplica a las mallas de salida igual que a los STL.
+
+        `textures_only` (lo usa `recolor`, T45): no reescribe los OBJ ni los MTL (por pieza y ensamblado), que solo dependen de la geometría
+        y de los nombres de los PNG y por eso salen byte a byte iguales; escribe los PNG, el GLB y el informe. Devuelve lo mismo que sin él."""
         import trimesh
         from PIL import Image
 
+        self._last_write = (outdir, fig_name, orientation, accesorios_sin_color)
         cdir = os.path.join(outdir, COLOR_DIR)
         os.makedirs(cdir, exist_ok=True)
         scene = trimesh.Scene()
@@ -156,21 +202,22 @@ class Colorizer:
             png = f"{base}_color.png"
             img = Image.fromarray(np.ascontiguousarray(bk.atlas), "RGB")
             img.save(os.path.join(cdir, png))
-            with open(os.path.join(cdir, f"{base}.mtl"), "w", encoding="utf-8") as fh:
-                fh.write(f"newmtl {base}\nKa 1 1 1\nKd 1 1 1\nKs 0 0 0\nd 1\nillum 1\nmap_Kd {png}\n")
-            with open(os.path.join(cdir, f"{base}.obj"), "w", encoding="utf-8") as fh:
-                fh.write(f"mtllib {base}.mtl\no {base}\n")
-                fh.write("".join(f"v {x:.6f} {y:.6f} {z:.6f}\n" for x, y, z in V))
-                fh.write("".join(f"vt {u:.6f} {v:.6f}\n" for u, v in uv))
-                fh.write(f"usemtl {base}\n")
-                fh.write("".join(f"f {a + 1}/{a + 1} {b + 1}/{b + 1} {c + 1}/{c + 1}\n" for a, b, c in F))
+            if not textures_only:
+                with open(os.path.join(cdir, f"{base}.mtl"), "w", encoding="utf-8") as fh:
+                    fh.write(f"newmtl {base}\nKa 1 1 1\nKd 1 1 1\nKs 0 0 0\nd 1\nillum 1\nmap_Kd {png}\n")
+                with open(os.path.join(cdir, f"{base}.obj"), "w", encoding="utf-8") as fh:
+                    fh.write(f"mtllib {base}.mtl\no {base}\n")
+                    fh.write("".join(f"v {x:.6f} {y:.6f} {z:.6f}\n" for x, y, z in V))
+                    fh.write("".join(f"vt {u:.6f} {v:.6f}\n" for u, v in uv))
+                    fh.write(f"usemtl {base}\n")
+                    fh.write("".join(f"f {a + 1}/{a + 1} {b + 1}/{b + 1} {c + 1}/{c + 1}\n" for a, b, c in F))
             parts.append((base, V, uv, F, png))
             mesh = trimesh.Trimesh(V, F, process=False)
             mesh.visual = trimesh.visual.TextureVisuals(uv=uv, material=trimesh.visual.material.PBRMaterial(
                 baseColorTexture=img, metallicFactor=0.0, roughnessFactor=1.0, name=base))
             scene.add_geometry(mesh, node_name=name, geom_name=name)
             piezas[name] = {**info, "obj": f"{COLOR_DIR}/{base}.obj", "mtl": f"{COLOR_DIR}/{base}.mtl", "png": f"{COLOR_DIR}/{png}"}
-        obj_all = self._write_assembled_obj(cdir, fig_name, parts)
+        obj_all = f"{fig_name}_ensamblada.obj" if textures_only else self._write_assembled_obj(cdir, fig_name, parts)
         glb = f"{fig_name}_ensamblada.glb"
         scene.export(os.path.join(outdir, glb))
         out = {"carpeta": COLOR_DIR, "glb": glb, "obj_ensamblado": f"{COLOR_DIR}/{obj_all}", "informe": f"{fig_name}_color_informe.json", "piezas": piezas,

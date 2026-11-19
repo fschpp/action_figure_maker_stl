@@ -13,6 +13,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+NO_LABEL = 255           # T45: etiqueta de «sin rol» / color plano (la misma que `palette.NO_ROLE`; no se importa para no cargar la paleta)
 BARY_TOL = 1e-6          # un centro de píxel cuenta como «dentro» si min(bary) ≥ −BARY_TOL
 
 
@@ -101,6 +102,9 @@ class BakeResult:
     mask: np.ndarray         # (alto, ancho) bool: texeles con color propio (consultados)
     stats: dict              # pct_origen (0–100), area_mm2, n_texeles, segundos
     origin: np.ndarray | None = None     # (alto, ancho) bool: texeles con origen en la fuente (lo usa la política de relleno, T13)
+    # T45 (solo si la fuente trae etiquetas de rol; si no, los tres quedan en None y todo es como antes):
+    labels: np.ndarray | None = None     # (alto, ancho) uint8: etiqueta de cada texel; 255 = color plano / sin rol (no depende de la paleta); la dilatación copia la del vecino
+    label_roles: list | None = None      # ids de rol de la fuente: el valor `i` de `labels` es `label_roles[i]`
 
 
 def _to_rest(matrix: np.ndarray, points: np.ndarray, normals: np.ndarray):
@@ -209,14 +213,20 @@ def bake_piece(mesh, unw, src, reg, *, eps: float = 0.15, fill="extend", symmetr
     n = len(P)
     rgb = np.empty((n, 3), np.uint8)
     has = np.zeros(n, bool)
+    label_roles = getattr(src, "label_roles", None) if getattr(src, "sample_label", None) is not None else None
+    lab = None if label_roles is None else np.full(n, NO_LABEL, np.uint8)       # T45: etiqueta de cada texel (255 = plano)
     if unregistered:                                  # no hay dónde consultar: todo sin origen
         rgb[:] = flat
     else:
         for a in range(0, n, CHUNK):
             q = src.query(P[a:a + CHUNK], N[a:a + CHUNK], eps=eps, workers=workers)
             rgb[a:a + CHUNK], has[a:a + CHUNK] = q.rgb, q.has_origin
+            if lab is not None:
+                lab[a:a + CHUNK] = q.label
         if flat is not None:
             rgb[~has] = flat
+            if lab is not None:
+                lab[~has] = NO_LABEL                  # lo pintado con el relleno plano no tiene rol
     W, H = grid.size
     atlas = np.zeros((H, W, 3), np.uint8)
     mask = np.zeros((H, W), bool)
@@ -224,9 +234,16 @@ def bake_piece(mesh, unw, src, reg, *, eps: float = 0.15, fill="extend", symmetr
     atlas[grid.rows, grid.cols] = rgb
     mask[grid.rows, grid.cols] = True
     origin[grid.rows, grid.cols] = has
+    latlas = None
+    if lab is not None:
+        latlas = np.full((H, W), NO_LABEL, np.uint8)
+        latlas[grid.rows, grid.cols] = lab
+        latlas, _ = dilate(latlas, mask, int(dilate_px))      # `dilate` copia el valor del texel cubierto más cercano: la etiqueta, no un promedio
     atlas, mask = dilate(atlas, mask, int(dilate_px))
     T = np.asarray(unw.vertices, float)[np.asarray(unw.faces, np.int64)]
     area = float(0.5 * np.linalg.norm(np.cross(T[:, 1] - T[:, 0], T[:, 2] - T[:, 0]), axis=1).sum())
     stats = {"pct_origen": float(100.0 * has.mean()) if n else 0.0, "area_mm2": area, "n_texeles": int(n),
              "segundos": float(time.perf_counter() - t0)}
-    return BakeResult(atlas, mask, stats, origin)
+    if latlas is None:
+        return BakeResult(atlas, mask, stats, origin)
+    return BakeResult(atlas, mask, stats, origin, latlas, list(label_roles))

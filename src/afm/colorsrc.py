@@ -20,6 +20,7 @@ class ColorQuery:
     dist: np.ndarray             # (n,) float32: distancia (mm) al triángulo de la muestra más cercana
     has_origin: np.ndarray       # (n,) bool: dist ≤ eps y normal compatible
     face: np.ndarray             # (n,) int32
+    label: np.ndarray | None = None   # (n,) uint8: etiqueta de rol de la muestra (solo fuentes con etiquetas, T45); None en las demás
 
 
 class ColorSource:
@@ -53,6 +54,8 @@ class ColorSource:
         self.sample_xyz = np.einsum("nk,nkc->nc", bary.astype(np.float64), self._tris[face])
         # T41: con etiquetas de rol se guarda también la etiqueta de cada muestra, así `recolor` cambia el color sin rehacer el árbol
         self.sample_label = tm.sample_labels(face, bary) if tm.labels is not None else None
+        # T45: ids de rol de las etiquetas (índice = etiqueta), para recolorear lo ya horneado con otra paleta
+        self.label_roles = list(tm.info.get("roles", [])) if tm.labels is not None else None
         self.sample_rgb = tm.sample(face, bary, "base_color")
         tm.release_image("base_color")                          # RG5: se libera la imagen decodificada
         self._tree = cKDTree(self.sample_xyz)
@@ -96,7 +99,8 @@ class ColorSource:
         ok = dist <= eps
         if normals is not None:
             ok &= np.einsum("nc,nc->n", self.face_normals[face], np.asarray(normals, float)) > min_dot
-        return ColorQuery(self.sample_rgb[idx], dist.astype(np.float32), ok, face.astype(np.int32))
+        label = None if self.sample_label is None else self.sample_label[idx]
+        return ColorQuery(self.sample_rgb[idx], dist.astype(np.float32), ok, face.astype(np.int32), label)
 
     def distance(self, points, workers: int = 1, upper: float | None = None) -> np.ndarray:
         """Distancia gruesa (una muestra de cada 4), para puntuar registros. Con `upper`, los puntos más lejos que eso
