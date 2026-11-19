@@ -2,6 +2,50 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — Color FBX: T08 (2026-11-18, sobre main fd872b1 + parches T04 y T05)
+**Objetivo:** `src/afm/colorreg.py`: hallar la rotación de un grado de libertad que lleva una pieza en pose a la pose de reposo de la fuente de color.
+**Hecho:** `seeds_for_piece(name, res, params)` y `register_piece(name, mesh, src, res, params, n_points=1500, thresh_mm=0.3, min_score=0.4)` → `Registration(status, matrix, angle_deg, score, seed, center, axis)` (los dos últimos campos son extra, con valor por defecto). Semilla exacta primero (pierna: `sit_angle`; brazo con clic: `res.detent[m].print_angle`; resto: 0), respaldo (identidad, ±sit_angle, ±print_angle, ±a1), barrido 0–360° cada 15° con refinado ±7,5° en pasos de 1°, y `sin_origen`. `_der`: centro y eje reflejados y ángulo de signo contrario, siempre; con `res.right` usa su `motion`. Las semillas aceptan listas de pasos (`seed_forward`), base para las cadenas de T18. `tests/test_colorreg.py` (14 pruebas). No toca `pipeline.py`.
+**[V] Nombres reales (muñeco, `demo_project`):** `sorted(res.pieces)` = `brazo_der, brazo_izq, pierna_der, pierna_izq, torso`; `res.motion.keys()` = `brazo, pierna` (sin entrada para la cabeza porque el muñeco no la lleva en este build ni para la cintura).
+**Medido (muñeco, fuente a 0,1 mm = 1,09 M muestras):** torso y brazos → `identidad` (score 0,69–0,72); `pierna_izq` → `semilla`, ángulo −90° sobre +X (score 0,745); `pierna_der` → `semilla`, +90° sobre −X (0,747); ≤ 0,17 s por pieza; barrido completo < 3 s. Construir el muñeco: 9 s.
+**Hallazgos / desvíos:** (1) **Ambigüedad de 180°:** el brazo del muñeco es una caja simétrica respecto de su centro y rotado 180° sobre el pasador puntúa igual que a 0° (0,71 y 0,71): ninguna búsqueda lo distingue. Por eso las pruebas de giro usan la pierna (en L: 0,74 contra 0,26) y hay un test que lo documenta. En figuras reales solo pasaría con miembros simétricos (cilindros sin mano); T09 lo comprueba con Güemes. En un empate gana la primera semilla (la exacta). (2) El barrido elige por **distancia media recortada a 4 mm**, no por la fracción ≤ 0,3 mm: esa fracción es ≈ 0 hasta estar a pocos grados y el barrido grueso (15°) no tendría cómo elegir; la aceptación final sí usa la fracción ≥ `min_score`. (3) `print_angle` no está en `Params` como dice el §6 del plan: es `Params.detent.print_angle`. (4) El registro puntúa con `ColorSource.distance` (grueso, 1 de cada 4 muestras): con `spacing_mm` ≥ 0,2 el umbral de 0,3 mm queda corto; usar ≤ 0,1.
+**No verificado:** Güemes real (T09); cabeza y cintura (T17); cadenas rodilla/codo (T18); `limbs_right` real (solo con objetos simulados; T19). R9 + color: 54 pruebas pasan (1 xfail previo) en 33 s.
+
+### Todo List
+- [x] T04 · [x] T05 · [x] T08
+- [ ] T09 verificación con Güemes real · [ ] T10 despliegue base · [ ] T11–T16 · [ ] T17–T30
+
+### Latest Blockers/Discoveries
+- Ninguno bloqueante.
+
+## Current Focus — Color FBX: T05 (2026-11-18, sobre main fd872b1 + parche T04)
+**Objetivo:** `tools/fbx_a_glb.py`: convertir un FBX texturizado en un GLB con color, de pie y a escala, para verlo en cualquier visor.
+**Hecho:** `tools/fbx_a_glb.py` (`convert(source, glb, front, crown_z, ref_height)` y CLI `fbx_a_glb.py in.fbx out.glb [--front -Y] [--crown-z N] [--altura 100]`) y `tests/test_tool_fbx_a_glb.py` (8 pruebas). Orienta con `orient_z_up_matrix`, escala, centra en X e Y, apoya en z = 0, desdobla por esquina (3 vértices por triángulo) y usa `PBRMaterial` con la textura de color base. No toca `src/afm/`.
+**Medido (Güemes real):** 32 058 vértices = 10 686 × 3; con `--crown-z 101.769` escala 0,983078 y alto total 114,00 mm (= el STL); sin `--crown-z`, 100,00 mm hasta el punto más alto; GLB de 11 MB en 4 s por CLI. Los UV escritos en el GLB crudo cumplen `v_glb = 1 − v_fbx` (se leyó el binario: el roundtrip por trimesh lo cancelaría y no lo detecta). Color del roundtrip del muñeco: diferencia máx. ≤ 2/255.
+**Decisiones / desvíos:** (1) la ficha dice «alto ≈ 100 ± 0,5 si `--crown-z`»; con `--crown-z` la coronilla queda a 100 mm y el sombrero llega a 114,0 (como el STL), así que esa prueba verifica 114,0 ± 0,1; los 100 mm exactos se verifican sin `--crown-z`. (2) Hallazgo: `--front -Y` (la forma del plan) fallaba porque argparse toma `-Y` por una opción; `main` une el valor al flag (`--front=-Y`) y tiene prueba. (3) `--front` por defecto `+Y` (como `Project.front`); Güemes necesita `-Y`.
+**No verificado:** el aspecto en un visor (no se renderizó); la suite completa. R9 + las pruebas de T05: 21 pruebas en 38 s.
+
+### Todo List
+- [x] T04 · [x] T05
+- [ ] T08 registro pieza→fuente · [ ] T09 verificación con Güemes real · [ ] T10 despliegue base · [ ] T11–T16 · [ ] T17–T30
+
+### Latest Blockers/Discoveries
+- Ninguno bloqueante.
+
+## Current Focus — Color FBX: T04 (2026-11-18, sobre main fd872b1)
+**Objetivo:** modo B: `FigureFrame.from_similarity(source_vertices, target_mesh, refine=None, source_faces=None)` lleva los vértices del FBX al marco del STL (orientación + escala por alto + cajas + apoyo en z mín.; ICP de similitud solo de respaldo, D11) y acepta o rechaza con `report = {media_mm, p95_mm, max_mm, ok, iteraciones}` (`ok` = media ≤ 0,1 mm).
+**Hecho:** `src/afm/frame.py` (`from_similarity`, distancia punto-superficie propia con muestras + refinado exacto punto-triángulo, sin `rtree`; ICP de Umeyama con el árbol de la fuente armado una sola vez, ≤ 20 iteraciones, corte si la media baja < 1e-4). `tests/test_frame_similarity.py` (9 pruebas). Estado de las tareas de color en `main`: T01, T02, T03, T06, T07 hechas (sus bitácoras R7 no se escribieron); T04 aquí.
+**Medido (Güemes real, FBX→STL, sin ICP):** media 0,020 · p95 0,043 · máx 0,062 mm; escala 0,983079 (= 114 / 115,962); det = +1; 0,18 s. El plan esperaba 0,017 / 0,040 / 0,062 [M5]: el máximo coincide y la media difiere en 0,003 porque la distancia aquí es una cota superior (400 000 muestras + refinado exacto contra las 3 vecinas). Con `refine=True`: media 0,013 en 7 iteraciones; el modo automático (`None`) no lo activa (iteraciones = 0). `crown_z` = 101,769 ± 0,01 confirmado. Fuente girada 180° sobre Z: media > 1 mm y `ok=False`.
+**Desvíos respecto del plan (pruebas marcadas [I]):** (1) `test_icp_fallback_recovers_offset`: con 1° sobre Z y 0,3 mm la media sin ICP es 0,036 (< 0,05, el umbral de activación); se usa 2° (0,066). (2) Tras el ICP el muñeco baja a 0,014 con el tope de 20 iteraciones del contrato (con 40 llegaría a 0,0098): la prueba exige < 0,02 y `ok`, no < 0,01. (3) Se agregó el argumento opcional `source_faces` (o pasar un objeto con `.vertices/.faces`): sin caras solo se puede medir contra los vértices.
+**No verificado:** la suite completa; GUI. R9 (`test_packaging`, `test_pipeline`, `test_export_clean`, `test_frame`, `test_texmesh`): 34 pruebas pasan en 23 s.
+
+### Todo List
+- [x] T01, T02, T03, T06, T07 (ya en main) · [x] T04
+- [ ] T05 `tools/fbx_a_glb.py` · [ ] T08 registro pieza→fuente · [ ] T09 verificación con Güemes real
+- [ ] T10–T16 (despliegue, horneado, exportación, gancho `colorize`, e2e) · [ ] T17–T30
+
+### Latest Blockers/Discoveries
+- Ninguno bloqueante. El ICP converge lento en superficies planas (muñeco): sirve de respaldo, no de camino principal.
+
 ## Current Focus — Cortes asimétricos por lado y 3.ª silueta (desde arriba) (2026-11-18, sobre main 1c9d26c, sin commitear)
 **Objetivo:** que figuras no simétricas (Egon: brazos y piernas distintos; el dedo de la mano solapa el muslo al sentarla) se puedan cortar bien: (1) cortes propios para el lado derecho; (2) una 3.ª silueta, vista desde arriba, para sacar lo que se solapa con el miembro en las vistas de costado y de frente.
 **Hecho (motor):** `LimbSpec.cross2` (3.ª silueta, `LimbCut`) y `limb_prism` la intersecta con las otras dos; `LimbSpec.mirrored()` / `LimbCut.mirrored()`. `Project.limbs_right` (None = simétrica). `pipeline.build(..., limbs_right=)`: el lado derecho se construye completo sobre el cuerpo espejado (`_build_right_side`) y sus piezas y su mitad de torso (`BuildResult.torso_half`) se espejan al −X; `validate` valida también ese lado (`out["derecha"]`). Verificado con el muñeco de prueba: lados iguales = mismo volumen que el simétrico; brazo derecho más corto = pieza derecha más chica; 3.ª silueta recorta el brazo.

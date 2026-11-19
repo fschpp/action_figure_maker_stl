@@ -1,15 +1,15 @@
 # Plan: importar FBX con textura y conservar el color en la figura articulada
 
-**Versión:** 0.4 (completa, 30 tareas ejecutables) — 2026-11-18
+**Versión:** 0.5 (la v0.4 contrastada con el repo; 30 tareas ejecutables) — 2026-11-18
 **Repo:** `fschpp/action_figure_maker_stl` → `docs/PLAN_fbx_textura_color.md`
-**Contrastado con:** `main` @ `f62f19d` y con `examples/guemes_segmentado_lq_texturas.fbx`.
-**Marcas:** **[C]** dato del cliente o del archivo · **[M]** medido en la prueba de concepto (v0.2) · **[M3]** medido al preparar la v0.3 · **[M4]** medido al preparar esta versión · **[I]** inferido, a validar · **[P]** pendiente de decisión del cliente · **[V]** «verificar»: dato de código que la tarea debe confirmar antes de usarlo.
+**Contrastado con:** `main` @ `50ff1ef` (ya incluye T01 y la v0.4 de este documento) y con `examples/guemes_segmentado_lq_texturas.fbx`. Las firmas, líneas y fixtures que citan las fichas se comprobaron contra ese commit (§1.1).
+**Marcas:** **[C]** dato del cliente o del archivo · **[M]** medido en la prueba de concepto (v0.2) · **[M3]** medido al preparar la v0.3 · **[M4]** medido al preparar esta versión · **[I]** inferido, a validar · **[P]** pendiente de decisión del cliente · **[V]** «verificar»: dato de código que la tarea debe confirmar antes de usarlo · **[M5]** medido o comprobado al preparar la v0.5, con el repo clonado en `50ff1ef`.
 
 ---
 
 ## 0. Cómo usar este documento
 
-§1 resume qué cambió; §2–§8 explican el diseño; §9 fija las reglas comunes; §10 es el grafo de dependencias; del §11 al §16 hay **una ficha por tarea** (T01…T30).
+§1 resume qué cambió (§1.1: lo que corrigió la v0.5 al contrastar con el repo); §2–§8 explican el diseño; §9 fija las reglas comunes; §10 es el grafo de dependencias; del §11 al §16 hay **una ficha por tarea** (T01…T30).
 
 Una ficha está pensada para que **un solo turno** (Sonnet 5.5, esfuerzo medio, sin contexto previo) la resuelva leyendo: la ficha, las secciones que cite y los archivos que nombre. Cada ficha trae: objetivo, bloqueantes verificables, qué leer, qué crear o tocar, contrato (firmas), pasos, pruebas con nombre, verificación, aceptación y qué **no** hacer. Si un bloqueante no se cumple, la tarea **se detiene y lo informa** (R2); no improvisa el módulo que falta.
 
@@ -29,7 +29,28 @@ Una ficha está pensada para que **un solo turno** (Sonnet 5.5, esfuerzo medio, 
 | 10 | Sin parser verificado | **T01 ya hecha** (`src/afm/fbxio.py` + `tests/test_fbxio.py`, 10 pruebas verdes, 0,03 s sobre el FBX real) [M4] | Se entrega en el parche que acompaña a este documento |
 | 11 | La v0.3 quedaba cortada en §2, T02, T11 y T18 | Documento completo | — |
 
-Se mantienen las decisiones D1–D8 de la v0.2 (§5).
+### 1.1 Qué corrigió la v0.5 (contraste con `main @ 50ff1ef`)
+
+Se clonó el repo, se reprodujeron las medidas del FBX (§3.1) y se abrió cada archivo, línea y fixture que citan las fichas. Resultado:
+
+| # | Hallazgo [M5] | Se corrigió en |
+|---|---|---|
+| 1 | T01 ya está en `main` (`50ff1ef`): 10 pruebas en 0,44 s. El commit **no** escribió la bitácora de `PROGRESS.md` (R7) | §18, T01, R7 |
+| 2 | «Alto 116,01» era la cota máxima: el alto (pies → punta más alta) del FBX es 115,962 (z mín. 0,048). `crown_z` = 101,769 es una cota **absoluta** | §3.1, §3.2 |
+| 3 | **El ICP no hace falta en Güemes.** Con orientación, escala por alto, cajas centradas y apoyo en z mín., STL→FBX da media 0,017 · p95 0,040 · máx 0,062 mm (la v0.4 atribuía esas cifras al ICP; su «0,036 / 0,336 sin ICP» no se reproduce). FBX→STL: media 0,017 · p95 0,040 · máx 0,265 (1 vértice de 5345 supera 0,1) | §3.2, §5 (D11), §6, T04 |
+| 4 | T21 guardaba la fuente en `LoadReport.color_source`; `cli.run` vuelca `rep.__dict__` con `json.dump(…, default=float)` y un objeto rompe con `TypeError` (probado) | T21, T03, R13, RG16 |
+| 5 | La GUI no pasa por `cli.run`: `Session.export` (`gui/session.py` l. 2487) llama a `P.export`; el plan solo cableaba el CLI | T15, T25, §8, RG15 |
+| 6 | `res.motion` solo no alcanza para registrar: la pose impresa exacta está en `Params.sit_angle`, `res.detent[m].print_angle` y `report["joints"][j]["print_hip"/"print_flex"]`; con `limbs_right` las piezas `_der` salen de `res.right` (marco espejado). El gancho recibe `res` entero | §5 (D12), §6, §7.4, T08, T14, T15, T18, T19 |
+| 7 | Espejo de las semillas: eje reflejado y ángulo de signo contrario **siempre** (M·R(a,θ)·M = R(M·a, −θ), comprobado numéricamente); la «excepción del eje X» era un caso particular | §7.4, T08 |
+| 8 | `tests/test_asymmetric.py` no existe en `main` (`PROGRESS.md` lo da «en curso, sin commitear»); ningún test de `main` usa `limbs_right`; con `limbs_right` el motor rechaza clic y catálogo | T19 |
+| 9 | Ya hay pruebas de claves pareadas (`tests/test_i18n.py`: mismas claves, mismos `%{var}`, toda clave usada existe; es/en/pt = 1648 claves cada una) | T26 (reducida) |
+| 10 | R9 cuesta ≈ 30 s, no «minutos» (19 pruebas en 16 s y `test_pipeline` en 15 s) | R9 |
+| 11 | El FBX real repite una conexión `Video→Texture` (rugosidad): 5 conexiones para 4 imágenes. PNG: color y normal RGB, rugosidad y metálico `L`, todos 4096² (la de color decodifica en 0,4 s) | T02 |
+| 12 | `export` decima las piezas (`cap_export_triangles`) y agrega accesorios (`extras`) al ensamblado antes de escribir | T14, RG4 |
+| 13 | Firmas y formatos reales: `Session.load(path, crown_z=None, progress=None)`; `PROGRESS.md` usa «Current Focus — … / Hecho / No verificado / Todo List / Blockers» | T22, R7 |
+| 14 | Referencias cruzadas colgantes: T16 citaba «§12 fase 2» (el §12 es la Fase 1) y T27 «§13 del plan de pruebas»; las tolerancias reales del golden están en `tools/golden.py` | T16, T27 |
+
+Se mantienen las decisiones D1–D8 de la v0.2 y las D9–D10 de la v0.3/v0.4 (§5); la v0.5 agrega D11 y D12.
 
 ## 2. Resumen
 
@@ -61,15 +82,15 @@ Mapa de nodos medido con `fbxio.parse_fbx` [M4]:
 | Conexiones | `OO` hijo→padre y `OP` hijo→padre con propiedad: `Model→raíz(0)`, `Geometry→Model`, `Material→Model`, `Texture→Material` por `OP` con `DiffuseColor` (color base), `NormalMap`, `ShininessExponent` (rugosidad) y `ReflectionFactor` (metálico); `Video→Texture` por `OO` |
 | Texturas | 4 `Texture` (`base_color_texture`, `normalmap_texture`, `roughness_texture`, `metallic_texture`) y 4 `Video` con `Content` PNG embebido: 12 524 256 · 7 843 831 · 2 852 103 · 2 579 272 B; todas 4096² |
 | Malla | 5345 vértices, 5104 cuadriláteros + 478 triángulos = 10 686 triángulos; 1 solo componente [C] |
-| Escala | Caja 0,489 × 1,160 × 0,203 → 48,9 × 116,0 × 20,3 tras `Lcl Scaling` [C] |
+| Escala | Caja 0,489 × 1,160 × 0,203 → 48,9 × 116,0 × 20,3 tras `Lcl Scaling` [C]; con Z arriba el z va de 0,048 a 116,010 (alto 115,962) [M5] |
 | Densidad | Textura ≈ 38 texeles/mm sobre la figura a 100 mm (0,026 mm/texel); arista media de malla 1,5 mm [M] |
 | UV | 36 islas, 0 triángulos invertidos, islas rodeadas de relleno borroso, ≈ 70 % del atlas ocupado [C] |
 
-### 3.2 El FBX frente al STL de Güemes del repo [M]/[M3]
-- FBX 5345 vértices / 10 686 triángulos; STL 5344 / 10 684 (estanco). Alto 116,01 contra 114,00; escala FBX→STL **0,983079**.
-- Con la rotación de `meshio.orient_z_up` (Y→Z, `R = [[1,0,0],[0,0,-1],[0,1,0]]`) y esa escala: STL→FBX media 0,017 mm, p95 0,040, máx 0,062 (con ICP). Solo con caja y escala: media 0,036, p95 0,055, máx 0,336 [M3].
+### 3.2 El FBX frente al STL de Güemes del repo [M]/[M3]/[M5]
+- FBX 5345 vértices / 10 686 triángulos; STL 5344 / 10 684 (estanco). Alto pies → punta más alta: FBX 115,962 (z de 0,048 a 116,010) contra 114,000 del STL; escala FBX→STL **0,983079** = 114 / 115,962 [M5].
+- Con la rotación de `meshio.orient_z_up` (Y→Z, `R = [[1,0,0],[0,0,-1],[0,1,0]]`) y esa escala: con esa escala, las cajas centradas en X e Y y el z mínimo apoyado, **sin ICP** [M5]: STL→FBX (distancia exacta punto-superficie de los 5344 vértices del STL, `trimesh.proximity.closest_point`, 0,2 s) media 0,017 mm, p95 0,040, máx 0,062; FBX→STL (los 5345 vértices del FBX contra la superficie del STL) media 0,017, p95 0,040, máx 0,265 (un solo vértice supera 0,1). La v0.4 daba estas cifras «con ICP» y para «solo caja y escala» media 0,036, p95 0,055, máx 0,336 [M3]; esas últimas no se reproducen con este procedimiento (se desconoce cómo se alineó entonces). Como el ICP no mejora lo que ya da la caja, pasa a ser respaldo (D11, T04).
 - La figura queda mirando a −Y, igual que `front="-Y"` de `examples/guemes.py`. Espejada en Y o girada 180° sobre Z la distancia media sube a 1,72 mm: el control de orientación es inequívoco.
-- `crown_z` del FBX (unidades tras `Lcl Scaling`) = **101,769** para que `ref_height = 100` dé el mismo marco que el STL [M3].
+- `crown_z` es una cota **absoluta** (`meshio.normalize` la usa como `top` y le resta el z mínimo): z mín. + 100 / 0,983079 = 0,048 + 101,721 = **101,769** en unidades del FBX tras `Lcl Scaling` y `orient_z_up` [M5]. Con `ref_height = 100` da el mismo marco que el STL, que usa `crown_z = 100` con z mín. 0 (`examples/guemes.py`).
 
 ### 3.3 Piezas reales de Güemes [M]
 | Pieza | Triángulos | Área mm² | Con origen (d ≤ 0,6) | Transformación hallada |
@@ -113,6 +134,8 @@ La textura original es 15 veces más fina que la boquilla de 0,4 mm: nadie neces
 | D8 | «Respetar el lado original» por defecto | Forzar simetría |
 | D9 | Primero despliegue «celda por triángulo» (T10); cartas (T20) solo si T16 lo justifica | Cartas desde el inicio |
 | D10 | Los módulos de color importan `PIL` y `trimesh` de forma perezosa; `fbxio` no los importa | — |
+| D11 | Modo B alinea por orientación + altura + cajas; el ICP es respaldo (solo si la media sin ICP > 0,05) (§3.2) | ICP siempre |
+| D12 | El gancho `colorize` y el registro reciben el `BuildResult` (`res`) entero | Pasar `motion` y `report` sueltos |
 
 **Preguntas abiertas [P]:** P1 ¿para qué quiere el color (pintar a mano, varios filamentos/AMS, renders, impresión a todo color)? define T30. P2 ¿vendrán también GLB/OBJ? define T29. P3 ¿confirma respetar asimetrías? P4 ¿el FBX de servicio externo será el estándar? (medir bordes borrosos entre islas, RG12). P5 ¿la cabeza irá separada en las figuras con color? Cerrada: P6, el FBX es la malla del STL.
 
@@ -150,7 +173,7 @@ class FigureFrame:
     @classmethod
     def from_load(cls, report: LoadReport, front: str = "+Y", symmetry: Plane | None = None) -> "FigureFrame"
     @classmethod
-    def from_similarity(cls, source_vertices, target_mesh, refine: bool = True) -> "FigureFrame"   # modo B (T04)
+    def from_similarity(cls, source_vertices, target_mesh, refine: bool | None = None) -> "FigureFrame"   # modo B (T04); None = ICP solo de respaldo
 
 # colorsrc.py (T07)
 @dataclass
@@ -168,8 +191,8 @@ class Registration:
     status: str             # "identidad" | "semilla" | "barrido" | "sin_origen"
     matrix: np.ndarray      # (4,4): pieza en pose -> pose de reposo de la fuente
     angle_deg: float; score: float; seed: object
-def seeds_for_piece(piece_name: str, motion: dict, params, report: dict | None = None) -> list[Seed]
-def register_piece(piece_name: str, mesh, src: ColorSource, motion: dict, params, report: dict | None = None,
+def seeds_for_piece(piece_name: str, res, params) -> list[Seed]          # res = BuildResult (motion, report, detent, right)
+def register_piece(piece_name: str, mesh, src: ColorSource, res, params,
                    n_points: int = 1500, thresh_mm: float = 0.3, min_score: float = 0.4) -> Registration
 
 # unwrap.py (T10, T20)
@@ -198,11 +221,13 @@ def bake_piece(mesh, unw: Unwrapped, src: ColorSource, reg: Registration, *, eps
 # colorexport.py (T14, T15)
 class Colorizer:        # el «gancho» que recibe pipeline.export(colorize=...)
     def __init__(self, src: ColorSource, params, *, texel_mm=0.2, eps=0.15, fill="extend", symmetric=False, workers=1)
-    def __call__(self, name: str, mesh, motion: dict, report: dict | None = None) -> dict   # devuelve info y guarda el atlas internamente
+    def __call__(self, name: str, mesh, res) -> dict   # res = BuildResult; devuelve info y guarda el atlas internamente
     def write(self, outdir: str, fig_name: str, orientation=None) -> dict    # OBJ+MTL+PNG por pieza, GLB ensamblado, informe JSON
 ```
 
 **Nombres de pieza y `motion` [V]:** `res.motion` tiene una entrada por **miembro** (`"brazo"`, `"pierna"`, claves = `LimbSpec.name`) y una por `HEAD_NAME = "cabeza"` (`head.py:39`, giro 0–90°); **no** hay entrada para la cintura. Las piezas de miembro se llaman `<miembro>_izq` / `<miembro>_der` [V: imprimir `sorted(res.pieces)` en T08]. Las de articulación son `{nombre}_izq/_der` con `JointSpec.names()`; su informe está en `res.report["joints"][nombre]` con `center, axis, print_flex, print_hip, piezas, limb`. Parámetros útiles de `Params`: `sit_angle=90`, `hip_margin=5`, `print_angle=10` (hombro/clic), `knee_print_angle=85`, `elbow_print_angle=0`, `ref_height=100`, `clearance=0.50`, `export_max_tris=150000`.
+
+**Lo que `BuildResult` aporta al registro [M5: `pipeline.py` l. 296–301, 390 y 542–546; `detent.py` l. 298].** `res.motion[nombre] = (Manifold compactado, centro, eje, (a0, a1))`. El giro de la pose impresa `th` de cada miembro es `Params.sit_angle` para la pierna (con `sit`), `res.detent[miembro].print_angle` para un brazo con clic y 0 para el resto; con articulación, `res.report["joints"][j]` agrega `print_hip` (= `th`) y `print_flex`. Con `limbs_right` (`res.right is not None`) las piezas `_der` salen de `res.right`, construido sobre el cuerpo espejado: su `motion` es `res.right.motion`, en ese marco. `res.report` se vuelca a `<fig>_informe.json` (R13).
 
 ## 7. Algoritmos
 
@@ -216,7 +241,7 @@ El motor aplica: `orient_z_up` → `pre`-escala → `repair` → `normalize` (es
 Punto más cercano `q` de la fuente, cara `t`, distancia `d`. Hay origen si `d ≤ ε` (0,15 mm) y `dot(normal_t, normal_pieza) > 0,3` [I]; entonces se muestrea la textura con las baricéntricas de `q` y los UV **de las esquinas de `t`**. Camino por defecto: muestras densas (0,08 mm) con cara y baricéntricas en un `cKDTree`.
 
 ### 7.4 Registro pieza→fuente
-Cada pieza es la superficie original recortada y rotada rígidamente (más espejo en `_der`); basta una rotación de **un grado de libertad** sobre el eje del miembro. (1) Semillas: identidad y ±`sit_angle`, ±`print_angle`, ±`print_flex` sobre `(centro, eje)` de `motion`; para `_der` se refleja el centro (x → −x) y, si el eje es X, el ángulo no cambia. (2) Puntuación: fracción de ≈ 1500 puntos con `d ≤ 0,3 mm`. (3) Si ninguna supera 40 %: barrido 0–360° cada 15° y refinado ±7,5°. (4) Si el mejor no llega a 40 %: **«sin origen»** y color neutro. En Güemes: identidad en torso y brazos, −90° en piernas [M].
+Cada pieza es la superficie original recortada y rotada rígidamente (más espejo en `_der`); basta una rotación de **un grado de libertad** sobre el eje del miembro. (0) Semilla **exacta**: el giro `th` de la pose impresa (pierna `sit_angle`; brazo con clic `res.detent[m].print_angle`; articulación `print_hip` y luego `print_flex` sobre su centro y eje, §6). (1) Respaldo: identidad y ±`sit_angle`, ±`print_angle`, ±`print_flex` sobre `(centro, eje)` de `motion`. Para `_der` se refleja con M = diag(−1, 1, 1): centro y eje reflejados y ángulo de signo contrario, siempre (M·R(a,θ)·M = R(M·a, −θ), comprobado [M5]; sin caso especial para el eje X); con `limbs_right` los datos son los de `res.right.motion`. (2) Puntuación: fracción de ≈ 1500 puntos con `d ≤ 0,3 mm`. (3) Si ninguna supera 40 %: barrido 0–360° cada 15° y refinado ±7,5°. (4) Si el mejor no llega a 40 %: **«sin origen»** y color neutro. En Güemes: identidad en torso y brazos, −90° en piernas [M].
 
 ### 7.5 Despliegue y horneado
 Despliegue (T10: una celda por triángulo; T20: cartas). Tamaño por texel físico (0,2 mm). Rasterizado → punto 3D por texel → consulta. Dilatación 4–8 texeles (`scipy.ndimage`). PNG por pieza y UV en el OBJ.
@@ -233,7 +258,7 @@ Marcadas «sin origen», color plano. Gancho: `PieceMeta.color` opcional (no se 
 ## 8. Interfaz
 
 **CLI** (flags en español): `afm build guemes.stl proyecto.json --color-desde guemes.fbx` (modo B) · `afm build guemes.fbx proyecto.json` (modo A) · `--sin-color`, `--textura-mm 0.2`, `--color-simetrico`, `--color-relleno "#C8C8C8"`, `--color-tolerancia 0.15`.
-**GUI:** abrir `.fbx` con resumen; botón «Textura» en el visor; bloque «Color» en parámetros; informe de color antes de guardar; el `.proyecto` guarda ruta y hash de la fuente.
+**GUI:** abrir `.fbx` con resumen; botón «Textura» en el visor; bloque «Color» en parámetros; informe de color antes de guardar; el `.proyecto` guarda ruta y hash de la fuente. La GUI exporta con `Session.export`, no con `cli.run`: se cablea en T25.
 **Web (Pyodide):** lector FBX, `cKDTree`, `Pillow` y despliegue propio son compatibles; `xatlas` y `rtree` no.
 **Salidas:** `piezas/*.stl` y `*_ensamblada.stl` sin cambios (byte a byte) · `piezas_color/<fig>_<pieza>.obj|.mtl|_color.png` · `<fig>_ensamblada.glb` · `<fig>_color_informe.json`.
 
@@ -245,12 +270,13 @@ Marcadas «sin origen», color plano. Gancho: `PieceMeta.color` opcional (no se 
 - **R4 · Importaciones perezosas** de `PIL`/`trimesh` en los módulos de color; `fbxio` no los importa.
 - **R5 · i18n.** Todo texto visible al usuario (CLI, GUI, avisos) va a `src/afm/locales/{es,en,pt}.json`; los avisos de motor en español, como el resto.
 - **R6 · Pruebas con nombre.** Cada ficha lista los nombres exactos de las pruebas; se crean en el archivo indicado. Las pruebas que usan el FBX real llevan `skipif` si falta el archivo.
-- **R7 · Bitácora.** Al terminar, agregar al **principio** de `PROGRESS.md` una sección «Color FBX — T## (fecha)» con: qué se hizo, medidas reales obtenidas, qué no se verificó. No reescribir secciones anteriores.
+- **R7 · Bitácora.** Al terminar, agregar al **principio** de `PROGRESS.md` (raíz del repo, no `docs/`) una sección con el formato que ya usa el archivo: `## Current Focus — Color FBX: T## (fecha, sobre main <hash>)` con **Objetivo / Hecho / No verificado**, y debajo `### Todo List` y `### Latest Blockers/Discoveries`; incluir las medidas reales obtenidas. No reescribir secciones anteriores.
 - **R8 · No relajar umbrales.** Si un criterio de aceptación no se cumple, informar la medida real y detenerse; no cambiar el umbral para que pase.
-- **R9 · Regresión.** Además de las pruebas de la ficha: `python -I -m pytest tests/test_packaging.py tests/test_pipeline.py tests/test_export_clean.py -q` (≈ minutos; si `test_pipeline.py` tarda demasiado, `-x`). Ninguna ficha debe romperlas.
+- **R9 · Regresión.** Además de las pruebas de la ficha: `python -I -m pytest tests/test_packaging.py tests/test_pipeline.py tests/test_export_clean.py -q` (≈ 30 s en total [M5]: `test_pipeline` 3 pruebas en 15 s; `test_packaging` + `test_export_clean` + `test_i18n` 19 pruebas en 16 s; se corre completo en cada tarea, y `tests/test_i18n.py` cuando la ficha toca `locales/` o llama a `tr()`). Ninguna ficha debe romperlas.
 - **R10 · Tiempo.** Una tarea que necesite generar Güemes completo (26 s) o el muñeco (≈ 40 s) usa `scope="module"` en los fixtures y lo hace una vez.
 - **R11 · Entrega.** Cada tarea deja el árbol de trabajo con los archivos nuevos/tocados y, si el turno termina antes, un parche `git diff > tarea_T##.patch` con lo hecho y la lista de lo que falta.
 - **R12 · Determinismo.** Semillas fijas (`np.random.default_rng(0)`); ninguna prueba depende del orden.
+- **R13 · Informes serializables.** `LoadReport` y los `info` se vuelcan a `<fig>_informe.json` con `json.dump(..., default=float)` (`cli.run`, `Session.export`): todo campo nuevo es número, `str`, `bool`, lista o tupla de eso; nunca un objeto (`TexturedMesh`, `ColorSource`) ni un arreglo de NumPy [M5: un objeto rompe con `TypeError`].
 
 ## 10. Grafo de dependencias
 
@@ -273,7 +299,7 @@ Tareas **sin bloqueantes** (arrancables hoy): T03, T06, T10, T23. T01 ya está h
 
 ### T01 · Parser binario de FBX — **HECHA** (está en el parche)
 - **Objetivo:** leer cualquier FBX binario v7100–v7700 a un árbol de nodos.
-- **Estado:** `src/afm/fbxio.py` y `tests/test_fbxio.py` existen; `pillow` pasó a `dependencies` en `pyproject.toml`. 10 pruebas verdes; parsea el FBX real en 0,03 s [M4].
+- **Estado:** `src/afm/fbxio.py` y `tests/test_fbxio.py` existen; `pillow` pasó a `dependencies` en `pyproject.toml`. 10 pruebas verdes; parsea el FBX real en 0,03 s [M4]. Ya está en `main` (`50ff1ef`); reproducido en la v0.5: 10 pruebas en 0,44 s [M5]. **Pendiente:** la bitácora R7 en `PROGRESS.md` (el commit no la escribió; la v0.5 la agrega).
 - **Verificación:** `python -I -m pytest tests/test_fbxio.py -q`.
 - **Si la rehacés:** header de 23 bytes `b"Kaydara FBX Binary  \x00\x1a\x00"` + `uint32` de versión (offset 23); nodos desde el offset 27; versión ≥ 7500 usa registros de 25 bytes (`uint64`), menor de 13 (`uint32`); `end_offset == 0` cierra la lista. Propiedades `Y C I F D L`, arreglos `f d l i b` (`longitud, codificación, largo_comprimido`; 1 = zlib), `S` (UTF‑8, `errors="replace"`), `R`. Errores siempre `FbxError`.
 
@@ -288,11 +314,11 @@ Tareas **sin bloqueantes** (arrancables hoy): T03, T06, T10, T23. T01 ya está h
   2. `polygons_from_pvi`: recorrer `PolygonVertexIndex`; un índice negativo cierra el polígono y se recupera con `~i`.
   3. Triangular: triángulos tal cual; cuadriláteros por la diagonal más corta; n > 4 en abanico. Guardar, para cada triángulo, las posiciones de esquina (0..n‑1 del polígono) para mapear UV.
   4. UV: con `ByPolygonVertex` + `IndexToDirect`, `UVIndex[k]` da el UV de la esquina `k` del arreglo de polígonos aplanado; con `ByPolygonVertex` + `Direct`, `UV[k]`. Otras combinaciones → `FbxError`. `corner_uv` queda `(F,3,2)` float32.
-  5. Imágenes: de cada `Texture` conectada a un `Material` por `OP` con la propiedad `DiffuseColor`/`NormalMap`/`ShininessExponent`/`ReflectionFactor` → `base_color/normal/roughness/metallic`; los bytes salen del `Content` del `Video` conectado a esa `Texture` (`OO`, hijo = `Video`). Sin `Content` → aviso y sin imagen. `info["n_materiales"]` = cantidad de `Material`; más de uno → aviso.
-  6. `image(kind)`: decodifica con `PIL` (import perezoso) a `uint8 (H,W,3)`; las de un solo canal se replican; cachea.
+  5. Imágenes: de cada `Texture` conectada a un `Material` por `OP` con la propiedad `DiffuseColor`/`NormalMap`/`ShininessExponent`/`ReflectionFactor` → `base_color/normal/roughness/metallic`; los bytes salen del `Content` del `Video` conectado a esa `Texture` (`OO`, hijo = `Video`). Sin `Content` → aviso y sin imagen. `info["n_materiales"]` = cantidad de `Material`; más de uno → aviso. **Deduplicar las conexiones** por (hijo, padre, propiedad): el FBX real repite el enlace `Video→Texture` de la rugosidad (5 conexiones, 4 imágenes) [M5] y eso no es un aviso.
+  6. `image(kind)`: decodifica con `PIL` (import perezoso) a `uint8 (H,W,3)`; las de un solo canal se replican (en el real: color y normal RGB, rugosidad y metálico `L`, todas 4096²; la de color decodifica en 0,4 s [M5]); cualquier otro modo (RGBA, paleta, 16 bits) pasa por `convert("RGB")` (RG13); cachea.
   7. `sample(face, bary, kind)`: interpola `corner_uv` con las baricéntricas y toma **bilineal** con fila `= (1 − v)·alto − 0,5`, columna `= u·ancho − 0,5`, borde *clamp*.
   8. `to_trimesh()`: `trimesh.Trimesh(vertices, faces, process=False)`.
-- **Pruebas (`tests/test_texmesh.py`):** `test_polygons_from_pvi_quads_and_tris` (con `[0,1,2,~3]`, `[4,5,~6]`) · `test_quad_split_uses_shortest_diagonal` · `test_real_file_counts` (5345 vértices, 10 686 triángulos, `images` con 4 claves) · `test_real_file_scaling_applied` (caja ≈ 48,9 × 116,0 × 20,3 ± 0,1) · `test_corner_uv_shape_and_range` (UV dentro de [0,1] ± 0,01) · `test_base_color_image_is_4096_rgb` · `test_sample_hits_known_texel` (con un FBX sintético o con `TexturedMesh` armada a mano: una cara cuyas esquinas caen en el centro de un texel conocido devuelve su color exacto) · `test_v_axis_convention` (textura sintética 2×2 con la mitad superior roja: `v` alto ⇒ rojo) · `test_missing_texture_warns`.
+- **Pruebas (`tests/test_texmesh.py`):** `test_polygons_from_pvi_quads_and_tris` (con `[0,1,2,~3]`, `[4,5,~6]`) · `test_quad_split_uses_shortest_diagonal` · `test_real_file_counts` (5345 vértices, 10 686 triángulos, `images` con 4 claves) · `test_real_file_scaling_applied` (caja ≈ 48,9 × 116,0 × 20,3 ± 0,1) · `test_corner_uv_shape_and_range` (UV dentro de [0,1] ± 0,01) · `test_base_color_image_is_4096_rgb` · `test_sample_hits_known_texel` (con un FBX sintético o con `TexturedMesh` armada a mano: una cara cuyas esquinas caen en el centro de un texel conocido devuelve su color exacto) · `test_v_axis_convention` (textura sintética 2×2 con la mitad superior roja: `v` alto ⇒ rojo) · `test_missing_texture_warns` · `test_real_file_duplicate_texture_link_is_ignored` (4 claves en `images` y ningún aviso por la conexión repetida).
 - **Verificación:** `python -I -m pytest tests/test_texmesh.py -q` y R9.
 - **Aceptación:** pasan; cargar el FBX real tarda < 10 s (anotarlo).
 - **No hacer:** marco de la figura (T03), ICP (T04), muestreo denso (T07).
@@ -303,7 +329,7 @@ Tareas **sin bloqueantes** (arrancables hoy): T03, T06, T10, T23. T01 ya está h
 - **Leer:** §6 (`FigureFrame`), §7.2, `src/afm/meshio.py` (`LoadReport`, `orient_z_up`, `normalize`, `load_figure`), `src/afm/pipeline.py` líneas 55–72 (`align_to_symmetry`), `src/afm/cli.py` líneas 17–30.
 - **Crear:** `src/afm/frame.py`, `tests/test_frame.py`. **Tocar:** `src/afm/meshio.py`.
 - **Pasos:**
-  1. En `LoadReport` agregar `orient_matrix: tuple = ()` (la 3×3 aplicada por `orient_z_up`, como 9 números; vacío = identidad). Para obtenerla sin cambiar la firma pública: crear `orient_z_up_matrix(mesh) -> np.ndarray(3,3)` con la misma heurística (eje más largo) y que `orient_z_up` la use; `load_figure` la guarda en `report.orient_matrix`. **No** cambiar lo que devuelve `load_figure`.
+  1. En `LoadReport` agregar `orient_matrix: tuple = ()` (la 3×3 aplicada por `orient_z_up`, como 9 números; vacío = identidad). Para obtenerla sin cambiar la firma pública: crear `orient_z_up_matrix(mesh) -> np.ndarray(3,3)` con la misma heurística (eje más largo) y que `orient_z_up` la use; `load_figure` la guarda en `report.orient_matrix`. **No** cambiar lo que devuelve `load_figure`. `LoadReport` se vuelca a JSON (R13): `orient_matrix` es una tupla de 9 números, no un `ndarray` [M5].
   2. `FigureFrame.from_load(report, front, symmetry)`: `M = A · F · N`, con `N = to_figure ∘ orient` (rotación `orient_matrix`, luego `scale`, resta de `zmin_file` en z y de `center_xy` en x,y; igual a `LoadReport.to_figure`), `F` = giro de 180° sobre Z si `front == "-Y"` (`diag(-1,-1,1)`), `A` = la de `align_to_symmetry`: obtenerla aplicando `align_to_symmetry` a un tetraedro de 4 puntos y ajustando la transformación rígida (Kabsch). Sin `symmetry`, `A = I`.
   3. `apply(points)` y `det()` (determinante de la parte 3×3 dividido por `scale³`; debe dar +1).
 - **Pruebas:** `test_orient_matrix_recorded_for_y_up` (malla alta en Y ⇒ matriz `[[1,0,0],[0,0,-1],[0,1,0]]`) · `test_load_figure_output_unchanged` (mismos vértices que antes para el muñeco guardado como STL) · `test_frame_matches_to_figure_for_points` · `test_frame_front_minus_y_flips_xy` · `test_frame_matches_cli_pipeline` (carga el muñeco con `front="-Y"` y `demo_project().symmetry`, aplica el marco a los vértices del archivo y compara con la malla que arma `cli.run`: distancia máx < 1e‑6) · `test_det_is_plus_one`.
@@ -316,9 +342,9 @@ Tareas **sin bloqueantes** (arrancables hoy): T03, T06, T10, T23. T01 ya está h
 - **Bloqueantes:** T02, T03. *Verificación:* `python -I -c "import afm.frame, afm.texmesh"`.
 - **Leer:** §3.2, §7.2, `src/afm/frame.py`, `src/afm/texmesh.py`.
 - **Tocar:** `src/afm/frame.py`; **crear** `tests/test_frame_similarity.py`.
-- **Contrato:** `from_similarity(source_vertices, target_mesh, refine=True)` devuelve un `FigureFrame` con atributo `report: dict {"media_mm","p95_mm","max_mm","ok","iteraciones"}`; `ok = media ≤ 0,1`.
-- **Pasos:** (1) rotación de `orient_z_up_matrix` (T03) aplicada a la fuente; (2) escala = alto del STL / alto de la fuente y traslado que iguala las cajas; (3) si `refine`, ICP de similitud (Umeyama sobre pares de `cKDTree`, ≤ 20 iteraciones, corte si la media baja < 1e‑4); (4) medir la distancia de los vértices del STL a la superficie de la fuente (`trimesh.proximity` si hay `rtree`, si no `cKDTree` sobre muestras) y cargar `report`. Mantener det(R) = +1.
-- **Pruebas:** `test_recovers_known_similarity` (muñeco, transformada conocida aplicada ⇒ error medio < 0,01 mm) · `test_rejects_different_figure` (muñeco contra una esfera ⇒ `ok=False`) · `test_real_guemes_without_icp` (`refine=False`: media ≤ 0,05, máx ≤ 0,4 mm; esperado 0,036/0,336 [M3]) · `test_real_guemes_with_icp` (media ≤ 0,03 mm; esperado 0,017) · `test_real_guemes_crown_z` (`crown_z` de la fuente tras la escala ≈ 101,769 ± 0,05 cuando el STL mide 114,0 con `crown_z = 100`) · `test_front_minus_y_confirmed` (la fuente girada 180° sobre Z da media > 1 mm: el control de orientación detecta el error).
+- **Contrato:** `from_similarity(source_vertices, target_mesh, refine=None)` devuelve un `FigureFrame` con atributo `report: dict {"media_mm","p95_mm","max_mm","ok","iteraciones"}`; `ok = media ≤ 0,1`. `refine`: `None` = automático (ICP solo si la media sin ICP supera 0,05), `True` = siempre, `False` = nunca; en Güemes sobra [M5] (D11).
+- **Pasos:** (1) rotación de `orient_z_up_matrix` (T03) aplicada a la fuente; (2) escala = alto del STL / alto de la fuente (z máx − z mín tras orientar: 115,962 en el FBX, no 116,01), cajas centradas en X e Y y z mínimo apoyado; (3) ICP de similitud solo si `refine=True`, o si es `None` y la media medida sin ICP supera 0,05 (Umeyama sobre pares de `cKDTree`, ≤ 20 iteraciones, corte si la media baja < 1e‑4); (4) medir la distancia de los vértices del STL a la superficie de la fuente (`trimesh.proximity` si hay `rtree`, si no `cKDTree` sobre muestras) y cargar `report`. Mantener det(R) = +1.
+- **Pruebas:** `test_recovers_known_similarity` (muñeco, transformada conocida aplicada ⇒ error medio < 0,01 mm) · `test_rejects_different_figure` (muñeco contra una esfera ⇒ `ok=False`) · `test_real_guemes_without_icp` (`refine=False`: media ≤ 0,03, p95 ≤ 0,06, máx ≤ 0,15 mm; esperado 0,017 / 0,040 / 0,062 [M5]) · `test_real_guemes_auto_skips_icp` (`refine=None` ⇒ `report["iteraciones"] == 0`) · `test_icp_fallback_recovers_offset` [I: validar al implementar] (muñeco con la fuente girada 1° sobre Z y corrida 0,3 mm: `refine=False` da media > 0,05 y `refine=None` la baja a < 0,01) · `test_real_guemes_crown_z` (cota absoluta de coronilla de la fuente = z mín. + 100 / escala ≈ 101,769 ± 0,01 [M5]; el STL mide 114,0 con `crown_z = 100`) · `test_front_minus_y_confirmed` (la fuente girada 180° sobre Z da media > 1 mm: el control de orientación detecta el error).
 - **Verificación:** `python -I -m pytest tests/test_frame_similarity.py -q` y R9. Las pruebas reales usan `examples/guemes_segmentado_lq_fixed_resized.stl` y el FBX.
 - **Aceptación:** los números de arriba. Si el real da fuera de rango, informar el valor medido (R8).
 - **No hacer:** modo A (T21).
@@ -364,10 +390,10 @@ Tareas **sin bloqueantes** (arrancables hoy): T03, T06, T10, T23. T01 ya está h
 ### T08 · Registro pieza → fuente (semillas simples)
 - **Objetivo:** hallar la rotación de un grado de libertad que lleva una pieza en pose a la pose de reposo de la fuente.
 - **Bloqueantes:** T07. *Verificación:* `python -I -c "from afm.colorsrc import ColorSource"`.
-- **Leer:** §6 (`Registration`, `Seed`, `seeds_for_piece`, nombres de pieza), §7.4, `src/afm/pipeline.py` líneas 286–310 y 1330–1370 (uso de `motion`), `src/afm/params.py`.
+- **Leer:** §6 (`Registration`, `Seed`, `seeds_for_piece`, nombres de pieza), §7.4, `src/afm/pipeline.py` líneas 296–301 y 390 (arman `res_motion`), 542–546 (`_print_angle`) y 1323–1345 (uso de `motion`), `src/afm/detent.py` l. 298 (`print_angle`), `src/afm/params.py`.
 - **Crear:** `src/afm/colorreg.py`, `tests/test_colorreg.py`.
-- **Pasos:** (1) **Verificar los nombres [V]:** construir el muñeco (`P.build` como en `tests/test_head.py`, fixture `built`) y anotar `sorted(res.pieces)` y `res.motion.keys()` en `PROGRESS.md`. (2) `seeds_for_piece(name, motion, params, report=None)`: clave = nombre sin sufijo `_izq/_der`; si no está en `motion`, solo identidad. Semillas: `identidad`, y para `(limb, centro, eje, (a0,a1))`: `±params.sit_angle`, `±params.print_angle`, `±(a1)` (`a1` = tope del recorrido). Para `_der`: centro con x → −x; si el eje es ±X el ángulo no cambia, si no se invierte. (3) `register_piece`: muestrear `n_points` de la superficie de la pieza (`seed 0`), para cada semilla aplicar la rotación (Rodrigues sobre `centro`, `eje`) y puntuar `score = mean(src.distance(p) ≤ thresh_mm)`; tomar la mejor; si `< min_score`, barrido de 0–360° cada 15° sobre el eje del miembro y refinado ±7,5° en pasos de 1°; si aún `< min_score` ⇒ `status="sin_origen"`, `matrix = I`. `matrix` lleva **pieza → reposo** (la inversa de la rotación del motor). Estados: `identidad` si la mejor es la identidad, `semilla`, `barrido`.
-- **Pruebas:** `test_identity_for_unrotated_piece` · `test_recovers_synthetic_rotation` (rotar el brazo del muñeco 90° sobre su eje ⇒ ángulo recuperado con error ≤ 1°) · `test_right_side_mirrors_center` · `test_unknown_piece_returns_sin_origen` (malla de una esfera lejos de la figura) · `test_sweep_finds_angle_not_in_seeds` (rotación de 37°) · `test_seeds_without_motion_entry_is_identity_only` · `test_registration_is_fast` (< 3 s por pieza).
+- **Pasos:** (1) **Verificar los nombres [V]:** construir el muñeco (`P.build` como en `tests/test_head.py`, fixture `built`) y anotar `sorted(res.pieces)` y `res.motion.keys()` en `PROGRESS.md`. (2) `seeds_for_piece(name, res, params)`: clave = nombre sin sufijo `_izq/_der`; si no está en `res.motion` (en `res.right.motion` para `_der` con `limbs_right`), solo identidad. Primero la semilla **exacta** (§7.4 (0)): `th` = `params.sit_angle` para una pierna, `res.detent[clave].print_angle` para un brazo con clic, 0 para el resto, sobre `(centro, eje)` de `motion`. Luego las de respaldo: identidad, `±params.sit_angle`, `±params.print_angle`, `±a1` (tope del recorrido). Para `_der`: centro y eje reflejados con M = diag(−1, 1, 1) y ángulo de signo contrario, **siempre** [M5], sin caso especial para el eje X. (3) `register_piece`: muestrear `n_points` de la superficie de la pieza (`seed 0`), para cada semilla aplicar la rotación (Rodrigues sobre `centro`, `eje`) y puntuar `score = mean(src.distance(p) ≤ thresh_mm)`; tomar la mejor; si `< min_score`, barrido de 0–360° cada 15° sobre el eje del miembro y refinado ±7,5° en pasos de 1°; si aún `< min_score` ⇒ `status="sin_origen"`, `matrix = I`. `matrix` lleva **pieza → reposo** (la inversa de la rotación del motor). Estados: `identidad` si la mejor es la identidad, `semilla`, `barrido`.
+- **Pruebas:** `test_identity_for_unrotated_piece` · `test_recovers_synthetic_rotation` (rotar el brazo del muñeco 90° sobre su eje ⇒ ángulo recuperado con error ≤ 1°) · `test_right_side_mirrors_axis_and_negates_angle` · `test_exact_seed_for_leg_is_sit_angle` · `test_exact_seed_for_detent_arm` (fixture `doll_arm` de `tests/test_detent.py` l. 185) · `test_unknown_piece_returns_sin_origen` (malla de una esfera lejos de la figura) · `test_sweep_finds_angle_not_in_seeds` (rotación de 37°) · `test_seeds_without_motion_entry_is_identity_only` · `test_registration_is_fast` (< 3 s por pieza).
 - **Verificación:** `python -I -m pytest tests/test_colorreg.py -q` y R9.
 - **Aceptación:** pasan; los nombres de pieza reales quedan en `PROGRESS.md`.
 - **No hacer:** cadenas de giros (T18); tocar `pipeline.py`.
@@ -440,7 +466,7 @@ Tareas **sin bloqueantes** (arrancables hoy): T03, T06, T10, T23. T01 ya está h
 - **Bloqueantes:** T10, T13. *Verificación:* `python -I -c "from afm.colorbake import bake_piece; from afm.unwrap import unwrap_triangles"`.
 - **Leer:** §6 (`Colorizer`), §8 (salidas), `src/afm/pipeline.py` (`export`, líneas 1614–1670), `tests/test_head.py` (fixtures).
 - **Crear:** `src/afm/colorexport.py`, `tests/color_helpers.py` (parte 2: `doll_pieces()` y `piece_trimeshes()`), `tests/test_colorexport.py`.
-- **Pasos:** (1) `doll_pieces()` construye el muñeco con `P.build(body, pr.limbs, params, pr.symmetry)` como `test_head.py` y devuelve `res`; `piece_trimeshes(res)` → `{nombre: S.to_printable_trimesh(mf)}`. (2) `Colorizer.__call__(name, mesh, motion, report)`: `register_piece` → `unwrap_triangles` → `bake_piece`; guarda `(mesh_subdividida, Unwrapped, BakeResult, Registration)` y devuelve `{"estado", "pct_origen", "angulo", "texel_mm", "atlas": [w,h], "segundos"}`. (3) `write(outdir, fig_name, orientation)`: `piezas_color/<fig>_<pieza>.obj` (`v`, `vt` desde `Unwrapped.uv`, `f v/vt`), `.mtl` (`map_Kd <fig>_<pieza>_color.png`) y el PNG (`PIL`); `<fig>_ensamblada.glb` con todas las piezas y su textura (cada una con su material); `<fig>_color_informe.json` con las `info` y los tiempos. Aplicar la matriz `orientation` (la `T` de `print_orientation`) a las mallas de salida si se la pasa. Un vértice por esquina de cara para que el `vt` sea correcto.
+- **Pasos:** (1) `doll_pieces()` construye el muñeco con `P.build(body, pr.limbs, params, pr.symmetry)` como `test_head.py` y devuelve `res`; `piece_trimeshes(res)` → `{nombre: S.to_printable_trimesh(mf)}`. (2) `Colorizer.__call__(name, mesh, res)`: `register_piece(name, mesh, src, res, params)` → `unwrap_triangles` → `bake_piece`; guarda `(mesh_subdividida, Unwrapped, BakeResult, Registration)` y devuelve `{"estado", "pct_origen", "angulo", "texel_mm", "atlas": [w,h], "segundos"}`. (3) `write(outdir, fig_name, orientation)`: `piezas_color/<fig>_<pieza>.obj` (`v`, `vt` desde `Unwrapped.uv`, `f v/vt`), `.mtl` (`map_Kd <fig>_<pieza>_color.png`) y el PNG (`PIL`); `<fig>_ensamblada.glb` con todas las piezas y su textura (cada una con su material); `<fig>_color_informe.json` con las `info` y los tiempos. Aplicar la matriz `orientation` (la `T` de `print_orientation`) a las mallas de salida si se la pasa. Un vértice por esquina de cara para que el `vt` sea correcto. `export` decima las piezas con `cap_export_triangles` antes del bucle (tolerancia 0,02 mm, dentro de ε): se hornea sobre la malla ya decimada. Los accesorios (`extras`) que `export` agrega a `_ensamblada.stl` no llevan color: el GLB ensamblado no los incluye y el informe lo dice (`"accesorios_sin_color": n`).
 - **Pruebas:** `test_obj_mtl_png_written_and_consistent` (cada `vt` en [0,1]; el PNG existe y su tamaño = `atlas`) · `test_glb_loads_with_all_pieces` · `test_report_has_pct_origen_per_piece` · `test_orientation_applied_to_outputs` · `test_obj_reload_color_at_known_point` (recargar OBJ+PNG y muestrear el centro de una cara del brazo izquierdo del muñeco ⇒ rojo ± 10/255) · `test_pieces_without_registration_marked_sin_origen`.
 - **Verificación:** `python -I -m pytest tests/test_colorexport.py -q` y R9.
 - **Aceptación:** pasan; `tests/color_helpers.py` queda importable desde otras pruebas.
@@ -449,10 +475,10 @@ Tareas **sin bloqueantes** (arrancables hoy): T03, T06, T10, T23. T01 ya está h
 ### T15 · Gancho `colorize` en `export` y flags del CLI
 - **Objetivo:** conectar el color al motor sin cambiar la salida STL.
 - **Bloqueantes:** T14. *Verificación:* `python -I -c "from afm.colorexport import Colorizer"`.
-- **Leer:** §8, §6, `src/afm/pipeline.py` `export` (líneas 1614–1670), `src/afm/cli.py` (`run`, parser `b`), `src/afm/locales/es.json`.
+- **Leer:** §8, §6, `src/afm/pipeline.py` `export` (líneas 1614–1670), `src/afm/cli.py` (`run`, parser `b`), `src/afm/locales/es.json`, `src/afm/gui/session.py` l. 2478–2500 (solo lectura: la GUI llama a `P.export` por su cuenta).
 - **Tocar:** `src/afm/pipeline.py` (solo `export`), `src/afm/cli.py`, `src/afm/locales/{es,en,pt}.json`; **crear** `tests/test_color_cli.py`.
-- **Pasos:** (1) `export(..., colorize=None)`: dentro del bucle de piezas, **antes** de `apply_transform(T)`, `if colorize: colorize(part, tm, res.motion, res.report)` (pasa una copia de `tm`); al final, `if colorize: info["color"] = colorize.write(outdir, name, T)`. Sin `colorize` el comportamiento y los bytes no cambian. (2) CLI: flags `--color-desde FBX`, `--sin-color`, `--textura-mm`, `--color-simetrico`, `--color-relleno`, `--color-tolerancia` en el parser `b`; en `run()`, si hay `--color-desde`, cargar `TexturedMesh`, `FigureFrame.from_similarity` contra la malla del motor (marco de la figura), si no `ok` abortar con aviso; crear `ColorSource` y `Colorizer` y pasarlos a `export`. (3) i18n en los tres idiomas para cada `help`.
-- **Pruebas:** `test_export_without_colorize_is_byte_identical` (muñeco: dos exportaciones, una con el código antes y otra después, comparar hashes de los STL; guardar el hash esperado en el test) · `test_export_with_colorize_leaves_stl_untouched` · `test_cli_flags_parse` · `test_cli_color_desde_rejects_different_figure` (FBX del muñeco de otra figura ⇒ aviso y salida sin color) · `test_sin_color_flag_disables`.
+- **Pasos:** (1) `export(..., colorize=None)` **al final de la firma** (los llamadores por posición no cambian): dentro del bucle de piezas, **antes** de `apply_transform(T)`, `if colorize: colorize(part, tm, res)` (pasa una copia de `tm`; `res` es el `BuildResult` ya aplanado/decimado que `export` arma); al final, `if colorize: info["color"] = colorize.write(outdir, name, T)`. Sin `colorize` el comportamiento y los bytes no cambian. (2) CLI: `run()` gana `colorize=None` y lo pasa a `P.export`; `main` lo pasa **solo si** hay `--color-desde` (así `tests/test_flat_print.py::test_cli_flag_parses`, que reemplaza `cli.run` por una función con `**kw`, no cambia [M5]); flags `--color-desde FBX`, `--sin-color`, `--textura-mm`, `--color-simetrico`, `--color-relleno`, `--color-tolerancia` en el parser `b`; en `run()`, si hay `--color-desde`, cargar `TexturedMesh`, `FigureFrame.from_similarity` contra la malla del motor (marco de la figura), si no `ok` abortar con aviso; crear `ColorSource` y `Colorizer` y pasarlos a `export`. (3) i18n en los tres idiomas para cada `help`. (4) **La GUI y la web no pasan por `cli.run`:** `Session.export` (`gui/session.py` l. 2487) llama a `P.export` y `webapi._run` usa el CLI; este paso no los toca (T25, T28).
+- **Pruebas:** `test_export_without_colorize_is_byte_identical` (muñeco: dos exportaciones, una con el código antes y otra después, comparar hashes de los STL; guardar el hash esperado en el test) · `test_export_with_colorize_leaves_stl_untouched` · `test_cli_flags_parse` · `test_cli_color_desde_rejects_different_figure` (FBX del muñeco de otra figura ⇒ aviso y salida sin color) · `test_sin_color_flag_disables` · `test_main_omits_colorize_without_flag`.
 - **Verificación:** `python -I -m pytest tests/test_color_cli.py -q` y R9.
 - **Aceptación:** STL idénticos byte a byte con y sin color.
 - **No hacer:** modo A (T21); GUI.
@@ -460,12 +486,12 @@ Tareas **sin bloqueantes** (arrancables hoy): T03, T06, T10, T23. T01 ya está h
 ### T16 · Integración con Güemes y medida de calidad del despliegue base
 - **Objetivo:** correr Güemes con color de punta a punta, medir y decidir T20.
 - **Bloqueantes:** T04, T09, T15.
-- **Leer:** `examples/guemes.py`, §12 (fase 2: 60 s, 0 solapes), `src/afm/cli.py`.
+- **Leer:** `examples/guemes.py`, `src/afm/cli.py` (los criterios de tiempo y solapes son los de las pruebas de esta ficha).
 - **Crear:** `tests/test_color_guemes_e2e.py` (misma marca `AFM_SLOW`), `tools/render_color_compare.py`.
 - **Pasos:** generar Güemes con color (texel 0,2 mm); medir tiempo adicional, atlas por pieza, `pct_origen`. Colores en puntos conocidos (charretera dorada, puño verde, pelo negro, guerrera blanca) comparados contra la propia fuente en el mismo punto. `render_color_compare.py`: 3 vistas (frente, lado, espalda) de la fuente y del GLB ensamblado, lado a lado, PNG.
 - **Pruebas:** `test_guemes_color_time_under_60s` · `test_guemes_no_overlapping_texels` · `test_guemes_stl_identical_to_run_without_color` · `test_guemes_color_at_known_points` (distancia de color ≤ 40/255 en 5 puntos que la prueba elige por coordenada en el marco de la figura; documentar las coordenadas) · `test_guemes_atlas_sizes_recorded`.
 - **Verificación:** `AFM_SLOW=1 python -I -m pytest tests/test_color_guemes_e2e.py -q`.
-- **Aceptación:** los criterios de §12 fase 2. **Decisión para T20:** si el torso supera 4096² o el atlas ocupa < 35 % útil, anotar «hacer T20» en `PROGRESS.md`; si no, «no hace falta T20».
+- **Aceptación:** pasan las pruebas de esta ficha (≤ 60 s adicionales, 0 texeles solapados). **Decisión para T20:** si el torso supera 4096² o el atlas ocupa < 35 % útil, anotar «hacer T20» en `PROGRESS.md`; si no, «no hace falta T20».
 - **No hacer:** cambiar el despliegue.
 
 ## 14. Fase 3 — Casos completos (sobre el muñeco texturizado)
@@ -488,7 +514,7 @@ Las tres tareas parten de `tests/color_helpers.py` (T14: `doll_pieces()`, `piece
 - **Bloqueantes:** T15.
 - **Leer:** `tests/test_flat_print.py` líneas 126–150 (fixture `knee_doll`: `JointSpec(name="rodilla", limb="pierna", kind="knee", plane=Plane.from_normal((0,0,14),(0,0,1)), axis_center=(9,0,17.4))`), `tests/test_detent.py` líneas 185–200 (fixture `doll_arm` con `shoulder_detent=True`), `src/afm/pipeline.py` líneas 308–330 (cómo se giran `prox`/`dist`: `jb.rotate_distal(print_flex)` y luego el giro `th` sobre el pasador).
 - **Tocar:** `src/afm/colorreg.py` (aceptar **semillas encadenadas**); **crear** `tests/test_color_joints.py`.
-- **Contrato:** una semilla puede ser `(centro, eje, ángulo)` o una **lista** de esos pasos aplicados en orden. `seeds_for_piece(piece_name, motion, params, report=None)` recibe además `res.report` y, para cada pieza de articulación, genera la cadena inversa de la pose impresa: primero deshacer el giro de la cadera/hombro (`print_hip` sobre el centro y eje del miembro), luego deshacer la flexión (`print_flex` sobre `center`/`axis` de la articulación), probando las 4 combinaciones de signo. Las piezas proximales llevan solo el primer paso.
+- **Contrato:** una semilla puede ser `(centro, eje, ángulo)` o una **lista** de esos pasos aplicados en orden. `seeds_for_piece(piece_name, res, params)` lee además `res.report["joints"]` y, para cada pieza de articulación, genera la cadena inversa de la pose impresa: primero deshacer el giro de la cadera/hombro (`print_hip` sobre el centro y eje del miembro), luego deshacer la flexión (`print_flex` sobre `center`/`axis` de la articulación), probando las 4 combinaciones de signo. Las piezas proximales llevan solo el primer paso.
 - **Pasos:** (1) extender `register_piece` para aceptar listas de pasos (composición de matrices 4×4); (2) generar la cadena desde `res.report["joints"][nombre]`; (3) si ninguna cadena supera 40 %, barrido en **dos ángulos** (RG10): 24 × 24 pasos de 15° en los dos ejes, refinado local ±7,5°; (4) pieza proximal y distal de rodilla/codo coloreadas con su región.
 - **Pruebas:** `test_chain_seed_recovers_knee_leg` (pierna distal con rodilla a 85° + cadera a 90° ⇒ `status in {"semilla","barrido"}` y `pct_origen ≥ 80`) · `test_proximal_piece_uses_single_step` · `test_arm_with_detent_registers` · `test_two_angle_sweep_fallback` (rotación sintética de dos ángulos fuera de las semillas) · `test_chain_signs_all_four_tried` · `test_register_is_still_fast` (< 6 s por pieza).
 - **Verificación:** `python -I -m pytest tests/test_color_joints.py -q` y R9.
@@ -498,10 +524,10 @@ Las tres tareas parten de `tests/color_helpers.py` (T14: `doll_pieces()`, `piece
 ### T19 · `--sin-soportes`, asimetría y piezas de catálogo
 - **Objetivo:** color correcto con base aplanada, con `limbs_right` y con piezas de catálogo sin origen.
 - **Bloqueantes:** T15.
-- **Leer:** `tests/test_flat_print.py`, `tests/test_asymmetric.py` [V: existe según `PROGRESS.md`], `src/afm/catalog.py` y `tests/test_catalog.py` (cómo se importan piezas), `src/afm/pipeline.py` `flat_for_print` y `build(..., limbs_right=)`, §7.6, §7.8.
+- **Leer:** `tests/test_flat_print.py`, `tests/test_torso_asym.py` (fixtures `_bumped`, `_build`), `src/afm/catalog.py` y `tests/test_catalog.py` (cómo se importan piezas), `src/afm/pipeline.py` `flat_for_print` y `build(..., limbs_right=)`, §7.6, §7.8.
 - **Tocar:** `src/afm/colorreg.py` si hace falta; **crear** `tests/test_color_cases.py`.
-- **Pasos:** (1) `--sin-soportes`: `export(..., flat=…)` aplana la base y gira brazos antes de escribir; confirmar que el `colorize` se llama con la malla **antes** de `T` pero **después** de `flat_for_print`, y que el registro (que usa semillas de `motion`) sigue hallando la pose; si el aplanado recorta la fuente, el `pct_origen` baja y debe informarse; (2) `limbs_right`: la pieza derecha toma el color del lado derecho; con `symmetric=True` copia el izquierdo; (3) catálogo: una pieza importada del catálogo (p. ej. una mano estándar de `catalogo/`) sale `sin_origen` con color plano `#C8C8C8` y el informe lo marca.
-- **Pruebas:** `test_flat_print_pieces_still_colored` · `test_flat_print_reports_lower_origin_where_cut` · `test_asymmetric_right_arm_keeps_right_color` (muñeco con brazo derecho más corto: sigue azul) · `test_symmetric_option_overrides_asymmetry` · `test_catalog_piece_is_sin_origen_and_gray` · `test_report_lists_sin_origen_pieces`.
+- **Pasos:** (1) `--sin-soportes`: `export(..., flat=…)` aplana la base y gira brazos antes de escribir; confirmar que el `colorize` se llama con la malla **antes** de `T` pero **después** de `flat_for_print`, y que el registro (que usa semillas de `motion`) sigue hallando la pose; si el aplanado recorta la fuente, el `pct_origen` baja y debe informarse; (2) `limbs_right`: **`tests/test_asymmetric.py` no existe en `main`** (`PROGRESS.md` lo da «en curso, sin commitear») y ningún test de `main` usa `limbs_right` [M5]: si ya está en la rama del cliente, usarlo; si no, armar el fixture con `LimbSpec.mirrored()` y `P.build(..., limbs_right=…)` sobre el muñeco. Las piezas `_der` salen de `res.right` (cuerpo espejado, `pipeline._build_right_side`): su `motion` es `res.right.motion` (§6), reflejado como en §7.4; el motor rechaza clic y catálogo con `limbs_right` (`ValueError`), así que no se combinan. La pieza derecha toma el color del lado derecho; con `symmetric=True` copia el izquierdo; (3) catálogo: una pieza importada del catálogo (p. ej. una mano estándar de `catalogo/`) sale `sin_origen` con color plano `#C8C8C8` y el informe lo marca.
+- **Pruebas:** `test_flat_print_pieces_still_colored` · `test_flat_print_reports_lower_origin_where_cut` · `test_asymmetric_right_arm_keeps_right_color` (muñeco con brazo derecho más corto: sigue azul) · `test_symmetric_option_overrides_asymmetry` · `test_right_pieces_use_right_motion` · `test_catalog_piece_is_sin_origen_and_gray` · `test_report_lists_sin_origen_pieces`.
 - **Verificación:** `python -I -m pytest tests/test_color_cases.py -q` y R9.
 - **Aceptación:** pasan.
 - **No hacer:** implementar color propio de catálogo (§7.8).
@@ -525,8 +551,8 @@ Las tres tareas parten de `tests/color_helpers.py` (T14: `doll_pieces()`, `piece
 - **Bloqueantes:** T04, T15.
 - **Leer:** §7.2, `src/afm/meshio.py` (`load_figure`), `src/afm/cli.py` (`run`), `src/afm/frame.py`.
 - **Tocar:** `src/afm/meshio.py`, `src/afm/cli.py`; **crear** `tests/test_mode_a.py`.
-- **Pasos:** (1) `load_figure` despacha `.fbx` a `fbxio.load_textured` → `to_trimesh()` (geometría) → mismo flujo (`orient_z_up`, reparar, normalizar), y deja la fuente en `LoadReport.color_source` (inmutable, **sin reparar**); (2) `crown_z` del proyecto en unidades FBX tras `Lcl Scaling` (101,769 para Güemes); (3) `cli.run`: si `LoadReport.color_source` y no `--sin-color`, usar `FigureFrame.from_load(...)` para la fuente y activar el color; (4) si la reparación remalló, subir `eps` (§7.2) y avisar.
-- **Pruebas:** `test_load_figure_accepts_fbx` (muñeco exportado a FBX sintético con `_write_fbx` de `test_fbxio`, o el real) · `test_mode_a_matches_mode_b_geometry` (volumen de piezas del muñeco por FBX vs. STL: ± 0,5 %) · `test_mode_a_without_texture_runs_without_color` · `test_remeshed_raises_eps` · `test_stl_flow_unchanged`.
+- **Pasos:** (1) `load_figure` despacha `.fbx` a `fbxio.load_textured` → `to_trimesh()` (geometría) → mismo flujo (`orient_z_up`, reparar, normalizar), y deja en `LoadReport.color_source_path` (un `str`) la ruta del FBX: **no** el objeto, porque `cli.run` vuelca `rep.__dict__` con `json.dump(…, default=float)` y un `TexturedMesh` rompe con `TypeError` (probado [M5], R13); la fuente se carga aparte con `fbxio.load_textured(path)` (inmutable, **sin reparar**); (2) `crown_z` del proyecto en unidades FBX tras `Lcl Scaling` (101,769 para Güemes: cota **absoluta**, §3.2); (3) `cli.run`: si `LoadReport.color_source_path` y no `--sin-color`, usar `FigureFrame.from_load(...)` para la fuente y activar el color; (4) si la reparación remalló, subir `eps` (§7.2) y avisar.
+- **Pruebas:** `test_load_figure_accepts_fbx` (muñeco exportado a FBX sintético con `_write_fbx` de `test_fbxio`, o el real) · `test_mode_a_matches_mode_b_geometry` (volumen de piezas del muñeco por FBX vs. STL: ± 0,5 %) · `test_mode_a_without_texture_runs_without_color` · `test_remeshed_raises_eps` · `test_stl_flow_unchanged` · `test_report_with_fbx_is_json_serializable`.
 - **Verificación:** `python -I -m pytest tests/test_mode_a.py -q` y R9.
 - **Aceptación:** pasan; el flujo STL queda intacto.
 - **No hacer:** GUI.
@@ -536,7 +562,7 @@ Las tres tareas parten de `tests/color_helpers.py` (T14: `doll_pieces()`, `piece
 - **Bloqueantes:** T21.
 - **Leer:** `src/afm/gui/session.py` (`load`), `tests/test_gui_new_project.py` (cómo se prueba sin GTK), `src/afm/locales/es.json`.
 - **Tocar:** `src/afm/gui/session.py`, `src/afm/locales/{es,en,pt}.json`; **crear** `tests/test_gui_session_fbx.py`.
-- **Pasos:** `Session.load(path)`: si termina en `.fbx`, llamar al lector y guardar `self.color_source` y un `self.fbx_summary` (`triángulos, islas UV, texturas, avisos`); mostrar el resumen en el controlador (sin widgets nuevos todavía) y avisar si falta la textura base o hay más de un material.
+- **Pasos:** `Session.load(path, crown_z=None, progress=None)` (`gui/session.py` l. 97; deja `_zmin_file` y `base` y llama a `_rebuild_frames`): si termina en `.fbx`, llamar al lector y guardar `self.color_source` y un `self.fbx_summary` (`triángulos, islas UV, texturas, avisos`); mostrar el resumen en el controlador (sin widgets nuevos todavía) y avisar si falta la textura base o hay más de un material.
 - **Pruebas:** `test_session_loads_fbx_and_summary` · `test_session_warns_missing_base_texture` · `test_session_loads_stl_as_before` · `test_session_fbx_planes_use_figure_frame`.
 - **Verificación:** `python -I -m pytest tests/test_gui_session_fbx.py -q` (sin GTK).
 - **Aceptación:** pasan sin GTK instalado.
@@ -567,30 +593,30 @@ Las tres tareas parten de `tests/color_helpers.py` (T14: `doll_pieces()`, `piece
 ### T25 · Panel «Color» e informe previo
 - **Objetivo:** bloque «Color» en parámetros y informe antes de guardar.
 - **Bloqueantes:** T23, T24.
-- **Leer:** `src/afm/gui/` (ventana de parámetros; archivo por localizar), `src/afm/project.py` (`ColorSpec`), `src/afm/locales/es.json`.
+- **Leer:** `src/afm/gui/` (ventana de parámetros; archivo por localizar), `src/afm/project.py` (`ColorSpec`), `src/afm/gui/session.py` (`export`, l. 2478–2500), `src/afm/locales/es.json`.
 - **Tocar:** archivos de la GUI, `src/afm/locales/{es,en,pt}.json`; **crear** `tests/test_gui_color_panel.py` (lógica del controlador).
-- **Pasos:** campos texel (mm), política (extender / color plano + selector), lado (original / simétrico), ε; botón «Quitar color»; tabla de informe (pieza, % con origen, estado) tomada de `<fig>_color_informe.json`; si el FBX no está en la ruta del proyecto, diálogo para relocalizarlo (hash).
-- **Pruebas:** `test_controller_color_spec_roundtrip` · `test_controller_report_rows` · `test_relocate_checks_sha256` · `test_color_off_when_removed`.
+- **Pasos:** campos texel (mm), política (extender / color plano + selector), lado (original / simétrico), ε; botón «Quitar color»; tabla de informe (pieza, % con origen, estado) tomada de `<fig>_color_informe.json`; si el FBX no está en la ruta del proyecto, diálogo para relocalizarlo (hash). **Cablear `Session.export`** (`gui/session.py` l. 2478–2500): si `project.color` está activo, armar `ColorSource` + `Colorizer` y pasarlo como `colorize=` a `P.export`; sin `project.color` la llamada queda igual (la GUI no pasa por `cli.run`).
+- **Pruebas:** `test_controller_color_spec_roundtrip` · `test_controller_report_rows` · `test_relocate_checks_sha256` · `test_color_off_when_removed` · `test_session_export_passes_colorize_only_with_color`.
 - **Verificación:** `python -I -m pytest tests/test_gui_color_panel.py -q`; GUI no verificada en pantalla.
 - **Aceptación:** pasan.
 - **No hacer:** i18n de otros bloques.
 
-### T26 · i18n completo de la feature
-- **Objetivo:** que todo texto de la feature exista en es/en/pt.
+### T26 · Auditoría de textos de la feature (reducida en la v0.5)
+- **Objetivo:** que ningún texto visible de la feature quede fuera de `tr()` ni falte en un idioma.
 - **Bloqueantes:** T25.
-- **Leer:** `src/afm/i18n.py`, `src/afm/locales/*.json`, `tests/` (¿hay una prueba de claves pareadas? [V] `grep -l locales tests`).
-- **Tocar:** `src/afm/locales/{es,en,pt}.json`; **crear** `tests/test_color_i18n.py`.
-- **Pasos:** listar con `grep` los textos nuevos (CLI, GUI, avisos de `fbxio`/`frame`/`colorreg`), asegurar las tres traducciones y que el conjunto de claves sea idéntico.
-- **Pruebas:** `test_color_keys_in_three_languages` · `test_no_empty_translations` · `test_help_strings_resolve`.
-- **Verificación:** `python -I -m pytest tests/test_color_i18n.py -q`.
-- **Aceptación:** pasan.
+- **Contexto [M5]:** ya existen `tests/test_i18n.py::test_same_keys_in_every_language`, `test_placeholders_match_spanish` y `test_every_key_used_in_code_exists` (es, en y pt tienen 1648 claves cada una). Cada tarea que agrega un texto agrega sus tres claves en la misma ficha (R5) y esas pruebas ya lo exigen: esta ficha **no** crea otro archivo de pruebas de claves pareadas.
+- **Leer:** `src/afm/i18n.py`, `src/afm/locales/*.json`, `tests/test_i18n.py`.
+- **Crear:** `tests/test_color_i18n.py` (una prueba).
+- **Pasos:** (1) `grep` de literales con texto para el usuario en `fbxio.py`, `texmesh.py`, `frame.py`, `colorsrc.py`, `colorreg.py`, `colorbake.py`, `colorexport.py`, `cli.py` y `gui/` que sigan fuera de `tr()` (los avisos de motor en español quedan como están: R5); (2) revisar que las tres traducciones del bloque `color.*` sean texto real y no una copia del español; (3) agregar solo las claves que falten.
+- **Pruebas:** `test_color_keys_present_in_three_languages` (las claves `color.*` existen en es, en y pt) y `python -I -m pytest tests/test_i18n.py -q`.
+- **Aceptación:** pasan; ninguna prueba existente se modifica.
 
 ### T27 · Golden del FBX
 - **Objetivo:** congelar el resultado de generar Güemes desde el FBX (modo A).
 - **Bloqueantes:** T21.
-- **Leer:** `tools/golden.py`, `tests/test_golden.py`, `tests/golden/guemes.json`, §13 del plan de pruebas (tolerancias).
+- **Leer:** `tools/golden.py`, `tests/test_golden.py`, `tests/golden/guemes.json`; las tolerancias de `compare` son `VOL_REL_TOL = 1e-4` y `GAP_TOL_MM = 5e-3` (`tools/golden.py` l. 30–31 [M5]).
 - **Tocar:** `tools/golden.py` (figura `guemes_fbx`), **crear** `tests/golden/guemes_fbx.json`.
-- **Pasos:** agregar `guemes_fbx` a `FIGURES` con `guemes.py` pero entrada `.fbx`; `guardar guemes_fbx`; comparar cruzado con `guemes.json` con tolerancia de 0,5 % (el FBX difiere en 2 triángulos y hasta 0,26 mm en unos pocos vértices).
+- **Pasos:** agregar `guemes_fbx` a `FIGURES` con `guemes.py` pero entrada `.fbx`; `guardar guemes_fbx`; comparar cruzado con `guemes.json` con tolerancia de 0,5 % (el FBX difiere en 2 triángulos y hasta 0,265 mm en un vértice [M5]); ese cruce usa su propia tolerancia, porque `compare` con 1e‑4 marcaría diferencias esperables.
 - **Pruebas:** `test_golden_guemes_fbx_matches_frozen` · `test_guemes_fbx_vs_stl_within_half_percent`.
 - **Verificación:** `AFM_SLOW=1 python -I -m pytest tests/test_golden.py -q -k guemes_fbx`.
 - **Aceptación:** pasan.
@@ -600,7 +626,7 @@ Las tres tareas parten de `tests/color_helpers.py` (T14: `doll_pieces()`, `piece
 ### T28 · Web (Pyodide)
 - **Objetivo:** el lector y el horneado corren en el navegador.
 - **Bloqueantes:** T15.
-- **Leer:** `docs/PLAN_port_pyodide.md`, `docs/WEB_mantenimiento.md`, `src/afm/webapi.py`, `web/`.
+- **Leer:** `docs/PLAN_port_pyodide.md` (su l. 60 lista las dependencias duras sin `pillow`: está desactualizada desde T01; `web/config.js` ya carga `pillow` en `PYODIDE_PACKAGES` [M5]), `docs/WEB_mantenimiento.md`, `src/afm/webapi.py` (`_run` usa el CLI: hereda `colorize` solo si se lo pasa), `web/`.
 - **Pasos:** exponer `EngineSession.load_fbx(data: bytes)`; solo la textura de color reducida a 2048²; `unwrap` propio y `cKDTree` (sin `xatlas`/`rtree`); salida del atlas a `three.js`.
 - **Pruebas:** `test_websession_load_fbx_bytes` · `test_websession_bake_matches_desktop` (distancia de color media ≤ 4/255 contra `bake_piece` de escritorio con el mismo muñeco).
 - **Verificación:** `python -I -m pytest tests/test_webapi_color.py -q`; paridad en navegador **no verificada** salvo que se disponga de `tools/parity_wasm_native.py`.
@@ -626,7 +652,7 @@ Las tres tareas parten de `tests/color_helpers.py` (T14: `doll_pieces()`, `piece
 | RG1 | Marco del FBX distinto del de la geometría | `FigureFrame` único; T03/T04 comparan caja, pies y cara; modo B rechaza con media > 0,1 mm |
 | RG2 | UV con costuras | UV de las esquinas de la cara hallada; prueba de costuras en T07 |
 | RG3 | Piezas muy juntas (caso Mickey) | Filtro de normales, ε chico; validar con Mickey más adelante |
-| RG4 | `repair` remalla y se aparta de la fuente | ε sube al paso de voxel y se avisa (T21) |
+| RG4 | `repair` remalla y se aparta de la fuente | ε sube al paso de voxel y se avisa (T21); la decimación de `export` (`cap_export_triangles`, tol. 0,02 mm) queda dentro de ε [I] |
 | RG5 | Textura 4096² pesa ≈ 50 MB decodificada | Solo la de color; liberar tras precalcular `sample_rgb` (T07) |
 | RG6 | Solapes o costuras visibles | `check_no_overlap`; T20 si T16 lo pide |
 | RG7 | El slicer no importa textura | OBJ y GLB ya aportan valor; T30 según P1 |
@@ -637,9 +663,13 @@ Las tres tareas parten de `tests/color_helpers.py` (T14: `doll_pieces()`, `piece
 | RG12 | Padding borroso contamina bordes de isla | Contraer el muestreo 1–2 texeles (T13) |
 | RG13 | El lector no cubre variantes | Probar con otro FBX antes de cerrar la fase 0 [P] |
 | RG14 | Una tarea no cabe en un turno | Dejar `git diff` + lista de lo que falta (R11 del §9) |
+| RG15 | Dos caminos de exportación (CLI y GUI) | `P.export(colorize=)` es el único punto; el CLI se cablea en T15, la GUI en T25 y la web en T28, con una prueba en cada uno |
+| RG16 | Un campo no serializable en `LoadReport` o en un `info` rompe el informe JSON | R13; `test_report_with_fbx_is_json_serializable` (T21) |
 
-## 18. Estado de implementación (qué entrega el parche que acompaña a este documento)
+## 18. Estado de implementación (v0.5, sobre `main @ 50ff1ef`)
 
-- **Hecho:** T01 (`src/afm/fbxio.py`, `tests/test_fbxio.py`, `pillow` en `dependencies`); este documento (`docs/PLAN_fbx_textura_color.md`).
-- **No hecho:** T02–T30. Los hechos nuevos medidos para este plan están en §3.1 (mapa de nodos, conexiones, nombre `\x00\x01`).
-- **No verificado:** nada de GUI; el resto de la suite del repo (solo se corrieron las 10 pruebas nuevas y se revisó que `pyproject.toml` conserve `pillow` en los extras).
+- **Hecho y en `main`:** T01 (`src/afm/fbxio.py`, `tests/test_fbxio.py`, `pillow` en `dependencies`) y este documento (v0.4, mismo commit). Reproducido en la v0.5: `python -I -m pytest tests/test_fbxio.py -q` → 10 pruebas en 0,44 s; el FBX real se parsea en 0,04 s [M5].
+- **Pendiente de lo hecho:** la bitácora de T01 en `PROGRESS.md` (R7); el commit no la escribió. La v0.5 la agrega junto con la de esta revisión.
+- **No hecho:** T02–T30. Arrancables hoy: T02, T03, T06, T10, T23.
+- **Regresión [M5]:** `tests/test_packaging.py tests/test_export_clean.py tests/test_i18n.py` → 19 pruebas en 16 s; `tests/test_pipeline.py` → 3 pruebas en 15 s. La suite completa no se corrió.
+- **No verificado:** nada de GUI (este entorno no tiene GTK ni GL). Las medidas de las piezas reales de Güemes (§3.3: hacen falta ≈ 26 s de motor y T08/T09), las de rendimiento (§3.5, incluido el fallo de `xatlas`) y las de color (§3.4) se heredan de la v0.2/v0.3 sin reproducir; «36 islas UV» y «≈ 70 % del atlas» (§3.1) tampoco.
