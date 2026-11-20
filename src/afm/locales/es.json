@@ -987,7 +987,8 @@
   "no_hay_una_figura_armada_con_color": "todavía no hay una figura armada con color por roles: armala primero",
   "lo_elegido_cambio_desde_el_armado": "lo elegido cambió desde que se armó la figura (piezas, opciones, mano o escalas): armala de nuevo",
   "la_linea_no_tiene_paleta": "la línea no tiene paleta (falta paleta.json)",
-  "a_la_paleta_le_faltan_roles": "a la paleta de la línea le faltan roles que usan las piezas elegidas: %{roles}. Agregalos en «Paleta de la línea…» o elegí otras piezas"
+  "a_la_paleta_le_faltan_roles": "a la paleta de la línea le faltan roles que usan las piezas elegidas: %{roles}. Agregalos en «Paleta de la línea…» o elegí otras piezas",
+  "color_no_disponible": "%{ref}: no se pudo mostrar su color (%{exc}); se ve de color plano."
  },
  "figure_window": {
   "receta_abierta_path_retocala_y_guardala": "Receta abierta: %{path}\nRetocala y guardala con otro nombre, o armala.",
@@ -1054,7 +1055,9 @@
   "colores_sin_figura": "Armá la figura para poder recolorearla.",
   "colores_pendientes": "Hay cambios de color sin aplicar a la figura armada.",
   "colores_al_dia": "La figura armada ya tiene estos colores.",
-  "colores_hex_invalido": "El color tiene que ser «#RRGGBB»."
+  "colores_hex_invalido": "El color tiene que ser «#RRGGBB».",
+  "color_vista_error": "No se pudo mostrar el color en la vista previa: %{exc}",
+  "color_vista_avisos": "Vista previa a color (aproximada: el color final se hornea al armar):"
  },
  "hero_wizard": {
   "el_heroe": "El héroe",

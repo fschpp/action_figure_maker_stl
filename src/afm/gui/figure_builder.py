@@ -40,6 +40,7 @@ class FigureBuilder:
         self.scales: dict[str, list[float]] = {}                                        # lugar -> [sx, sy, sz] (solo los ≠ ×1)
         self.accessories: list[str] = []                                                # «id@versión» de los accesorios que acompañan a la figura
         self.palette_override: dict[str, str] = {}                                      # T48: {rol: "#RRGGBB"} colores que cambian SOLO en esta figura
+        self._color_tm_cache: dict = {}                                                 # ref -> (clave, fuente de color de la vista previa)
         self._built: dict | None = None                                                 # T48: último armado (Colorizer, carpeta, nombre, geometría) para recolorear
 
     # ------------------------------------------------------------------ catálogo
@@ -444,6 +445,56 @@ class FigureBuilder:
         self.recipe().save(path)
         return path
 
+    def _color_tm(self, cat: Catalog, meta):
+        """Fuente de color de la pieza (en el marco de su STL) con los cambios de paleta de esta figura; se recuerda por pieza, color, paleta y cambios."""
+        from ..colorpreview import piece_color_source_tm
+
+        over = self.effective_overrides(cat)
+        pal = cat.palette()
+        key = (meta.ref, str((meta.color or {}).get("sha256", "")), pal.digest() if pal is not None else "", tuple(sorted(over.items())))
+        hit = self._color_tm_cache.get(meta.ref)
+        if hit is not None and hit[0] == key:
+            return hit[1]
+        tm = piece_color_source_tm(cat, meta, over)
+        if len(self._color_tm_cache) >= 12:
+            self._color_tm_cache.pop(next(iter(self._color_tm_cache)))
+        self._color_tm_cache[meta.ref] = (key, tm)
+        return tm
+
+    def piece_color_parts(self, meta, mesh):
+        """`[(nombre, malla, rgba)]` de la pieza `meta` sola (en su marco), con el color de la figura; `None` si no lleva color."""
+        from ..colorpreview import color_parts
+
+        tm = self._color_tm(self.catalog(), meta) if getattr(meta, "color", None) else None
+        return None if tm is None else color_parts(tm, mesh, prefix=f"{meta.id}_c")
+
+    def placed_color_parts(self, meta, sides):
+        """Partes de color de la pieza `meta` ya puesta en la figura: `sides` = [(nombre, malla puesta)] (el lado izquierdo y, si hay, su espejo).
+        Cada malla puesta es la del STL de la pieza movida por una transformación afín (giro, traslado, escala, espejo): se recupera esa matriz
+        comparando vértices y la misma se aplica a la fuente de color. `None` si no se pudo (otra cantidad de vértices): la pieza va de color plano."""
+        from ..colorpreview import color_parts, fit_affine
+
+        cat = self.catalog()
+        tm = self._color_tm(cat, meta)
+        if tm is None:
+            return None
+        _m, orig = cat.load(meta.ref, check_hash=False)
+        out: list = []
+        for name, placed in sides:
+            M = fit_affine(orig.vertices, placed.vertices)
+            if M is None:
+                return None
+            out.extend(color_parts(tm.transformed(M), placed, prefix=f"{name}_c"))
+        return out
+
+    def preview_color(self) -> tuple[list, list[str]]:
+        """Vista previa conjunta con el color de cada pieza (ver `preview_color_parts`). Puede tardar unos segundos."""
+        return preview_color_parts(self)
+
+    def has_colored_choice(self) -> bool:
+        """¿Alguna pieza elegida lleva color? (para decidir si vale la pena calcular la vista previa a color)."""
+        return any(getattr(m, "color", None) for m in self._chosen_metas())
+
     def preview(self) -> tuple[list, list[str]]:
         """Vista previa conjunta de las piezas elegidas (ver `preview_parts`)."""
         return preview_parts(self)
@@ -489,7 +540,7 @@ def _mirrored(mesh):
     return m
 
 
-def preview_parts(builder: "FigureBuilder") -> tuple[list, list[str]]:
+def _place_parts(builder: "FigureBuilder") -> tuple[list, list[str]]:
     """Todas las piezas elegidas puestas juntas, sin generar nada (solo transformaciones rígidas, instantáneo).
 
     Devuelve ([(nombre, malla, color)], avisos). Cada pieza va en su puerto —la pelvis en la cintura del torso, la cabeza en
@@ -511,13 +562,13 @@ def preview_parts(builder: "FigureBuilder") -> tuple[list, list[str]]:
     out: list = []
     upper = ch.get("torso_sup") or ch["torso"]
     lower = ch.get("pelvis") if upper.meta.tipo == "torso_sup" else None
-    out.append(("torso", upper.mesh.copy(), "torso", False))
+    out.append(("torso", upper.mesh.copy(), "torso", False, upper.meta))
     if lower is not None:
         cp, lp = upper.meta.puertos.get("cintura"), lower.meta.puertos.get("cintura")
         if cp is None or lp is None:
             notes.append(tr("figure_builder.falta_el_puerto_cintura_la_pelvis"))
         else:
-            out.append(("pelvis", transform_choice(lower, coupling_transform(lp.frame, cp.frame)).mesh, "pelvis", False))
+            out.append(("pelvis", transform_choice(lower, coupling_transform(lp.frame, cp.frame)).mesh, "pelvis", False, lower.meta))
     elif builder.choices.get("pelvis"):
         notes.append(tr("figure_builder.el_torso_elegido_es_entero_la"))
     if "cabeza" in ch:
@@ -528,7 +579,7 @@ def preview_parts(builder: "FigureBuilder") -> tuple[list, list[str]]:
             hc = ch["cabeza"]
             m = hc.mesh.copy()
             m.apply_transform(coupling_transform(hc.port("head").frame, neck.frame))
-            out.append(("cabeza", m, "cabeza", False))
+            out.append(("cabeza", m, "cabeza", False, hc.meta))
     for place, kind, owner, toma in (("brazo", "arm", upper, "hombro_izq"), ("pierna", "leg", lower or upper, "cadera_izq")):
         if place not in ch:
             continue
@@ -544,7 +595,7 @@ def preview_parts(builder: "FigureBuilder") -> tuple[list, list[str]]:
             continue
         m = ch[place].mesh.copy()
         m.apply_transform(T)
-        out.append((place, m, place, True))
+        out.append((place, m, place, True, ch[place].meta))
         wrist = ch[place].meta.puertos.get("muneca") if place == "brazo" else None
         if place == "brazo" and "mano" in ch:
             if wrist is None:
@@ -555,12 +606,45 @@ def preview_parts(builder: "FigureBuilder") -> tuple[list, list[str]]:
             hand = S.to_printable_trimesh(place_hand(S.to_manifold(ch["mano"].mesh), fr))
             if builder.hand["union"] == "solape":
                 hand.apply_translation(-fr.axis * builder.hand["solape"])
-            out.append(("mano", hand, "mano", True))
+            out.append(("mano", hand, "mano", True, ch["mano"].meta))
+    return out, notes
+
+
+def preview_parts(builder: "FigureBuilder") -> tuple[list, list[str]]:
+    """Todas las piezas elegidas puestas juntas, sin generar nada (solo transformaciones rígidas, instantáneo).
+
+    Devuelve ([(nombre, malla, color)], avisos). Cada pieza va en su puerto —la pelvis en la cintura del torso, la cabeza en
+    el cuello, el brazo y la pierna en las tomas `hombro_izq` / `cadera_izq`, la mano en la muñeca del brazo— con sus escalas
+    y el giro / solape de la mano; el otro lado sale por espejo. No incluye pasadores, holguras ni cavidades (eso lo hace
+    «Armar y exportar»): sirve para ver proporciones, uniones y escalas antes de esperar minutos. Cada tipo de pieza va de un color
+    plano propio; para ver el color que lleva cada pieza, `preview_color_parts`."""
+    out, notes = _place_parts(builder)
     parts = []
-    for name, mesh, key, both in out:
+    for name, mesh, key, both, _meta in out:
         parts.append((name, mesh, PREVIEW_COLORS[key]))
         if both:
             parts.append((f"{name}_der", _mirrored(mesh), PREVIEW_COLORS[key]))
+    return parts, notes
+
+
+def preview_color_parts(builder: "FigureBuilder") -> tuple[list, list[str]]:
+    """Como `preview_parts`, pero las piezas que llevan color (`PieceMeta.color`) salen partidas por color, con el de la figura (incluidos los
+    cambios de la paleta de esta figura). Las que no llevan color, o cuyo color no se pudo llevar a su lugar, van del color plano de su tipo.
+    Tarda algo más que `preview_parts` (se llama desde un hilo). Devuelve ([(nombre, malla, rgba)], avisos)."""
+    out, notes = _place_parts(builder)
+    parts: list = []
+    for name, mesh, key, both, meta in out:
+        sides = [(name, mesh)] + ([(f"{name}_der", _mirrored(mesh))] if both else [])
+        colored = None
+        if getattr(meta, "color", None):
+            try:
+                colored = builder.placed_color_parts(meta, sides)
+            except (ValueError, OSError) as exc:                 # sin archivo de color, paleta sin roles…: se ve de color plano y se avisa
+                notes.append(tr("figure_builder.color_no_disponible", ref=meta.ref, exc=exc))
+        if colored is None:
+            parts.extend((n, m, PREVIEW_COLORS[key]) for n, m in sides)
+        else:
+            parts.extend(colored)
     return parts, notes
 
 

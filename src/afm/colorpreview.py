@@ -29,8 +29,9 @@ def _quantize(rgb: np.ndarray, max_colors: int) -> tuple[np.ndarray, np.ndarray]
     return inv, np.rint(means).astype(np.uint8)
 
 
-def piece_color_source_tm(catalog, meta):
-    """`TexturedMesh` de color de la pieza en el marco de su STL, o `None` si no lleva color. Levanta `ValueError` (`CatalogError`, `PaletteError`,
+def piece_color_source_tm(catalog, meta, overrides: dict | None = None):
+    """`TexturedMesh` de color de la pieza en el marco de su STL, o `None` si no lleva color. `overrides` = `{rol: "#RRGGBB"}`: cambios de la paleta solo
+    para esta figura (modo `roles`; en `rgb` no se usan). Levanta `ValueError` (`CatalogError`, `PaletteError`,
     `FbxError`…) si el archivo de color falta, cambió o la paleta no tiene sus roles."""
     from .colorpiece import _as_4x4, _load_roles
     from .parts import color_mode
@@ -44,7 +45,7 @@ def piece_color_source_tm(catalog, meta):
         palette = catalog.palette()
         if palette is None:
             raise ValueError(f"la línea no tiene paleta (falta paleta.json): no se puede mostrar el color de {meta.ref}")
-        tm = _load_roles(path).to_textured(palette)
+        tm = _load_roles(path).to_textured(palette, overrides or None)
     else:
         from .fbxio import load_textured
 
@@ -52,7 +53,7 @@ def piece_color_source_tm(catalog, meta):
     return tm.transformed(_as_4x4(meta.color["similitud"], "similitud FBX → STL"))
 
 
-def color_parts(tm, mesh, *, spacing_mm: float = SPACING_MM, max_colors: int = MAX_COLORS) -> list:
+def color_parts(tm, mesh, *, spacing_mm: float = SPACING_MM, max_colors: int = MAX_COLORS, prefix: str = "pieza_color") -> list:
     """`[(nombre, malla, rgba)]` con la malla de la pieza partida por color. `tm`: la fuente de color ya en el marco de `mesh`."""
     import trimesh
     from trimesh.remesh import subdivide_to_size
@@ -74,7 +75,7 @@ def color_parts(tm, mesh, *, spacing_mm: float = SPACING_MM, max_colors: int = M
     for g in range(len(means)):
         sel = F[inv == g]
         if len(sel):
-            parts.append((f"pieza_color_{g}", trimesh.Trimesh(V, sel, process=False), tuple(float(x) / 255.0 for x in means[g]) + (1.0,)))
+            parts.append((f"{prefix}_{g}", trimesh.Trimesh(V, sel, process=False), tuple(float(x) / 255.0 for x in means[g]) + (1.0,)))
     return parts
 
 
@@ -82,3 +83,16 @@ def piece_color_parts(catalog, meta, mesh) -> list | None:
     """Partes de color de la vista previa de `meta` (con su `mesh`), o `None` si la pieza no lleva color."""
     tm = piece_color_source_tm(catalog, meta)
     return None if tm is None else color_parts(tm, mesh)
+
+
+def fit_affine(src, dst, tol_mm: float = 1e-3):
+    """4×4 afín (giro, traslado, escala o espejo) que lleva los vértices `src` sobre `dst` (mismo orden), o `None` si no existe: otra cantidad de
+    vértices o un residuo mayor que `tol_mm` (la pieza se deformó, p. ej. por una operación que rehízo la malla)."""
+    src, dst = np.asarray(src, float), np.asarray(dst, float)
+    if src.shape != dst.shape or src.ndim != 2 or len(src) < 4:
+        return None
+    X, *_ = np.linalg.lstsq(np.column_stack([src, np.ones(len(src))]), dst, rcond=None)
+    M = np.eye(4)
+    M[:3, :] = X.T
+    res = np.abs(np.column_stack([src, np.ones(len(src))]) @ X - dst).max()
+    return M if res <= tol_mm and abs(np.linalg.det(M[:3, :3])) > 1e-9 else None

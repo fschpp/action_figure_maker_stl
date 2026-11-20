@@ -987,7 +987,8 @@
   "no_hay_una_figura_armada_con_color": "there is no figure built with role colors yet: build it first",
   "lo_elegido_cambio_desde_el_armado": "what is chosen changed since the figure was built (pieces, options, hand or scales): build it again",
   "la_linea_no_tiene_paleta": "the line has no palette (paleta.json is missing)",
-  "a_la_paleta_le_faltan_roles": "the line's palette is missing roles used by the chosen pieces: %{roles}. Add them in “Line palette…” or choose other pieces"
+  "a_la_paleta_le_faltan_roles": "the line's palette is missing roles used by the chosen pieces: %{roles}. Add them in “Line palette…” or choose other pieces",
+  "color_no_disponible": "%{ref}: its color could not be shown (%{exc}); shown in a flat color."
  },
  "figure_window": {
   "receta_abierta_path_retocala_y_guardala": "Recipe opened: %{path}\nTweak it and save it under another name, or assemble it.",
@@ -1054,7 +1055,9 @@
   "colores_sin_figura": "Build the figure to be able to recolor it.",
   "colores_pendientes": "There are color changes not yet applied to the built figure.",
   "colores_al_dia": "The built figure already has these colors.",
-  "colores_hex_invalido": "The color must be “#RRGGBB”."
+  "colores_hex_invalido": "The color must be “#RRGGBB”.",
+  "color_vista_error": "Could not show the color in the preview: %{exc}",
+  "color_vista_avisos": "Color preview (approximate: the final color is baked when building):"
  },
  "hero_wizard": {
   "el_heroe": "The hero",

@@ -50,6 +50,8 @@ class FigureBuilderWindow(Gtk.Window):
         self._t0 = 0.0
         self._shown = None                      # (malla, meta | None) en la vista previa
         self._group = None                      # [(nombre, malla, color)] de «todas las piezas juntas»
+        self._cp_token = 0                      # vista previa a color en curso (un cálculo más nuevo invalida al anterior)
+        self._color_one = None                  # (ref, partes de color) de la pieza sola que se ve; None = gris
         self._tex_parts = None                  # [TexturedPart] de la figura armada con color (GLB); None = se dibuja el STL
         self._color_w: dict[str, dict] = {}     # T48: rol -> {"btn", "ent", "reset"} del bloque «Colores»
         self._dyaw = self._dpitch = 0.0
@@ -338,6 +340,7 @@ class FigureBuilderWindow(Gtk.Window):
             finally:
                 self._updating = False
         self._update_color_status()
+        self._start_color_preview()
 
     def _on_color_picked(self, btn, _p, role: str) -> None:
         if not self._updating:
@@ -355,10 +358,12 @@ class FigureBuilderWindow(Gtk.Window):
     def _on_reset_role(self, _btn, role: str) -> None:
         self.builder.clear_override(role)
         self._sync_colors()
+        self._start_color_preview()
 
     def _on_reset_colors(self, *_) -> None:
         self.builder.clear_override()
         self._sync_colors()
+        self._start_color_preview()
 
     def _on_recolor(self, *_) -> None:
         if self._busy:
@@ -613,6 +618,7 @@ class FigureBuilderWindow(Gtk.Window):
         if notes:
             self.lbl_result.set_text((tr("figure_window.vista_conjunta_sin_pasadores_ni_holguras") + '\n') + "\n".join(f"• {n}" for n in notes))
         self._redraw()
+        self._start_color_preview()
 
     def _show_piece(self, ref: str) -> None:
         if self.tgl_all.get_active():
@@ -625,12 +631,61 @@ class FigureBuilderWindow(Gtk.Window):
             return
         self._set_shown(mesh, meta)
 
+    # ------------------------------------------------------------ vista previa a color
+    def _start_color_preview(self) -> None:
+        """Calcula en un hilo la vista previa a color de lo que se ve (la pieza sola o todas juntas) y la redibuja al terminar; mientras, se ve la
+        versión de siempre (gris, o un color plano por tipo de pieza). No hace nada si ninguna pieza lleva color."""
+        self._cp_token += 1
+        token = self._cp_token
+        b = self.builder
+        group = self.tgl_all.get_active()
+        shown = self._shown
+        self._color_one = None
+        if self._tex_parts is not None:                           # figura armada con textura de verdad: no hay nada que calcular
+            return
+        if group:
+            if not b.has_colored_choice():
+                return
+        elif shown is None or shown[1] is None or not getattr(shown[1], "color", None):
+            return
+
+        def work() -> None:
+            try:
+                if group:
+                    parts, notes = b.preview_color()
+                else:
+                    parts, notes = b.piece_color_parts(shown[1], shown[0]), []
+                GLib.idle_add(self._color_preview_done, token, parts, notes, None)
+            except Exception as exc:                              # noqa: BLE001  (se dice en la ventana; la vista de siempre sigue)
+                GLib.idle_add(self._color_preview_done, token, None, [], exc)
+
+        threading.Thread(target=work, daemon=True, name="afm-vista-color").start()
+
+    def _color_preview_done(self, token: int, parts, notes, error) -> bool:
+        if token != self._cp_token:                               # mientras tanto se cambió lo que se ve
+            return False
+        if error is not None:
+            self.lbl_result.set_text(tr("figure_window.color_vista_error", exc=error))
+            return False
+        if not parts:
+            return False
+        if self.tgl_all.get_active():
+            self._group = parts
+            if notes:
+                self.lbl_result.set_text(tr("figure_window.color_vista_avisos") + '\n' + "\n".join(f"• {n}" for n in notes))
+        elif self._shown is not None and self._shown[1] is not None:
+            self._color_one = (self._shown[1].ref, parts)
+        self._redraw()
+        return False
+
     def _set_shown(self, mesh, meta) -> None:
         self._shown = (mesh, meta)
+        self._color_one = None
         self._tex_parts = None
         self.tgl_tex.set_visible(False)
         self._dyaw = self._dpitch = 0.0
         self._redraw()
+        self._start_color_preview()
 
     def _redraw(self) -> None:
         group = self._group if self.tgl_all.get_active() else None
@@ -643,7 +698,9 @@ class FigureBuilderWindow(Gtk.Window):
                 img = self.preview.render_textured(self._tex_parts, self.tgl_tex.get_active(), self._dyaw, self._dpitch)
             else:
                 mesh, meta = self._shown
-                img = self.preview.render(mesh, meta, self._dyaw, self._dpitch)
+                co = self._color_one
+                cparts = co[1] if co is not None and meta is not None and co[0] == meta.ref else None
+                img = self.preview.render(mesh, meta, self._dyaw, self._dpitch, color_parts=cparts)
         except Exception as exc:                              # noqa: BLE001  (sin EGL: el resto sigue andando)
             self.picture.set_paintable(None)
             self.lbl_result.set_text(tr("common.la_vista_previa_3d_no_esta", exc=exc))
