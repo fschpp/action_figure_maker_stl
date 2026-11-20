@@ -1,6 +1,16 @@
 # Progreso del desarrollo
 
-## Current Focus — Enganche de armas al cuerpo: M01 (2026-11-20, sobre main 3ebce04)
+## Current Focus — Enganche de armas al cuerpo: M02 (2026-11-20, sobre main e800f24 = M01)
+**Hecho (M02):** en `mount.py`: `scale_from_real_length` (factor por una medida real, plan §3), `construction_spec` (una montura `der` se espeja en X y se construye como `izq`; `ancla` y `direccion` de una `der` vienen en el marco real de la pieza), `transport_matrix` (marco del accesorio → pieza: hoja sobre `direccion`, estación a `station` mm de la empuñadura sobre el ancla, espesor de la hoja a lo largo de la normal, `lift` hacia afuera) y `place_accessory`. `tests/test_mount_pose.py`: 22 pruebas (incluye `make_prop` colocada: la punta queda a `largo − estación` del ancla). Mutaciones detectadas: signo de la estación (2 fallan), sentido de Y (1 falla). Regresión: `test_accessories/weapon*/props*` 95 pasan.
+**Decisiones (mías, fáciles de cambiar):** (1) la normal por defecto es +X (flanco) y cae a +Z si el arma apunta a X; con la normal real del flanco (M04) se pasa explícita. (2) `lift` y `station` son parámetros de la pose, no de `MountSpec`: los calcula M04 desde la sección de la hoja. (3) La escala por medida real es una función pura; la sugerencia por altura de figura ya existe en `weapon.scale_for_length`.
+**No hecho:** M00 (medidas con calibre), M03 en adelante.
+
+### Todo List
+- [ ] M00 · [x] M01 · [x] M02 · [ ] M03 → M04 → M05 → M07 → M09 → M10–M12 → M06/M08 → Fase 3
+
+---
+
+## Previo — Enganche de armas al cuerpo: M01 (2026-11-20, sobre main 3ebce04)
 **Objetivo:** montura generada que engancha un arma a una parte del cuerpo (`PLAN_enganche_armas_cuerpo.md`, tareas M00–M17; primer caso: costado de la pelvis).
 **Hecho:** (1) `docs/PLAN_enganche_armas_cuerpo.md` (v0.4). (2) `src/afm/mount.py`: `MountSpec` (inmutable; `to_dict`/`from_dict`, valida lugar, lado, tipo, `direccion` no nula, `holgura` 0–2 mm, `pared`, `estaciones` 1–2, `arma` como `id@versión`), `MountError`, constantes de defecto (`DEFAULT_CLEARANCE` 0,25). Sin campos nuevos en `Params` (plan §6.3). (3) `tests/test_mount_spec.py`: 28 pruebas.
 **No hecho:** M00 (medidas con calibre: las tiene que dar el cliente), M02 en adelante. Nada se conecta todavía a `pipeline`, `Recipe` ni `recipe_key`.
