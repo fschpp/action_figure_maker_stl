@@ -14,6 +14,7 @@ _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic
 - [ ] T49 → T50 → T51
 
 ### Latest Blockers/Discoveries
+- 2026-11-19 (rama `fix/paleta-reabrir`): «Administrar catálogo» → «Paleta de la línea…» → cerrar → no volvía a abrir (`Gtk-WARNING: A window is shown after it has been destroyed`). Causa: en GTK4 `destroy` solo se emite al liberar el widget y `self._palette_win` lo mantenía vivo, así que quedaba una referencia a una ventana destruida y `present()` la mostraba. Arreglo en `catalog_window.py` (`_open_palette`, `_open_roles_wizard`, `_forget_window`): se suelta la referencia en `close-request` (connect_after, no si la paleta frena el cierre por cambios sin aplicar) y se descarta la ventana que ya no está visible. **Verificado con GTK4 headless** (`xvfb-run -a pytest tests/test_gui_window_reopen.py`, 3 pruebas; sin el arreglo fallan y reproducen el warning). Sin probar a mano: camino «cambios sin aplicar → Descartar → abrir».
 - Camino abierto: T49 (◄ T46–T48).
 - Pendiente desde T40: umbral del filtro de mayoría (2,23 % con K = 10 contra < 2 %). Pendiente (T43): fuente reflejada del lado derecho para piezas `rgb`.
 - Las entradas de T34–T36 siguen sin bitácora (T51).
