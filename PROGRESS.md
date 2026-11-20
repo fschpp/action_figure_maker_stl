@@ -2,6 +2,25 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — Paleta de línea: T46 (2026-11-19, sobre main aa62114 = T45)
+**Objetivo:** ventana «Paleta de la línea» para ver y editar los roles de color y sus colores (`PLAN_paleta_color_linea.md` T46).
+**Hecho:** (1) `gui/palette_editor.py` (`PaletteEditor`, sin GTK ni OpenGL): trabaja sobre un **borrador**; `set_hex`, `rename`, `add`, `remove`, `apply` (escribe `paleta.json` solo ahí), `revert`, `import_json`, `export_json`, `usage_map`/`rows`/`usage_notice` (piezas que usan cada rol), y vista previa (`preview_lut`, `preview_atlas`, `preview_parts`: `lut[etiquetas]` con el borrador, sin guardar ni hornear). (2) `gui/palette_window.py` (GTK4): lista de roles con muestra, nombre, id y n.º de piezas; campo HEX + `Gtk.ColorDialogButton` (GTK ≥ 4.10; si no existe queda solo el HEX); agregar/quitar/renombrar; importar/exportar; Aplicar/Descartar; pregunta antes de cerrar con cambios; vista previa con `render_textured` y giro con el ratón. (3) Menú «Catálogo ▾» de la ventana de administración: ítem «Paleta de la línea…» (`_open_palette`, una sola ventana). (4) Textos `palette_panel.*` en es/en/pt. (5) `tests/test_gui_palette_panel.py`: 13 pruebas (las 5 de la ficha + extras).
+**Decisiones (mías, fáciles de cambiar):** (1) Ventana propia en vez de pestaña dentro de la de Catálogo (la ventana actual no tiene pestañas; evita reestructurarla); se abre desde el menú «Catálogo ▾». (2) Importar se niega con cambios sin aplicar y, si el JSON es válido, **guarda de una vez** (usa `Catalog.import_palette`, que ya protege los roles en uso). (3) Quitar un rol recién agregado y sin aplicar se permite; uno en uso, nunca. (4) `apply` revisa de nuevo el uso contra el disco por si otra ventana catalogó una pieza entre medio. (5) Nuevo rol arranca con el color del rol elegido y sin anclas.
+**Medido:** `test_gui_palette_panel.py` 13 pasan (≈ 10 s). Mutaciones: quitar el bloqueo de rol en uso → falla 1; `set_hex` que guarda sin «Aplicar» → fallan 2; LUT con lo guardado en vez del borrador → fallan 2. Regresión: `test_i18n/palette/catalog_palette` + T46 56 pasan · `test_catalog_manager/gui_catalog/gui_color_panel` 51 pasan, 1 omitida · `test_catalog/texmesh/colorsrc` 34 pasan, 1 xfail previo.
+**No verificado:** **la ventana en pantalla** (no hay GTK en el entorno, R9: `palette_window.py` solo se comprobó que parsea y que sus claves i18n existen en los 3 idiomas); `Gtk.ColorDialogButton`/`Gtk.AlertDialog`/`Gtk.FileDialog` con la versión de GTK real; vista previa con OpenGL/EGL real; `test_colorbake*`, `test_colorexport*`, `test_color_catalog_head` y el resto de la suite (no se corrieron en esta tanda). `tests/test_gui_window_build.py` no se puede correr aquí (importa GTK).
+
+### Todo List
+- [x] T38 · [x] T39 · [x] T40 (criterio del filtro sin cumplir) · [x] T41 · [x] T42 · [x] T43 · [x] T44 · [x] T45 · [x] T46 (GUI sin verificar en pantalla)
+- [ ] T47 · T48 → T49 → T50 → T51
+
+### Latest Blockers/Discoveries
+- Camino abierto: T47 (◄ T40, T42, T44), T48 (◄ T43, T44, T46; puede usar `Colorizer.recolor`).
+- La sesión anterior de T46 no llegó a subir nada: se rehízo desde los adjuntos (`palette_editor.py`, `palette_window.py`); el docstring de `palette_window.py` traía un cierre mal escapado (`\"\"\"`) que lo hacía no parsear, y quedó corregido.
+- Pendiente de decisión desde T40: umbral del filtro de mayoría (2,23 % con K = 10 contra < 2 %). Pendiente (T43): fuente reflejada del lado derecho para piezas `rgb`.
+- Las entradas de T34–T36 siguen sin bitácora (T51).
+
+---
+
 ## Current Focus — Paleta de línea: T45 (2026-11-19, sobre main 1e33188 = T44)
 **Objetivo:** cambiar un color de la paleta y ver la figura armada recoloreada sin registrar ni hornear de nuevo (`PLAN_paleta_color_linea.md` T45, opcional). Sin GUI.
 **Hecho:** (1) `ColorQuery.label` y `ColorSource.label_roles` (ids de rol de cada etiqueta); `query` devuelve la etiqueta de cada muestra cuando la fuente las trae. (2) `BakeResult.labels` (atlas `uint8` en paralelo al RGB) y `label_roles`; `bake_piece` las llena solo si la fuente trae etiquetas (si no, quedan en `None` y todo es como antes). `dilate` ya copiaba el valor del vecino cubierto más cercano, así que sirve tal cual para las etiquetas (no se tocó). El relleno plano (`fill` o `#C8C8C8`) usa la etiqueta 255. (3) `Colorizer.recolor(palette, overrides=None, rewrite=True)`: `atlas = lut[etiquetas]` en los texeles con rol (los 255 y los no cubiertos no cambian); todo o nada (`PaletteError` con los roles que faltan, antes de cambiar nada); recolorea también las fuentes ya resueltas; el informe pasa a llevar la paleta usada (`hash`, `roles`, `cambios`); con un `write` previo reescribe PNG, GLB e informe. `tests/test_colorexport_recolor.py`: 20 pruebas (la de relleno plano se omite a propósito con `extend`).
