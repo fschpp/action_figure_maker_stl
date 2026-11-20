@@ -35,6 +35,7 @@ class RolesWizardWindow(Gtk.Window):
         self._sim_path = ""
         self._updating = False                  # se están poniendo valores en los widgets: no tomarlos como una decisión
         self._busy = False                      # analizando
+        self._closed = False                    # la ventana ya se destruyó: ningún callback tardío (hilo, idle) debe tocarla
         self._hl: int | None = None             # cluster resaltado (la fila elegida)
         self._rows: list = []                   # [(Gtk.ListBoxRow, n de cluster)]
         self._parts_cache: tuple | None = None  # (clave, partes): girar la vista no vuelve a subir la malla a la GPU
@@ -54,8 +55,12 @@ class RolesWizardWindow(Gtk.Window):
         outer.append(paned)
         outer.append(self._build_bar())
         self.set_child(outer)
-        self.connect("destroy", lambda *_: self.preview.close())
+        self.connect("destroy", self._on_destroy)
         self._refresh()
+
+    def _on_destroy(self, *_a) -> None:
+        self._closed = True
+        self.preview.close()
 
     # ------------------------------------------------------------ construcción
     def _build_source(self) -> Gtk.Widget:
@@ -144,9 +149,13 @@ class RolesWizardWindow(Gtk.Window):
 
     # ------------------------------------------------------------ estado de la pantalla
     def _say(self, text: str) -> None:
+        if self._closed:
+            return
         self.lbl_status.set_text(text)
 
     def _error(self, exc: Exception) -> None:
+        if self._closed:                                     # p. ej. el análisis terminó con la ventana ya cerrada: no abrir un diálogo sobre una ventana destruida
+            return
         dlg = Gtk.AlertDialog(message=str(exc), buttons=[tr("common.cancelar")], cancel_button=0, default_button=0)
         dlg.show(self)
         self._say(str(exc))
@@ -165,6 +174,8 @@ class RolesWizardWindow(Gtk.Window):
 
     def _rebuild(self) -> None:
         """Vuelve a dibujar las fichas de cluster desde el asistente."""
+        if self._closed:
+            return
         keep = self._hl
         self._updating = True
         try:
@@ -338,6 +349,8 @@ class RolesWizardWindow(Gtk.Window):
 
     def _analysis_done(self, err) -> bool:
         self._busy = False
+        if self._closed:                                     # se cerró la ventana mientras analizaba
+            return False
         self._parts_cache = None
         self._hl = None
         if err is not None:
@@ -347,6 +360,8 @@ class RolesWizardWindow(Gtk.Window):
 
     # ------------------------------------------------------------ vista previa
     def _render(self) -> None:
+        if self._closed:                                     # no recrear el contexto EGL de la vista previa después de cerrarlo
+            return
         if not self.wiz.loaded:
             self.picture.set_paintable(None)
             return

@@ -34,6 +34,8 @@ class PaletteWindow(Gtk.Window):
         self.editor = PaletteEditor(ctrl)
         self.preview = PreviewRenderer()
         self._updating = False                 # se están poniendo valores en los campos: no tomarlos como un cambio del usuario
+        self._closed = False                   # ya se destruyó la ventana: ningún callback tardío debe tocarla
+        self._asking = False                   # hay un «cambios sin aplicar» abierto: un segundo cierre no apila otro
         self._rows: list = []                  # [(Gtk.ListBoxRow, id de rol)]
         self._refs: list[str] = []             # piezas con roles que ofrece la vista previa
         self._dyaw = 0.0
@@ -50,7 +52,7 @@ class PaletteWindow(Gtk.Window):
         outer.append(paned)
         outer.append(self._build_bar())
         self.set_child(outer)
-        self.connect("destroy", lambda *_: self.preview.close())
+        self.connect("destroy", self._on_destroy)
         self.connect("close-request", self._on_close_request)
         self._reload(initial=True)
 
@@ -138,10 +140,18 @@ class PaletteWindow(Gtk.Window):
         row = self.listbox.get_selected_row()
         return next((rid for r, rid in self._rows if r is row), None) if row is not None else None
 
+    def _on_destroy(self, *_a) -> None:
+        self._closed = True
+        self.preview.close()
+
     def _say(self, text: str) -> None:
+        if self._closed:
+            return
         self.lbl_status.set_text(text)
 
     def _error(self, exc: Exception) -> None:
+        if self._closed:
+            return
         dlg = Gtk.AlertDialog(message=str(exc), buttons=[tr("common.cancelar")], cancel_button=0, default_button=0)
         dlg.show(self)
         self._say(str(exc))
@@ -225,6 +235,8 @@ class PaletteWindow(Gtk.Window):
 
     def _render(self) -> None:
         """Repinta la pieza elegida con el borrador (LUT sobre el atlas; no se guarda nada)."""
+        if self._closed:                                     # no recrear el contexto EGL de la vista previa después de cerrarlo
+            return
         if self._updating or not self._refs:
             self.picture.set_paintable(None) if not self._refs else None
             return
@@ -391,16 +403,25 @@ class PaletteWindow(Gtk.Window):
 
     def _on_close_request(self, *_a) -> bool:
         """Con cambios sin aplicar pregunta antes de cerrar; devuelve True para frenar el cierre."""
+        if self._closed:
+            return False
         if not self.editor.dirty:
             return False
+        if self._asking:                                     # ya se está preguntando: no apilar otro diálogo
+            return True
+        self._asking = True
         dlg = Gtk.AlertDialog(message=tr("palette_panel.cambios_sin_aplicar"), buttons=[tr("common.cancelar"), tr("palette_panel.descartar")],
                               cancel_button=0, default_button=0)
 
         def chosen(d, res):
+            self._asking = False
+            if self._closed:
+                return
             try:
                 if d.choose_finish(res) == 1:
                     self.editor.revert()
-                    self.destroy()
+                    if not self._closed:
+                        self.destroy()
             except GLib.Error:
                 pass
 
