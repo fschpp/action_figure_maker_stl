@@ -1,5 +1,13 @@
 # Progreso del desarrollo
 
+## Current Focus — Enganche de armas al cuerpo: M01 (2026-11-20, sobre main 3ebce04)
+**Objetivo:** montura generada que engancha un arma a una parte del cuerpo (`PLAN_enganche_armas_cuerpo.md`, tareas M00–M17; primer caso: costado de la pelvis).
+**Hecho:** (1) `docs/PLAN_enganche_armas_cuerpo.md` (v0.4). (2) `src/afm/mount.py`: `MountSpec` (inmutable; `to_dict`/`from_dict`, valida lugar, lado, tipo, `direccion` no nula, `holgura` 0–2 mm, `pared`, `estaciones` 1–2, `arma` como `id@versión`), `MountError`, constantes de defecto (`DEFAULT_CLEARANCE` 0,25). Sin campos nuevos en `Params` (plan §6.3). (3) `tests/test_mount_spec.py`: 28 pruebas.
+**No hecho:** M00 (medidas con calibre: las tiene que dar el cliente), M02 en adelante. Nada se conecta todavía a `pipeline`, `Recipe` ni `recipe_key`.
+
+### Todo List
+- [ ] M00 · [x] M01 · [ ] M02 → M03 → M04 → M05 → M07 → M09 → M10–M12 → M06/M08 → Fase 3
+
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
 ## Current Focus — Paleta de línea: T48 (2026-11-19, sobre main 6cb0f7b = T47)
