@@ -263,7 +263,9 @@ def test_preview_paints_clusters_highlights_one_and_shows_roles(line, head_mesh)
     lut = w.preview_lut()
     assert tuple(lut[n_rojo]) == (200, 30, 30) and tuple(lut[n_azul]) == (30, 60, 200)
     hl = w.preview_lut(highlight=n_azul)
-    assert tuple(hl[n_azul]) == (30, 60, 200) and tuple(hl[n_rojo]) == RW.DIM_GRAY
+    assert tuple(hl[n_azul]) == RW.HIGHLIGHT_RGB                              # el elegido siempre en magenta, no en su color
+    assert tuple(hl[n_rojo]) != (200, 30, 30) and hl[n_rojo].min() > 90        # el resto, lavado: se ve la figura, sin competir
+    assert tuple(hl[n_rojo]) != RW.HIGHLIGHT_RGB
     w.confirm_suggestions()
     r = w.preview_lut(mode="roles")                                          # rojo → el hex del rol (no el del cluster); sin decidir → plano
     assert tuple(r[n_rojo]) == (255, 0, 0) and tuple(r[n_azul]) == (0xC8, 0xC8, 0xC8)
