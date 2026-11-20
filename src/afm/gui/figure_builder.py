@@ -39,6 +39,8 @@ class FigureBuilder:
         self.hand = {"yaw": 0.0, "union": "solape", "solape": DEFAULT_OVERLAP_MM}     # ajustes de la mano (grados, unión, mm)
         self.scales: dict[str, list[float]] = {}                                        # lugar -> [sx, sy, sz] (solo los ≠ ×1)
         self.accessories: list[str] = []                                                # «id@versión» de los accesorios que acompañan a la figura
+        self.palette_override: dict[str, str] = {}                                      # T48: {rol: "#RRGGBB"} colores que cambian SOLO en esta figura
+        self._built: dict | None = None                                                 # T48: último armado (Colorizer, carpeta, nombre, geometría) para recolorear
 
     # ------------------------------------------------------------------ catálogo
     def catalog(self) -> Catalog:
@@ -184,7 +186,7 @@ class FigureBuilder:
         esc = {p: normalize_scale(k) for p, k in self.scales.items() if lugares.get(p)}
         if esc:
             ajustes["escalas"] = esc
-        return Recipe(self.name, cat.name, lugares, opciones, ajustes, list(self.accessories))
+        return Recipe(self.name, cat.name, lugares, opciones, ajustes, list(self.accessories), self.effective_overrides(cat))
 
     def load_recipe(self, path: str) -> list[str]:
         """Carga una receta (`afm-receta-1`) para retocarla: piezas, opciones, mano y escalas pasan al constructor. Es de
@@ -233,7 +235,189 @@ class FigureBuilder:
             if not choices.get(place):
                 warns.append(tr("figure_builder.la_escala_de_place_se_descarto", place=place))
                 del self.scales[place]
+        self.palette_override = {}
+        for role, hx in (r.paleta_override or {}).items():                   # T48: cambios de color de esta figura
+            try:
+                self.set_override(role, hx, cat)
+            except ValueError as exc:
+                warns.append(tr("figure_builder.cambio_de_color_descartado", role=role, exc=exc))
         return warns
+
+    # ------------------------------------------------------------------ color: paleta de la línea y cambios de esta figura (T48)
+    def _chosen_metas(self, cat: Catalog | None = None) -> list:
+        """Fichas de las piezas elegidas (lugares y accesorios no: el accesorio sale sin color) que existen en el catálogo."""
+        cat = cat or self.catalog()
+        out = []
+        for place in PLACE_ORDER:
+            ref = self.choices.get(place)
+            if ref:
+                try:
+                    out.append(cat.meta(ref))
+                except CatalogError:
+                    pass
+        return out
+
+    def palette_roles_used(self, cat: Catalog | None = None) -> dict[str, list[str]]:
+        """{rol: [piezas elegidas que lo usan]} según la ficha (`color.roles`), sin abrir ningún paquete."""
+        used: dict[str, list[str]] = {}
+        for meta in self._chosen_metas(cat):
+            color = getattr(meta, "color", None) or {}
+            if color.get("modo", "rgb") == "roles":
+                for role in color.get("roles") or []:
+                    used.setdefault(role, []).append(meta.ref)
+        return used
+
+    def effective_overrides(self, cat: Catalog | None = None) -> dict[str, str]:
+        """Los cambios de color de la figura que de verdad cambian algo: roles que la paleta tiene y con otro color que el de la línea."""
+        try:
+            pal = (cat or self.catalog()).palette()
+        except CatalogError:                                         # paleta.json ilegible: la receta sale sin cambios (el armado lo avisa)
+            return {}
+        if pal is None:
+            return {}
+        return {r: h for r, h in sorted(self.palette_override.items()) if r in pal.ids() and h != pal.hex_of(r)}
+
+    def palette_rows(self, cat: Catalog | None = None) -> list[dict]:
+        """Una fila por rol de la paleta de la línea para el bloque «Colores»: `{id, nombre, hex_linea, hex, cambiado, piezas}`.
+        `hex` es el que va a tener en la figura (el cambio, si hay); `piezas`, las piezas elegidas que lo usan. Vacío si la línea no tiene paleta."""
+        cat = cat or self.catalog()
+        pal = cat.palette()
+        if pal is None:
+            return []
+        used = self.palette_roles_used(cat)
+        rows = []
+        for r in pal.roles:
+            hx = self.palette_override.get(r.id, r.hex)
+            rows.append({"id": r.id, "nombre": r.nombre, "hex_linea": r.hex, "hex": hx, "cambiado": hx != r.hex, "piezas": list(used.get(r.id, []))})
+        return rows
+
+    def set_override(self, role: str, hex_color: str, cat: Catalog | None = None) -> None:
+        """Cambia el color de `role` solo para esta figura (la paleta de la línea no se toca). Un rol que la paleta no tiene o un color que no es
+        `#RRGGBB` es `ValueError`. Volver al color de la línea quita el cambio."""
+        from ..palette import normalize_hex
+
+        pal = (cat or self.catalog()).palette()
+        if pal is None or role not in pal.ids():
+            raise ValueError(tr("figure_builder.la_paleta_no_tiene_el_rol", role=role))
+        hx = normalize_hex(hex_color, tr("figure_builder.color_del_rol", role=role))        # PaletteError (ValueError)
+        if hx == pal.hex_of(role):
+            self.palette_override.pop(role, None)
+        else:
+            self.palette_override[role] = hx
+
+    def clear_override(self, role: str | None = None) -> None:
+        """Quita el cambio de un rol (o todos) y vuelve al color de la línea."""
+        if role is None:
+            self.palette_override.clear()
+        else:
+            self.palette_override.pop(role, None)
+
+    def color_missing(self, cat: Catalog | None = None) -> dict[str, list[str]]:
+        """{rol: piezas} de los roles que usan las piezas elegidas y la paleta de la línea no tiene (o {rol: piezas} de todos si no hay
+        paleta). Con algo acá el armado se frena antes de empezar: no se inventa un color."""
+        cat = cat or self.catalog()
+        try:
+            pal = cat.palette()
+        except CatalogError:
+            pal = None
+        have = set(pal.ids()) if pal is not None else set()
+        return {r: p for r, p in sorted(self.palette_roles_used(cat).items()) if r not in have}
+
+    def color_report(self, cat: Catalog | None = None) -> dict:
+        """Informe previo del color de lo elegido, sin generar nada: `{faltan: {rol: piezas}, sin_color: [refs], rgb: [refs], escaladas: [refs],
+        con_roles: [refs]}`. `sin_color`: sin FBX ni roles (salen en color plano); `rgb`: con su FBX propio (T35, no se recolorean);
+        `escaladas`: con color pero la receta las escala, así que el color no se lleva (como `catalog_color_sources`)."""
+        cat = cat or self.catalog()
+        scaled = set(self.scales)
+        rep: dict = {"faltan": self.color_missing(cat), "sin_color": [], "rgb": [], "escaladas": [], "con_roles": []}
+        for meta in self._chosen_metas(cat):
+            color = getattr(meta, "color", None)
+            if not color:
+                rep["sin_color"].append(meta.ref)
+            elif meta.tipo in scaled:
+                rep["escaladas"].append(meta.ref)
+            elif color.get("modo", "rgb") == "roles":
+                rep["con_roles"].append(meta.ref)
+            else:
+                rep["rgb"].append(meta.ref)
+        return rep
+
+    def color_report_lines(self, cat: Catalog | None = None) -> list[str]:
+        """El informe previo en frases (para la ventana)."""
+        rep = self.color_report(cat)
+        out = []
+        for role, refs in rep["faltan"].items():
+            out.append("✗ " + tr("figure_builder.falta_el_rol_en_la_paleta", role=role, refs=", ".join(refs)))
+        if rep["sin_color"]:
+            out.append("• " + tr("figure_builder.sin_color_propio", refs=", ".join(rep["sin_color"])))
+        if rep["rgb"]:
+            out.append("• " + tr("figure_builder.color_rgb_no_se_recolorea", refs=", ".join(rep["rgb"])))
+        if rep["escaladas"]:
+            out.append("• " + tr("figure_builder.color_escalada", refs=", ".join(rep["escaladas"])))
+        return out
+
+    def can_recolor(self) -> bool:
+        """Hay una figura armada con color por roles y lo elegido sigue siendo lo que se armó (mismas piezas, opciones, mano y escalas)."""
+        b = self._built
+        return bool(b and b["colorizer"] is not None and b["geom"] == self._geometry_key())
+
+    def overrides_pending(self) -> bool:
+        """Los cambios de color de ahora difieren de los que tiene la figura armada."""
+        b = self._built
+        return bool(b) and self.effective_overrides() != b["overrides"]
+
+    def _geometry_key(self) -> str:
+        """Todo lo que define la geometría de lo armado (la receta sin el nombre ni los cambios de color)."""
+        import json
+
+        d = self.recipe().to_dict()
+        d.pop("personaje", None)
+        d.pop("paleta_override", None)
+        return json.dumps(d, sort_keys=True, default=str)
+
+    def recolor(self) -> dict:
+        """Aplica los cambios de color a la figura ya armada **sin volver a armar**: `Colorizer.recolor` rehace los atlas (PNG, GLB e informe de
+        color) y los STL no se tocan. Usa la paleta de la línea tal como está ahora en disco más los cambios de esta figura. Si lo elegido ya no
+        es lo armado, `ValueError` (hay que armar de nuevo). Devuelve lo de `Colorizer.recolor` más `glb` (ruta del GLB ensamblado)."""
+        from ..palette import PaletteError
+
+        b = self._built
+        if not b or b["colorizer"] is None:
+            raise ValueError(tr("figure_builder.no_hay_una_figura_armada_con_color"))
+        if not self.can_recolor():
+            raise ValueError(tr("figure_builder.lo_elegido_cambio_desde_el_armado"))
+        cat = self.catalog()
+        pal = cat.palette()
+        if pal is None:
+            raise ValueError(tr("figure_builder.la_linea_no_tiene_paleta"))
+        over = self.effective_overrides(cat)
+        try:
+            out = b["colorizer"].recolor(pal, over, rewrite=True)
+        except PaletteError as exc:                                              # a la paleta le falta un rol: no cambió nada
+            raise ValueError(str(exc)) from exc
+        b["overrides"] = dict(over)
+        self._rewrite_reports(b, over)
+        glb = (out.get("salida") or {}).get("glb")
+        out["glb"] = os.path.join(b["outdir"], glb) if glb else None
+        return out
+
+    def _rewrite_reports(self, built: dict, over: dict) -> None:
+        """Deja al día la paleta usada en `<nombre>_informe.json` y los cambios en `<nombre>.receta.json` de la carpeta de salida."""
+        import json
+
+        rep_path = os.path.join(built["outdir"], f"{built['name']}_informe.json")
+        try:
+            with open(rep_path, encoding="utf-8") as fh:
+                rep = json.load(fh)
+            if isinstance(rep.get("color"), dict):
+                rep["color"]["paleta"] = dict(built["colorizer"].palette_report or {})
+                with open(rep_path, "w", encoding="utf-8") as fh:
+                    json.dump(rep, fh, indent=2, default=float)
+            rec_path = os.path.join(built["outdir"], f"{built['name']}.receta.json")
+            if os.path.isfile(rec_path):
+                self.recipe().save(rec_path)
+        except (OSError, ValueError):                                            # los informes son accesorios: el recoloreo ya quedó hecho
+            pass
 
     def problems(self) -> list[str]:
         """Lo que falta o sobra antes de poder armar (vacío = listo)."""
@@ -278,11 +462,18 @@ class FigureBuilder:
         bad = self.problems()
         if bad:
             raise ValueError("; ".join(bad))
+        missing = self.color_missing()
+        if missing:                                       # T48: antes de gastar minutos armando (run_armar también lo frena, pero después de armar)
+            raise ValueError(tr("figure_builder.a_la_paleta_le_faltan_roles", roles="; ".join(f"{r} ({', '.join(p)})" for r, p in missing.items())))
         os.makedirs(outdir, exist_ok=True)
         recipe_path = os.path.join(outdir, f"{self.name}.receta.json")
         self.recipe().save(recipe_path)
-        info = run_armar(recipe_path, outdir, self.name, self.root, progress=progress, orient=orient)
+        keep: dict = {}
+        self._built = None
+        info = run_armar(recipe_path, outdir, self.name, self.root, progress=progress, orient=orient, keep=keep)
         info["ensamblada"] = os.path.join(outdir, info["archivos"]["ensamblada"])
+        self._built = {"colorizer": keep.get("colorizer"), "outdir": outdir, "name": self.name, "geom": self._geometry_key(),
+                       "overrides": self.effective_overrides()}
         return info
 
 

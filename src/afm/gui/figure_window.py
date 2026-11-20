@@ -6,6 +6,7 @@ from __future__ import annotations
 from ..i18n import tr, loc
 
 import os
+import re
 import threading
 import time
 
@@ -20,6 +21,17 @@ from .progress_panel import ProgressPanel  # noqa: E402
 from .figure_builder import NONE_LABEL, PLACE_LABELS, PLACE_ORDER, FigureBuilder, summary  # noqa: E402
 
 YAW_MAX = 1.0e6      # GTK pide un tope numérico: este es técnico, el giro no tiene límite superior en la práctica
+HEX_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
+
+
+def _rgba(hex_text: str) -> Gdk.RGBA:
+    c = Gdk.RGBA()
+    c.parse(hex_text)
+    return c
+
+
+def _hex_of(rgba: Gdk.RGBA) -> str:
+    return "#{:02X}{:02X}{:02X}".format(*(int(round(max(0.0, min(1.0, v)) * 255)) for v in (rgba.red, rgba.green, rgba.blue)))
 
 
 class FigureBuilderWindow(Gtk.Window):
@@ -39,6 +51,7 @@ class FigureBuilderWindow(Gtk.Window):
         self._shown = None                      # (malla, meta | None) en la vista previa
         self._group = None                      # [(nombre, malla, color)] de «todas las piezas juntas»
         self._tex_parts = None                  # [TexturedPart] de la figura armada con color (GLB); None = se dibuja el STL
+        self._color_w: dict[str, dict] = {}     # T48: rol -> {"btn", "ent", "reset"} del bloque «Colores»
         self._dyaw = self._dpitch = 0.0
         self._drag0 = (0.0, 0.0)
         self._last_dir = remember_dir
@@ -89,6 +102,7 @@ class FigureBuilderWindow(Gtk.Window):
         box.append(self._build_hand_section())
         box.append(self._build_scale_section())
         box.append(self._build_accessory_section())
+        box.append(self._build_colors_section())
         self.lbl_problems = Gtk.Label(xalign=0, wrap=True)
         self.lbl_problems.add_css_class("dim-label")
         box.append(self.lbl_problems)
@@ -214,6 +228,170 @@ class FigureBuilderWindow(Gtk.Window):
         exp.set_child(box)
         return exp
 
+    def _build_colors_section(self) -> Gtk.Widget:
+        """T48: los roles de color de la paleta de la línea. Cambiar uno guarda un cambio SOLO de esta figura (`FigureBuilder.set_override`);
+        «Recolorear» lo aplica a la figura ya armada sin volver a armarla. La lógica está en `FigureBuilder`; acá solo los controles."""
+        exp = Gtk.Expander(label=tr("figure_window.colores_titulo"))
+        exp.set_tooltip_text(tr("figure_window.colores_tip"))
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, margin_top=4)
+        self._color_rows = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        box.append(self._color_rows)
+        self.lbl_colors = Gtk.Label(xalign=0, wrap=True)
+        self.lbl_colors.add_css_class("dim-label")
+        box.append(self.lbl_colors)
+        bar = Gtk.Box(spacing=6)
+        self.btn_reset_colors = Gtk.Button(label=tr("figure_window.colores_restablecer_todos"))
+        self.btn_reset_colors.connect("clicked", self._on_reset_colors)
+        self.btn_recolor = Gtk.Button(label=tr("figure_window.colores_recolorear"))
+        self.btn_recolor.set_tooltip_text(tr("figure_window.colores_recolorear_tip"))
+        self.btn_recolor.connect("clicked", self._on_recolor)
+        bar.append(self.btn_reset_colors)
+        bar.append(self.btn_recolor)
+        box.append(bar)
+        exp.set_child(box)
+        self.exp_colors = exp
+        return exp
+
+    def _sync_colors(self) -> None:
+        """Vuelve a armar las filas (una por rol de la línea) con los colores de ahora y los textos de estado."""
+        b = self.builder
+        try:
+            rows = b.palette_rows()
+        except Exception:                                      # noqa: BLE001 — paleta.json ilegible: el bloque queda vacío y el armado lo avisa
+            rows = []
+        child = self._color_rows.get_first_child()
+        while child is not None:
+            nxt = child.get_next_sibling()
+            self._color_rows.remove(child)
+            child = nxt
+        self._color_w = {}
+        self._updating = True
+        try:
+            for r in rows:
+                line = Gtk.Box(spacing=6)
+                btn = None
+                if hasattr(Gtk, "ColorDialogButton"):         # GTK ≥ 4.10; en una versión anterior queda solo el campo HEX
+                    btn = Gtk.ColorDialogButton(dialog=Gtk.ColorDialog())
+                    btn.set_rgba(_rgba(r["hex"]))
+                    btn.connect("notify::rgba", self._on_color_picked, r["id"])
+                    line.append(btn)
+                name = Gtk.Label(label=r["nombre"] or r["id"], xalign=0, width_chars=10)
+                line.append(name)
+                ent = Gtk.Entry(text=r["hex"], width_chars=8, max_length=7)
+                ent.connect("changed", self._on_color_hex, r["id"])
+                line.append(ent)
+                reset = Gtk.Button(label="↺", visible=r["cambiado"])
+                reset.set_tooltip_text(tr("figure_window.color_restablecer"))
+                reset.connect("clicked", self._on_reset_role, r["id"])
+                line.append(reset)
+                use = Gtk.Label(label=tr("figure_window.color_usado_por", n=len(r["piezas"])) if r["piezas"] else tr("figure_window.color_sin_uso"),
+                                xalign=0, hexpand=True)
+                use.add_css_class("dim-label")
+                if r["piezas"]:
+                    use.set_tooltip_text(", ".join(r["piezas"]))
+                line.append(use)
+                self._color_rows.append(line)
+                self._color_w[r["id"]] = {"btn": btn, "ent": ent, "reset": reset}
+        finally:
+            self._updating = False
+        self._update_color_status(has_rows=bool(rows))
+
+    def _update_color_status(self, has_rows: bool | None = None) -> None:
+        """Textos de estado y botones del bloque «Colores» (sin tocar las filas: se llama mientras se escribe un HEX)."""
+        b = self.builder
+        if has_rows is None:
+            has_rows = bool(self._color_w)
+        lines: list[str] = []
+        try:
+            lines = b.color_report_lines()
+        except Exception:                                      # noqa: BLE001
+            pass
+        if not has_rows and lines:                            # hay roles en uso o piezas sin color pero la línea no tiene paleta
+            lines.insert(0, tr("figure_window.colores_sin_paleta"))
+        if b.palette_override:
+            if b.can_recolor():
+                lines.append(tr("figure_window.colores_pendientes") if b.overrides_pending() else tr("figure_window.colores_al_dia"))
+            elif not b._built:
+                lines.append(tr("figure_window.colores_sin_figura"))
+        self.lbl_colors.set_text("\n".join(lines))
+        for rid, w in self._color_w.items():
+            w["reset"].set_visible(rid in b.palette_override)
+        self.btn_reset_colors.set_sensitive(bool(b.palette_override) and not self._busy)
+        self.btn_recolor.set_sensitive(b.can_recolor() and b.overrides_pending() and not self._busy)
+        self.exp_colors.set_visible(has_rows or bool(lines))
+
+    def _apply_role_color(self, role: str, hex_color: str, source: str) -> None:
+        """`source`: «btn» o «ent» (el control que originó el cambio; el otro se pone al día sin disparar nada)."""
+        try:
+            self.builder.set_override(role, hex_color)
+        except ValueError as exc:
+            self.lbl_colors.set_text(str(exc))
+            return
+        w = self._color_w.get(role)
+        if w:
+            self._updating = True
+            try:
+                if source != "ent":
+                    w["ent"].set_text(hex_color.upper())
+                if source != "btn" and w["btn"] is not None:
+                    w["btn"].set_rgba(_rgba(hex_color))
+            finally:
+                self._updating = False
+        self._update_color_status()
+
+    def _on_color_picked(self, btn, _p, role: str) -> None:
+        if not self._updating:
+            self._apply_role_color(role, _hex_of(btn.get_rgba()), "btn")
+
+    def _on_color_hex(self, ent: Gtk.Entry, role: str) -> None:
+        if self._updating:
+            return
+        text = ent.get_text().strip()
+        if HEX_RE.match(text):                                 # solo un «#RRGGBB» completo; mientras se escribe no se toca nada
+            self._apply_role_color(role, text, "ent")
+        elif len(text) >= 7:
+            self.lbl_colors.set_text(tr("figure_window.colores_hex_invalido"))
+
+    def _on_reset_role(self, _btn, role: str) -> None:
+        self.builder.clear_override(role)
+        self._sync_colors()
+
+    def _on_reset_colors(self, *_) -> None:
+        self.builder.clear_override()
+        self._sync_colors()
+
+    def _on_recolor(self, *_) -> None:
+        if self._busy:
+            return
+        self._t0 = time.monotonic()
+        self._set_busy(True)
+        self.lbl_result.set_text(tr("figure_window.colores_recoloreando"))
+
+        def work() -> None:
+            try:
+                out = self.builder.recolor()
+            except Exception as exc:                           # noqa: BLE001 — se informa en la ventana
+                GLib.idle_add(self._recolor_done, None, exc)
+            else:
+                GLib.idle_add(self._recolor_done, out, None)
+
+        threading.Thread(target=work, daemon=True, name="afm-recolorear").start()
+
+    def _recolor_done(self, out, error) -> bool:
+        self._set_busy(False)
+        if error is not None:
+            self.lbl_result.set_text(tr("figure_window.colores_no_se_pudo", exc=error))
+            self._update_color_status()
+            return False
+        self.lbl_result.set_text(tr("figure_window.colores_recoloreada", seg=f"{out.get('segundos', time.monotonic() - self._t0):g}"))
+        if out.get("glb") and os.path.exists(out["glb"]):
+            try:
+                self._show_glb(out["glb"])
+            except Exception as exc:                           # noqa: BLE001
+                self.lbl_result.set_text(self.lbl_result.get_text() + ('\n' + tr("figure_window.sin_vista_previa_exc", exc=exc)))
+        self._update_color_status()
+        return False
+
     def _build_preview(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, margin_top=10, margin_bottom=10, margin_start=10, margin_end=10)
         self.picture = Gtk.Picture(content_fit=Gtk.ContentFit.CONTAIN, can_shrink=True, hexpand=True, vexpand=True)
@@ -274,6 +452,7 @@ class FigureBuilderWindow(Gtk.Window):
         finally:
             self._updating = False
         self._sync_controls()
+        self._sync_colors()
         self._sync()
 
     def _sync(self) -> None:
@@ -283,6 +462,8 @@ class FigureBuilderWindow(Gtk.Window):
         self.btn_recipe.set_sensitive(not probs and not self._busy)
         self.ent_name.set_sensitive(not self._busy)
         self.btn_open.set_sensitive(not self._busy)
+        if hasattr(self, "exp_colors"):                      # el bloque «Colores» ya se construyó
+            self._update_color_status()
 
     def _on_name(self, entry: Gtk.Entry) -> None:
         self.builder.name = entry.get_text().strip()
@@ -553,23 +734,28 @@ class FigureBuilderWindow(Gtk.Window):
         self.lbl_result.set_text(summary(info) + ('\n\n' + tr("figure_window.exportado_en_folder", folder=folder)))
         if self.tgl_all.get_active():
             self.tgl_all.set_active(False)       # se muestra la figura armada de verdad
+        self._update_color_status()
         try:
-            import trimesh
-
             glb = os.path.splitext(info["ensamblada"])[0] + ".glb"      # `Colorizer.write` lo deja junto al STL ensamblado
-            parts = None
-            if os.path.exists(glb):
-                from .render import load_glb_parts
+            if not (os.path.exists(glb) and self._show_glb(glb)):
+                import trimesh
 
-                parts = [p for p in load_glb_parts(glb, y_up=True)]       # el GLB de `Colorizer.write` va en Y arriba
-            if parts and any(p.image is not None for p in parts):
-                self._set_shown(parts[0].mesh, None)                     # deja `_shown` coherente y luego pasa a la vista con textura
-                self._tex_parts = parts
-                self.tgl_tex.set_visible(True)
-                self._redraw()
-            else:
-                mesh = trimesh.load(info["ensamblada"], force="mesh")
-                self._set_shown(mesh, None)
+                self._tex_parts = None
+                self.tgl_tex.set_visible(False)
+                self._set_shown(trimesh.load(info["ensamblada"], force="mesh"), None)
         except Exception as exc:                              # noqa: BLE001
             self.lbl_result.set_text(self.lbl_result.get_text() + ('\n' + tr("figure_window.sin_vista_previa_exc", exc=exc)))
         return False
+
+    def _show_glb(self, glb: str) -> bool:
+        """Muestra el GLB con color de la figura armada (o recoloreada). `False` si no trae textura: el que llama dibuja el STL."""
+        from .render import load_glb_parts
+
+        parts = [p for p in load_glb_parts(glb, y_up=True)]           # el GLB de `Colorizer.write` va en Y arriba
+        if not parts or not any(p.image is not None for p in parts):
+            return False
+        self._set_shown(parts[0].mesh, None)                         # deja `_shown` coherente y luego pasa a la vista con textura
+        self._tex_parts = parts
+        self.tgl_tex.set_visible(True)
+        self._redraw()
+        return True

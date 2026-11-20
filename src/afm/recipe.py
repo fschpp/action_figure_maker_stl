@@ -37,6 +37,7 @@ class Recipe:
     opciones: dict = field(default_factory=dict)
     ajustes: dict = field(default_factory=dict)
     accesorios: list = field(default_factory=list)       # ["id@versión", …]: piezas «accesorio» que acompañan a la figura (no van en el puño)
+    paleta_override: dict = field(default_factory=dict)  # T48: {rol: "#RRGGBB"} colores de la paleta de la línea que cambian SOLO en esta figura
 
     # ------------------------------------------------------------------ formato
     def to_dict(self) -> dict:
@@ -45,6 +46,8 @@ class Recipe:
              "ajustes": self.ajustes}
         if self.accesorios:                                  # solo si hay: las recetas anteriores no cambian
             d["accesorios"] = list(self.accesorios)
+        if self.paleta_override:                             # T48: solo si hay (las recetas anteriores no cambian). No entra en `ajustes`: el color no cambia los STL ni el hash de compat.json
+            d["paleta_override"] = dict(self.paleta_override)
         return d
 
     @classmethod
@@ -57,8 +60,11 @@ class Recipe:
         acc = d.get("accesorios") or []
         if not isinstance(acc, list):
             raise RecipeError("«accesorios» tiene que ser una lista de id@versión")
+        ov = d.get("paleta_override") or {}
+        if not isinstance(ov, dict):
+            raise RecipeError("«paleta_override» tiene que ser un diccionario {rol: \"#RRGGBB\"}")
         r = cls(d["personaje"], d["linea"], dict(d.get("lugares") or {}), dict(d.get("opciones") or {}), dict(d.get("ajustes") or {}),
-                list(acc))
+                list(acc), dict(ov))
         bad = [k for k in r.problems()]
         if bad:
             raise RecipeError("; ".join(bad))
@@ -73,11 +79,24 @@ class Recipe:
         with open(path, "w", encoding="utf-8") as fh:
             json.dump(self.to_dict(), fh, ensure_ascii=False, indent=2)
 
+    def override_problems(self) -> list[str]:
+        """Los cambios de color de la figura (T48): cada rol con un `#RRGGBB` válido. Que el rol exista en la paleta se mira al armar."""
+        from .palette import PaletteError, normalize_hex
+
+        out: list[str] = []
+        for rol, hx in (self.paleta_override or {}).items():
+            try:
+                normalize_hex(hx, f"paleta_override «{rol}»")
+            except PaletteError as exc:
+                out.append(str(exc))
+        return out
+
     def problems(self) -> list[str]:
         out = [f"lugar desconocido «{k}» (hay {', '.join(PLACES)})" for k in self.lugares if k not in PLACES]
         out += [f"opción desconocida «{k}» (hay {', '.join(OPTIONS)})" for k in self.opciones if k not in OPTIONS]
         out += [f"ajuste desconocido «{k}» (hay {', '.join(AJUSTES)})" for k in self.ajustes if k not in AJUSTES]
         out += self.scale_problems()
+        out += self.override_problems()
         out += [f"ajuste de mano desconocido «{k}» (hay {', '.join(HAND_ADJUSTS)})" for k in (self.ajustes.get("mano") or {})
                 if k not in HAND_ADJUSTS]
         un = (self.ajustes.get("mano") or {}).get("union")

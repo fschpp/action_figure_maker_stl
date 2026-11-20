@@ -213,8 +213,13 @@ def run(stl_path: str, project: Project, outdir: str, name: str, progress=print,
 
 
 def run_armar(recipe_path: str, outdir: str, name: str | None = None, catalog_root: str | None = None, progress=print,
-              orient: bool | str = False, max_angle: float = 45.0, flat: float | None = None) -> dict:
-    """`afm armar`: arma la figura de una receta (`afm-receta-1`) solo con piezas de catálogo, valida y exporta."""
+              orient: bool | str = False, max_angle: float = 45.0, flat: float | None = None, color_overrides: dict | None = None,
+              keep: dict | None = None) -> dict:
+    """`afm armar`: arma la figura de una receta (`afm-receta-1`) solo con piezas de catálogo, valida y exporta.
+
+    `color_overrides` (T48): `{rol: "#RRGGBB"}` cambios de la paleta de la línea solo para esta figura; se suman a los de la receta
+    (`paleta_override`) y los de acá mandan. `keep`: si es un diccionario, se le deja `keep["colorizer"]` (el `Colorizer` ya escrito) para
+    poder recolorear sin volver a armar (`Colorizer.recolor`); no entra en el informe."""
     from .recipe import Recipe, assemble
 
     recipe = Recipe.load(recipe_path)
@@ -240,7 +245,8 @@ def run_armar(recipe_path: str, outdir: str, name: str | None = None, catalog_ro
     from .colorpiece import PaletteRolesError, catalog_color_sources
 
     try:                           # T36: piezas de catálogo con su propio FBX; T43: o con roles + la paleta de la línea; el resto sale en color plano
-        c_src, color_info = catalog_color_sources(asm.res.placed, asm.catalog, set(asm.recipe.scales()))
+        c_src, color_info = catalog_color_sources(asm.res.placed, asm.catalog, set(asm.recipe.scales()),
+                                                  overrides={**(recipe.paleta_override or {}), **(color_overrides or {})} or None)
     except PaletteRolesError:      # a la paleta le faltan roles de las piezas elegidas: no se inventa color, se frena antes de exportar
         raise
     except (ValueError, OSError) as exc:
@@ -267,6 +273,8 @@ def run_armar(recipe_path: str, outdir: str, name: str | None = None, catalog_ro
         info["accesorios"] = acc_info
     if colorize is not None:
         info["color"] = {**color_info, **({"salida": files["color"]} if "color" in files else {})}
+        if keep is not None:
+            keep["colorizer"] = colorize
     with open(os.path.join(outdir, f"{name}_informe.json"), "w") as f:
         json.dump(info, f, indent=2, default=float)
     recipe.save(os.path.join(outdir, f"{name}.receta.json"))
@@ -419,6 +427,7 @@ def main(argv=None) -> int:
     a.add_argument("--orient", action="store_true", help="exportar apoyado en la cama en la pose de la vista previa")
     a.add_argument("--orient-auto", action="store_true", help="exportar en la orientación de menor voladizo")
     a.add_argument("--max-angle", type=float, default=45.0, help="ángulo de voladizo tolerado (grados desde la vertical)")
+    a.add_argument("--color-cambio", action="append", default=[], metavar="ROL=#RRGGBB", help=tr("color.ayuda_cambio"))
     dp = sub.add_parser("desde-patron", help="proyecto de un héroe nuevo a partir de una figura patrón que ya funciona (copia sus planos y vuelve a dibujar las siluetas)")
     dp.add_argument("patron", help="proyecto de la figura patrón (p. ej. Güemes)")
     dp.add_argument("stl", help="STL del héroe nuevo")
@@ -487,9 +496,19 @@ def main(argv=None) -> int:
     os.makedirs(args.out, exist_ok=True)
     if args.cmd == "armar":
         from .recipe import RecipeError
+        from .palette import PaletteError, normalize_hex
+        cambios: dict = {}
+        for item in args.color_cambio:                   # T48: cambios de color solo para esta figura
+            rol, sep, hx = item.partition("=")
+            try:
+                if not sep or not rol:
+                    raise PaletteError("se espera ROL=#RRGGBB")
+                cambios[rol] = normalize_hex(hx, f"rol {rol}")
+            except PaletteError as exc:
+                ap.error(f"--color-cambio «{item}»: {exc}")
         try:
             info = run_armar(args.receta, args.out, args.name, args.catalogo, orient="auto" if args.orient_auto else args.orient,
-                             max_angle=args.max_angle, flat=args.sin_soportes)
+                             max_angle=args.max_angle, flat=args.sin_soportes, color_overrides=cambios or None)
         except (RecipeError, OSError) as exc:
             print(f"ERROR (receta): {exc}", file=sys.stderr)
             return 2

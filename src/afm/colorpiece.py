@@ -127,7 +127,7 @@ def head_color_provider(fbx_path: str, stl_path: str, *, spacing_mm: float = 0.0
     return provide
 
 
-def catalog_color_sources(placed: dict, catalog, scaled=(), *, spacing_mm: float = 0.08) -> tuple[dict, dict]:
+def catalog_color_sources(placed: dict, catalog, scaled=(), *, spacing_mm: float = 0.08, overrides: dict | None = None) -> tuple[dict, dict]:
     """`(sources, info)` para `Colorizer(sources=...)` de una figura armada desde el catálogo (T36, T43).
 
     `placed`: `BuildResult.placed` (nombre → `PlacedPart`). Para cada pieza cuya ficha trae `color` se arma un proveedor (se resuelve
@@ -148,6 +148,9 @@ def catalog_color_sources(placed: dict, catalog, scaled=(), *, spacing_mm: float
     `scaled`: tipos de pieza que la receta escala (`scale_choice` cambia la malla y `T` no lo recoge): esas piezas quedan sin color
     propio. `info` = `{"piezas": {clave: {"pieza": ref, "fbx": ruta}}, "omitidas": {clave: motivo}}`; las piezas `roles` llevan
     `{"pieza", "modo": "roles", "paquete", "roles"}` en lugar de `fbx`, y si hay alguna `info["paleta"]` = `{"hash", "roles": {id: hex}}`.
+    `overrides` (T48): `{rol: "#RRGGBB"}` colores de la paleta que cambian **solo para esta figura** (`Palette.with_overrides`): la paleta de la línea
+    no se toca ni se escribe. Un rol que la paleta no tiene es `PaletteRolesError` (no se descarta en silencio). `info["paleta"]` lleva la paleta
+    **usada** (con los cambios: `hash` y `roles`) y, si hubo cambios, `cambios` = `{rol: hex}`. Sin piezas `roles` los cambios no se usan.
     Sin piezas `roles` el resultado es exactamente el de T36."""
     from .colorreg import _split_name
 
@@ -180,7 +183,7 @@ def catalog_color_sources(placed: dict, catalog, scaled=(), *, spacing_mm: float
             return piece_color_source(load_textured(_fbx), None, _T, similarity=_A, spacing_mm=_sp).source
         sources[key] = provide
     if pending:
-        _roles_sources(pending, catalog, spacing_mm, sources, info)
+        _roles_sources(pending, catalog, spacing_mm, sources, info, overrides)
     return sources, info
 
 
@@ -202,7 +205,7 @@ def _load_roles(path: str):
                         [pkg.roles[i] for i in used_idx], dict(pkg.origen or {}))
 
 
-def _roles_sources(pending: dict, catalog, spacing_mm: float, sources: dict, info: dict) -> None:
+def _roles_sources(pending: dict, catalog, spacing_mm: float, sources: dict, info: dict, overrides: dict | None = None) -> None:
     """Completa `sources`/`info` con las piezas por roles de `pending` (ver `catalog_color_sources`). Levanta `PaletteRolesError` si la
     paleta de la línea no se puede usar para alguna de ellas."""
     refs: dict = {}                                      # rol -> piezas que lo usan
@@ -222,6 +225,14 @@ def _roles_sources(pending: dict, catalog, spacing_mm: float, sources: dict, inf
         raise PaletteRolesError(f"la paleta de la línea «{catalog.name}» no tiene los roles que usan las piezas elegidas: "
                                 + "; ".join(f"{r} (en {', '.join(p)})" for r, p in sorted(missing.items()))
                                 + ". Agregalos con `afm catalogo paleta agregar` o elegí otras piezas")
+    if overrides:                                        # T48: cambios de esta figura sobre la paleta de la línea (la de la línea queda como está)
+        from .palette import PaletteError, normalize_hex
+
+        try:
+            overrides = {str(r): normalize_hex(h, f"cambio de color del rol {r}") for r, h in overrides.items()}
+            palette = palette.with_overrides(overrides)
+        except PaletteError as exc:
+            raise PaletteRolesError(f"{exc} (paleta de la línea «{catalog.name}»)") from exc
     for key, (meta, T, pkg, path) in pending.items():
         info["piezas"][key] = {"pieza": meta.ref, "modo": "roles", "paquete": path, "roles": list(pkg.roles)}
 
@@ -236,6 +247,8 @@ def _roles_sources(pending: dict, catalog, spacing_mm: float, sources: dict, inf
                 return piece_color_source(_pkg.to_textured(_pal), None, _T, similarity=_A, spacing_mm=_sp).source
             sources[f"{key}_der"] = provide_right
     info["paleta"] = {"hash": palette.digest(), "roles": {r.id: r.hex for r in palette.roles}}
+    if overrides:
+        info["paleta"]["cambios"] = {r: palette.hex_of(r) for r in sorted(overrides)}
 
 
 # ------------------------------------------------------------------ figura base con roles (T44)

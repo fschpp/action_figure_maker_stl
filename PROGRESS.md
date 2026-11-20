@@ -2,6 +2,24 @@
 
 _Plan de referencia: `PLAN_herramienta_stl_articulable.md`, `PLAN_mecanismo_clic_hombro_cadera.md`, `PLAN_piezas_intercambiables_catalogo.md` y `PLAN_compatibilidad_cortes_catalogo.md`_
 
+## Current Focus — Paleta de línea: T48 (2026-11-19, sobre main 6cb0f7b = T47)
+**Objetivo:** que «Armar figura desde catálogo» muestre la paleta de la línea, permita cambiar colores solo para esa figura y recolorear sin rearmar (`PLAN_paleta_color_linea.md` T48).
+**Hecho:** (1) `FigureBuilder`: `palette_override`, `palette_rows` (rol, color de la línea, color de la figura, piezas que lo usan), `set_override`/`clear_override` (la `paleta.json` no se toca), `color_report`/`color_report_lines` (roles que faltan, piezas sin color, con FBX propio, escaladas), `color_missing`, `can_recolor`/`overrides_pending`, `recolor()` (usa `Colorizer.recolor` de T45 con la paleta de la línea actual + los cambios; reescribe PNG, GLB, informe de color, `<nombre>_informe.json` y la receta de la carpeta). `generate` frena antes de armar si faltan roles y guarda el `Colorizer` (`run_armar(keep=)`). (2) `Recipe.paleta_override` (clave aditiva, solo si hay; validada como `#RRGGBB`). (3) `catalog_color_sources(overrides=)` y `run_armar(color_overrides=)`; informe con `paleta.cambios`. (4) `afm armar --color-cambio ROL=#RRGGBB`. (5) `figure_window.py`: bloque «Colores de la figura» (selector, HEX, restablecer, «Recolorear», estado) y `_show_glb`. (6) Textos en es/en/pt. (7) `tests/test_gui_figure_palette.py`: 9 pruebas (las 4 de la ficha + extras).
+**Decisiones (mías, fáciles de cambiar):** (1) El cambio va en la receta como `paleta_override` y **no** en `ajustes`: `compat.json` hashea `ajustes` y el color no cambia los STL. (2) Recolorear solo vale si lo elegido (piezas, opciones, mano, escalas) es lo armado; si no, pide armar de nuevo. (3) Recolorear toma la paleta de la línea tal como está en disco en ese momento. (4) Las piezas `rgb` (T35) no se recolorean y se listan en el informe previo. (5) Bloque dentro del formulario (Expander), no pestaña. (6) `--color-cambio` en `armar` no estaba en la ficha; copia el de `run`.
+**Medido:** `test_gui_figure_palette.py` 9 pasan (≈ 100 s). Mutaciones detectadas: sin chequeo previo de roles faltantes; `recolor` que exige la receta con los cambios; `catalog_color_sources` que ignora los cambios; `set_override` que escribe la paleta de la línea. Recolorear = rearmar con el mismo cambio, PNG por PNG. `test_i18n/figure_builder/recipe` 40 pasan.
+**No verificado:** **la ventana en pantalla** (sin GTK, R9: solo parsea; `Gtk.ColorDialogButton`, orden de eventos al reconstruir filas, hilo de recoloreo); regresión completa de R7 (corría al armar el parche); el `.proyecto` que escribe `catalog_project.save` no lleva los cambios de color; Güemes real (T50).
+
+### Todo List
+- [x] T38 … [x] T47 · [x] T48 (GUI sin verificar en pantalla)
+- [ ] T49 → T50 → T51
+
+### Latest Blockers/Discoveries
+- Camino abierto: T49 (◄ T46–T48).
+- Pendiente desde T40: umbral del filtro de mayoría (2,23 % con K = 10 contra < 2 %). Pendiente (T43): fuente reflejada del lado derecho para piezas `rgb`.
+- Las entradas de T34–T36 siguen sin bitácora (T51).
+
+---
+
 ## Current Focus — Paleta de línea: T47 (2026-11-19, sobre main 1e79a7c = T46)
 **Objetivo:** pasar de un FBX a roles asignados y guardarlos en una pieza del catálogo o en la figura base (`PLAN_paleta_color_linea.md` T47).
 **Hecho:** (1) `gui/roles_wizard.py` (`RolesWizard`, sin GTK ni OpenGL): `load(fbx, k)` / `load_textured(tm)` (clusters con `colorroles.propose`); por cluster `set_role`, `set_new(id, nombre)` (rol nuevo con el color del cluster; otro cluster puede sumarse a ese rol nuevo), `set_none`, `confirm`, `confirm_suggestions`; `undecided`/`unconfirmed`/`blockers`/`can_save`; `final_palette()` (paleta de la línea + roles nuevos + **anclas** de los clusters asignados, las que ya había primero y tope 8); `save_piece(ref, similarity=None)` (versión nueva con `add_piece(color_roles=…)`) y `save_figure(ruta)` (escribe el `.color.npz` y lo anota en `project.color.roles`, relativa al proyecto si cae dentro de su carpeta); vista previa `preview_lut`/`preview_parts` (cada cluster de su color, uno resaltado, o con los roles elegidos). (2) `gui/roles_wizard_window.py` (GTK4): elegir FBX + K, analizar en un hilo, fichas de cluster (muestra, % del área, desplegable de roles / «Rol nuevo…» / «Sin rol», ✓ para confirmar la sugerencia), vista previa girable, destino (pieza del catálogo o figura base) y «Guardar». (3) Menú «Catálogo ▾»: ítem «Roles de color desde un FBX…». (4) Textos `roles_wizard.*` en es/en/pt. (5) `tests/test_gui_roles_wizard.py`: 10 pruebas (las 5 de la ficha + restitución de la paleta, figura base, validaciones y vista previa).
