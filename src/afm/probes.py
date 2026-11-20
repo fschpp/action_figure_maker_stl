@@ -223,8 +223,94 @@ def detent_labels_text(cells: list[DetentProbeCell]) -> str:
     return "\n".join(rows)
 
 
+# --------------------------------------------------------------------------------------------------
+# Probeta de la montura de armas (puente «lazo»): PLAN_enganche_armas_cuerpo.md, M09.
+# --------------------------------------------------------------------------------------------------
+DEFAULT_MOUNT_CLEARANCES = (0.15, 0.25, 0.35, 0.45)   # alrededor de `mount.DEFAULT_CLEARANCE` (0,25)
+MOUNT_PROBE_BLADE = (4.0, 0.8)                        # ancho × espesor de la hoja de prueba (mm): el de `props.make_prop`
+MOUNT_PROBE_BLADE_LEN = 20.0                          # largo de la hoja de la tira (mm)
+MOUNT_PROBE_PLATE_T = 2.0                             # espesor de la placa base (mm); el pie del puente se hunde 1 mm
+MOUNT_PROBE_PLATE_LEN = 20.0                          # largo de la placa a lo largo de la hoja (mm)
+MOUNT_PROBE_MARGIN = 3.0                              # mm de placa a cada lado del puente, a lo ancho
+MOUNT_PROBE_DOT = 1.0                                 # lado (mm) de los puntos que numeran la celda
+MOUNT_PROBE_DOT_PITCH = 1.4                           # mm entre puntos; empiezan a 2,5 mm del puente, del lado de la punta
+MOUNT_PROBE_MAX_CELLS = 5                             # con más celdas los puntos no caben en la placa
+
+
+@dataclass
+class MountProbeCell:
+    label: str
+    clearance: float
+
+
+def mount_probe_cells(clearances=DEFAULT_MOUNT_CLEARANCES) -> list[MountProbeCell]:
+    """Una celda por holgura de hoja (juego entre la hoja y el hueco, por lado)."""
+    cs = [float(c) for c in clearances]
+    if not cs or any(not (0.0 < c <= 2.0) for c in cs):
+        raise ValueError("las holguras de la probeta de montura tienen que estar entre 0 y 2 mm")
+    if len(cs) > MOUNT_PROBE_MAX_CELLS:
+        raise ValueError(f"la probeta de montura admite hasta {MOUNT_PROBE_MAX_CELLS} holguras (pidió {len(cs)})")
+    return [MountProbeCell(f"{c:.2f}", c) for c in cs]
+
+
+def mount_probe_blade(blade_w: float = MOUNT_PROBE_BLADE[0], blade_t: float = MOUNT_PROBE_BLADE[1],
+                      blade_len: float = MOUNT_PROBE_BLADE_LEN, guard_w: float = 10.0, guard_t: float = 2.0,
+                      handle_len: float = 6.0) -> S.Manifold:
+    """Tira de prueba en el marco del accesorio (hoja hacia −X, guarda en x ∈ [−guard_t, 0], empuñadura plana hacia +X).
+    Imprimirla acostada con las mismas capas que la espada: si pasa por el puente de la placa, pasa la espada."""
+    if min(blade_w, blade_t, blade_len, guard_w, guard_t, handle_len) <= 0:
+        raise ValueError("las medidas de la tira de prueba tienen que ser mayores que 0")
+
+    def box(xa, xb, wy, zt):
+        return S.Manifold.cube((xb - xa, wy, zt)).translate((xa, -wy / 2, 0.0))
+
+    return S.union(box(-guard_t - blade_len, -guard_t, blade_w, blade_t), box(-guard_t, 0.0, guard_w, max(guard_t, blade_t)),
+                   box(0.0, handle_len, min(blade_w, 3.0), blade_t))
+
+
+def build_mount_probe(p: Params | None = None, cells: list[MountProbeCell] | None = None, blade_w: float = MOUNT_PROBE_BLADE[0],
+                      blade_t: float = MOUNT_PROBE_BLADE[1], wall: float | None = None) -> tuple:
+    """Placa plana con un puente `lazo` por celda (uno al lado del otro, de más a menos juego según el orden de `cells`).
+    Cada puente sale de `mount.build_lazo` y se une con `mount.attach_lazo`: es el mismo que se pone en la figura. La celda
+    `i` lleva `i` puntos en relieve al costado. Devuelve `(placa, tira, [Lazo])`."""
+    from . import mount as MT
+
+    p = p or Params()
+    cells = cells or mount_probe_cells()
+    wall = float(p.min_wall if wall is None else wall)
+    strip = mount_probe_blade(blade_w, blade_t)
+    # ancho de cada celda: el del puente más margen (las celdas tienen el mismo, salvo por la holgura)
+    cw = lambda c: blade_w + 2 * c + 2 * wall + 2 * MOUNT_PROBE_MARGIN          # noqa: E731
+    total_w = sum(cw(c.clearance) for c in cells)
+    plate = S.Manifold.cube((MOUNT_PROBE_PLATE_LEN, total_w, MOUNT_PROBE_PLATE_T)).translate((-MOUNT_PROBE_PLATE_LEN / 2, 0.0, 0.0))
+    lazos, y = [], 0.0
+    for i, cell in enumerate(cells, start=1):
+        yc = y + cw(cell.clearance) / 2
+        spec = MT.MountSpec(arma="probeta@1", lugar="pelvis", ancla=(0.0, yc, MOUNT_PROBE_PLATE_T), direccion=(1.0, 0.0, 0.0),
+                            holgura=cell.clearance, pared=wall)
+        lz = MT.build_lazo(spec, strip, p.min_wall, normal=(0.0, 0.0, 1.0))
+        plate = MT.attach_lazo(plate, lz)
+        lazos.append(lz)
+        # los puntos van del lado de la punta (x > 0) y fuera del ancho de la hoja: la guarda, que sale hacia −X, nunca pasa por ahí
+        dots = [S.Manifold.cube((MOUNT_PROBE_DOT, MOUNT_PROBE_DOT, MOUNT_PROBE_DOT * 0.6)).translate(
+            (2.5 + MOUNT_PROBE_DOT_PITCH * k, y + 1.0, MOUNT_PROBE_PLATE_T - 0.05)) for k in range(i)]
+        plate = S.union(plate, *dots)
+        y += cw(cell.clearance)
+    return plate, strip, lazos
+
+
+def mount_labels_text(cells: list[MountProbeCell], lazos: list, blade_w: float, blade_t: float, wall: float) -> str:
+    """Tabla de referencia: número de la celda (puntos en la placa), holgura y abertura resultante."""
+    rows = [f"#{i + 1} ({i + 1} punto{'s' if i else ''}): holgura de hoja {c.clearance:.2f} mm por lado, "
+            f"abertura {lz.hole_w:.2f} × {lz.hole_t:.2f} mm (ancho × alto)" for i, (c, lz) in enumerate(zip(cells, lazos))]
+    head = (f"Hoja de prueba {blade_w:g} × {blade_t:g} mm, pared del puente {wall:g} mm. Imprimir la placa y la tira acostadas, con las mismas capas que la espada (el techo del puente cruza ~4,5 mm: anotar si hizo falta soporte).\n"
+            "Pasar la tira (hoja primero) por cada puente; la guarda tiene que apoyar en la cara del puente. Elegir la celda donde entra\n"
+            "sin forzar y no queda floja, y pasar su valor como `holgura` de la montura.")
+    return head + "\n" + "\n".join(rows)
+
+
 def probe_files(tipo: str = "hongo", clearances=None, deltas=None, axiales=None, boquilla: float = 0.4,
-                gaps=None, espesores=None) -> tuple[dict[str, bytes], str]:
+                gaps=None, espesores=None, hoja=None, pared=None) -> tuple[dict[str, bytes], str]:
     """Genera las probetas de calibración como archivos en memoria: ({nombre: bytes}, texto de la tabla).
 
     Es la única implementación: la usan `afm probe` (CLI) y la página (Pyodide), así que dan los mismos archivos."""
@@ -246,6 +332,13 @@ def probe_files(tipo: str = "hongo", clearances=None, deltas=None, axiales=None,
         text = "\n\n".join(blocks)
         files[f"probetas_clic_b{boquilla:g}.txt"] = (text + "\n").encode()
         return files, text
+    if tipo == "montura":
+        bw, bt = (float(hoja[0]), float(hoja[1])) if hoja else MOUNT_PROBE_BLADE
+        wall = float(pared) if pared else p.min_wall
+        cells = mount_probe_cells(clearances or DEFAULT_MOUNT_CLEARANCES)
+        plate, strip, lazos = build_mount_probe(p, cells, bw, bt, wall)
+        text = mount_labels_text(cells, lazos, bw, bt, wall)
+        return {"probeta_montura.stl": stl(plate), "tira_hoja.stl": stl(strip), "probeta_montura.txt": (text + "\n").encode()}, text
     if tipo == "bisagra":
         kw = {}
         if clearances:

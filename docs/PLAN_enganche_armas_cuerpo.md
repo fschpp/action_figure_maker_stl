@@ -177,11 +177,11 @@ La lógica va en un módulo propio sin GTK, probado sin ventana (como `palette_e
 - **M06** Compatibilidad con `flat_for_print` según §6.5 (`host_bare`, plano, reunión al final, avisos). *Prueba:* figura con `flat` y montura; la montura sigue completa.
 - **M07** `_validate_mount`: extracción, holguras, retención, estabilidad, imprimibilidad, componentes (§6.4).
 - **M08** Mapa de espacio libre del flanco (también sirve a la GUI).
-- **M09** Probeta de la montura: `probes.probe_files(tipo="montura")`, el puente solo sobre base plana con varias holguras en la misma placa, siguiendo el estilo de las probetas del clic (`PROTOCOLO_probetas_clic.md`, `afm probetas --clearances`). Ya hay una hecha a mano que sirve de referencia. La holgura elegida se guarda en la `MountSpec`.
+- **M09** Probeta de la montura: `probes.probe_files(tipo="montura")`, el puente solo sobre base plana con varias holguras en la misma placa, siguiendo el estilo de las probetas del clic (`PROTOCOLO_probetas_clic.md`, `afm probe --clearances`). Ya hay una hecha a mano que sirve de referencia. La holgura elegida se guarda en la `MountSpec`.
 
 ### Fase 2 — Receta y CLI
 - **M10** `Recipe.ajustes["monturas"]`, validación en `problems()`, coherencia con `accesorios`, **clave de compat** (§6.3). Se guarda solo si hay.
-- **M11** CLI: `afm armar` ya lee la receta, así que **no** hace falta la sintaxis `--montura ARMA:LUGAR:x,y,z:dx,dy,dz` de la v0.3. Se agrega `afm probetas --tipo montura` y, opcional, `--montura ARCHIVO.json`.
+- **M11** CLI: `afm armar` ya lee la receta, así que **no** hace falta la sintaxis `--montura ARMA:LUGAR:x,y,z:dx,dy,dz` de la v0.3. Se agrega `afm probe --tipo montura` y, opcional, `--montura ARCHIVO.json`.
 - **M12** Informe: la montura y sus avisos en `info["construccion"]` y en la lista de piezas; el nivel de `compat` refleja los problemas de la montura.
 
 ### Fase 3 — Interfaz

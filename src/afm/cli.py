@@ -473,12 +473,15 @@ def main(argv=None) -> int:
     pr.add_argument("--out", default="out/probetas")
     pr.add_argument("--clearances", default=None, help="holguras radiales a probar (mm)")
     pr.add_argument("--deltas", default=None, help="variación del Ø de vástago (hongo) o de bulón (bisagra), en mm")
-    pr.add_argument("--tipo", default="hongo", choices=("hongo", "bisagra", "clic"),
+    pr.add_argument("--tipo", default="hongo", choices=("hongo", "bisagra", "clic", "montura"),
                     help="hongo = cadera/hombro (§8.11); bisagra = rodilla/codo (plan de articulaciones, Fase 6); "
-                         "clic = disco con muescas + lengüetas (PLAN_mecanismo_clic_hombro_cadera.md, Fase 0)")
+                         "clic = disco con muescas + lengüetas (PLAN_mecanismo_clic_hombro_cadera.md, Fase 0); "
+                         "montura = puente para enganchar un arma al cuerpo + tira de hoja (PLAN_enganche_armas_cuerpo.md, M09)")
     pr.add_argument("--boquilla", type=float, default=0.4, help="solo clic: boquilla (mm); fija el espesor y largo de la lengüeta")
     pr.add_argument("--gaps", default=None, help="solo clic: holguras punta/muesca; una placa por valor (por defecto 0.2,0.3,0.4)")
     pr.add_argument("--espesores", default=None, help="solo clic: espesores de lengüeta a probar (mm)")
+    pr.add_argument("--hoja", default=None, help="solo montura: ancho,espesor de la hoja de prueba (mm); por defecto 4,0.8")
+    pr.add_argument("--pared", type=float, default=None, help="solo montura: pared del puente (mm); por defecto min_wall")
     pr.add_argument("--axiales", default=None, help="solo bisagra: holguras axiales a probar, p. ej. 0.25,0.35,0.45")
     ag = sub.add_parser("agarre", help="taladrar un agujero de agarre en la mano estándar y generar espadas de prueba con empuñadura dentada (snap-fit)")
     ag.add_argument("mano", help="STL de la mano estándar (`afm extraer-mano`); el .mano.json de al lado es opcional")
@@ -593,7 +596,7 @@ def main(argv=None) -> int:
         fl = lambda t: [float(x) for x in t.split(",")] if t else None
         files, text = probes.probe_files(
             args.tipo, clearances=fl(args.clearances), deltas=fl(args.deltas), axiales=fl(args.axiales),
-            boquilla=args.boquilla, gaps=fl(args.gaps), espesores=fl(args.espesores))
+            boquilla=args.boquilla, gaps=fl(args.gaps), espesores=fl(args.espesores), hoja=fl(args.hoja), pared=args.pared)
         for name, data in files.items():
             with open(os.path.join(args.out, name), "wb") as f:
                 f.write(data)
