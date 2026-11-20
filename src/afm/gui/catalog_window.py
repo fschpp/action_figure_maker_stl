@@ -1430,7 +1430,8 @@ class CatalogManagerWindow(Gtk.Window):
             self._shown = (meta, mesh)
             self._redraw()
             self._load_color_preview(meta.ref)                        # la caché de color incluye el hash del retoque: sale el nuevo
-        self.lbl_status.set_text(tr("catalog_window.retocar_guardado", n=n))
+        self._flash = tr("catalog_window.retocar_guardado", n=n)
+        self.lbl_status.set_text(self._flash)
 
     # ------------------------------------------------------------ lista
     def _type_filter(self) -> str | None:
@@ -1635,7 +1636,8 @@ class CatalogManagerWindow(Gtk.Window):
             self.lbl_status.set_text(tr("catalog_window.color_error", ref=ref, exc=err))
             return False
         self._color_shown = (ref, parts) if parts else None
-        self.lbl_status.set_text(tr("catalog_window.color_listo") if parts else "")
+        flash, self._flash = getattr(self, "_flash", ""), ""         # el aviso de «Retoque guardado» no se pierde bajo el de la vista a color
+        self.lbl_status.set_text((flash + "  " if flash else "") + tr("catalog_window.color_listo") if parts else flash)
         self._redraw()
         return False
 
@@ -1668,7 +1670,7 @@ class CatalogManagerWindow(Gtk.Window):
             self.picture.set_paintable(None)
             self.lbl_status.set_text(tr("common.la_vista_previa_3d_no_esta", exc=exc))
             return
-        if not (getattr(self, "_color_shown", None) and self.lbl_status.get_text() == tr("catalog_window.color_listo")):
+        if not (getattr(self, "_color_shown", None) and self.lbl_status.get_text().endswith(tr("catalog_window.color_listo"))):
             self.lbl_status.set_text("")                                 # el aviso de «vista a color» se queda mientras se gira la pieza
         h, w = img.shape[:2]
         self._img_size = (w, h)
