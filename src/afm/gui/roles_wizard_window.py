@@ -100,6 +100,9 @@ class RolesWizardWindow(Gtk.Window):
         self.piece_row.append(Gtk.Label(label=tr("roles_wizard.similitud")))
         self.lbl_sim = Gtk.Label(label="", xalign=0.0, hexpand=True, ellipsize=3)
         self.piece_row.append(self.lbl_sim)
+        self.btn_calc = Gtk.Button(label=tr("roles_wizard.calcular_similitud"), tooltip_text=tr("roles_wizard.calcular_similitud_ayuda"))
+        self.btn_calc.connect("clicked", lambda *_: self._calc_similarity())
+        self.piece_row.append(self.btn_calc)
         btn = Gtk.Button(label=tr("roles_wizard.elegir_similitud"))
         btn.connect("clicked", lambda *_: self._choose_similarity())
         self.piece_row.append(btn)
@@ -324,9 +327,99 @@ class RolesWizardWindow(Gtk.Window):
             except GLib.Error:
                 return
             self._sim_path = f.get_path()
+            self.wiz.clear_similarity()                             # el JSON elegido reemplaza a la similitud calculada
             self.lbl_sim.set_text(os.path.basename(self._sim_path))
 
         dlg.open(self, None, done)
+
+    # ------------------------------------------------------------ similitud calculada desde la GUI
+    def _calc_similarity(self) -> None:
+        """Calcula la 4×4 FBX → figura sin salir de la ventana: con la figura abierta (si hay) o con un STL y un `.proyecto` a elegir."""
+        if not self._fbx:
+            self._say(tr("roles_wizard.sim_sin_fbx"))
+            return
+        sess = getattr(self.ctrl, "session", None)
+        stl, proj = getattr(sess, "stl_path", None), getattr(sess, "project_path", None)
+        if stl and proj and os.path.isfile(stl) and os.path.isfile(proj):
+            dlg = Gtk.AlertDialog(message=tr("roles_wizard.sim_usar_abierta", stl=os.path.basename(stl), proyecto=os.path.basename(proj)),
+                                  buttons=[tr("roles_wizard.sim_btn_abierta"), tr("roles_wizard.sim_btn_elegir"), tr("common.cancelar")],
+                                  cancel_button=2, default_button=0)
+
+            def answered(d, res):
+                try:
+                    i = d.choose_finish(res)
+                except GLib.Error:
+                    return
+                if i == 0:
+                    self._run_similarity(stl, proj)
+                elif i == 1:
+                    self._pick_similarity_files()
+
+            dlg.choose(self, None, answered)
+        else:
+            self._pick_similarity_files()
+
+    def _pick_similarity_files(self) -> None:
+        def pick_stl():
+            d = Gtk.FileDialog(title=tr("roles_wizard.sim_elegir_stl"))
+
+            def done(dd, res):
+                try:
+                    stl = dd.open_finish(res).get_path()
+                except GLib.Error:
+                    return
+                pick_proj(stl)
+
+            d.open(self, None, done)
+
+        def pick_proj(stl):
+            d = Gtk.FileDialog(title=tr("roles_wizard.sim_elegir_proyecto"))
+
+            def done(dd, res):
+                try:
+                    proj = dd.open_finish(res).get_path()
+                except GLib.Error:
+                    return
+                self._run_similarity(stl, proj)
+
+            d.open(self, None, done)
+
+        pick_stl()
+
+    def _run_similarity(self, stl: str, proj: str) -> None:
+        if self._busy:
+            return
+        self._busy = True
+        self.btn_calc.set_sensitive(False)
+        self.btn_save.set_sensitive(False)
+        self._say(tr("roles_wizard.sim_calculando"))
+
+        def work():
+            try:
+                info, err = self.wiz.compute_similarity(stl, proj), None
+            except Exception as exc:                                 # noqa: BLE001  (se muestra en la ventana)
+                info, err = None, exc
+            GLib.idle_add(self._similarity_done, info, err)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _similarity_done(self, info, err) -> bool:
+        self._busy = False
+        if self._closed:
+            return False
+        self.btn_calc.set_sensitive(True)
+        if err is not None:
+            self.wiz.clear_similarity()
+            self._sim_path = ""
+            self.lbl_sim.set_text("")
+            self._refresh()
+            self._error(err)
+            return False
+        self._sim_path = ""                                          # la calculada reemplaza a un JSON elegido antes
+        self.lbl_sim.set_text(tr("roles_wizard.sim_calculada", media=f"{info['media_mm']:.3f}", stl=self.wiz.similarity_info.get("stl", "")))
+        self._refresh()
+        self._say(tr("roles_wizard.sim_lista", media=f"{info['media_mm']:.3f}"))
+        return False
 
     def _analyze(self) -> None:
         if not self._fbx or self._busy:
@@ -403,15 +496,20 @@ class RolesWizardWindow(Gtk.Window):
         idx = self.drop_piece.get_selected()
         if idx == Gtk.INVALID_LIST_POSITION or idx >= len(self._refs):
             return
-        sim = None
-        if self._sim_path:
+        sim = self.wiz.similarity
+        if sim is None and self._sim_path:
             try:
                 with open(self._sim_path, encoding="utf-8") as fh:
                     sim = json.load(fh)
                 sim = sim.get("similitud", sim) if isinstance(sim, dict) else sim
             except (OSError, ValueError) as exc:
                 raise RolesWizardError(f"{self._sim_path}: {exc}") from exc
-        new = self.wiz.save_piece(self._refs[idx], sim)
+        try:
+            new = self.wiz.save_piece(self._refs[idx], sim)
+        except RolesWizardError as exc:
+            if sim is None and "similarity" in str(exc):             # pieza recortada de una figura: el error pedía la similitud
+                raise RolesWizardError(f"{exc}\n\n{tr('roles_wizard.sim_pista')}") from exc
+            raise
         self._after_saved(tr("roles_wizard.guardada_pieza", ref=new.ref, roles=", ".join(new.color.get("roles", []))))
 
     def _save_figure(self) -> None:

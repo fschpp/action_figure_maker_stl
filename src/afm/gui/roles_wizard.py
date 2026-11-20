@@ -50,6 +50,8 @@ class RolesWizard:
         self.fbx_path = ""
         self.choices: dict[int, Choice] = {}
         self.warnings: list[str] = []
+        self.similarity: list | None = None          # 4×4 FBX → figura calculada desde la GUI (`compute_similarity`); `save_piece` la usa si no se pasa otra
+        self.similarity_info: dict = {}
 
     # ------------------------------------------------------------------ catálogo y paleta
     def _cat(self):
@@ -275,6 +277,28 @@ class RolesWizard:
                     os.remove(cat.palette_path)
             raise
 
+    def compute_similarity(self, stl_path: str, project_path: str) -> dict:
+        """Calcula la similitud FBX → figura con el FBX ya cargado (o el de `fbx_path`) y la deja en `self.similarity` para `save_piece`.
+        Devuelve `{"media_mm", "ok"}`. Si el FBX no calza con esa figura levanta `RolesWizardError` y no deja nada guardado.
+        Puede tardar (se llama desde un hilo)."""
+        from ..figsim import FigureSimilarityError, compute_figure_similarity
+        from ..frame import SIMILARITY_OK_MM
+
+        if not self.fbx_path:
+            raise RolesWizardError(tr("roles_wizard.sim_sin_fbx"))
+        try:
+            sim = compute_figure_similarity(stl_path, project_path, self.fbx_path, tm=self.tm)
+        except FigureSimilarityError as exc:
+            raise RolesWizardError(str(exc)) from exc
+        if not sim.ok:
+            raise RolesWizardError(tr("roles_wizard.sim_no_calza", media=f"{sim.media_mm:.3f}", max=f"{SIMILARITY_OK_MM:g}"))
+        self.similarity = sim.matrix
+        self.similarity_info = {"media_mm": sim.media_mm, "stl": os.path.basename(stl_path), "proyecto": os.path.basename(project_path)}
+        return {"media_mm": sim.media_mm, "ok": True}
+
+    def clear_similarity(self) -> None:
+        self.similarity, self.similarity_info = None, {}
+
     def save_piece(self, ref: str, similarity=None):
         """Guarda una **versión nueva** de la pieza `ref` con este color por roles (como `afm catalogo color`). `similarity`: 4×4 FBX → figura
         entera para una pieza recortada de una figura; sin ella se alinea por momentos (solo sirve con una pieza completa, plan §5.7).
@@ -284,6 +308,8 @@ class RolesWizard:
 
         if not self.can_save:
             raise RolesWizardError(self.blockers())
+        if similarity is None:
+            similarity = self.similarity
         cat = self._cat()
         try:
             meta, mesh = cat.load(ref)

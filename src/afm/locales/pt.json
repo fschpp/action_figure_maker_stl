@@ -1922,6 +1922,19 @@
   "sin_figura": "Não há figura aberta: não há onde anotar a cor da figura base.",
   "error_fbx": "Não foi possível ler o FBX: %{error}",
   "guardada_pieza": "Salva %{ref} com cor por papéis (%{roles}).",
-  "guardada_figura": "Pacote de papéis da figura salvo em %{ruta} (%{roles})."
+  "guardada_figura": "Pacote de papéis da figura salvo em %{ruta} (%{roles}).",
+  "calcular_similitud": "Calcular similaridade…",
+  "calcular_similitud_ayuda": "Calcula a 4×4 FBX → figura com o STL e o .proyecto da figura de onde sai a peça (necessário para braços, pernas, torsos…)",
+  "sim_sin_fbx": "Escolha primeiro o FBX com textura e analise-o.",
+  "sim_usar_abierta": "Calcular a similaridade com a figura aberta?\n\nSTL: %{stl}\nProjeto: %{proyecto}",
+  "sim_btn_abierta": "Usar a figura aberta",
+  "sim_btn_elegir": "Escolher arquivos…",
+  "sim_elegir_stl": "Escolha o STL da figura inteira",
+  "sim_elegir_proyecto": "Escolha o .proyecto dessa figura",
+  "sim_calculando": "Calculando a similaridade FBX → figura…",
+  "sim_calculada": "calculada · %{media} mm · %{stl}",
+  "sim_lista": "Similaridade calculada (distância média %{media} mm). Já pode salvar.",
+  "sim_no_calza": "O FBX não coincide com essa figura: distância média %{media} mm (máximo aceito %{max} mm). Verifique se o STL, o .proyecto e o FBX são da mesma figura.",
+  "sim_pista": "Clique em «Calcular similaridade…» e escolha a figura inteira de onde sai a peça (STL + .proyecto)."
  }
 }

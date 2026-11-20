@@ -1922,6 +1922,19 @@
   "sin_figura": "No hay una figura abierta: no hay dónde anotar el color de la figura base.",
   "error_fbx": "No se pudo leer el FBX: %{error}",
   "guardada_pieza": "Guardada %{ref} con color por roles (%{roles}).",
-  "guardada_figura": "Paquete de roles de la figura guardado en %{ruta} (%{roles})."
+  "guardada_figura": "Paquete de roles de la figura guardado en %{ruta} (%{roles}).",
+  "calcular_similitud": "Calcular similitud…",
+  "calcular_similitud_ayuda": "Calcula la 4×4 FBX → figura con el STL y el .proyecto de la figura de la que sale la pieza (hace falta para brazos, piernas, torsos…)",
+  "sim_sin_fbx": "Elegí primero el FBX con textura y analizalo.",
+  "sim_usar_abierta": "¿Calcular la similitud con la figura abierta?\n\nSTL: %{stl}\nProyecto: %{proyecto}",
+  "sim_btn_abierta": "Usar la figura abierta",
+  "sim_btn_elegir": "Elegir archivos…",
+  "sim_elegir_stl": "Elegí el STL de la figura entera",
+  "sim_elegir_proyecto": "Elegí el .proyecto de esa figura",
+  "sim_calculando": "Calculando la similitud FBX → figura…",
+  "sim_calculada": "calculada · %{media} mm · %{stl}",
+  "sim_lista": "Similitud calculada (distancia media %{media} mm). Ya podés guardar.",
+  "sim_no_calza": "El FBX no coincide con esa figura: distancia media %{media} mm (máximo aceptado %{max} mm). Revisá que el STL, el .proyecto y el FBX sean de la misma figura.",
+  "sim_pista": "Pulsá «Calcular similitud…» y elegí la figura entera de la que sale la pieza (STL + .proyecto)."
  }
 }
