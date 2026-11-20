@@ -20,7 +20,9 @@ import numpy as np
 from ..i18n import tr
 from ..palette import DEFAULT_FLAT, MAX_ANCHORS, Palette, PaletteError, Role, hex_to_rgb
 
-DIM_GRAY = (110, 110, 110)           # los clusters que no se resaltan en la vista previa
+HIGHLIGHT_RGB = (255, 40, 200)       # el cluster de la fila elegida se ve siempre en este magenta, sea cual sea su color (un gris oscuro sobre fondo oscuro no se veía)
+DIM_MIX = 0.55                       # los demás clusters se ven con su color lavado hacia DIM_TO (se distingue la figura sin competir con el resaltado)
+DIM_TO = (215, 215, 215)
 
 
 class RolesWizardError(ValueError):
@@ -336,7 +338,7 @@ class RolesWizard:
     # ------------------------------------------------------------------ vista previa
     def preview_lut(self, highlight: int | None = None, mode: str = "clusters") -> np.ndarray:
         """Tabla (k, 3) uint8 con el color de cada cluster: el propio (`clusters`) o el del rol elegido (`roles`; sin rol o sin decidir = plano).
-        Con `highlight` el resto se ve en gris."""
+        Con `highlight` ese cluster se pinta de `HIGHLIGHT_RGB` y el resto con su color lavado hacia un gris claro (`DIM_MIX`)."""
         self._need_loaded()
         pal = self.final_palette() if mode == "roles" else None
         out = np.zeros((self.proposal.k, 3), np.uint8)
@@ -347,9 +349,9 @@ class RolesWizard:
             else:
                 out[c] = self.proposal.centers_rgb[c]
         if highlight is not None:
-            keep = out[highlight].copy()
-            out[:] = DIM_GRAY
-            out[highlight] = keep
+            washed = np.rint(out.astype(float) * (1.0 - DIM_MIX) + np.asarray(DIM_TO, float) * DIM_MIX)
+            out = washed.astype(np.uint8)
+            out[highlight] = HIGHLIGHT_RGB
         return out
 
     def preview_parts(self, highlight: int | None = None, mode: str = "clusters") -> list:
