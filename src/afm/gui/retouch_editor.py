@@ -14,7 +14,7 @@ from ..retouch import Retouch
 from .camera import OrbitCamera
 from .catalog_manager import preview_camera, view_bounds, widget_to_image
 from .picking import Picker
-from .retouch_session import ERASE, PAINT, RetouchSession
+from .retouch_session import ERASE, FILL, PAINT, RetouchSession
 
 OVERLAY_MAX_POINTS = 3000          # puntos que se dibujan encima de la pieza (los más recientes): dibujar 20 000 en cada movimiento sobra
 ERASER_COLOR = (1.0, 1.0, 1.0, 1.0)
@@ -117,4 +117,4 @@ class RetouchEditor:
         return meta
 
 
-__all__ = ["RetouchEditor", "PAINT", "ERASE", "OVERLAY_MAX_POINTS"]
+__all__ = ["RetouchEditor", "PAINT", "ERASE", "FILL", "OVERLAY_MAX_POINTS"]

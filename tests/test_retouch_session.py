@@ -234,3 +234,100 @@ def test_cli_import_rejects_bad_file_and_unknown_role(line, tmp_path, capsys):
 def test_cli_options_are_mutually_exclusive(line):
     with pytest.raises(SystemExit):
         main(["catalogo", "retoque", line, REF, "--borrar", "--exportar", "x.json"])
+
+
+# ------------------------------------------------------------------ rellenar región e importar
+def test_fill_mode_is_one_click_one_stroke_with_the_reach():
+    from afm.gui.retouch_session import DEFAULT_REACH_MM, FILL
+
+    s = sess()
+    s.set_mode(FILL)
+    s.set_role("oro")
+    assert s.mode == FILL and s.reach == DEFAULT_REACH_MM
+    s.set_reach(3.0)
+    assert s.begin_stroke((1, 2, 3), (0, 0, 1)) == 1
+    assert s.add_point((9, 9, 9)) == 0                      # arrastrar no agrega nada
+    assert s.end_stroke() == 1 and len(s) == 1
+    st = s.retouch().strokes[0]
+    assert st.relleno and st.r == 3.0 and st.rol == "oro" and st.c == (1.0, 2.0, 3.0)
+    assert s.undo() and len(s) == 0 and s.redo() and len(s) == 1
+    assert s.set_reach(1e6) == MAX_RADIUS_MM and s.set_reach(0) == MIN_RADIUS_MM
+    with pytest.raises(RetouchError):
+        s.set_reach(float("nan"))
+
+
+def test_fill_mode_keeps_filling_when_the_role_changes_and_erase_goes_back_to_paint():
+    from afm.gui.retouch_session import FILL
+
+    s = sess()
+    s.set_mode(FILL)
+    s.set_role("azul")
+    assert s.mode == FILL                                    # cambiar de rol no saca del relleno
+    s.set_mode(ERASE)
+    s.set_role("azul")
+    assert s.mode == PAINT
+
+
+def test_fill_respects_the_stroke_cap_and_reports_truncation():
+    from afm.gui.retouch_session import FILL
+
+    s = sess(retouch=Retouch([Stroke((0, 0, 0), 1, "rojo")] * MAX_STROKES))
+    s.set_mode(FILL)
+    assert s.begin_stroke((0, 0, 0)) == 0 and s.truncated
+
+
+def test_import_strokes_is_one_undo_step_and_validates_before_changing_anything():
+    s = sess()
+    new = [Stroke((i, 0, 0), 1.0, "azul") for i in range(5)] + [Stroke((0, 0, 0), 4.0, "oro", relleno=True)]
+    assert s.import_strokes(new) == 6 and len(s) == 6 and s.dirty
+    assert s.undo() and len(s) == 0 and s.redo() and len(s) == 6
+    with pytest.raises(RetouchError):                        # rol fuera de la paleta: no cambia nada
+        s.import_strokes([Stroke((0, 0, 0), 1, "verde")])
+    assert len(s) == 6
+    big = sess(retouch=Retouch([Stroke((0, 0, 0), 1, "rojo")] * (MAX_STROKES - 2)))
+    with pytest.raises(RetouchError):
+        big.import_strokes([Stroke((0, 0, 0), 1, "azul")] * 3)
+    assert len(big) == MAX_STROKES - 2 and big.import_strokes([]) == 0
+
+
+# ------------------------------------------------------------------ CLI: --copiar-de, --espejar y estado
+def test_cli_copy_from_another_piece_and_mirror(line, tmp_path, capsys):
+    from test_color_catalog_palette import ARM_ID, with_roles
+
+    cat = Catalog.open(line)
+    top = top_stroke(cat)
+    cat.set_retouch(REF, Retouch([Stroke(top.c, 2.0, "oro", top.n), Stroke(top.c, 5.0, "rojo", top.n, relleno=True)]))
+    arm_ref = with_roles(cat, ARM_ID).ref                         # una segunda pieza con color por roles
+    code, out, _ = run(line, arm_ref, "--copiar-de", REF, "--espejar", capsys=capsys)
+    assert code == 0 and "copiado" in out and "espejado" in out
+    got, src = cat.retouch(arm_ref), cat.retouch(REF)
+    assert got == src.mirrored() and got.strokes[0].c[0] == pytest.approx(-top.c[0], abs=1e-3) and got.strokes[1].relleno
+    assert cat.retouch(REF) == src                                  # el origen no se toca
+    # sin --espejar es una copia exacta (p. ej. de la versión anterior a la nueva)
+    assert run(line, arm_ref, "--borrar", capsys=capsys)[0] == 0 and cat.retouch(arm_ref) is None
+    assert run(line, arm_ref, "--copiar-de", REF, capsys=capsys)[0] == 0 and cat.retouch(arm_ref) == src
+    # exportar un retoque con rellenos escribe el formato 2, que se vuelve a importar
+    path = str(tmp_path / "r.json")
+    assert run(line, REF, "--exportar", path, capsys=capsys)[0] == 0 and json.load(open(path))["formato"] == "afm-retoque-2"
+    assert run(line, arm_ref, "--importar", path, "--espejar", capsys=capsys)[0] == 0 and cat.retouch(arm_ref) == src.mirrored()
+
+
+def test_cli_espejar_needs_importar_or_copiar_de(line, capsys):
+    code, _, err = run(line, REF, "--espejar", capsys=capsys)
+    assert code != 0 and "--espejar" in err
+
+
+def test_cli_copiar_de_without_retouch_fails_clearly(line, capsys):
+    code, _, err = run(line, REF, "--copiar-de", REF, capsys=capsys)
+    assert code != 0 and "no tiene retoque" in err
+
+
+def test_retouching_does_not_change_the_piece_state(line):
+    """Decisión del cliente: un retoque NO invalida `validada`/`impresa`."""
+    cat = Catalog.open(line)
+    for state in ("validada", "impresa"):
+        cat.set_state(REF, state)
+        cat.set_retouch(REF, Retouch([top_stroke(cat)]))
+        assert cat.meta(REF).estado == state
+        cat.set_retouch(REF, None)
+        assert cat.meta(REF).estado == state

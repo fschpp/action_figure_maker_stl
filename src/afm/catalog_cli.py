@@ -196,7 +196,9 @@ def add_parsers(sub) -> None:
     g = a.add_mutually_exclusive_group()
     g.add_argument("--exportar", metavar="ARCHIVO.json", help=tr("retoque_cli.ayuda_exportar"))
     g.add_argument("--importar", metavar="ARCHIVO.json", help=tr("retoque_cli.ayuda_importar"))
+    g.add_argument("--copiar-de", dest="copiar_de", metavar="REF2", help=tr("retoque_cli.ayuda_copiar_de"))
     g.add_argument("--borrar", action="store_true", help=tr("retoque_cli.ayuda_borrar"))
+    a.add_argument("--espejar", action="store_true", help=tr("retoque_cli.ayuda_espejar"))
     a = cs.add_parser("estado", help="cambiar el estado de una pieza (borrador, validada, impresa)")
     root(a)
     a.add_argument("ref", metavar="ID")
@@ -369,23 +371,37 @@ def _run_color(cat: Catalog, args) -> int:
 
 
 def _run_retouch(cat: Catalog, args) -> int:
-    """`afm catalogo retoque RUTA REF [--exportar A.json | --importar A.json | --borrar]` (R03b): sin opciones, resume el retoque de la pieza; con
-    `--exportar` lo copia a un archivo `afm-retoque-1`; con `--importar` lo reemplaza por el de un archivo (los roles tienen que estar en la paleta
-    de la línea); con `--borrar` lo quita. Las pinceladas se hacen en la ventana de Catálogo (R07), no acá."""
+    """`afm catalogo retoque RUTA REF [--exportar A.json | --importar A.json | --copiar-de REF2 | --borrar] [--espejar]` (R03b): sin opciones, resume el
+    retoque de la pieza; con `--exportar` lo copia a un archivo `afm-retoque-1`/`-2`; con `--importar` lo reemplaza por el de un archivo y con
+    `--copiar-de` por el de otra pieza del catálogo (p. ej. su par del otro lado, o la versión anterior de la misma pieza); `--espejar` refleja en X
+    lo que se trae (del lado izquierdo al derecho). Los roles tienen que estar en la paleta de la línea; con `--borrar` lo quita. Las pinceladas
+    se hacen en la ventana de Catálogo (R07), no acá. Un retoque no cambia el estado (`validada`/`impresa`) de la pieza."""
     from .retouch import Retouch, RetouchError
 
     ref = cat.meta(args.ref).ref
+    if args.espejar and not (args.importar or args.copiar_de):
+        raise CatalogError(tr("retoque_cli.espejar_solo"))
     if args.borrar:
         cat.set_retouch(ref, None)
         print(tr("retoque_cli.borrado", ref=ref))
         return 0
-    if args.importar:
-        try:
-            rt = Retouch.load(args.importar)
-        except RetouchError as exc:
-            raise CatalogError(tr("retoque_cli.no_sirve", error=exc)) from exc
+    if args.importar or args.copiar_de:
+        src_ref = None
+        if args.copiar_de:
+            src_ref = cat.meta(args.copiar_de).ref
+            rt = cat.retouch(src_ref)
+            if rt is None:
+                raise CatalogError(tr("retoque_cli.sin_retoque", ref=src_ref))
+        else:
+            try:
+                rt = Retouch.load(args.importar)
+            except RetouchError as exc:
+                raise CatalogError(tr("retoque_cli.no_sirve", error=exc)) from exc
+        if args.espejar:
+            rt = rt.mirrored()
         cat.set_retouch(ref, rt)
-        print(tr("retoque_cli.importado", ref=ref, n=len(rt), roles=", ".join(rt.roles_used()) or "-"))
+        key = "retoque_cli.copiado" if src_ref else "retoque_cli.importado"
+        print(tr(key, ref=ref, n=len(rt), roles=", ".join(rt.roles_used()) or "-", origen=src_ref or "", espejo=tr("retoque_cli.espejado") if args.espejar else ""))
         return 0
     rt = cat.retouch(ref)
     if args.exportar:

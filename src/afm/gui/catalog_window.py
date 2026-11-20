@@ -23,7 +23,7 @@ from .catalog_manager import ZOOM_STEP, zoom_about  # noqa: E402
 from .catalog_manager import view_bounds as CM_view_bounds  # noqa: E402
 from .progress_panel import ProgressPanel  # noqa: E402
 from .retouch_editor import RetouchEditor  # noqa: E402
-from .retouch_session import ERASE, PAINT  # noqa: E402
+from .retouch_session import ERASE, FILL, PAINT  # noqa: E402
 from ..parts import STATES  # noqa: E402
 from .widgets import no_scroll_change as _no_scroll_change  # noqa: E402
 
@@ -1227,9 +1227,39 @@ class CatalogManagerWindow(Gtk.Window):
         self.tgl_rpaint = Gtk.ToggleButton(label=tr("catalog_window.retocar_pintar"))
         self.tgl_rerase = Gtk.ToggleButton(label=tr("catalog_window.retocar_borrar"), group=self.tgl_rpaint)
         self.tgl_rerase.set_tooltip_text(tr("catalog_window.retocar_borrar_tip"))
+        self.tgl_rfill = Gtk.ToggleButton(label=tr("catalog_window.retocar_rellenar"), group=self.tgl_rpaint)
+        self.tgl_rfill.set_tooltip_text(tr("catalog_window.retocar_rellenar_tip"))
         self.tgl_rpaint.connect("toggled", self._on_retouch_mode)
+        self.tgl_rerase.connect("toggled", self._on_retouch_mode)
+        self.tgl_rfill.connect("toggled", self._on_retouch_mode)
         row.append(self.tgl_rpaint)
         row.append(self.tgl_rerase)
+        row.append(self.tgl_rfill)
+        row.append(Gtk.Label(label=tr("catalog_window.retocar_alcance")))
+        self.spin_rreach = Gtk.SpinButton.new_with_range(0.05, 15.0, 0.5)
+        self.spin_rreach.set_digits(1)
+        self.spin_rreach.set_tooltip_text(tr("catalog_window.retocar_alcance_tip"))
+        self.spin_rreach.connect("value-changed", self._on_retouch_reach)
+        _no_scroll_change(self.spin_rreach)
+        row.append(self.spin_rreach)
+        self.retouch_panel.append(row)
+        row = Gtk.Box(spacing=6)
+        self.btn_rexport = Gtk.Button(label=tr("catalog_window.retocar_exportar"))
+        self.btn_rexport.set_tooltip_text(tr("catalog_window.retocar_exportar_tip"))
+        self.btn_rexport.connect("clicked", self._on_retouch_export)
+        self.btn_rimport = Gtk.Button(label=tr("catalog_window.retocar_importar"))
+        self.btn_rimport.set_tooltip_text(tr("catalog_window.retocar_importar_tip"))
+        self.btn_rimport.connect("clicked", self._on_retouch_import)
+        self.chk_rmirror = Gtk.CheckButton(label=tr("catalog_window.retocar_espejar"))
+        self.chk_rmirror.set_tooltip_text(tr("catalog_window.retocar_espejar_tip"))
+        self.dd_rsource = Gtk.DropDown.new_from_strings([tr("common.ninguna")])
+        self.dd_rsource.set_tooltip_text(tr("catalog_window.retocar_traer_tip"))
+        self.btn_rbring = Gtk.Button(label=tr("catalog_window.retocar_traer_boton"))
+        self.btn_rbring.set_tooltip_text(tr("catalog_window.retocar_traer_tip"))
+        self.btn_rbring.connect("clicked", self._on_retouch_bring)
+        self._rsources: list[str] = []
+        for w in (self.btn_rexport, self.btn_rimport, Gtk.Label(label=tr("catalog_window.retocar_traer")), self.dd_rsource, self.btn_rbring, self.chk_rmirror):
+            row.append(w)
         self.retouch_panel.append(row)
         row = Gtk.Box(spacing=6)
         self.btn_rundo = Gtk.Button(label=tr("catalog_window.retocar_deshacer"))
@@ -1297,7 +1327,12 @@ class CatalogManagerWindow(Gtk.Window):
             self.dd_rrole.set_model(Gtk.StringList.new(ed.session.palette_ids))
             self.dd_rrole.set_selected(0)
             self.spin_rradius.set_value(ed.session.radius)
+            self.spin_rreach.set_value(ed.session.reach)
             self.tgl_rpaint.set_active(True)
+            self.chk_rmirror.set_active(False)
+            self._rsources = [m.ref for m in self.mgr.pieces() if m.ref != meta.ref and (getattr(m, "color", None) or {}).get("retoque")]
+            self.dd_rsource.set_model(Gtk.StringList.new(self._rsources or [tr("common.ninguna")]))
+            self.btn_rbring.set_sensitive(bool(self._rsources))
         finally:
             self._rupdating = False
         self.retouch_panel.set_visible(True)
@@ -1349,11 +1384,12 @@ class CatalogManagerWindow(Gtk.Window):
         ids = ed.session.palette_ids
         if 0 <= i < len(ids):
             ed.session.set_role(ids[i])
-            self._rupdating = True
-            try:
-                self.tgl_rpaint.set_active(True)
-            finally:
-                self._rupdating = False
+            if ed.session.mode == PAINT:                      # elegir un rol vuelve a pintar (si se estaba rellenando, se sigue rellenando)
+                self._rupdating = True
+                try:
+                    self.tgl_rpaint.set_active(True)
+                finally:
+                    self._rupdating = False
 
     def _on_retouch_radius(self, *_) -> None:
         if self._reditor is not None and not self._rupdating:
@@ -1362,7 +1398,92 @@ class CatalogManagerWindow(Gtk.Window):
 
     def _on_retouch_mode(self, *_) -> None:
         if self._reditor is not None and not self._rupdating:
-            self._reditor.session.set_mode(PAINT if self.tgl_rpaint.get_active() else ERASE)
+            self._reditor.session.set_mode(FILL if self.tgl_rfill.get_active() else PAINT if self.tgl_rpaint.get_active() else ERASE)
+
+    def _on_retouch_reach(self, *_) -> None:
+        if self._reditor is not None and not self._rupdating:
+            self._reditor.session.set_reach(self.spin_rreach.get_value())
+
+    # --- traer pinceladas de un archivo u otra pieza (como un solo trazo deshacible)
+    def _retouch_add_strokes(self, strokes, source: str = "") -> None:
+        """Suma `strokes` al retoque en curso (espejadas si la casilla está marcada) y recalcula «Ver resultado»."""
+        ed = self._reditor
+        if ed is None:
+            return
+        mirror = self.chk_rmirror.get_active()
+        try:
+            if mirror:
+                from ..retouch import Retouch
+                strokes = Retouch(strokes).mirrored().strokes
+            n = ed.session.import_strokes(strokes)
+        except Exception as exc:                                    # noqa: BLE001  (no entran / rol fuera de la paleta: no cambia nada)
+            self.lbl_status.set_text(tr("catalog_window.retocar_no_entra", exc=exc))
+            return
+        ed.result_shown = False
+        self.lbl_status.set_text(tr("catalog_window.retocar_importado", n=n, espejo=tr("catalog_window.retocar_espejado") if mirror else ""))
+        self._retouch_refresh()
+        if n:
+            self._on_retouch_view()
+
+    def _on_retouch_export(self, *_) -> None:
+        ed = self._reditor
+        if ed is None:
+            return
+        rt = ed.session.retouch()
+        if len(rt) == 0:
+            self.lbl_status.set_text(tr("catalog_window.retocar_sin_nada"))
+            return
+        dlg = Gtk.FileDialog(title=tr("catalog_window.retocar_exportar"), initial_name=f"{ed.meta.id}.retoque.json")
+
+        def finished(d, res) -> None:
+            try:
+                f = d.save_finish(res)
+            except GLib.Error:
+                return
+            try:
+                self.lbl_status.set_text(tr("catalog_window.retocar_exportado", path=rt.save(f.get_path())))
+            except Exception as exc:                                # noqa: BLE001
+                self.lbl_status.set_text(tr("catalog_window.retocar_no_entra", exc=exc))
+
+        dlg.save(self, None, finished)
+
+    def _on_retouch_import(self, *_) -> None:
+        if self._reditor is None:
+            return
+        dlg = Gtk.FileDialog(title=tr("catalog_window.retocar_importar"))
+
+        def finished(d, res) -> None:
+            try:
+                f = d.open_finish(res)
+            except GLib.Error:
+                return
+            try:
+                from ..retouch import Retouch
+                strokes = Retouch.load(f.get_path()).strokes
+            except Exception as exc:                                # noqa: BLE001  (archivo ilegible o de otro formato)
+                self.lbl_status.set_text(tr("catalog_window.retocar_no_entra", exc=exc))
+                return
+            self._retouch_add_strokes(strokes)
+
+        dlg.open(self, None, finished)
+
+    def _on_retouch_bring(self, *_) -> None:
+        ed = self._reditor
+        if ed is None or not self._rsources:
+            self.lbl_status.set_text(tr("catalog_window.retocar_sin_otras"))
+            return
+        i = self.dd_rsource.get_selected()
+        if not 0 <= i < len(self._rsources):
+            return
+        try:
+            rt = self.ctrl.catalog_handle(required=True).retouch(self._rsources[i])
+        except Exception as exc:                                    # noqa: BLE001  (archivo faltante / hash alterado)
+            self.lbl_status.set_text(tr("catalog_window.retocar_no_entra", exc=exc))
+            return
+        if rt is None:
+            self.lbl_status.set_text(tr("catalog_window.retocar_sin_otras"))
+            return
+        self._retouch_add_strokes(rt.strokes, self._rsources[i])
 
     def _on_retouch_undo(self) -> None:
         if self._reditor is not None and self._reditor.session.undo():
@@ -1694,8 +1815,11 @@ class CatalogManagerWindow(Gtk.Window):
         """Un arrastre casi sin movimiento es un clic: con el modo «Cortar la mano…» activo, marca un punto de la muñeca."""
         if self._rpaint and self._reditor is not None:
             self._rpaint = False
+            was_fill = self._reditor.session.mode == FILL
             self._reditor.release()
             self._retouch_refresh()
+            if was_fill:                                             # el relleno no se ve en los centros del pincel: se muestra el color real
+                self._on_retouch_view()
             return
         ed = self._jeditor
         if ed is not None and ed.pick_axis and (dx * dx + dy * dy) ** 0.5 <= CLICK_MAX_PX and self._shown is not None:

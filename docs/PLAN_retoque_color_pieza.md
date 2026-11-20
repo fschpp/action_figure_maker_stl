@@ -98,7 +98,7 @@ Sin retoque, comportamiento y bytes de salida idénticos (R2); los **STL no camb
 | 5 | Retoque pegado a una versión: al clasificar de nuevo (versión nueva) se pierde | Es lo esperado (la versión nueva no hereda color); la ventana avisa cuántas pinceladas hay antes de reclasificar (R07) |
 | 6 | Una pincelada guardada en el marco del STL no sirve si la pieza se reescala al armar | Las piezas `scaled` ya quedan sin color propio (T36); se informan como omitidas |
 
-## 8. Preguntas abiertas
-1. **[P]** ¿«Rellenar región» (todas las muestras conectadas del mismo rol que el punto)? Resolvería botones y medallas de un clic; es una segunda herramienta, después del pincel.
-2. **[P]** ¿Querés poder **exportar/importar** retoques entre piezas (p. ej. del brazo izquierdo al derecho)? El derecho ya sale espejado del izquierdo.
-3. **[P]** ¿Un retoque debe invalidar el estado `validada`/`impresa` de la pieza? Hoy el color no entra en ese estado.
+## 8. Decisiones (cerradas el 2026-11-20)
+1. **[C]** «Rellenar región»: **sí**. Una pincelada de relleno (`"k": "relleno"`, `c` = semilla, `r` = alcance, rol obligatorio) pinta la región conectada de muestras con la misma etiqueta que la semilla, dentro del alcance y con normal compatible (`ColorSource._fill_region`, enlace ≤ 3 × espaciado). Los archivos con rellenos son `afm-retoque-2`; sin rellenos se sigue escribiendo `afm-retoque-1` (bytes idénticos).
+2. **[C]** Exportar/importar entre piezas: **sí**, con espejado en X (`Retouch.mirrored`). Ventana: «Exportar…», «Importar…», «Traer de» y la casilla «Espejar»; CLI: `--importar`/`--copiar-de` con `--espejar`. Lo traído es un solo paso de deshacer.
+3. **[C]** Un retoque **no** invalida el estado `validada`/`impresa` (hay una prueba que lo fija).

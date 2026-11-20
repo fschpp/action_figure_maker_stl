@@ -87,3 +87,81 @@ def test_retouch_cancel_discards(win, line):
     win._reditor.session.end_stroke()
     win._retouch_cancel()
     assert win._reditor is None and Catalog.open(line).retouch(REF) is None
+
+
+def click_center(win, ed):
+    """Clic y soltar sobre el centro de la pieza en pantalla (sin arrastrar)."""
+    cam = ed.camera(win._img_size, 0, 0, 1.0, (0, 0))
+    px, py = cam.project(np.asarray(cam.target, float), *win._img_size)[0, :2]
+    w, h = win._widget_size()
+    k = min(w / win._img_size[0], h / win._img_size[1])
+    x, y = (w - win._img_size[0] * k) / 2 + px * k, (h - win._img_size[1] * k) / 2 + py * k
+    win._on_drag_begin(FakeGesture(), x, y)
+    assert win._rpaint
+    win._on_drag_end(None, 0, 0)
+
+
+def wait_for(cond, seconds=30):
+    end = time.time() + seconds
+    while time.time() < end and not cond():
+        pump(5)
+    return cond()
+
+
+def test_fill_mode_one_click_shows_the_result_and_applies(win, line):
+    import json
+    import os
+
+    from afm.gui.retouch_session import FILL
+
+    win._select_ref(REF)
+    pump(30)
+    win._on_retouch_start()
+    ed = win._reditor
+    win.dd_rrole.set_selected(len(ed.session.palette_ids) - 1)
+    win.tgl_rfill.set_active(True)
+    assert ed.session.mode == FILL
+    win.spin_rreach.set_value(12.0)
+    assert ed.session.reach == 12.0
+    click_center(win, ed)
+    assert len(ed.session) == 1 and ed.session.retouch().strokes[0].relleno and ed.session.retouch().strokes[0].r == 12.0
+    assert wait_for(lambda: ed.result_shown), "el relleno no mostró el color real tras el clic"
+    win.dd_rrole.set_selected(0)                                           # cambiar de rol no saca del modo Rellenar
+    assert ed.session.mode == FILL and win.tgl_rfill.get_active()
+    win._on_retouch_apply()
+    pump(20)
+    f = Catalog.open(line).meta(REF).color["retoque"]
+    assert f["n"] == 1
+    assert json.load(open(os.path.join(line, "piezas", "cabeza", f["fuente"])))["formato"] == "afm-retoque-2"
+
+
+@pytest.fixture()
+def arm_with_retouch(line):
+    """Otra pieza con color por roles y un retoque (pincel + relleno), ya guardado antes de abrir la ventana."""
+    from afm.retouch import Retouch, Stroke
+    from test_color_catalog_palette import ARM_ID, with_roles
+
+    cat = Catalog.open(line)
+    ref = with_roles(cat, ARM_ID).ref
+    cat.set_retouch(ref, Retouch([Stroke((4.0, 1.0, 2.0), 1.5, "oro", (1, 0, 0)), Stroke((4.0, 1.0, 2.0), 6.0, "oro", (1, 0, 0), relleno=True)]))
+    return ref
+
+
+def test_bring_from_another_piece_mirrored_is_one_undo_step(arm_with_retouch, win, line):
+    win._select_ref(REF)
+    pump(30)
+    win._on_retouch_start()
+    ed = win._reditor
+    assert arm_with_retouch in win._rsources and win.btn_rbring.get_sensitive()
+    win.dd_rsource.set_selected(win._rsources.index(arm_with_retouch))
+    win.chk_rmirror.set_active(True)
+    win._on_retouch_bring()
+    got = ed.session.retouch().strokes
+    assert len(got) == 2 and got[0].c[0] == pytest.approx(-4.0) and got[1].relleno and got[1].n[0] == pytest.approx(-1.0)
+    win._on_retouch_undo()
+    assert len(ed.session) == 0                                            # las dos pinceladas, de un solo paso
+    win._on_retouch_redo()
+    assert len(ed.session) == 2
+    win.chk_rmirror.set_active(False)
+    win._on_retouch_bring()                                                # sin espejar se suma tal cual (a lo ya traído)
+    assert len(ed.session) == 4 and ed.session.retouch().strokes[2].c[0] == pytest.approx(4.0)

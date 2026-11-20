@@ -19,6 +19,9 @@ from dataclasses import dataclass
 import numpy as np
 
 FORMAT = "afm-retoque-1"
+FORMAT_FILL = "afm-retoque-2"    # el mismo archivo pero con pinceladas de relleno; sin rellenos se sigue escribiendo `afm-retoque-1` (bytes idénticos)
+FORMATS = (FORMAT, FORMAT_FILL)
+FILL_KIND = "relleno"
 MAX_STROKES = 20_000             # pinceladas por pieza
 MIN_RADIUS_MM, MAX_RADIUS_MM = 0.05, 15.0
 MIN_DOT = 0.3                    # el mismo criterio que el horneado (`bake_piece`): la normal de la muestra tiene que ser compatible con `n`
@@ -45,6 +48,7 @@ class Stroke:
     r: float                                     # radio, mm
     rol: str | None                              # id de rol de la paleta; None = borrador
     n: tuple | None = None                       # normal de la superficie (unitaria) o None
+    relleno: bool = False                        # True = «rellenar región»: `c` es la semilla, `r` el alcance máximo (mm) y `rol` no puede ser None
 
     def __post_init__(self):
         object.__setattr__(self, "c", _vec3(self.c, "pincelada «c»"))
@@ -54,6 +58,9 @@ class Stroke:
         object.__setattr__(self, "r", r)
         if self.rol is not None and not (isinstance(self.rol, str) and _ROLE_RE.match(self.rol)):
             raise RetouchError(f"pincelada: id de rol inválido {self.rol!r}")
+        if self.relleno and self.rol is None:
+            raise RetouchError("pincelada de relleno: hace falta un rol (el borrador es del pincel)")
+        object.__setattr__(self, "relleno", bool(self.relleno))
         if self.n is not None:
             n = np.asarray(_vec3(self.n, "pincelada «n»"))
             norm = float(np.linalg.norm(n))
@@ -64,13 +71,18 @@ class Stroke:
     def to_dict(self) -> dict:
         d = {"c": [round(a, 4) for a in self.c], "r": round(self.r, 4), "rol": self.rol}
         d["n"] = None if self.n is None else [round(a, 4) for a in self.n]
+        if self.relleno:
+            d["k"] = FILL_KIND
         return d
 
     @classmethod
     def from_dict(cls, d) -> "Stroke":
         if not isinstance(d, dict) or "c" not in d or "r" not in d:
             raise RetouchError("pincelada: faltan «c» o «r»")
-        return cls(d["c"], d["r"], d.get("rol"), d.get("n"))
+        kind = d.get("k")
+        if kind not in (None, FILL_KIND):
+            raise RetouchError(f"pincelada: tipo desconocido {kind!r}")
+        return cls(d["c"], d["r"], d.get("rol"), d.get("n"), kind == FILL_KIND)
 
 
 class Retouch:
@@ -91,22 +103,32 @@ class Retouch:
         """Roles que alguna pincelada pinta (sin repetir, en orden de primera aparición; el borrador no cuenta)."""
         return list(dict.fromkeys(s.rol for s in self.strokes if s.rol is not None))
 
+    def mirrored(self, axis: int = 0) -> "Retouch":
+        """El mismo retoque reflejado en el eje `axis` (0 = X) del marco del STL: de una pieza izquierda a su par derecho (`mirror_x`, como el motor)."""
+        M = np.eye(4)
+        M[axis, axis] = -1.0
+        return Retouch(transform_strokes(self.strokes, M))
+
     def add(self, stroke: Stroke) -> None:
         if len(self.strokes) >= MAX_STROKES:
             raise RetouchError(f"el máximo por pieza es {MAX_STROKES} pinceladas")
         self.strokes.append(stroke)
 
     def to_dict(self) -> dict:
-        return {"formato": FORMAT, "pinceladas": [s.to_dict() for s in self.strokes]}
+        fmt = FORMAT_FILL if any(s.relleno for s in self.strokes) else FORMAT
+        return {"formato": fmt, "pinceladas": [s.to_dict() for s in self.strokes]}
 
     @classmethod
     def from_dict(cls, d) -> "Retouch":
-        if not isinstance(d, dict) or d.get("formato") != FORMAT:
-            raise RetouchError(f"formato desconocido: {d.get('formato') if isinstance(d, dict) else d!r} (se esperaba «{FORMAT}»)")
+        if not isinstance(d, dict) or d.get("formato") not in FORMATS:
+            raise RetouchError(f"formato desconocido: {d.get('formato') if isinstance(d, dict) else d!r} (se esperaba «{FORMAT}» o «{FORMAT_FILL}»)")
         items = d.get("pinceladas")
         if not isinstance(items, list):
             raise RetouchError("falta la lista «pinceladas»")
-        return cls(items)
+        rt = cls(items)
+        if d["formato"] == FORMAT and any(s.relleno for s in rt.strokes):
+            raise RetouchError(f"las pinceladas de relleno son del formato «{FORMAT_FILL}»")
+        return rt
 
     def digest(self) -> str:
         """SHA-256 del contenido normalizado (orden de pinceladas incluido)."""
@@ -150,5 +172,5 @@ def transform_strokes(strokes, M) -> list[Stroke]:
         n = None if s.n is None else tuple(A @ np.asarray(s.n))          # `Stroke` la vuelve a normalizar
         # con una escala extrema el radio puede salirse del rango válido: se recorta en vez de fallar al armar
         r = float(np.clip(s.r * k, MIN_RADIUS_MM, MAX_RADIUS_MM))
-        out.append(Stroke(tuple(A @ np.asarray(s.c) + M[:3, 3]), r, s.rol, n))
+        out.append(Stroke(tuple(A @ np.asarray(s.c) + M[:3, 3]), r, s.rol, n, s.relleno))
     return out

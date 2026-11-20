@@ -11,6 +11,7 @@ import numpy as np
 
 from .texmesh import TexturedMesh
 
+FILL_LINK_FACTOR = 3.0           # «rellenar región»: dos muestras se unen si están a ≤ 3 × espaciado (las muestras son aleatorias, no una grilla)
 MAX_SAMPLES = 6_000_000          # RG5: tope de memoria de la fuente densa; si se pasa, sube el espaciado
 
 
@@ -78,6 +79,7 @@ class ColorSource:
 
         Cada pincelada pasa a `rol` las muestras a menos de `r` mm de su centro; con normal `n`, solo las de normal compatible (`MIN_DOT`):
         no atraviesa una solapa fina. `rol = None` (borrador) devuelve las muestras a su etiqueta original. Se aplican en orden, la última gana.
+        Una pincelada de **relleno** (`Stroke.relleno`) no pinta toda la esfera sino solo la región conectada de la semilla (`_fill_region`).
         El rol tiene que estar en `label_roles` (se agregan al armar la fuente con `RolesPackage.with_roles`); si no, `ValueError` con la lista.
         Después recalcula `sample_rgb = lut[sample_label]`. Informe: `{"pinceladas": n, "muestras": cantidad de muestras que cambiaron}`."""
         from .retouch import MIN_DOT
@@ -105,9 +107,36 @@ class ColorSource:
                 idx = idx[sample_normals[idx] @ np.asarray(s.n, float) > MIN_DOT]
                 if idx.size == 0:
                     continue
+            if getattr(s, "relleno", False):
+                idx = self._fill_region(s, idx)                 # solo la región conectada de la semilla, no toda la esfera
+                if idx.size == 0:
+                    continue
             self.sample_label[idx] = self._base_label[idx] if s.rol is None else np.uint8(index[s.rol])
         self.sample_rgb = self._lut[self.sample_label]
         return {"pinceladas": len(strokes), "muestras": int((self.sample_label != before).sum())}
+
+    def _fill_region(self, stroke, idx: np.ndarray) -> np.ndarray:
+        """«Rellenar región»: de las muestras candidatas `idx` (dentro del alcance y con normal compatible), las que forman una sola región con la
+        semilla: la muestra candidata más cercana a `stroke.c`; la región son las muestras con **su misma etiqueta actual** unidas entre sí por
+        saltos de a lo sumo `FILL_LINK_FACTOR` × espaciado. Una mancha suelta de otro rol queda separada de las demás, y la solapa de atrás no se
+        alcanza (ya la sacó el filtro de normal). Devuelve los índices de la región (vacío si no hay semilla)."""
+        from scipy.sparse import coo_matrix
+        from scipy.sparse.csgraph import connected_components
+        from scipy.spatial import cKDTree
+
+        c = np.asarray(stroke.c, float)
+        seed_at = int(np.argmin(np.linalg.norm(self.sample_xyz[idx] - c, axis=1)))
+        label = self.sample_label[idx[seed_at]]
+        keep = np.flatnonzero(self.sample_label[idx] == label)
+        if keep.size == 0:
+            return keep
+        cand = idx[keep]
+        seed_local = int(np.flatnonzero(keep == seed_at)[0])
+        pairs = cKDTree(self.sample_xyz[cand]).query_pairs(FILL_LINK_FACTOR * self.spacing_mm, output_type="ndarray")
+        n = len(cand)
+        g = coo_matrix((np.ones(len(pairs), np.int8), (pairs[:, 0], pairs[:, 1])), shape=(n, n)) if len(pairs) else coo_matrix((n, n), dtype=np.int8)
+        _, comp = connected_components(g, directed=False)
+        return cand[comp == comp[seed_local]]
 
     def _counts(self, spacing: float) -> np.ndarray:
         return np.maximum(1, np.ceil(self.area / (spacing * spacing)).astype(np.int64))

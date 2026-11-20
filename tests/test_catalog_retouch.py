@@ -236,3 +236,25 @@ def test_preview_shows_the_retouched_role_and_defaults_to_the_saved_one(line):
     cat.set_retouch(REF, rt)
     assert has_gold(piece_color_parts(cat, Catalog.open(line).meta(REF), mesh))  # el guardado, por defecto
     assert not has_gold(piece_color_parts(cat, Catalog.open(line).meta(REF), mesh, retouch=None))     # None lo ignora
+
+
+# ------------------------------------------------------------------ «rellenar región» de punta a punta
+def fill_stroke(cat, reach=15.0):
+    """Relleno «oro» con la semilla en el punto más alto de la cabeza (el rol que trae ahí el paquete es el de arriba)."""
+    s = top_stroke(cat)
+    return Stroke(s.c, reach, "oro", relleno=True)
+
+
+def test_fill_stroke_is_saved_armed_and_previewed(tmp_path, line):
+    cat = Catalog.open(line)
+    rt = Retouch([fill_stroke(cat)])
+    cat.set_retouch(REF, rt)
+    f = ficha(line)["color"]["retoque"]
+    assert f["n"] == 1 and f["roles"] == ["oro"]
+    assert json.load(open(os.path.join(line, "piezas", "cabeza", f["fuente"])))["formato"] == "afm-retoque-2"
+    assert not any("retoque" in p for p in cat.verify().problems)
+    info, out = arm(line, tmp_path / "f", {"cabeza": REF})
+    got = atlas_colors(out, "cabeza")
+    assert GOLD in got and info["color"]["piezas"]["cabeza"]["retoque"] == 1
+    meta, mesh = cat.load(REF)
+    assert any(np.allclose(rgba[:3], np.array(GOLD) / 255.0, atol=0.02) for _n, _m, rgba in piece_color_parts(cat, meta, mesh))

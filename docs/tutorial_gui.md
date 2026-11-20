@@ -614,6 +614,20 @@ Una **línea** de figuras comparte un catálogo: una carpeta con las piezas ya c
    color de un rol en la paleta también cambia lo retocado. Una versión nueva de la pieza no hereda el retoque. No se retocan las piezas de color RGB
    (FBX entero). También hay `afm catalogo retoque` para exportar, importar o borrar el retoque desde la terminal.
 
+   **Rellenar región.** Junto a «Pintar» y «Borrar» hay un botón **«Rellenar»**: un clic pinta con el rol elegido toda la región conectada que tiene el mismo
+   color que el punto (una mancha suelta, un botón, una medalla) sin pasar a otra región ni atravesar una solapa fina. **«Alcance»** (mm) limita hasta dónde
+   llega desde el clic; cambiar de rol no saca del modo Rellenar. Tras el clic la ventana muestra el color real (no se ven centros de pincel). Si la región
+   es más grande que el alcance, solo se pinta lo que cae dentro.
+
+   **Pasar el retoque a otra pieza.** En el panel, **«Exportar…»** guarda las pinceladas actuales en un archivo, **«Importar…»** suma las de un archivo y
+   **«Traer de»** suma el retoque de otra pieza o versión del catálogo (por ejemplo, de la versión anterior de la misma pieza, que no hereda el retoque). Con la
+   casilla **«Espejar»** marcada, lo que se trae se refleja en X: sirve para llevar el retoque de una pieza izquierda a su par derecho cuando se catalogaron por
+   separado (si la derecha sale espejada de la izquierda al armar, no hace falta). Lo traído se suma como un solo paso: Ctrl+Z lo quita entero; recién
+   «Aplicar» lo guarda. En la terminal: `afm catalogo retoque LINEA REF --copiar-de REF2 [--espejar]` o `--importar ARCHIVO.json [--espejar]` (reemplazan el
+   retoque de la pieza). Los archivos con rellenos son `afm-retoque-2`; los demás siguen siendo `afm-retoque-1`.
+
+   Retocar el color **no** cambia el estado de la pieza: una pieza `validada` o `impresa` sigue como estaba.
+
    **Los comandos de `afm catalogo` también están en esta ventana** (hacen lo mismo que en la consola; el resultado sale en el panel **«Informe»**, con «Copiar» y «Guardar…»):
 
    | Consola | En la ventana |

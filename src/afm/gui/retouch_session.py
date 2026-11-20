@@ -10,8 +10,9 @@ from __future__ import annotations
 
 from ..retouch import MAX_RADIUS_MM, MAX_STROKES, MIN_RADIUS_MM, Retouch, RetouchError, Stroke
 
-PAINT, ERASE = "pintar", "borrar"
+PAINT, ERASE, FILL = "pintar", "borrar", "rellenar"
 DEFAULT_RADIUS_MM = 1.5
+DEFAULT_REACH_MM = 8.0          # alcance de «Rellenar región»: hasta dónde llega la región desde el clic
 SPACING_FACTOR = 0.5            # separación entre pinceladas de un mismo trazo, en radios (plan §4)
 
 
@@ -27,6 +28,7 @@ class RetouchSession:
         self.mode = PAINT
         self.role: str | None = self._palette[0] if self._palette else None
         self.radius = float(radius)
+        self.reach = DEFAULT_REACH_MM
         self.truncated = False            # el último trazo se cortó porque la pieza llegó al máximo de pinceladas
 
     # ------------------------------------------------------------------ herramienta
@@ -38,10 +40,11 @@ class RetouchSession:
         if role not in self._palette:
             raise RetouchError(f"el rol «{role}» no está en la paleta de la línea")
         self.role = role
-        self.mode = PAINT
+        if self.mode == ERASE:                      # elegir un rol vuelve a pintar; si se estaba rellenando, se sigue rellenando
+            self.mode = PAINT
 
     def set_mode(self, mode: str) -> None:
-        if mode not in (PAINT, ERASE):
+        if mode not in (PAINT, ERASE, FILL):
             raise RetouchError(f"modo desconocido: {mode!r}")
         self.mode = mode
 
@@ -52,6 +55,14 @@ class RetouchSession:
             raise RetouchError("el radio no es un número")
         self.radius = min(max(r, MIN_RADIUS_MM), MAX_RADIUS_MM)
         return self.radius
+
+    def set_reach(self, r: float) -> float:
+        """Alcance de «Rellenar región» (mm), recortado al rango válido (el mismo del radio)."""
+        r = float(r)
+        if r != r:
+            raise RetouchError("el alcance no es un número")
+        self.reach = min(max(r, MIN_RADIUS_MM), MAX_RADIUS_MM)
+        return self.reach
 
     @property
     def can_paint(self) -> bool:
@@ -69,12 +80,25 @@ class RetouchSession:
         if not self.can_paint:
             raise RetouchError("no hay rol elegido para pintar")
         self._open, self._last_c, self.truncated = [], None, False
+        if self.mode == FILL:                       # un clic = una pincelada de relleno (no se arrastra)
+            return self._add_fill(c, n)
         return self.add_point(c, n)
+
+    def _add_fill(self, c, n) -> int:
+        s = Stroke(c, self.reach, self.role, n, relleno=True)
+        if len(self._strokes) >= MAX_STROKES:
+            self.truncated = True
+            return 0
+        self._strokes.append(s)
+        self._open.append(s)
+        return 1
 
     def add_point(self, c, n=None) -> int:
         """Suma un punto al trazo en curso: agrega pinceladas solo si se alejó ≥ radio·0,5 de la última (rellena el hueco si el mouse saltó)."""
         if self._open is None:
             raise RetouchError("no hay un trazo en curso")
+        if self.mode == FILL:
+            return 0
         rol = self.role if self.mode == PAINT else None
         new = Stroke(c, self.radius, rol, n)             # valida c, radio y normal
         step = self.radius * SPACING_FACTOR
@@ -137,6 +161,24 @@ class RetouchSession:
         self._strokes.extend(block)
         self._undo.append(len(block))
         return True
+
+    def import_strokes(self, strokes) -> int:
+        """Suma pinceladas de otra pieza o de un archivo (ya en el marco de esta pieza, p. ej. espejadas) como **un solo trazo**: se deshace de una vez.
+        Devuelve cuántas se sumaron; `RetouchError` si no entran (tope de la pieza) y entonces no cambia nada."""
+        strokes = list(strokes)
+        if self._open is not None:
+            self.end_stroke()
+        if not strokes:
+            return 0
+        if len(self._strokes) + len(strokes) > MAX_STROKES:
+            raise RetouchError(f"no entran: la pieza tiene {len(self._strokes)} pinceladas y se suman {len(strokes)} (máximo {MAX_STROKES})")
+        missing = sorted({s.rol for s in strokes if s.rol is not None and s.rol not in self._palette})
+        if missing:
+            raise RetouchError("la paleta de la línea no tiene los roles: " + ", ".join(missing))
+        self._strokes.extend(strokes)
+        self._undo.append(len(strokes))
+        self._redo.clear()
+        return len(strokes)
 
     def discard(self) -> bool:
         """«Descartar retoques»: vuelve a lo que hay guardado en el catálogo y vacía la pila de deshacer/rehacer. `True` si había algo que descartar."""
