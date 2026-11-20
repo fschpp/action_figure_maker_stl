@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 
 from . import pipeline as P
 from .assembly import AssemblyError, PartChoice, synthesize_host
+from . import solids as S
 from .catalog import Catalog, CatalogError, default_root, parse_ref
 from .customize import scale_choice
 from .params import Params
@@ -21,7 +22,7 @@ RECIPE_FORMAT = "afm-receta-1"
 PLACES = ("cabeza", "torso", "pelvis", "brazo", "pierna", "mano")
 OPTIONS = {"cintura": False, "clic_hombro": False, "clic_cadera": False, "torso_mirror": True}
 HAND_ADJUSTS = ("yaw", "union", "solape")
-AJUSTES = ("mano", "escalas")
+AJUSTES = ("mano", "escalas", "monturas")
 SCALE_PLACES = ("torso", "pelvis", "cabeza", "brazo", "pierna")     # la mano no se reescala (mm reales)
 
 
@@ -68,6 +69,7 @@ class Recipe:
         bad = [k for k in r.problems()]
         if bad:
             raise RecipeError("; ".join(bad))
+        r.ajustes = r.key_ajustes()          # monturas completas y sin lista vacía: la misma montura da siempre la misma clave
         return r
 
     @classmethod
@@ -96,6 +98,7 @@ class Recipe:
         out += [f"opción desconocida «{k}» (hay {', '.join(OPTIONS)})" for k in self.opciones if k not in OPTIONS]
         out += [f"ajuste desconocido «{k}» (hay {', '.join(AJUSTES)})" for k in self.ajustes if k not in AJUSTES]
         out += self.scale_problems()
+        out += self.mount_problems()
         out += self.override_problems()
         out += [f"ajuste de mano desconocido «{k}» (hay {', '.join(HAND_ADJUSTS)})" for k in (self.ajustes.get("mano") or {})
                 if k not in HAND_ADJUSTS]
@@ -144,6 +147,58 @@ class Recipe:
             if not self.lugares.get(lugar):
                 out.append(f"escala de «{lugar}» pero ese lugar no tiene pieza")
         return out
+
+    def mount_problems(self) -> list[str]:
+        """Monturas de armas (`ajustes[\"monturas\"]`, M10): cada una bien formada y con su arma entre los `accesorios`."""
+        from .mount import MountError, MountSpec
+
+        ms = self.ajustes.get("monturas")
+        if ms is None:
+            return []
+        if not isinstance(ms, list):
+            return ["«monturas» tiene que ser una lista de monturas"]
+        acc: dict = {}
+        for ref in self.accesorios:
+            try:
+                pid, ver = parse_ref(ref)
+            except (CatalogError, TypeError, AttributeError):
+                continue                                  # ya lo informa `problems`
+            acc[pid] = ver
+        out = []
+        for i, m in enumerate(ms, start=1):
+            try:
+                spec = MountSpec.from_dict(m)
+                pid, ver = parse_ref(spec.arma)
+            except (MountError, CatalogError) as exc:
+                out.append(f"montura {i}: {exc}")
+                continue
+            if pid not in acc:
+                out.append(f"montura {i}: el arma «{spec.arma}» no está entre los accesorios de la receta")
+            elif ver is not None and acc[pid] is not None and ver != acc[pid]:
+                out.append(f"montura {i}: el arma es «{spec.arma}» pero el accesorio de la receta es «{pid}@{acc[pid]}»")
+        return out
+
+    def mount_specs(self) -> list:
+        """Las monturas de la receta como `mount.MountSpec` (lista vacía si no hay)."""
+        from .mount import MountSpec
+
+        return [MountSpec.from_dict(m) for m in (self.ajustes.get("monturas") or [])]
+
+    def key_ajustes(self) -> dict:
+        """`ajustes` en forma canónica para la clave de compatibilidad: sin `monturas` vacías y con cada montura completa
+        (campos por defecto escritos). Una receta sin monturas da exactamente sus `ajustes`: su clave no cambia (plan §6.3)."""
+        a = dict(self.ajustes)
+        ms = a.get("monturas")
+        if ms is None:
+            return a
+        if not ms:
+            a.pop("monturas")
+            return a
+        try:
+            a["monturas"] = [m.to_dict() for m in self.mount_specs()]
+        except Exception:                                 # receta armada a mano con una montura inválida: la clave no es lo que falla
+            pass
+        return a
 
     def scales(self) -> dict:
         """Lugar -> escala (número o [sx, sy, sz]) sin las que son ×1."""
@@ -268,6 +323,25 @@ def export_accessories(recipe: Recipe, cat: Catalog, outdir: str, name: str) -> 
     return [{**i["ficha"], "archivo": r} for i, r in zip(items, rel)]
 
 
+def load_mounts(recipe: Recipe, cat: Catalog) -> list:
+    """`[(MountSpec, arma Manifold)]` de las monturas de la receta, para `pipeline.build(mounts=)`.
+
+    El accesorio del catálogo ya está en mm reales y en su marco de accesorio (empuñadura en +X): no se reescala."""
+    out = []
+    for spec in recipe.mount_specs():
+        try:
+            meta, mesh = cat.load(spec.arma)
+        except CatalogError as exc:
+            raise RecipeError(f"montura con el arma «{spec.arma}»: {exc}") from exc
+        if meta.tipo != "accesorio":
+            raise RecipeError(f"montura con el arma «{spec.arma}»: es una pieza «{meta.tipo}», no un accesorio")
+        try:
+            out.append((spec, S.to_manifold(mesh)))
+        except S.MeshNotManifold as exc:
+            raise RecipeError(f"montura con el arma «{spec.arma}»: {exc}") from exc
+    return out
+
+
 def assemble(recipe: Recipe, catalog_root: str | None = None, progress=None, sit: bool = True) -> Assembled:
     """Arma la figura de la receta solo con piezas del catálogo de su línea."""
     cat, choices = load_choices(recipe, catalog_root)
@@ -276,8 +350,13 @@ def assemble(recipe: Recipe, catalog_root: str | None = None, progress=None, sit
         if progress:
             progress("Armando el cuerpo base…")
         host = synthesize_host(choices, p)
+        mounts = load_mounts(recipe, cat) or None
         res = P.build(host.body, host.limbs, p, None, sit, progress, None, host.head, None, host.waist, hand_spec(recipe),
-                      host.parts, host_faces=host.faces)
+                      host.parts, host_faces=host.faces, mounts=mounts)
     except AssemblyError as exc:
         raise RecipeError(str(exc)) from exc
+    except ValueError as exc:                             # `build` rotula los errores de monturas con «montura: …»
+        if str(exc).startswith("montura:"):
+            raise RecipeError(str(exc)) from exc
+        raise
     return Assembled(res, p, host.limbs, res.joint_specs, recipe, cat, host)

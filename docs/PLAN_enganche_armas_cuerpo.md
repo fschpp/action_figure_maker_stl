@@ -180,7 +180,7 @@ La lógica va en un módulo propio sin GTK, probado sin ventana (como `palette_e
 - **M09** Probeta de la montura: `probes.probe_files(tipo="montura")`, el puente solo sobre base plana con varias holguras en la misma placa, siguiendo el estilo de las probetas del clic (`PROTOCOLO_probetas_clic.md`, `afm probe --clearances`). Ya hay una hecha a mano que sirve de referencia. La holgura elegida se guarda en la `MountSpec`.
 
 ### Fase 2 — Receta y CLI
-- **M10** `Recipe.ajustes["monturas"]`, validación en `problems()`, coherencia con `accesorios`, **clave de compat** (§6.3). Se guarda solo si hay.
+- **M10** `Recipe.ajustes["monturas"]`, validación en `problems()`, coherencia con `accesorios`, **clave de compat** (§6.3). Se guarda solo si hay. **Hecha** (`Recipe.mount_problems/mount_specs/key_ajustes`, `recipe.load_mounts`, `assemble` pasa `mounts=` a `build`; la clave suma el sha256 de cada arma).
 - **M11** CLI: `afm armar` ya lee la receta, así que **no** hace falta la sintaxis `--montura ARMA:LUGAR:x,y,z:dx,dy,dz` de la v0.3. Se agrega `afm probe --tipo montura` y, opcional, `--montura ARCHIVO.json`.
 - **M12** Informe: la montura y sus avisos en `info["construccion"]` y en la lista de piezas; el nivel de `compat` refleja los problemas de la montura.
 

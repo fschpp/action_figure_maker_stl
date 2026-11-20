@@ -41,7 +41,12 @@ def recipe_key(recipe: Recipe, cat: Catalog) -> tuple[str, dict]:
         m = cat.meta(ref)
         piezas[lugar] = {"ref": m.ref, "sha256": m.sha256}
     payload = {"piezas": piezas, "params": recipe_params(recipe, cat).to_dict(), "opciones": recipe.options(),
-               "ajustes": recipe.ajustes, "motor": __version__}
+               "ajustes": recipe.key_ajustes(), "motor": __version__}
+    if recipe.key_ajustes().get("monturas"):   # solo si hay: el arma da la forma del puente, así que su contenido también entra
+        armas = {}
+        for spec in recipe.mount_specs():
+            armas[spec.arma] = cat.meta(spec.arma).sha256
+        payload["monturas_armas"] = armas
     contract = cat.contract()
     if contract is not None:        # sin contrato la clave es la de siempre: no se invalidan los resultados guardados
         payload["contrato"] = contract.hash()
