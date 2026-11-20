@@ -13,7 +13,7 @@ import threading
 import numpy as np
 
 from .. import catalog_ops as OPS
-from ..parts import PieceMeta
+from ..parts import PieceMeta, color_mode
 from .camera import OrbitCamera
 from .picking import Picker
 
@@ -99,6 +99,18 @@ def matches(meta: PieceMeta, text: str = "", tipo: str | None = None, estado: st
     hay = " ".join([meta.ref, meta.nombre, meta.tipo, meta.estado, joint_label(meta), " ".join(meta.etiquetas), piece_origin(meta),
                     str(meta.origen.get("proyecto") or ""), str(meta.origen.get("fecha") or ""), meta.descripcion]).lower()
     return all(w in hay for w in words)
+
+
+def can_retouch(meta: PieceMeta | None) -> tuple[bool, str]:
+    """¿Se puede retocar el color de la pieza? Solo con color por roles (las de color RGB del FBX entero no se retocan). `(ok, motivo)`."""
+    if meta is None:
+        return False, tr("catalog_window.retocar_elegi_una_pieza")
+    color = getattr(meta, "color", None)
+    if not color:
+        return False, tr("catalog_window.retocar_sin_color")
+    if color_mode(color) != "roles":
+        return False, tr("catalog_window.retocar_solo_roles")
+    return True, ""
 
 
 JOINT_OF_TYPE = {"brazo": "codo", "pierna": "rodilla"}                     # miembros que pueden traer la articulación propia
@@ -342,8 +354,17 @@ class PreviewRenderer:
         else:
             off.scene.remove("marcas")
 
+    def _overlay(self, off, overlay, dot_px: float) -> None:
+        """Capas de puntos de colores encima de la pieza (el pincel del modo «Retocar»): `{nombre: (Nx3, rgba)}`. Las que ya no están se quitan."""
+        wanted = set(overlay or {})
+        for name in getattr(self, "_overlay_names", set()) - wanted:
+            off.scene.remove(name)
+        for name, (pts, rgba) in (overlay or {}).items():
+            off.scene.set_points(name, np.asarray(pts, float), rgba, size=float(dot_px), on_top=False)
+        self._overlay_names = wanted
+
     def render(self, mesh, meta: PieceMeta | None = None, yaw_off: float = 0.0, pitch_off: float = 0.0, marks=None,
-               zoom: float = 1.0, pan=(0.0, 0.0), color_parts=None) -> np.ndarray:
+               zoom: float = 1.0, pan=(0.0, 0.0), color_parts=None, overlay=None, dot_px: float = 14.0) -> np.ndarray:
         """Imagen RGBA (alto × ancho × 4, uint8) de `mesh` en vista 3/4; `yaw_off` / `pitch_off` giran la vista (°).
         `marks`: puntos (Nx3) a marcar encima, p. ej. los de la muñeca. `color_parts` (`colorpreview.piece_color_parts`): la misma pieza
         partida por color, `[(nombre, malla, rgba)]`; con ella la pieza se dibuja a color en lugar de gris (pasadores y ejes igual)."""
@@ -369,7 +390,9 @@ class PreviewRenderer:
                         off.scene.set_plane(name, plane, float(max(mesh.extents)) * 0.35, color=JOINT_PLANE_COLOR)
                 self._mesh = mesh
                 self._key = key
+                self._overlay_names = set()                          # scene.clear() ya se llevó las capas
             self._marks(off, marks)
+            self._overlay(off, overlay, dot_px)
             return off.render(preview_camera(view_bounds(mesh, meta), off.width / off.height, yaw_off, pitch_off, zoom, pan))
 
     def render_parts(self, parts, yaw_off: float = 0.0, pitch_off: float = 0.0, marks=None, bounds=None,
@@ -674,7 +697,8 @@ class CatalogManager:
             pal_key = pal.digest() if pal is not None else ""
         except ValueError:
             pal_key = "?"
-        key = (meta.sha256, str((meta.color or {}).get("sha256", "")), pal_key)
+        key = (meta.sha256, str((meta.color or {}).get("sha256", "")), pal_key,
+               str(((meta.color or {}).get("retoque") or {}).get("sha256", "")))            # un retoque nuevo invalida la vista guardada
         hit = self._color_cache.get(ref)
         if hit is not None and hit[0] == key:
             return hit[1]
@@ -683,6 +707,16 @@ class CatalogManager:
             self._color_cache.pop(next(iter(self._color_cache)))
         self._color_cache[ref] = (key, parts)
         return parts
+
+    def color_parts_with(self, ref: str, retouch):
+        """Como `color_parts` pero con un `Retouch` que todavía no se guardó («Ver resultado» del modo «Retocar»); no se recuerda. Se llama desde un hilo."""
+        from ..colorpreview import piece_color_parts
+
+        cat = self.ctrl.catalog_handle()
+        meta = next((m for m in self.ctrl.catalog_pieces() if m.ref == ref), None)
+        if cat is None or meta is None or not meta.color:
+            return None
+        return piece_color_parts(cat, meta, self.mesh(ref), retouch=retouch)
 
     def camera_for(self, ref: str, aspect: float = 1.0) -> OrbitCamera:
         return three_quarter_camera(self.mesh(ref).bounds, aspect)

@@ -1,3 +1,10 @@
+## Current Focus — Retoque manual del color: R07 (picking + modo «Retocar») y R08 (textos) (2026-11-20, sobre 05206da)
+**Hecho:** (1) `gui/retouch_editor.py` (`RetouchEditor`: picking del clic → punto y normal de la cara hacia la cámara, trazos, `overlay()`, `dot_size_px`, `apply`). (2) `PreviewRenderer.render(overlay=, dot_px=)` dibuja las pinceladas como capas de puntos por rol. (3) `catalog_manager.can_retouch` y `CatalogManager.color_parts_with` («Ver resultado», sin guardar); la caché de color ahora incluye el hash del retoque guardado (sin eso, «Aplicar» dejaba la vista vieja). (4) `catalog_window`: botón «Retocar color…», panel (rol, radio, pintar/borrar, deshacer/rehacer, ver resultado, descartar, cancelar, aplicar), clic izquierdo pinta y Mayús+arrastre gira, Esc cancela, Ctrl+Z / Ctrl+Mayús+Z, el modo se apaga al cambiar de pieza (avisa cuántas pinceladas se descartaron). (5) 23 textos es/en/pt. (6) `tests/test_retouch_editor.py` (12 pruebas, sin GTK). (7) `docs/tutorial_gui.md`.
+**No verificado:** la ventana en pantalla (aquí no hay GTK/GL): gestos, tamaño del punto del pincel, que Mayús se lea bien en `get_current_event_state`, refresco tras «Aplicar». Pintar sobre una vista a color (el overlay son centros de pincelada, no el color real: para eso está «Ver resultado»). R09 (Sucre real y tiempo de `paint` con miles de pinceladas) sigue pendiente. `manual_corto.md` no menciona el catálogo: sin cambios.
+**Decisiones (mías, fáciles de cambiar):** (1) pintar con botón izquierdo y girar con Mayús (en las otras herramientas el izquierdo gira). (2) cambiar de pieza con retoques sin aplicar los descarta con aviso, sin diálogo de confirmación. (3) el punto pintado es el impacto exacto del rayo, sin ajuste a vértices.
+
+- [x] R01–R06 · [x] R07 (código y pruebas sin GTK) · [x] R08 (textos) · [ ] R09 · [/] R10 (tutorial hecho, falta bitácora final tras R09)
+
 # Progreso del desarrollo
 
 ## Current Focus — Retoque manual del color: R03b (CLI) y R06 (controlador del pincel) (2026-11-20, sobre main b795f73)

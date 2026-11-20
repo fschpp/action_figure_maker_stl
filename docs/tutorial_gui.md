@@ -606,6 +606,14 @@ Una **línea** de figuras comparte un catálogo: una carpeta con las piezas ya c
 4. **Elegir las piezas.** En «Pieza de cada lugar» elegís «la del modelo» o una pieza del catálogo. «Generar figura» la pone en el puerto del modelo, sin escalarla, y la fila dice cómo acopla: **ok**, **aviso** o **no**, con el IoU y el escalón entre las caras. «Revisar las piezas elegidas» lo mide sin generar y las dibuja ya colocadas (verde = ok, ámbar = aviso, rojo = no); «Ver por qué» superpone las dos caras. «Armar figura desde catálogo (sin STL)…» arma una figura nueva solo con piezas del catálogo.
 5. **Administrar catálogo…** lista todas las versiones de pieza con vista previa y permite eliminar una o varias; los lugares que usaban una pieza borrada vuelven a la del modelo. Con un brazo o una pierna elegidos también permite **«Cortar la mano…»** y **«Reajustar articulación…»** (ver «Vista previa de la articulación»).
 
+   **Retocar el color de una pieza.** Si la clasificación automática por roles dejó manchas (botones, medallas, cuello), elegí UNA pieza con color por roles
+   y apretá **«Retocar color…»**. Elegí un **rol** de la paleta de la línea y un **radio** (mm reales de la pieza) y arrastrá sobre la pieza para pintar;
+   **Borrar** devuelve lo pintado al rol original. **Mayús + arrastre** gira la vista, el botón derecho la mueve y la rueda acerca. **Deshacer / Rehacer**
+   (Ctrl+Z / Ctrl+Mayús+Z) actúan por trazo; **Ver resultado** muestra el color real sin guardar; **Aplicar** guarda el retoque en el catálogo y
+   **Descartar retoques** vuelve a lo guardado. El retoque pertenece a la versión de la pieza (`id@n`): toda figura que la use lo hereda, y si cambiás el
+   color de un rol en la paleta también cambia lo retocado. Una versión nueva de la pieza no hereda el retoque. No se retocan las piezas de color RGB
+   (FBX entero). También hay `afm catalogo retoque` para exportar, importar o borrar el retoque desde la terminal.
+
    **Los comandos de `afm catalogo` también están en esta ventana** (hacen lo mismo que en la consola; el resultado sale en el panel **«Informe»**, con «Copiar» y «Guardar…»):
 
    | Consola | En la ventana |

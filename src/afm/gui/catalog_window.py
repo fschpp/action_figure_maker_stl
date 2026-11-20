@@ -17,11 +17,13 @@ from gi.repository import Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 
 from .. import catalog_ops as OPS  # noqa: E402
 from .catalog_manager import (ALL_STATES, ALL_TAGS, ALL_TYPES, COLUMNS, PIN_LEGEND, CatalogManager, JointEditor, PreviewRenderer,  # noqa: E402
-                              WristCutter, can_cut_wrist, can_retune_joint, detail_text, matches, next_row, row_cells, sort_pieces)
+                              WristCutter, can_cut_wrist, can_retouch, can_retune_joint, detail_text, matches, next_row, row_cells, sort_pieces)
 from . import catalog_import as CI  # noqa: E402
 from .catalog_manager import ZOOM_STEP, zoom_about  # noqa: E402
 from .catalog_manager import view_bounds as CM_view_bounds  # noqa: E402
 from .progress_panel import ProgressPanel  # noqa: E402
+from .retouch_editor import RetouchEditor  # noqa: E402
+from .retouch_session import ERASE, PAINT  # noqa: E402
 from ..parts import STATES  # noqa: E402
 from .widgets import no_scroll_change as _no_scroll_change  # noqa: E402
 
@@ -56,6 +58,10 @@ class CatalogManagerWindow(Gtk.Window):
         self._jeditor: JointEditor | None = None     # modo «Reajustar articulación…» (None = no está activo)
         self._jupdating = False                      # se están poniendo valores en los spins: no recalcular
         self._jtimer = 0                             # GLib source del recálculo pendiente
+        self._reditor: RetouchEditor | None = None   # modo «Retocar color…» (None = no está activo)
+        self._rpaint = False                         # hay un trazo del pincel en curso (arrastre con el botón izquierdo)
+        self._rupdating = False
+        self._rbusy = 0                              # «Ver resultado» en curso (hilo)
         self._pending_select = ""                    # pieza recién importada que hay que dejar elegida
         self._task_label = ""                        # tarea larga de catálogo en curso (certificar, compatibilidad…); "" = ninguna
 
@@ -226,6 +232,10 @@ class CatalogManagerWindow(Gtk.Window):
         self.btn_joint.set_sensitive(False)
         self.btn_joint.connect("clicked", self._on_joint_start)
         bar.append(self.btn_joint)
+        self.btn_retouch = Gtk.Button(label=tr("catalog_window.retocar_color"))
+        self.btn_retouch.set_sensitive(False)
+        self.btn_retouch.connect("clicked", self._on_retouch_start)
+        bar.append(self.btn_retouch)
         self.btn_rename = Gtk.Button(label=tr("catalog_window.renombrar_f2"))
         self.btn_rename.set_sensitive(False)
         self.btn_rename.set_tooltip_text(tr("catalog_window.cambia_el_nombre_con_que_se"))
@@ -245,6 +255,7 @@ class CatalogManagerWindow(Gtk.Window):
         box.append(self._build_flex_row())
         box.append(self._build_wrist_panel())
         box.append(self._build_joint_panel())
+        box.append(self._build_retouch_panel())
         box.append(self._build_task_row())
         box.append(self._build_report())
 
@@ -802,7 +813,7 @@ class CatalogManagerWindow(Gtk.Window):
             ok, why = False, tr("common.espera_a_que_termine_la_tarea")
         if ok and self._shown is None:
             ok, why = False, tr("catalog_window.no_hay_vista_previa_de_la")
-        self.btn_wrist.set_sensitive(ok and self._cutter is None and self._jeditor is None)
+        self.btn_wrist.set_sensitive(ok and self._cutter is None and self._jeditor is None and self._reditor is None)
         self._sync_rename_button(refs)
         self.btn_wrist.set_tooltip_text(tr("catalog_window.le_corta_la_mano_al_brazo") if ok else why)
 
@@ -975,7 +986,7 @@ class CatalogManagerWindow(Gtk.Window):
             ok, why = False, tr("common.espera_a_que_termine_la_tarea")
         if ok and self._shown is None:
             ok, why = False, tr("catalog_window.no_hay_vista_previa_de_la_2")
-        self.btn_joint.set_sensitive(ok and self._jeditor is None and self._cutter is None)
+        self.btn_joint.set_sensitive(ok and self._jeditor is None and self._cutter is None and self._reditor is None)
         self.flex_row.set_visible(ok or self._jeditor is not None)          # con articulación: se ve aunque no se esté reajustando
         self.flex_row.set_sensitive(self._cutter is None and (self._jeditor is not None or (ok and not self.ctrl.busy)))
         self.btn_joint.set_tooltip_text(tr("catalog_window.move_el_eje_de_la_bisagra") if ok else why)
@@ -1182,10 +1193,244 @@ class CatalogManagerWindow(Gtk.Window):
             else:
                 self._joint_cancel()
             return True
+        if keyval == Gdk.KEY_Escape and self._reditor is not None:
+            self._retouch_cancel()
+            return True
+        if self._reditor is not None and (_state & Gdk.ModifierType.CONTROL_MASK) and keyval in (Gdk.KEY_z, Gdk.KEY_Z):
+            self._on_retouch_undo() if not (_state & Gdk.ModifierType.SHIFT_MASK) else self._on_retouch_redo()
+            return True
         if keyval == Gdk.KEY_Escape and self._cutter is not None:
             self._wrist_cancel()
             return True
         return False
+
+    # ------------------------------------------------------------ modo «Retocar color…» (R07)
+    def _build_retouch_panel(self) -> Gtk.Widget:
+        """Panel del modo «Retocar color…» (oculto hasta que se activa): rol, radio, pintar / borrar, deshacer, ver resultado, aplicar."""
+        self.retouch_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, visible=False)
+        self.lbl_retouch = Gtk.Label(xalign=0, wrap=True)
+        self.lbl_retouch.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        self.retouch_panel.append(self.lbl_retouch)
+        row = Gtk.Box(spacing=6)
+        row.append(Gtk.Label(label=tr("catalog_window.retocar_rol")))
+        self.dd_rrole = Gtk.DropDown.new_from_strings([tr("common.ninguna")])
+        self.dd_rrole.set_tooltip_text(tr("catalog_window.retocar_rol_tip"))
+        self.dd_rrole.connect("notify::selected", self._on_retouch_role)
+        row.append(self.dd_rrole)
+        row.append(Gtk.Label(label=tr("catalog_window.retocar_radio")))
+        self.spin_rradius = Gtk.SpinButton.new_with_range(0.05, 15.0, 0.25)
+        self.spin_rradius.set_digits(2)
+        self.spin_rradius.set_tooltip_text(tr("catalog_window.retocar_radio_tip"))
+        self.spin_rradius.connect("value-changed", self._on_retouch_radius)
+        _no_scroll_change(self.spin_rradius)
+        row.append(self.spin_rradius)
+        self.tgl_rpaint = Gtk.ToggleButton(label=tr("catalog_window.retocar_pintar"))
+        self.tgl_rerase = Gtk.ToggleButton(label=tr("catalog_window.retocar_borrar"), group=self.tgl_rpaint)
+        self.tgl_rerase.set_tooltip_text(tr("catalog_window.retocar_borrar_tip"))
+        self.tgl_rpaint.connect("toggled", self._on_retouch_mode)
+        row.append(self.tgl_rpaint)
+        row.append(self.tgl_rerase)
+        self.retouch_panel.append(row)
+        row = Gtk.Box(spacing=6)
+        self.btn_rundo = Gtk.Button(label=tr("catalog_window.retocar_deshacer"))
+        self.btn_rundo.connect("clicked", lambda *_: self._on_retouch_undo())
+        self.btn_rredo = Gtk.Button(label=tr("catalog_window.retocar_rehacer"))
+        self.btn_rredo.connect("clicked", lambda *_: self._on_retouch_redo())
+        self.btn_rview = Gtk.Button(label=tr("catalog_window.retocar_ver_resultado"))
+        self.btn_rview.set_tooltip_text(tr("catalog_window.retocar_ver_resultado_tip"))
+        self.btn_rview.connect("clicked", self._on_retouch_view)
+        self.btn_rdiscard = Gtk.Button(label=tr("catalog_window.retocar_descartar"))
+        self.btn_rdiscard.set_tooltip_text(tr("catalog_window.retocar_descartar_tip"))
+        self.btn_rdiscard.connect("clicked", self._on_retouch_discard)
+        for b in (self.btn_rundo, self.btn_rredo, self.btn_rview, self.btn_rdiscard):
+            row.append(b)
+        self.retouch_panel.append(row)
+        row = Gtk.Box(spacing=6)
+        row.append(Gtk.Label(label=tr("catalog_window.retocar_ayuda"), xalign=0, hexpand=True, wrap=True))
+        self.btn_rcancel = Gtk.Button(label=tr("catalog_window.cancelar_esc"))
+        self.btn_rcancel.connect("clicked", lambda *_: self._retouch_cancel())
+        self.btn_rapply = Gtk.Button(label=tr("catalog_window.retocar_aplicar"))
+        self.btn_rapply.add_css_class("suggested-action")
+        self.btn_rapply.connect("clicked", self._on_retouch_apply)
+        row.append(self.btn_rcancel)
+        row.append(self.btn_rapply)
+        self.retouch_panel.append(row)
+        return self.retouch_panel
+
+    def _sync_retouch_button(self, refs: list[str]) -> None:
+        """«Retocar color…» se puede usar con UNA pieza elegida que lleva color por roles."""
+        ok, why = False, tr("catalog_window.retocar_elegi_una_pieza")
+        if len(refs) == 1:
+            meta = next((m for _row, m in self._rows if m.ref == refs[0]), None)
+            ok, why = can_retouch(meta)
+        elif len(refs) > 1:
+            why = tr("catalog_window.elegi_una_sola_pieza")
+        if ok and self.ctrl.busy:
+            ok, why = False, tr("common.espera_a_que_termine_la_tarea")
+        if ok and self._shown is None:
+            ok, why = False, tr("catalog_window.no_hay_vista_previa_de_la_2")
+        self.btn_retouch.set_sensitive(ok and self._reditor is None and self._cutter is None and self._jeditor is None)
+        self.btn_retouch.set_tooltip_text(tr("catalog_window.retocar_tip") if ok else why)
+
+    def _on_retouch_start(self, *_) -> None:
+        if self._shown is None or self._reditor is not None or self._cutter is not None or self._jeditor is not None:
+            return
+        meta, mesh = self._shown
+        ok, why = can_retouch(meta)
+        cat = self.ctrl.catalog_handle()
+        if not ok or cat is None:
+            self.lbl_status.set_text(why or tr("catalog_window.retocar_elegi_una_pieza"))
+            return
+        try:
+            ed = RetouchEditor(cat, meta, mesh)
+        except Exception as exc:                                    # noqa: BLE001  (retoque ilegible / paleta ausente: se muestra y no se entra)
+            self.lbl_status.set_text(tr("catalog_window.retocar_error", exc=exc))
+            return
+        if not ed.session.palette_ids:
+            self.lbl_status.set_text(tr("catalog_window.retocar_sin_paleta"))
+            return
+        self._reditor = ed
+        self._dyaw = self._dpitch = 0.0
+        self._zoom, self._pan = 1.0, (0.0, 0.0)
+        self._rupdating = True
+        try:
+            self.dd_rrole.set_model(Gtk.StringList.new(ed.session.palette_ids))
+            self.dd_rrole.set_selected(0)
+            self.spin_rradius.set_value(ed.session.radius)
+            self.tgl_rpaint.set_active(True)
+        finally:
+            self._rupdating = False
+        self.retouch_panel.set_visible(True)
+        for b in (self.btn_retouch, self.btn_wrist, self.btn_joint, self.btn_delete):
+            b.set_sensitive(False)
+        self._sync_ops_buttons()
+        self._retouch_refresh()
+
+    def _retouch_cancel(self, redraw: bool = True) -> None:
+        ed = self._reditor
+        if ed is None:
+            return
+        n = len(ed.session) if ed.dirty else 0
+        self._reditor = None
+        self._rpaint = False
+        self.retouch_panel.set_visible(False)
+        self._color_shown = None
+        self._sync_wrist_button(self._selected_refs())
+        self._sync_joint_button(self._selected_refs())
+        self._sync_retouch_button(self._selected_refs())
+        self._sync_ops_buttons()
+        self.btn_delete.set_sensitive(bool(self._selected_refs()) and not self.ctrl.busy)
+        if n:
+            self.lbl_status.set_text(tr("catalog_window.retocar_descartado", n=n))
+        if redraw:
+            self._redraw()
+            if self._shown is not None and getattr(self._shown[0], "color", None):
+                self._load_color_preview(self._shown[0].ref)         # vuelve el color guardado
+
+    def _retouch_refresh(self) -> None:
+        """Texto y botones según el estado de la sesión; redibuja."""
+        ed = self._reditor
+        if ed is None:
+            return
+        s = ed.session
+        self.lbl_retouch.set_text(tr("catalog_window.retocar_estado", n=len(s), roles=", ".join(s.roles_used()) or "—") + ("  " + ed.message if ed.message else ""))
+        self.btn_rundo.set_sensitive(s.can_undo)
+        self.btn_rredo.set_sensitive(s.can_redo)
+        self.btn_rdiscard.set_sensitive(ed.dirty)
+        self.btn_rapply.set_sensitive(ed.dirty)
+        self.btn_rview.set_sensitive(self._rbusy == 0)
+        self._redraw()
+
+    def _on_retouch_role(self, *_) -> None:
+        ed = self._reditor
+        if ed is None or self._rupdating:
+            return
+        i = self.dd_rrole.get_selected()
+        ids = ed.session.palette_ids
+        if 0 <= i < len(ids):
+            ed.session.set_role(ids[i])
+            self._rupdating = True
+            try:
+                self.tgl_rpaint.set_active(True)
+            finally:
+                self._rupdating = False
+
+    def _on_retouch_radius(self, *_) -> None:
+        if self._reditor is not None and not self._rupdating:
+            self._reditor.session.set_radius(self.spin_rradius.get_value())
+            self._redraw()
+
+    def _on_retouch_mode(self, *_) -> None:
+        if self._reditor is not None and not self._rupdating:
+            self._reditor.session.set_mode(PAINT if self.tgl_rpaint.get_active() else ERASE)
+
+    def _on_retouch_undo(self) -> None:
+        if self._reditor is not None and self._reditor.session.undo():
+            self._reditor.result_shown = False
+            self._retouch_refresh()
+
+    def _on_retouch_redo(self) -> None:
+        if self._reditor is not None and self._reditor.session.redo():
+            self._reditor.result_shown = False
+            self._retouch_refresh()
+
+    def _on_retouch_discard(self, *_) -> None:
+        ed = self._reditor
+        if ed is not None and ed.session.discard():
+            self._color_shown = None
+            self._retouch_refresh()
+
+    def _on_retouch_view(self, *_) -> None:
+        """«Ver resultado»: calcula en un hilo la pieza con el color real del retoque (sin guardarlo) y la dibuja."""
+        ed = self._reditor
+        if ed is None or self._rbusy:
+            return
+        ref, rt = ed.meta.ref, ed.session.retouch()
+        self._rbusy += 1
+        self.btn_rview.set_sensitive(False)
+        self.lbl_status.set_text(tr("catalog_window.color_calculando"))
+
+        def work():
+            try:
+                parts, err = self.mgr.color_parts_with(ref, rt), None
+            except Exception as exc:                                  # noqa: BLE001  (se muestra; el modo sigue)
+                parts, err = None, exc
+            GLib.idle_add(self._retouch_view_done, ref, parts, err)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _retouch_view_done(self, ref: str, parts, err) -> bool:
+        self._rbusy = max(0, self._rbusy - 1)
+        ed = self._reditor
+        if ed is None or ed.meta.ref != ref:
+            return False
+        if err is not None:
+            self.lbl_status.set_text(tr("catalog_window.color_error", ref=ref, exc=err))
+        else:
+            self._color_shown = (ref, parts) if parts else None
+            ed.result_shown = bool(parts)
+            self.lbl_status.set_text(tr("catalog_window.color_listo") if parts else "")
+        self._retouch_refresh()
+        return False
+
+    def _on_retouch_apply(self, *_) -> None:
+        ed = self._reditor
+        if ed is None or not ed.dirty:
+            return
+        try:
+            meta = ed.apply(self.ctrl.catalog_handle(required=True))
+        except Exception as exc:                                      # noqa: BLE001  (CatalogError: falta un rol en la paleta, etc.)
+            self.lbl_status.set_text(tr("catalog_window.retocar_error", exc=exc))
+            return
+        n = len(ed.session)
+        mesh = self._shown[1] if self._shown else None
+        self._retouch_cancel(redraw=False)
+        self._reload()                                                # la ficha cambió: la lista y el detalle se rehacen
+        if mesh is not None:
+            self._shown = (meta, mesh)
+            self._redraw()
+            self._load_color_preview(meta.ref)                        # la caché de color incluye el hash del retoque: sale el nuevo
+        self.lbl_status.set_text(tr("catalog_window.retocar_guardado", n=n))
 
     # ------------------------------------------------------------ lista
     def _type_filter(self) -> str | None:
@@ -1322,8 +1567,10 @@ class CatalogManagerWindow(Gtk.Window):
             self._wrist_cancel(redraw=False)
         if self._jeditor is not None and refs != [self._jeditor.meta.ref]:
             self._joint_cancel(redraw=False)
+        if self._reditor is not None and refs != [self._reditor.meta.ref]:
+            self._retouch_cancel(redraw=False)
         self.btn_delete.set_label(tr("catalog_window.eliminar") if n == 0 else tr("catalog_window.eliminar_n_pieza_s", n=n))
-        self.btn_delete.set_sensitive(bool(n) and not self.ctrl.busy and self._cutter is None and self._jeditor is None)
+        self.btn_delete.set_sensitive(bool(n) and not self.ctrl.busy and self._cutter is None and self._jeditor is None and self._reditor is None)
         self._sync_rename_button(refs)
         self._sync_state_row(refs)
         self._sync_undo_button()
@@ -1332,6 +1579,7 @@ class CatalogManagerWindow(Gtk.Window):
             self._show(None)
             self._sync_wrist_button(refs)
             self._sync_joint_button(refs)
+            self._sync_retouch_button(refs)
             self._sync_ops_buttons(refs)
             return
         meta = next(m for _row, m in self._rows if m.ref == refs[0])
@@ -1343,6 +1591,7 @@ class CatalogManagerWindow(Gtk.Window):
             self._show(meta)
         self._sync_wrist_button(refs)
         self._sync_joint_button(refs)
+        self._sync_retouch_button(refs)
         self._sync_ops_buttons(refs)
 
     def _show(self, meta) -> None:
@@ -1400,6 +1649,12 @@ class CatalogManagerWindow(Gtk.Window):
             if ed is not None:                                           # reajustando la articulación: el hueco, o la pieza entera para tocar el eje
                 parts, bounds, marks = ed.view()
                 img = self.preview.render_parts(parts, self._dyaw, self._dpitch, marks, bounds=bounds, zoom=self._zoom, pan=self._pan)
+            elif self._reditor is not None:                                  # retocando: la pieza (con el color de «Ver resultado» si se pidió) y el pincel encima
+                re_ = self._reditor
+                cs = getattr(self, "_color_shown", None)
+                cparts = cs[1] if cs is not None and cs[0] == meta.ref else None
+                img = self.preview.render(mesh, meta, self._dyaw, self._dpitch, None, zoom=self._zoom, pan=self._pan, color_parts=cparts,
+                                          overlay=re_.overlay(), dot_px=re_.dot_size_px(self._img_size, self._dyaw, self._dpitch, self._zoom, self._pan))
             elif c is not None and c.preview_parts() is not None:          # corte calculado: brazo sin mano en gris y la mano en verde
                 img = self.preview.render_parts(c.preview_parts(), self._dyaw, self._dpitch, c.marks(),
                                                 zoom=self._zoom, pan=self._pan,
@@ -1420,12 +1675,26 @@ class CatalogManagerWindow(Gtk.Window):
         data = GLib.Bytes.new(img.tobytes())
         self.picture.set_paintable(Gdk.MemoryTexture.new(w, h, Gdk.MemoryFormat.R8G8B8A8, data, w * 4))
 
-    def _on_drag_begin(self, _g, x: float, y: float) -> None:
+    def _widget_size(self) -> tuple[float, float]:
+        return float(self.picture.get_width()), float(self.picture.get_height())
+
+    def _on_drag_begin(self, g, x: float, y: float) -> None:
         self._drag0 = (self._dyaw, self._dpitch)
         self._press = (x, y)
+        re_ = self._reditor
+        self._rpaint = False
+        if re_ is not None and not (g.get_current_event_state() & Gdk.ModifierType.SHIFT_MASK) and self._shown is not None:
+            self._rpaint = re_.press(x, y, self._widget_size(), self._img_size, self._dyaw, self._dpitch, self._zoom, self._pan)
+            if self._rpaint:
+                self._retouch_refresh()
 
     def _on_drag_end(self, _g, dx: float, dy: float) -> None:
         """Un arrastre casi sin movimiento es un clic: con el modo «Cortar la mano…» activo, marca un punto de la muñeca."""
+        if self._rpaint and self._reditor is not None:
+            self._rpaint = False
+            self._reditor.release()
+            self._retouch_refresh()
+            return
         ed = self._jeditor
         if ed is not None and ed.pick_axis and (dx * dx + dy * dy) ** 0.5 <= CLICK_MAX_PX and self._shown is not None:
             x, y = self._press[0] + dx, self._press[1] + dy
@@ -1446,6 +1715,11 @@ class CatalogManagerWindow(Gtk.Window):
         self._wrist_refresh()
 
     def _on_drag(self, _g, dx: float, dy: float) -> None:
+        if self._rpaint and self._reditor is not None:                # pintando: el arrastre no gira la vista
+            self._reditor.move(self._press[0] + dx, self._press[1] + dy, self._widget_size(), self._img_size,
+                               self._dyaw, self._dpitch, self._zoom, self._pan)
+            self._redraw()
+            return
         y0, p0 = self._drag0
         self._dyaw = y0 - dx * 0.4
         self._dpitch = p0 + dy * 0.4
