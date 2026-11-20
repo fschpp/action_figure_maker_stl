@@ -1,0 +1,364 @@
+"""T47 · Lógica del asistente «Roles de color»: de un FBX con textura a roles asignados, guardados en el catálogo o en la figura base.
+Sin GTK ni OpenGL: se prueba sin ventana (la ventana está en `roles_wizard_window.py`).
+
+Flujo: `load(fbx)` calcula los clusters de color (`colorroles.propose`) → por cada cluster se decide un rol de la paleta de la línea, un
+**rol nuevo** (con el color del cluster) o «sin rol» → `save_piece(ref)` (versión nueva de una pieza del catálogo) o `save_figure(ruta)`
+(paquete `.color.npz` de la figura base, que queda anotado en `project.color.roles`).
+
+Reglas (plan §11, R-1): nada se asigna solo. Los clusters que **proponen** un rol vienen preseleccionados pero marcados como sugerencia y
+hay que confirmarlos (`confirm`/`confirm_suggestions`) o cambiarlos; con clusters sin decidir o sin confirmar no se puede guardar. Al guardar
+se suman como **anclas** del rol los colores de los clusters asignados (hasta `MAX_ANCHORS`; las anclas que ya tenía no se tocan) y se crean los
+roles nuevos; la paleta se escribe antes que la pieza (la pieza exige que sus roles existan) y **se restituye si guardar la pieza falla**.
+`PIL`/`trimesh` no se importan al cargar el módulo (R3)."""
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+
+import numpy as np
+
+from ..i18n import tr
+from ..palette import DEFAULT_FLAT, MAX_ANCHORS, Palette, PaletteError, Role, hex_to_rgb
+
+DIM_GRAY = (110, 110, 110)           # los clusters que no se resaltan en la vista previa
+
+
+class RolesWizardError(ValueError):
+    """Lo pedido no se puede hacer (rol inexistente, clusters sin decidir, sin catálogo…). El mensaje está listo para mostrarse."""
+
+
+@dataclass
+class Choice:
+    kind: str                        # "role" (rol de la paleta o de un rol nuevo ya creado), "new" (crea el rol) o "none"
+    role: str | None = None
+    nombre: str = ""                 # solo "new"
+    confirmed: bool = True           # False = viene de la sugerencia y todavía nadie la confirmó
+
+
+def _hex(rgb) -> str:
+    return "#{:02X}{:02X}{:02X}".format(*(int(x) for x in rgb))
+
+
+class RolesWizard:
+    def __init__(self, ctrl):
+        self.ctrl = ctrl
+        self.tm = None
+        self.proposal = None
+        self.origen: dict = {}
+        self.fbx_path = ""
+        self.choices: dict[int, Choice] = {}
+        self.warnings: list[str] = []
+
+    # ------------------------------------------------------------------ catálogo y paleta
+    def _cat(self):
+        cat = self.ctrl.catalog_handle()
+        if cat is None:
+            raise RolesWizardError(tr("common.no_hay_un_catalogo_abierto"))
+        return cat
+
+    def line_palette(self) -> Palette:
+        """Paleta guardada de la línea abierta (vacía si no hay catálogo o todavía no tiene `paleta.json`)."""
+        cat = self.ctrl.catalog_handle()
+        if cat is None:
+            return Palette([])
+        try:
+            return cat.palette() or Palette([])
+        except ValueError as exc:
+            raise RolesWizardError(str(exc)) from exc
+
+    def piece_refs(self) -> list[str]:
+        """Piezas del catálogo (todas las versiones) a las que se les puede poner color por roles."""
+        return sorted(m.ref for m in self.ctrl.catalog_pieces())
+
+    # ------------------------------------------------------------------ cargar
+    @property
+    def loaded(self) -> bool:
+        return self.proposal is not None
+
+    def load(self, fbx_path: str, k: int = 10) -> None:
+        """Lee el FBX y propone `k` clusters (puede tardar: se llama desde un hilo). Descarta lo decidido antes."""
+        from .. import parts as P
+        from ..colorroles import RolesError
+        from ..fbxio import FbxError, load_textured
+
+        try:
+            tm = load_textured(fbx_path)
+            origen = {"nombre": os.path.basename(fbx_path), "sha256": P.sha256_file(fbx_path)}
+            self.load_textured(tm, origen, k)
+        except (FbxError, RolesError, OSError) as exc:
+            raise RolesWizardError(tr("roles_wizard.error_fbx", error=exc)) from exc
+        self.fbx_path = fbx_path
+
+    def load_textured(self, tm, origen: dict | None = None, k: int = 10) -> None:
+        """Igual que `load` pero con un `TexturedMesh` ya leído."""
+        from ..colorroles import propose
+
+        pal = self.line_palette()
+        self.proposal = propose(tm, pal if pal.roles else None, k=k)
+        self.tm = tm
+        self.origen = dict(origen or {})
+        self.fbx_path = ""
+        self.warnings = []
+        self.choices = {c: Choice("role", s, confirmed=False) for c, s in enumerate(self.proposal.suggested) if s is not None}
+
+    def _need_loaded(self) -> None:
+        if not self.loaded:
+            raise RolesWizardError(tr("roles_wizard.sin_analisis"))
+
+    def _check_cluster(self, c: int) -> int:
+        self._need_loaded()
+        if not isinstance(c, (int, np.integer)) or not 0 <= c < self.proposal.k:
+            raise RolesWizardError(tr("roles_wizard.cluster_inexistente", n=c))
+        return int(c)
+
+    # ------------------------------------------------------------------ decidir
+    def new_role_ids(self) -> list[str]:
+        """Ids de los roles nuevos que se crearían al guardar (en el orden de los clusters)."""
+        out: list[str] = []
+        for c in sorted(self.choices):
+            ch = self.choices[c]
+            if ch.kind == "new" and ch.role not in out:
+                out.append(ch.role)
+        return out
+
+    def role_options(self) -> list[str]:
+        """Ids que se pueden elegir en la lista de un cluster: roles de la paleta y roles nuevos ya pedidos."""
+        return self.line_palette().ids() + [r for r in self.new_role_ids() if r not in self.line_palette().ids()]
+
+    def _prune(self) -> None:
+        """Quita las decisiones que apuntan a un rol nuevo que ya nadie crea."""
+        valid = set(self.line_palette().ids()) | set(self.new_role_ids())
+        for c in [c for c, ch in self.choices.items() if ch.kind == "role" and ch.role not in valid]:
+            del self.choices[c]
+
+    def set_role(self, c: int, role_id: str) -> None:
+        """El cluster `c` va al rol `role_id` (de la paleta o un rol nuevo que otro cluster ya pidió). Cuenta como confirmado."""
+        c = self._check_cluster(c)
+        if role_id not in self.role_options():
+            raise RolesWizardError(tr("roles_wizard.rol_inexistente", rol=role_id))
+        self.choices[c] = Choice("role", role_id)
+        self._prune()
+
+    def set_none(self, c: int) -> None:
+        """El cluster `c` queda «sin rol» (sale del color plano)."""
+        c = self._check_cluster(c)
+        self.choices[c] = Choice("none")
+        self._prune()
+
+    def set_new(self, c: int, role_id: str, nombre: str = "") -> None:
+        """El cluster `c` crea el rol `role_id` (con el color de este cluster; si otro cluster ya pidió ese rol nuevo, se suma a él)."""
+        c = self._check_cluster(c)
+        role_id = (role_id or "").strip()
+        if role_id in self.line_palette().ids():
+            raise RolesWizardError(tr("roles_wizard.rol_nuevo_existe", rol=role_id))
+        try:
+            Role(role_id, (nombre or "").strip() or role_id, _hex(self.proposal.centers_rgb[c]))
+        except PaletteError as exc:
+            raise RolesWizardError(str(exc)) from exc
+        if len(self.line_palette().roles) + len(set(self.new_role_ids()) | {role_id}) > 64:
+            raise RolesWizardError(tr("roles_wizard.demasiados_roles"))
+        self.choices[c] = Choice("new", role_id, (nombre or "").strip())
+        self._prune()
+
+    def confirm(self, c: int) -> None:
+        """Confirma la sugerencia del cluster `c` tal cual."""
+        c = self._check_cluster(c)
+        ch = self.choices.get(c)
+        if ch is not None:
+            ch.confirmed = True
+
+    def confirm_suggestions(self) -> int:
+        """Confirma todas las sugerencias que siguen sin tocar. Devuelve cuántas eran."""
+        self._need_loaded()
+        todo = [c for c, ch in self.choices.items() if not ch.confirmed]
+        for c in todo:
+            self.choices[c].confirmed = True
+        return len(todo)
+
+    # ------------------------------------------------------------------ estado
+    def undecided(self) -> list[int]:
+        self._need_loaded()
+        return [c for c in range(self.proposal.k) if c not in self.choices]
+
+    def unconfirmed(self) -> list[int]:
+        self._need_loaded()
+        return sorted(c for c, ch in self.choices.items() if not ch.confirmed)
+
+    def blockers(self) -> str:
+        """Por qué todavía no se puede guardar ("" si se puede)."""
+        if not self.loaded:
+            return tr("roles_wizard.sin_analisis")
+        und, unc = self.undecided(), self.unconfirmed()
+        if und:
+            return tr("roles_wizard.faltan_decidir", n=len(und), lista=", ".join(str(c + 1) for c in und))
+        if unc:
+            return tr("roles_wizard.sugerencias_sin_confirmar", n=len(unc), lista=", ".join(str(c + 1) for c in unc))
+        return ""
+
+    @property
+    def can_save(self) -> bool:
+        return self.blockers() == ""
+
+    def clusters(self) -> list[dict]:
+        """Una ficha por cluster: `n, hex, pct, estado ("sin_decidir" | "sugerido" | "decidido"), tipo, rol, sugerencia`."""
+        self._need_loaded()
+        out = []
+        for c in range(self.proposal.k):
+            ch = self.choices.get(c)
+            estado = "sin_decidir" if ch is None else ("decidido" if ch.confirmed else "sugerido")
+            out.append({"n": c, "hex": _hex(self.proposal.centers_rgb[c]), "pct": float(self.proposal.share[c]), "estado": estado,
+                        "tipo": None if ch is None else ch.kind, "rol": None if ch is None else ch.role,
+                        "sugerencia": self.proposal.suggested[c]})
+        return out
+
+    # ------------------------------------------------------------------ resultado
+    def assignment(self) -> dict:
+        """`{cluster: rol | None}` para `build_package` (solo con todo decidido)."""
+        if self.undecided():
+            raise RolesWizardError(self.blockers())
+        return {c: (None if ch.kind == "none" else ch.role) for c, ch in self.choices.items()}
+
+    def final_palette(self) -> Palette:
+        """La paleta que quedaría al guardar: la de la línea + los roles nuevos (con el color de su cluster más grande) + las anclas
+        de los clusters asignados (las que ya tenía el rol van primero y no se tocan; tope `MAX_ANCHORS`)."""
+        self._need_loaded()
+        base = self.line_palette()
+        assign = {c: ch for c, ch in self.choices.items() if ch.kind != "none"}
+        anchors: dict[str, list[str]] = {}
+        for c in sorted(assign):
+            hx = _hex(self.proposal.centers_rgb[c])
+            lst = anchors.setdefault(assign[c].role, [])
+            if hx not in lst:
+                lst.append(hx)
+        roles = []
+        for r in base.roles:
+            have = list(r.anclas)
+            for hx in anchors.get(r.id, []):
+                if hx not in have and len(have) < MAX_ANCHORS:
+                    have.append(hx)
+            roles.append(Role(r.id, r.nombre, r.hex, have))
+        for rid in self.new_role_ids():
+            first = min(c for c, ch in assign.items() if ch.role == rid and ch.kind == "new")
+            names = [ch.nombre for _c, ch in sorted(assign.items()) if ch.kind == "new" and ch.role == rid and ch.nombre]
+            nombre = names[0] if names else rid
+            roles.append(Role(rid, nombre, _hex(self.proposal.centers_rgb[first]), anchors.get(rid, [])[:MAX_ANCHORS]))
+        try:
+            return Palette(roles)
+        except PaletteError as exc:
+            raise RolesWizardError(str(exc)) from exc
+
+    def package(self):
+        """`RolesPackage` con lo decidido (`colorroles.build_package`)."""
+        from ..colorroles import RolesError, build_package
+
+        try:
+            return build_package(self.tm, self.proposal, self.assignment(), origen=self.origen)
+        except RolesError as exc:
+            raise RolesWizardError(str(exc)) from exc
+
+    def _with_palette(self, cat, action):
+        """Escribe la paleta final, corre `action()` y, si falla, restituye la paleta de antes (o la quita si la línea no tenía)."""
+        old = cat.palette()
+        new = self.final_palette()
+        changed = old is None or old.to_dict() != new.to_dict()
+        if changed:
+            cat.set_palette(new)
+        try:
+            return action()
+        except Exception:
+            if changed:
+                if old is not None:
+                    cat.set_palette(old)
+                elif os.path.exists(cat.palette_path):
+                    os.remove(cat.palette_path)
+            raise
+
+    def save_piece(self, ref: str, similarity=None):
+        """Guarda una **versión nueva** de la pieza `ref` con este color por roles (como `afm catalogo color`). `similarity`: 4×4 FBX → figura
+        entera para una pieza recortada de una figura; sin ella se alinea por momentos (solo sirve con una pieza completa, plan §5.7).
+        Devuelve la `PieceMeta` nueva. Si algo falla no queda nada escrito (ni la paleta)."""
+        from .. import parts as P
+        from ..catalog import CatalogError
+
+        if not self.can_save:
+            raise RolesWizardError(self.blockers())
+        cat = self._cat()
+        try:
+            meta, mesh = cat.load(ref)
+        except ValueError as exc:
+            raise RolesWizardError(str(exc)) from exc
+        pkg = self.package()
+
+        def action():
+            return cat.add_piece(mesh, P.PieceMeta.from_dict(meta.to_dict()), new_version=True, color_roles=pkg, similarity=similarity)
+
+        try:
+            new, warns = self._with_palette(cat, action)
+        except (CatalogError, P.PieceError) as exc:
+            raise RolesWizardError(str(exc)) from exc
+        self.warnings = list(warns)
+        return new
+
+    def save_figure(self, path: str) -> str:
+        """Escribe el paquete de roles de la figura base en `path` (`.color.npz`) y lo anota en `project.color.roles` (ruta relativa al
+        proyecto si queda dentro de su carpeta). Hace falta una figura abierta y la línea abierta (de ahí sale la paleta, plan §12.2)."""
+        from ..project import ColorSpec
+
+        if not self.can_save:
+            raise RolesWizardError(self.blockers())
+        if not getattr(self.ctrl, "loaded", False):
+            raise RolesWizardError(tr("roles_wizard.sin_figura"))
+        cat = self._cat()
+        pkg = self.package()
+        path = os.path.abspath(path if path.endswith(".npz") else path + ".color.npz")
+        proj_path = getattr(self.ctrl.session, "project_path", None)
+        shown = path
+        if proj_path:
+            rel = os.path.relpath(path, os.path.dirname(os.path.abspath(proj_path)))
+            if not rel.startswith(".."):
+                shown = rel
+
+        def action():
+            try:
+                pkg.save(path)
+            except OSError as exc:
+                raise RolesWizardError(f"{path}: {exc}") from exc
+            return path
+
+        self._with_palette(cat, action)
+        spec = self.ctrl.session.project.color or ColorSpec()
+        spec.roles = shown
+        self.ctrl.session.project.color = spec
+        self.ctrl.color_report = None
+        self.ctrl._changed(tr("roles_wizard.guardada_figura", ruta=shown, roles=", ".join(pkg.roles)), scene=False)
+        return path
+
+    # ------------------------------------------------------------------ vista previa
+    def preview_lut(self, highlight: int | None = None, mode: str = "clusters") -> np.ndarray:
+        """Tabla (k, 3) uint8 con el color de cada cluster: el propio (`clusters`) o el del rol elegido (`roles`; sin rol o sin decidir = plano).
+        Con `highlight` el resto se ve en gris."""
+        self._need_loaded()
+        pal = self.final_palette() if mode == "roles" else None
+        out = np.zeros((self.proposal.k, 3), np.uint8)
+        for c in range(self.proposal.k):
+            if mode == "roles":
+                ch = self.choices.get(c)
+                out[c] = hex_to_rgb(pal.hex_of(ch.role)) if ch is not None and ch.kind != "none" else hex_to_rgb(DEFAULT_FLAT)
+            else:
+                out[c] = self.proposal.centers_rgb[c]
+        if highlight is not None:
+            keep = out[highlight].copy()
+            out[:] = DIM_GRAY
+            out[highlight] = keep
+        return out
+
+    def preview_parts(self, highlight: int | None = None, mode: str = "clusters") -> list:
+        """`[TexturedPart]` del FBX para `PreviewRenderer.render_textured`, con cada cluster pintado de su color (o del rol elegido)."""
+        import trimesh
+
+        from .render import TexturedPart
+
+        self._need_loaded()
+        image = np.ascontiguousarray(self.preview_lut(highlight, mode)[np.asarray(self.proposal.labels_atlas, np.intp)])
+        mesh = trimesh.Trimesh(np.asarray(self.tm.vertices, float), np.asarray(self.tm.faces, np.int64), process=False)
+        return [TexturedPart("fbx", mesh, np.ascontiguousarray(self.tm.corner_uv, np.float32), image)]

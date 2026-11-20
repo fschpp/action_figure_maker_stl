@@ -315,6 +315,7 @@ class CatalogManagerWindow(Gtk.Window):
             (tr("catalog_window.verificar_el_catalogo"), self._op_verify, tr("catalog_window.afm_catalogo_verificar_formato_hash_mallas")),
             (tr("catalog_window.ver_el_contrato_de_la_linea"), self._op_contract, tr("catalog_window.afm_catalogo_contrato_ver_talles_de")),
             (tr("palette_panel.abrir"), self._open_palette, tr("palette_panel.abrir_tip")),
+            (tr("roles_wizard.abrir"), self._open_roles_wizard, tr("roles_wizard.abrir_tip")),
             None,
             (tr("catalog_window.estado_de_la_certificacion_todas"), lambda: self._op_certify(None, status_only=True), tr("catalog_window.afm_catalogo_certificar_estado_no_arma")),
             (tr("catalog_window.certificar_todas_las_piezas"), lambda: self._op_certify(None), tr("catalog_window.afm_catalogo_certificar_arma_de_verdad")),
@@ -374,6 +375,19 @@ class CatalogManagerWindow(Gtk.Window):
         win = PaletteWindow(self, self.ctrl)
         win.connect("destroy", lambda *_: setattr(self, "_palette_win", None))
         self._palette_win = win
+        win.present()
+
+    def _open_roles_wizard(self) -> None:
+        """«Roles de color desde un FBX…»: abre el asistente (una sola ventana; si ya está abierta, la trae al frente)."""
+        from .roles_wizard_window import RolesWizardWindow
+
+        win = getattr(self, "_roles_win", None)
+        if win is not None:
+            win.present()
+            return
+        win = RolesWizardWindow(self, self.ctrl, on_saved=self.refresh_if_changed)
+        win.connect("destroy", lambda *_: setattr(self, "_roles_win", None))
+        self._roles_win = win
         win.present()
 
     def _open_import(self, kind: str) -> None:
