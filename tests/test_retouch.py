@@ -86,9 +86,9 @@ def test_too_many_strokes_rejected():
         Retouch([Stroke((0, 0, 0), 1, "azul")] * (MAX_STROKES + 1))
 
 
-def test_module_imports_without_heavy_dependencies():
-    for m in [k for k in sys.modules if k == "afm.retouch"]:
-        del sys.modules[m]
+def test_module_imports_without_heavy_dependencies(monkeypatch):
+    # `monkeypatch.delitem` restaura el módulo original al terminar: si no, otras pruebas verían una segunda clase `Retouch` y `==` fallaría
+    monkeypatch.delitem(sys.modules, "afm.retouch", raising=False)
     before = {k for k in ("PIL", "scipy", "skimage") if k in sys.modules}
     import afm.retouch  # noqa: F401
     assert {k for k in ("PIL", "scipy", "skimage") if k in sys.modules} == before

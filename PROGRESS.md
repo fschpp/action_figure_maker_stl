@@ -1,5 +1,21 @@
 # Progreso del desarrollo
 
+## Current Focus — Retoque manual del color: R03b (CLI) y R06 (controlador del pincel) (2026-11-20, sobre main b795f73)
+**Objetivo:** dejar lista, sin GTK, toda la lógica del modo «Retocar» y la CLI, para que R07 (picking 3D + ventana) solo conecte el mouse (`docs/PLAN_retoque_color_pieza.md`).
+**Hecho:** (1) `src/afm/gui/retouch_session.py`: `RetouchSession` (rol, radio recortado a 0,05–15 mm, pintar/borrar, `begin_stroke`/`add_point`/`end_stroke` con pinceladas cada radio/2 y relleno si el mouse salta, deshacer/rehacer por trazo, «descartar» a lo guardado, tope de 20 000 con aviso `truncated`, `apply(catalog, ref)` sobre `Catalog.set_retouch`). (2) `afm catalogo retoque RUTA REF [--exportar|--importar|--borrar]` + textos es/en/pt (`retoque_cli`). (3) `tests/test_retouch_session.py` (20 pruebas). (4) Arreglo de aislamiento en `tests/test_retouch.py` (la prueba de importación dejaba una segunda clase `Retouch` en `sys.modules` y rompía `test_catalog_retouch` según el orden).
+**Medido:** `test_retouch_session` + `test_retouch` + `test_catalog_retouch` + `test_i18n` + `test_colorpreview`: 73 pasan (≈ 46 s). Mutación detectada: `SPACING_FACTOR` 0,5 → 1,0 rompe la prueba de separación.
+**No verificado:** nada en pantalla; el controlador todavía no está conectado a ninguna ventana; tiempo de `paint` con miles de pinceladas (R09); regresión completa de color/catálogo.
+**Decisiones (mías, fáciles de cambiar):** (1) un trazo = una entrada de deshacer y no se pueden deshacer pinceladas ya guardadas; «descartar» vacía las pilas. (2) Elegir un rol vuelve al modo pintar. (3) La normal se repite en las pinceladas intermedias de un arrastre. (4) `--importar` reemplaza el retoque entero (no suma).
+
+### Todo List
+- [x] R01 · [x] R02 · [x] R03 · [x] R03b · [x] R04 · [x] R05 · [x] R06
+- [ ] R07 (picking + modo «Retocar»: no verificable sin GTK/GL) · [ ] R08 · [ ] R09 · [ ] R10
+
+### Latest Blockers/Discoveries
+- `gui/picking.py` ya tiene `Picker.pick_pixel(camera, px, py, w, h)` que devuelve punto y normal: R07 puede apoyarse en él en vez de escribir picking nuevo (a confirmar leyendo `PickResult`).
+- Preguntas abiertas del plan (§8) siguen sin decidir: «rellenar región», exportar/importar entre piezas, si un retoque invalida `validada`/`impresa`.
+
+---
 ## Current Focus — Retoque manual del color de piezas: R01–R05 (2026-11-20, sobre main 4ab6123)
 **Objetivo:** poder corregir a mano el color de una pieza del catálogo con pinceladas que usan roles de la paleta; el retoque vale para la pieza (`id@n`) y lo heredan todas las figuras que la usen (`docs/PLAN_retoque_color_pieza.md`).
 **Hecho:** (1) Plan `docs/PLAN_retoque_color_pieza.md` (R01–R10). (2) `src/afm/retouch.py`: `Stroke` (centro, radio, rol o borrador, normal), `Retouch` (archivo `afm-retoque-1`, atómico), `transform_strokes`. (3) `ColorSource.paint` y `RolesPackage.with_roles`. (4) Catálogo: `Catalog.retouch/set_retouch`, ficha `color.retoque`, `verify`, papelera, `palette_usage`. (5) Armado: `colorpiece.roles_color_source` (también lado derecho espejado) e informe `retoque`. (6) Vista previa: `colorpreview` y `figure_builder`. (7) Tests: `test_retouch.py` (21) y `test_catalog_retouch.py` (15).

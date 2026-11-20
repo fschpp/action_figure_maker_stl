@@ -1850,6 +1850,19 @@
   "no_sirve": "No se pudo armar el paquete de roles: %{error}",
   "listo": "«%{ref}» guardada con color por roles (%{roles}); paquete de %{kb} KB. «%{antes}» no cambió."
  },
+ "retoque_cli": {
+  "ayuda": "ver, exportar, importar o borrar el retoque manual de color de una pieza (las pinceladas se hacen en la ventana de Catálogo)",
+  "ayuda_ref": "pieza con color por roles (id@n o id)",
+  "ayuda_exportar": "copiar el retoque de la pieza a un archivo afm-retoque-1",
+  "ayuda_importar": "reemplazar el retoque de la pieza por el de un archivo afm-retoque-1 (sus roles tienen que estar en la paleta de la línea)",
+  "ayuda_borrar": "quitar el retoque de la pieza (la pieza vuelve al color de su paquete de roles)",
+  "sin_retoque": "«%{ref}» no tiene retoque de color.",
+  "resumen": "«%{ref}»: %{n} pincelada(s), roles: %{roles}; %{borrador} de borrador.",
+  "exportado": "Retoque de «%{ref}» (%{n} pincelada(s)) exportado en %{path}",
+  "importado": "«%{ref}»: retoque importado (%{n} pincelada(s), roles: %{roles}).",
+  "borrado": "«%{ref}»: retoque quitado.",
+  "no_sirve": "No se pudo leer el retoque: %{error}"
+ },
  "palette_panel": {
   "titulo": "Paleta de la línea",
   "abrir": "Paleta de la línea…",

@@ -16,7 +16,7 @@ from .recipe import RecipeError
 
 
 def add_parsers(sub) -> None:
-    c = sub.add_parser("catalogo", help="catálogo de piezas de una línea (crear, listar, verificar, importar-mano, agregar, agregar-stl, cortar-muneca, usos, eliminar, estado, compat, certificar, matriz, cobertura, contrato, capacidad, paleta, color)")
+    c = sub.add_parser("catalogo", help="catálogo de piezas de una línea (crear, listar, verificar, importar-mano, agregar, agregar-stl, cortar-muneca, usos, eliminar, estado, compat, certificar, matriz, cobertura, contrato, capacidad, paleta, color, retoque)")
     cs = c.add_subparsers(dest="catcmd", required=True)
 
     def root(p):
@@ -190,6 +190,13 @@ def add_parsers(sub) -> None:
     a.add_argument("--roles", required=True, metavar="ASIGNACION.json", help=tr("color_cli.ayuda_roles"))
     a.add_argument("--k", type=int, default=10, help=tr("color_cli.ayuda_k"))
     a.add_argument("--similitud", default=None, metavar="SIMILITUD.json", help=tr("color_cli.ayuda_similitud"))
+    a = cs.add_parser("retoque", help=tr("retoque_cli.ayuda"))
+    root(a)
+    a.add_argument("ref", metavar="REF", help=tr("retoque_cli.ayuda_ref"))
+    g = a.add_mutually_exclusive_group()
+    g.add_argument("--exportar", metavar="ARCHIVO.json", help=tr("retoque_cli.ayuda_exportar"))
+    g.add_argument("--importar", metavar="ARCHIVO.json", help=tr("retoque_cli.ayuda_importar"))
+    g.add_argument("--borrar", action="store_true", help=tr("retoque_cli.ayuda_borrar"))
     a = cs.add_parser("estado", help="cambiar el estado de una pieza (borrador, validada, impresa)")
     root(a)
     a.add_argument("ref", metavar="ID")
@@ -361,6 +368,38 @@ def _run_color(cat: Catalog, args) -> int:
     return 0
 
 
+def _run_retouch(cat: Catalog, args) -> int:
+    """`afm catalogo retoque RUTA REF [--exportar A.json | --importar A.json | --borrar]` (R03b): sin opciones, resume el retoque de la pieza; con
+    `--exportar` lo copia a un archivo `afm-retoque-1`; con `--importar` lo reemplaza por el de un archivo (los roles tienen que estar en la paleta
+    de la línea); con `--borrar` lo quita. Las pinceladas se hacen en la ventana de Catálogo (R07), no acá."""
+    from .retouch import Retouch, RetouchError
+
+    ref = cat.meta(args.ref).ref
+    if args.borrar:
+        cat.set_retouch(ref, None)
+        print(tr("retoque_cli.borrado", ref=ref))
+        return 0
+    if args.importar:
+        try:
+            rt = Retouch.load(args.importar)
+        except RetouchError as exc:
+            raise CatalogError(tr("retoque_cli.no_sirve", error=exc)) from exc
+        cat.set_retouch(ref, rt)
+        print(tr("retoque_cli.importado", ref=ref, n=len(rt), roles=", ".join(rt.roles_used()) or "-"))
+        return 0
+    rt = cat.retouch(ref)
+    if args.exportar:
+        if rt is None:
+            raise CatalogError(tr("retoque_cli.sin_retoque", ref=ref))
+        print(tr("retoque_cli.exportado", ref=ref, n=len(rt), path=rt.save(args.exportar)))
+        return 0
+    if rt is None:
+        print(tr("retoque_cli.sin_retoque", ref=ref))
+    else:
+        print(tr("retoque_cli.resumen", ref=ref, n=len(rt), roles=", ".join(rt.roles_used()) or "-", borrador=sum(1 for s in rt.strokes if s.rol is None)))
+    return 0
+
+
 def run_catalogo(args) -> int:
     try:
         return _run(args)
@@ -383,6 +422,8 @@ def _run(args) -> int:
         return _run_palette(cat, args)
     if cmd == "color":
         return _run_color(cat, args)
+    if cmd == "retoque":
+        return _run_retouch(cat, args)
     if cmd == "explicar":
         return _explicar(cat, args.ref, args.con)
     if cmd == "listar":

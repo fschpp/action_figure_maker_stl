@@ -1850,6 +1850,19 @@
   "no_sirve": "Could not build the roles package: %{error}",
   "listo": "“%{ref}” saved with role colour (%{roles}); %{kb} KB package. “%{antes}” did not change."
  },
+ "retoque_cli": {
+  "ayuda": "show, export, import or delete the manual colour retouch of a piece (strokes are painted in the Catalogue window)",
+  "ayuda_ref": "piece with role colour (id@n or id)",
+  "ayuda_exportar": "copy the piece's retouch to an afm-retoque-1 file",
+  "ayuda_importar": "replace the piece's retouch with the one in an afm-retoque-1 file (its roles must be in the line's palette)",
+  "ayuda_borrar": "remove the piece's retouch (the piece goes back to the colour of its roles package)",
+  "sin_retoque": "“%{ref}” has no colour retouch.",
+  "resumen": "“%{ref}”: %{n} stroke(s), roles: %{roles}; %{borrador} eraser.",
+  "exportado": "Retouch of “%{ref}” (%{n} stroke(s)) exported to %{path}",
+  "importado": "“%{ref}”: retouch imported (%{n} stroke(s), roles: %{roles}).",
+  "borrado": "“%{ref}”: retouch removed.",
+  "no_sirve": "Could not read the retouch: %{error}"
+ },
  "palette_panel": {
   "titulo": "Line palette",
   "abrir": "Line palette…",

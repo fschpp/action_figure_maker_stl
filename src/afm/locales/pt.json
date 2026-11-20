@@ -1850,6 +1850,19 @@
   "no_sirve": "Não foi possível montar o pacote de papéis: %{error}",
   "listo": "«%{ref}» guardada com cor por papéis (%{roles}); pacote de %{kb} KB. «%{antes}» não mudou."
  },
+ "retoque_cli": {
+  "ayuda": "ver, exportar, importar ou apagar o retoque manual de cor de uma peça (as pinceladas fazem-se na janela do Catálogo)",
+  "ayuda_ref": "peça com cor por papéis (id@n ou id)",
+  "ayuda_exportar": "copiar o retoque da peça para um ficheiro afm-retoque-1",
+  "ayuda_importar": "substituir o retoque da peça pelo de um ficheiro afm-retoque-1 (os seus papéis têm de estar na paleta da linha)",
+  "ayuda_borrar": "remover o retoque da peça (a peça volta à cor do seu pacote de papéis)",
+  "sin_retoque": "«%{ref}» não tem retoque de cor.",
+  "resumen": "«%{ref}»: %{n} pincelada(s), papéis: %{roles}; %{borrador} de borracha.",
+  "exportado": "Retoque de «%{ref}» (%{n} pincelada(s)) exportado em %{path}",
+  "importado": "«%{ref}»: retoque importado (%{n} pincelada(s), papéis: %{roles}).",
+  "borrado": "«%{ref}»: retoque removido.",
+  "no_sirve": "Não foi possível ler o retoque: %{error}"
+ },
  "palette_panel": {
   "titulo": "Paleta da linha",
   "abrir": "Paleta da linha…",
