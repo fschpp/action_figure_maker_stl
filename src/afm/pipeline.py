@@ -756,6 +756,8 @@ def validate(res: BuildResult, p: Params, limbs: list[LimbSpec], sit: bool = Tru
     out["articulaciones"] = _validate_joints(res, p, joints, out, sweep_check_step)
     out["cadena"] = _validate_chain(res, p, out)
     out["cintura"] = _validate_waist(res, p, out)
+    if res.mounts:
+        out["montura"] = _validate_mount(res, p, out, limbs)
     out["mano"] = _validate_hand(res, p, out)
     out["piezas"] = _validate_parts(res, out)
     if res.right is not None:
@@ -1141,6 +1143,122 @@ def _validate_waist(res: BuildResult, p: Params, out: dict, step: float = WAIST_
             out["avisos"].append(f"{WAIST_NAME}: en la pose impresa, al girar {side} se tocan los miembros a más de "
                                  f"{g['hasta_grados']:g}° ({', '.join(g['choca'])}): no es un problema de la figura, que se para "
                                  f"y se separan los brazos antes de girar la cintura; el giro pedido es {need:g}°")
+    return info
+
+
+def _mount_poses(res: BuildResult, p: Params, limbs, side: str, hip_step: float, arm_step: float) -> list:
+    """Poses en las que se mide la montura: `[(etiqueta, grados, {pieza del lado `side`: sólido}, de_pie)]`.
+
+    De pie (cadera 0°, piernas estiradas, brazos colgando) y después cada miembro que gira sobre su recorrido: las piernas, la
+    cadera de 0 a `sit_angle` (como `_validate_chain`); los brazos, su rango de `res.motion` (si lo tienen). De cada pose solo
+    entran las piezas del lado de la montura y del miembro que gira, que es lo que puede tocar un puente de ese lado."""
+    kinds = {sp.name: sp.kind for sp in limbs}
+    straight = {jn: 0.0 for jn in straight_leg_flex(res)}
+
+    def own(limb: str, posed: dict) -> dict:
+        return {f"{n}{side}": posed[f"{n}{side}"] for n in _limb_piece_names(res, limb) if f"{n}{side}" in posed}
+
+    stand = posed_pieces(res, 0.0, straight, p)
+    poses = [("de pie", 0.0, {k: v for k, v in stand.items() if k.endswith(side)}, True)]
+    for name, (_l, _c, _a, (a0, a1)) in res.motion.items():
+        if name == HEAD_NAME or a1 <= a0:
+            continue
+        if kinds.get(name, "arm") == "leg":
+            angles = np.arange(hip_step, p.sit_angle + 1e-9, hip_step)
+            label = "cadera"
+        else:
+            angles = [a for a in np.arange(a0, a1 + 1e-9, arm_step) if abs(a) > 1e-9]
+            label = "brazo"
+        for ang in angles:
+            poses.append((f"{label} {name}", float(ang), own(name, posed_pieces(res, float(ang), None, p)), False))
+    return poses
+
+
+def _validate_mount(res: BuildResult, p: Params, out: dict, limbs=(), hip_step: float = 15.0, arm_step: float = 15.0,
+                    extract_step: float | None = None) -> dict:
+    """Monturas de armas (plan §6.4). Para cada una:
+
+    * **extracción libre**: el arma sale por su eje, de a `extract_step` mm, hasta librar el puente, sin entrar en el cuerpo ni en
+      los miembros (de pie): si no, es un problema;
+    * **holgura a miembros**: el puente (sin su pie) contra los miembros de su lado, de pie y en todo el recorrido de la cadera y
+      de los brazos: choque o holgura < 0,9 · `clearance` es un problema; el arma enfundada contra los mismos miembros es un
+      problema de pie y un aviso en movimiento (el arma es un accesorio que se saca);
+    * **retención**: avisos del lazo (la guarda no apoya) y gravedad (con la punta hacia arriba el arma se cae);
+    * **imprimible**: pared ≥ `min_wall` (problema) e inclinación del eje del hueco ≤ 45° de la vertical (aviso);
+    * **mano libre**: el puente empieza después de la guarda, sin tapar la empuñadura; **una sola pieza** del huésped (se informa; la
+      validación general ya la exige).
+
+    Estabilidad (centro de gravedad dentro del apoyo) todavía no se mide: depende de qué cuenta como apoyo (puente + flanco)."""
+    from . import mount as MT
+
+    info: dict = {}
+    if not res.mounts:
+        return info
+    step = MT.EXTRACT_STEP if extract_step is None else extract_step
+    body = {n: res.pieces[n] for n in ("torso", PELVIS_NAME, HEAD_NAME) if n in res.pieces}
+    for name, mb in res.mounts.items():
+        lz, rec = mb.lazo, {"huesped": mb.host}
+        side = "_izq" if mb.spec.lado == "izq" else "_der"
+        # una sola pieza / mano libre / pared / inclinación (aritmética, sin booleanas)
+        rec["componentes_huesped"] = len(res.pieces[mb.host].decompose())
+        guard_end = float(lz.info.get("guarda_fin_mm", 0.0))
+        first = min(lz.stations) - float(lz.info["largo_puente_mm"]) / 2
+        rec["mano_libre"] = bool(first >= guard_end - 1e-6)
+        if not rec["mano_libre"]:
+            out["problems"].append(f"{name}: el puente empieza a {first:.2f} mm de la empuñadura, antes de que termine la guarda "
+                                   f"({guard_end:.2f} mm): taparía el agarre")
+        wall = float(lz.info["pared_mm"])
+        rec["pared_mm"] = wall
+        if wall < p.min_wall - 1e-9:
+            out["problems"].append(f"{name}: la pared del puente mide {wall:.2f} mm < {p.min_wall:g} mm")
+        e = MT.handle_direction(lz)
+        tilt = MT.tilt_from_vertical_deg(e)
+        rec["inclinacion_grados"] = round(tilt, 2)
+        if tilt > MT.MAX_PRINT_TILT_DEG + 1e-9:
+            out["avisos"].append(f"{name}: el eje del hueco está a {tilt:.0f}° de la vertical (> {MT.MAX_PRINT_TILT_DEG:g}°): "\
+                                 "el techo del puente puede necesitar soportes")
+        # retención
+        out["avisos"].extend(f"{name}: {a}" for a in lz.info.get("avisos", []))
+        gc = MT.gravity_seat_cos(lz)
+        rec["gravedad_cos"] = round(gc, 3)
+        if gc < MT.GRAVITY_MIN_COS:
+            out["avisos"].append(f"{name}: la punta no mira hacia abajo (coseno {gc:.2f}): la gravedad saca el arma del puente en lugar "
+                                 "de apoyar la guarda")
+        # poses
+        poses = _mount_poses(res, p, limbs, side, hip_step, arm_step)
+        stand = poses[0][2]
+        # extracción libre (de pie)
+        scan = MT.extraction_scan(lz, dict(body, **stand), step)
+        rec["extraccion"] = scan
+        for k, h in scan["choques"].items():
+            out["problems"].append(f"{name}: el arma no sale por su eje: choca con {k} a {h['desde_mm']:g} mm de recorrido "
+                                   f"({h['max_mm3']:.3f} mm³)")
+        # holguras: puente y arma enfundada contra los miembros
+        bridge = MT.mount_solid(lz)
+        need = MT.CLEARANCE_FACTOR * p.clearance
+        gaps, weapon_hits = {}, {}
+        for label, ang, pieces, standing in poses:
+            for pn, mf in pieces.items():
+                if not _bbox_overlap(bridge, mf, 5.0):
+                    continue
+                inter = float((bridge ^ mf).volume())
+                gap = 0.0 if inter > MT.CONTACT_TOL_MM3 else float(bridge.min_gap(mf, 5.0))
+                key = f"{pn}@{label}"
+                if key not in gaps or gap < gaps[key][0]:
+                    gaps[key] = (gap, ang)
+                if gap < need - 1e-6 and gap < 5.0:
+                    out["problems"].append(f"{name}: el puente queda a {gap:.3f} mm de {pn} ({label} {ang:g}°) < {need:.3f} mm"
+                                           if inter <= MT.CONTACT_TOL_MM3 else
+                                           f"{name}: el puente choca con {pn} ({label} {ang:g}°, {inter:.3f} mm³)")
+                if _bbox_overlap(lz.weapon, mf):
+                    wv = float((lz.weapon ^ mf).volume())
+                    if wv > MT.CONTACT_TOL_MM3 and (pn, standing) not in weapon_hits:
+                        weapon_hits[(pn, standing)] = (label, ang, wv)
+        rec["holguras_mm"] = {k: round(v[0], 4) for k, v in gaps.items()}
+        for (pn, standing), (label, ang, wv) in weapon_hits.items():
+            msg = f"{name}: el arma enfundada toca {pn} ({label}{'' if standing else f' {ang:g}°'}, {wv:.3f} mm³)"
+            (out["problems"] if standing else out["avisos"]).append(msg)
+        info[name] = rec
     return info
 
 

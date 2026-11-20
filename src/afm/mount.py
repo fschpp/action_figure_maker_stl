@@ -396,7 +396,8 @@ def build_lazo(spec: MountSpec, prop, min_wall: float, normal=None, station: flo
     info = {"estaciones_mm": [round(s, 3) for s in stations], "abertura_mm": [round(hole_w, 3), round(hole_t, 3)],
             "pared_mm": round(wall, 3), "largo_puente_mm": L, "separacion_hoja_mm": round(c, 3),
             "alto_sobre_superficie_mm": round(hole_t + wall, 3), "ancho_total_mm": round(hole_w + 2 * wall, 3),
-            "retiene": bool(retains), "avisos": avisos}
+            "retiene": bool(retains), "avisos": avisos,
+            "largo_arma_mm": round(float(prof.length), 3), "guarda_fin_mm": round(float(prof.guard_end), 3)}
     return Lazo(matrix=m, lift=float(lift), stations=stations, hole_w=float(hole_w), hole_t=float(hole_t),
                 outer=to_part(S.union(*outers)), tunnel=to_part(S.union(*tunnels)), weapon=to_part(prop), info=info)
 
@@ -474,3 +475,77 @@ def apply_mounts(pieces: dict, mounts: list, min_wall: float) -> tuple:
             raise MountError(f"{name}: {exc}") from exc
         built[name] = MountBuild(spec=spec, host=host, lazo=lazo, info=dict(lazo.info, host=host))
     return out, built
+
+
+# ====================================================================== M07: verificaciones de la montura (motor puro)
+# La orquestación (poses de los miembros, `problems`/`avisos`) vive en `pipeline._validate_mount`; acá solo geometría.
+EXTRACT_STEP = 0.5                                 # mm entre posiciones al sacar el arma
+EXTRACT_MARGIN = 0.5                               # mm de recorrido de más, después de que la punta libra el puente
+CONTACT_TOL_MM3 = 1e-3                             # choque que se ignora (ruido de la booleana)
+CLEARANCE_FACTOR = 0.9                             # criterio de holgura de la cintura (`_validate_waist`): gap < 0,9 · clearance es problema
+MAX_PRINT_TILT_DEG = 45.0                          # inclinación máxima del eje del hueco respecto de la vertical de impresión (sin voladizo)
+GRAVITY_MIN_COS = 0.17                             # cos 80°: la punta tiene que mirar al menos así de «hacia abajo» para que la gravedad apriete la guarda
+
+
+def handle_direction(lazo: Lazo):
+    """Vector unitario (marco de la pieza) que apunta del arma hacia la empuñadura: el sentido en que se saca."""
+    import numpy as np
+
+    e = np.asarray(lazo.matrix, float)[:3, 0]
+    return e / np.linalg.norm(e)
+
+
+def extraction_distance(lazo: Lazo, margin: float = EXTRACT_MARGIN) -> float:
+    """Recorrido (mm) que hay que tirar del arma, hacia la empuñadura, para que la punta libre el puente más cercano a la guarda."""
+    first = min(lazo.stations) - float(lazo.info["largo_puente_mm"]) / 2
+    return max(0.0, float(lazo.info["largo_arma_mm"]) - first) + margin
+
+
+def _boxes_overlap(a, b, tol: float = 1e-6) -> bool:
+    return all(a[i] < b[i + 3] + tol and b[i] < a[i + 3] + tol for i in range(3))
+
+
+def extraction_scan(lazo: Lazo, obstacles: dict, step: float = EXTRACT_STEP) -> dict:
+    """Traslada el arma entera a lo largo de su eje, de a `step` mm, hasta librar el puente, y mide en cada paso cuánto se mete en
+    cada obstáculo (`{nombre: Manifold}`). Sin `swept_offset`: una traslación en pasos no necesita `scipy` ni `skimage` (plan §6.5).
+
+    Devuelve `{distancia_mm, pasos, direccion, choques: {nombre: {desde_mm, max_mm3}}}`; `desde_mm` es el primer recorrido con choque."""
+    import numpy as np
+
+    if not step > 0:
+        raise MountError("el paso de extracción tiene que ser mayor que 0")
+    dist, e = extraction_distance(lazo), handle_direction(lazo)
+    n = int(np.ceil(dist / step - 1e-9))
+    boxes = {k: ob.bounding_box() for k, ob in obstacles.items()}
+    hits: dict = {}
+    for i in range(n + 1):
+        d = min(i * step, dist)
+        moved = lazo.weapon.translate(tuple(float(x) for x in e * d))
+        mb = moved.bounding_box()
+        for k, ob in obstacles.items():
+            if not _boxes_overlap(mb, boxes[k]):
+                continue
+            v = float(S.intersection(moved, ob).volume())
+            if v > CONTACT_TOL_MM3:
+                h = hits.setdefault(k, {"desde_mm": round(d, 3), "max_mm3": 0.0})
+                h["max_mm3"] = round(max(h["max_mm3"], v), 4)
+    return {"distancia_mm": round(dist, 3), "pasos": n + 1, "direccion": [round(float(x), 4) for x in e], "choques": hits}
+
+
+def mount_solid(lazo: Lazo):
+    """El puente sin el pie hundido en la pieza: lo que realmente sobresale (puente con su hueco abierto)."""
+    return S.difference(lazo.outer, lazo.tunnel)
+
+
+def tilt_from_vertical_deg(direction) -> float:
+    """Ángulo (0–90°) entre el eje de la dirección dada y la vertical (+Z): la inclinación del hueco en la pose impresa."""
+    import numpy as np
+
+    d = np.asarray(direction, float)
+    c = abs(float(d[2])) / float(np.linalg.norm(d))
+    return float(np.degrees(np.arccos(min(1.0, c))))
+
+
+def gravity_seat_cos(lazo: Lazo) -> float:
+    """Coseno entre «hacia la punta» y «hacia abajo» (−Z): > 0 si la gravedad aprieta la guarda contra el puente; ≤ 0 si la saca."""
+    return float(-(-handle_direction(lazo))[2])
