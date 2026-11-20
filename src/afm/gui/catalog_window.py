@@ -1350,6 +1350,7 @@ class CatalogManagerWindow(Gtk.Window):
         self._dyaw = self._dpitch = 0.0
         self._zoom, self._pan = 1.0, (0.0, 0.0)
         self._shown = None
+        self._color_shown = None                                         # (ref, partes de color) de la pieza que se ve; None = gris
         if meta is None:
             self.preview.clear()
             self.picture.set_paintable(None)
@@ -1362,6 +1363,32 @@ class CatalogManagerWindow(Gtk.Window):
             self.lbl_status.set_text(tr("catalog_window.no_se_pudo_leer_la_malla", ref=meta.ref, exc=exc))
             return
         self._redraw()
+        if getattr(meta, "color", None):
+            self._load_color_preview(meta.ref)
+
+    def _load_color_preview(self, ref: str) -> None:
+        """Pieza con color: se calcula en un hilo (puede tardar unos segundos) y al terminar se redibuja a color; mientras tanto se ve en gris."""
+        self.lbl_status.set_text(tr("catalog_window.color_calculando"))
+
+        def work():
+            try:
+                parts, err = self.mgr.color_parts(ref), None
+            except Exception as exc:                                     # noqa: BLE001  (se muestra en la barra de estado; la vista gris sigue)
+                parts, err = None, exc
+            GLib.idle_add(self._color_preview_done, ref, parts, err)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _color_preview_done(self, ref: str, parts, err) -> bool:
+        if self._shown is None or self._shown[0].ref != ref:             # mientras tanto se eligió otra pieza
+            return False
+        if err is not None:
+            self.lbl_status.set_text(tr("catalog_window.color_error", ref=ref, exc=err))
+            return False
+        self._color_shown = (ref, parts) if parts else None
+        self.lbl_status.set_text(tr("catalog_window.color_listo") if parts else "")
+        self._redraw()
+        return False
 
     def _redraw(self) -> None:
         if self._shown is None:
@@ -1378,13 +1405,16 @@ class CatalogManagerWindow(Gtk.Window):
                                                 zoom=self._zoom, pan=self._pan,
                                                 bounds=CM_view_bounds(mesh, meta))      # mismo encuadre que antes del corte: la vista no salta
             else:
+                cs = getattr(self, "_color_shown", None)
+                cparts = cs[1] if cs is not None and cs[0] == meta.ref else None
                 img = self.preview.render(mesh, meta, self._dyaw, self._dpitch, c.marks() if c is not None else None,
-                                          zoom=self._zoom, pan=self._pan)
+                                          zoom=self._zoom, pan=self._pan, color_parts=cparts)
         except Exception as exc:                               # noqa: BLE001  (sin EGL: el resto de la ventana sigue andando)
             self.picture.set_paintable(None)
             self.lbl_status.set_text(tr("common.la_vista_previa_3d_no_esta", exc=exc))
             return
-        self.lbl_status.set_text("")
+        if not (getattr(self, "_color_shown", None) and self.lbl_status.get_text() == tr("catalog_window.color_listo")):
+            self.lbl_status.set_text("")                                 # el aviso de «vista a color» se queda mientras se gira la pieza
         h, w = img.shape[:2]
         self._img_size = (w, h)
         data = GLib.Bytes.new(img.tobytes())

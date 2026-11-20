@@ -343,17 +343,22 @@ class PreviewRenderer:
             off.scene.remove("marcas")
 
     def render(self, mesh, meta: PieceMeta | None = None, yaw_off: float = 0.0, pitch_off: float = 0.0, marks=None,
-               zoom: float = 1.0, pan=(0.0, 0.0)) -> np.ndarray:
+               zoom: float = 1.0, pan=(0.0, 0.0), color_parts=None) -> np.ndarray:
         """Imagen RGBA (alto × ancho × 4, uint8) de `mesh` en vista 3/4; `yaw_off` / `pitch_off` giran la vista (°).
-        `marks`: puntos (Nx3) a marcar encima, p. ej. los de la muñeca."""
+        `marks`: puntos (Nx3) a marcar encima, p. ej. los de la muñeca. `color_parts` (`colorpreview.piece_color_parts`): la misma pieza
+        partida por color, `[(nombre, malla, rgba)]`; con ella la pieza se dibuja a color en lugar de gris (pasadores y ejes igual)."""
         off = self._ensure()
         if off is None:
             raise RuntimeError(self.error or tr("catalog_manager.sin_vista_previa"))
         with off.ctx:                        # vuelve a poner este contexto como el actual (GTK tiene el suyo)
-            key = (id(mesh), meta.ref if meta is not None else None, len(meta.articulaciones or []) if meta is not None else 0)
+            key = (id(mesh), meta.ref if meta is not None else None, len(meta.articulaciones or []) if meta is not None else 0, id(color_parts))
             if self._mesh is not mesh or self._key != key:
                 off.scene.clear()
-                off.scene.set_mesh("pieza", mesh, self.PIECE_COLOR)
+                if color_parts:
+                    for cname, cmesh, ccolor in color_parts:
+                        off.scene.set_mesh(cname, cmesh, ccolor)
+                else:
+                    off.scene.set_mesh("pieza", mesh, self.PIECE_COLOR)
                 if meta is not None:
                     for name, pm, color in pin_meshes(meta, mesh):          # pasadores y ejes como sólidos: se ven aunque la pieza sea chica
                         off.scene.set_mesh(name, pm, color)
@@ -444,6 +449,7 @@ class CatalogManager:
     def __init__(self, ctrl):
         self.ctrl = ctrl
         self._mesh_cache: dict[str, tuple[str, object]] = {}      # ref -> (hash, malla): solo las últimas
+        self._color_cache: dict[str, tuple[tuple, object]] = {}   # ref -> (clave de color, partes de color de la vista previa)
         self._badges: tuple[tuple, dict[str, str]] = ((), {})     # (clave de lo que hay en disco, {ref: texto de certificación})
         self.cancel_event = threading.Event()
         self.proposal: OPS.ContractProposal | None = None            # última propuesta de contrato calibrada (aún sin guardar)
@@ -651,6 +657,32 @@ class CatalogManager:
             self._mesh_cache.pop(next(iter(self._mesh_cache)))
         self._mesh_cache[ref] = (meta_hash, mesh)
         return mesh
+
+    def color_parts(self, ref: str):
+        """Partes de color de la vista previa de la pieza `ref` (`colorpreview.piece_color_parts`) o `None` si no lleva color. Puede tardar unos
+        segundos (se llama desde un hilo). Se recuerda por pieza, hash de su color y paleta de la línea. `ValueError` si el color no se puede leer."""
+        from ..colorpreview import piece_color_parts
+
+        cat = self.ctrl.catalog_handle()
+        if cat is None:
+            return None
+        meta = next((m for m in self.ctrl.catalog_pieces() if m.ref == ref), None)
+        if meta is None or not meta.color:
+            return None
+        try:
+            pal = cat.palette()
+            pal_key = pal.digest() if pal is not None else ""
+        except ValueError:
+            pal_key = "?"
+        key = (meta.sha256, str((meta.color or {}).get("sha256", "")), pal_key)
+        hit = self._color_cache.get(ref)
+        if hit is not None and hit[0] == key:
+            return hit[1]
+        parts = piece_color_parts(cat, meta, self.mesh(ref))
+        if len(self._color_cache) >= 6:
+            self._color_cache.pop(next(iter(self._color_cache)))
+        self._color_cache[ref] = (key, parts)
+        return parts
 
     def camera_for(self, ref: str, aspect: float = 1.0) -> OrbitCamera:
         return three_quarter_camera(self.mesh(ref).bounds, aspect)

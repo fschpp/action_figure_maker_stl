@@ -367,7 +367,10 @@
   "se_ven_n": "· se ven %{n}",
   "explicar": "Explicar",
   "cobertura_de_ref": "Cobertura de %{ref}",
-  "explicar_de_ref": "Explicar de %{ref}"
+  "explicar_de_ref": "Explicar de %{ref}",
+  "color_calculando": "Calculando el color de la vista previa…",
+  "color_listo": "Vista previa a color (aproximada: el color final se hornea al armar la figura).",
+  "color_error": "No se pudo mostrar el color de %{ref}: %{exc}"
  },
  "controller": {
   "arista_de_la_caja_mm": "Arista de la caja (mm)",

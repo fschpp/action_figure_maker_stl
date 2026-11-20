@@ -367,7 +367,10 @@
   "se_ven_n": "· %{n} shown",
   "explicar": "Explain",
   "cobertura_de_ref": "Coverage of %{ref}",
-  "explicar_de_ref": "Explanation for %{ref}"
+  "explicar_de_ref": "Explanation for %{ref}",
+  "color_calculando": "Computing the preview color…",
+  "color_listo": "Color preview (approximate: the final color is baked when the figure is built).",
+  "color_error": "Could not show the color of %{ref}: %{exc}"
  },
  "controller": {
   "arista_de_la_caja_mm": "Box edge (mm)",

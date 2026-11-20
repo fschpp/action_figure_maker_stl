@@ -367,7 +367,10 @@
   "se_ven_n": "· %{n} exibidas",
   "explicar": "Explicar",
   "cobertura_de_ref": "Cobertura de %{ref}",
-  "explicar_de_ref": "Explicação de %{ref}"
+  "explicar_de_ref": "Explicação de %{ref}",
+  "color_calculando": "Calculando a cor da pré-visualização…",
+  "color_listo": "Pré-visualização em cores (aproximada: a cor final é gerada ao montar a figura).",
+  "color_error": "Não foi possível mostrar a cor de %{ref}: %{exc}"
  },
  "controller": {
   "arista_de_la_caja_mm": "Aresta da caixa (mm)",
