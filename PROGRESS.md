@@ -1,3 +1,13 @@
+## Current Focus — Enganche de armas al cuerpo: M05, integración en `pipeline.build` (2026-11-20, sobre main 3162961)
+**Hecho:** `build(..., mounts=[(MountSpec, arma Manifold escalada)])` suma las monturas **al final** (después de la cintura, el clic, la decimación y los tallados), sobre la pelvis (o el torso si no hay cintura) o el torso; `BuildResult.mounts` (nombre → `MountBuild`: spec, pieza huésped, `Lazo` en el marco real, info) y `report["monturas"]`. En `mount.py`: `apply_mounts`, `resolve_host`, `MountBuild`. Lado `der`: se construye en +X con la normal volteada y se espeja. Sin `mounts` el resultado es el de siempre (prueba de igualdad de triángulos y volumen). Errores: `ValueError("montura: montura_N_lugar_lado: …")`.
+**Medido:** `tests/test_mount_build.py` 8 pasan (110 s) sobre la figura demo: el torso sigue en 1 componente, el puente agrega volumen y sobresale del flanco, la espada enfundada no intersecta el torso y queda a 0,1–0,6 mm, el lado derecho espeja al izquierdo (±2 % de volumen). Regresión `test_mount*` + `test_detent` + `test_accessories`: 83 pasan, 1 saltada (133 s). Mutación detectada: sacar el volteo de la normal del lado `der` rompe la prueba del espejo.
+**No verificado:** con el `espada.stl` real ni con la pelvis de Güemes (solo figura demo y espada de prueba); figuras asimétricas (`limbs_right`: la montura se aplica solo en el `build` de nivel superior, no en el del lado derecho); la regresión completa del repo; `Recipe`/CLI (M10–M11) todavía no leen las monturas.
+**Decisiones (mías, fáciles de cambiar):** (1) por ahora solo `lugar` pelvis/torso y `tipo` lazo; el resto levanta error claro. (2) `build` recibe el arma ya escalada: escalarla y cargarla es trabajo de M10. (3) La normal sale de `surface_normal` en el ancla.
+
+- [x] M01–M05 · [ ] M00 · [ ] M07 (`_validate_mount`) → M09 → M10–M12 → M06/M08 → Fase 3
+
+---
+
 ## Current Focus — Enganche de armas al cuerpo: M03 (secciones del arma) y M04 (puente «lazo») (2026-11-20, sobre main 61f90be)
 **Hecho:** en `src/afm/mount.py`: `analyze_blade` (largo, sección de la hoja por mediana del tramo 30–70 %, guarda por razón 1,3 y borde por bisección), `section_at`, `slab_extent`, `surface_normal`; `build_lazo` (puente rectangular: abertura = hoja + holgura por lado, pared `spec.wall`, pie hundido 1 mm, guarda apoyada con 0,2 mm de juego, aviso si la guarda no retiene), `attach_lazo` (une, abre el hueco y falla si el puente flota o parte la pieza) y `mirrored_for_side` (montura `der` por espejo en X). `tests/test_mount_lazo.py` (nuevo).
 **Medido:** `pytest tests/test_mount*.py`: 69 pasan (1,8 s). No corrí mutaciones en esta sesión.

@@ -51,6 +51,7 @@ class BuildResult:
     right: "BuildResult | None" = None           # figura asimétrica: construcción completa del lado −X, hecha sobre el cuerpo espejado (marco espejado)
     right_limbs: list = field(default_factory=list)   # miembros del lado derecho llevados al marco espejado (los de `right`)
     placed: dict = field(default_factory=dict)   # nombre -> assembly.PlacedPart de las piezas de catálogo (con su `T`); lo usa el color (T36)
+    mounts: dict = field(default_factory=dict)   # nombre -> mount.MountBuild: monturas de armas ya unidas a su pieza (M05)
 
 
 def align_to_symmetry(mesh: trimesh.Trimesh, sym: Plane | None) -> trimesh.Trimesh:
@@ -95,13 +96,15 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
           head: HeadSpec | None = None, joints: list[JointSpec] | None = None,
           waist: WaistSpec | None = None, hand: HandSpec | None = None,
           parts: dict[str, PartChoice] | None = None, host_faces: dict | None = None,
-          limbs_right: list[LimbSpec] | None = None) -> BuildResult:
+          limbs_right: list[LimbSpec] | None = None, mounts: list | None = None) -> BuildResult:
     """Construye las piezas. `body` debe estar normalizado y con el plano de simetría en x = 0.
 
     `hand`: mano estándar (STL) que reemplaza a la del modelo; se pega en el lado +X antes de cortar los miembros, así
     viaja con el brazo (o con el antebrazo, si hay codo) y el otro lado sale por espejo.
 
-    `limbs_right`: figura asimétrica. Define los miembros del lado derecho (−X) con sus propias siluetas (deben ser los\n    mismos nombres que `limbs`, que pasan a ser los del lado izquierdo, +X). El lado derecho se construye completo sobre el\n    cuerpo espejado, con sus miembros espejados al lado de trabajo, y sus piezas y su mitad de torso vuelven a espejarse al lado\n    −X: así cada lado se corta, se talla y se valida con sus propios cortes. La cabeza, la mano estándar, las articulaciones y los\n    recortes se toman iguales para los dos lados. Con `None` (lo habitual) el resultado es idéntico al de siempre.\n\n    `parts`: piezas de catálogo (`assembly.PartChoice`) por nombre de miembro (`LimbSpec.name`). En vez de cortar ese
+    `limbs_right`: figura asimétrica. Define los miembros del lado derecho (−X) con sus propias siluetas (deben ser los\n    mismos nombres que `limbs`, que pasan a ser los del lado izquierdo, +X). El lado derecho se construye completo sobre el\n    cuerpo espejado, con sus miembros espejados al lado de trabajo, y sus piezas y su mitad de torso vuelven a espejarse al lado\n    −X: así cada lado se corta, se talla y se valida con sus propios cortes. La cabeza, la mano estándar, las articulaciones y los\n    recortes se toman iguales para los dos lados. Con `None` (lo habitual) el resultado es idéntico al de siempre.\n\n    `mounts`: lista de `(mount.MountSpec, arma Manifold escalada)`; se suman al final (M05), sobre la pelvis o el torso ya terminados.
+
+    `parts`: piezas de catálogo (`assembly.PartChoice`) por nombre de miembro (`LimbSpec.name`). En vez de cortar ese
     miembro del modelo, se lleva la pieza al puerto que el modelo tiene en ese lugar (sin escala); el resto del flujo
     (pasador, clic, barrido, tallado del torso, articulaciones) es el de siempre. Con `None` el resultado es idéntico."""
     say = progress or (lambda *_: None)
@@ -428,9 +431,19 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
         waist_build = build_waist(pieces["torso"], waist, p, skin=body)
         pieces["torso"], pieces[PELVIS_NAME] = waist_build.upper, waist_build.lower
         report["waist"] = _waist_report(waist_build, built, by_limb, head_build is not None)
+    mounts_built: dict = {}
+    if mounts:
+        say("Monturas de armas…")
+        from .mount import MountError, apply_mounts
+
+        try:
+            pieces, mounts_built = apply_mounts(pieces, mounts, p.min_wall)
+        except MountError as exc:
+            raise ValueError(f"montura: {exc}") from exc
+        report["monturas"] = {n: mb.info for n, mb in mounts_built.items()}
     return BuildResult(pieces=pieces, report=report, motion=res_motion, joints=res_joints, detent=detents, detent_ref=ref,
                        waist=waist_build, hand=hand_res, joint_specs=list(joints), torso_half=torso_half,
-                       right=right_res, right_limbs=right_limbs, placed=placed)
+                       right=right_res, right_limbs=right_limbs, placed=placed, mounts=mounts_built)
 
 
 def check_asymmetric(limbs: list[LimbSpec], limbs_right: list[LimbSpec]) -> None:

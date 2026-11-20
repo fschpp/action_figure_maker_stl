@@ -423,3 +423,54 @@ def mirrored_for_side(lazo: Lazo, spec: MountSpec) -> Lazo:
     return Lazo(matrix=flip @ np.asarray(lazo.matrix, float), lift=lazo.lift, stations=lazo.stations, hole_w=lazo.hole_w,
                 hole_t=lazo.hole_t, outer=S.mirror_x(lazo.outer), tunnel=S.mirror_x(lazo.tunnel),
                 weapon=S.mirror_x(lazo.weapon), info=lazo.info)
+
+
+# ====================================================================== M05: integración en `pipeline.build`
+@dataclass
+class MountBuild:
+    """Resultado de una montura ya unida a su pieza huésped (marco real de la pieza)."""
+
+    spec: MountSpec
+    host: str                                      # nombre de la pieza en `BuildResult.pieces`
+    lazo: Lazo                                     # ya en el marco real (espejado si `lado == der`)
+    info: dict
+
+
+def resolve_host(spec: MountSpec, pieces: dict) -> str:
+    """Nombre de la pieza que lleva la montura. `pelvis`: la pelvis si hay cintura, si no el torso; `torso`: el torso."""
+    from .waist import PELVIS_NAME
+
+    if spec.lugar == "pelvis":
+        name = PELVIS_NAME if PELVIS_NAME in pieces else "torso"
+    elif spec.lugar == "torso":
+        name = "torso"
+    else:
+        raise MountError(f"lugar «{spec.lugar}»: por ahora las monturas van en la pelvis o el torso")
+    if name not in pieces:
+        raise MountError(f"lugar «{spec.lugar}»: la figura no tiene la pieza «{name}»")
+    return name
+
+
+def apply_mounts(pieces: dict, mounts: list, min_wall: float) -> tuple:
+    """Suma las monturas a `pieces` (después de la cintura y de todo el tallado; plan §6.2).
+
+    `mounts` es una lista de `(MountSpec, arma)` con el arma (`solids.Manifold`) ya escalada, en su marco de accesorio. Devuelve
+    `(pieces_nuevo, {nombre: MountBuild})`; no modifica `pieces`. Cualquier problema levanta `MountError` con el nombre de la montura.
+    """
+    out = dict(pieces)
+    built: dict = {}
+    for i, (spec, prop) in enumerate(mounts, start=1):
+        name = f"montura_{i}_{spec.lugar}_{spec.lado}"
+        try:
+            if spec.tipo != "lazo":
+                raise MountError(f"tipo «{spec.tipo}»: por ahora solo «lazo»")
+            host = resolve_host(spec, out)
+            normal = surface_normal(out[host], spec.ancla)
+            if spec.lado == "der":                  # la montura se construye en +X: la normal también
+                normal = (-normal[0], normal[1], normal[2])
+            lazo = mirrored_for_side(build_lazo(spec, prop, min_wall, normal=normal), spec)
+            out[host] = attach_lazo(out[host], lazo)
+        except MountError as exc:
+            raise MountError(f"{name}: {exc}") from exc
+        built[name] = MountBuild(spec=spec, host=host, lazo=lazo, info=dict(lazo.info, host=host))
+    return out, built
