@@ -135,6 +135,17 @@ class RolesPackage:
             raise RolesError("paquete inválido: " + "; ".join(probs))
         return pkg
 
+    def with_roles(self, extra) -> "RolesPackage":
+        """Copia con los roles de `extra` que el paquete no trae agregados **al final** de `roles` (R02): las etiquetas existentes no cambian, así
+        que lo ya clasificado queda igual y la LUT incluye los roles nuevos (los usan los retoques). Sin roles nuevos devuelve `self`."""
+        new = [r for r in dict.fromkeys(extra) if r not in self.roles]
+        if not new:
+            return self
+        roles = list(self.roles) + new
+        if len(roles) >= NO_ROLE:
+            raise RolesError(f"{len(roles)} roles: una etiqueta de 8 bits admite hasta {NO_ROLE - 1}")
+        return RolesPackage(self.vertices, self.faces, self.corner_uv, self.labels, roles, dict(self.origen or {}))
+
     # ------------------------------------------------------------------ al motor (T41)
     def to_textured(self, palette: Palette, overrides: dict | None = None):
         """`TexturedMesh` con `labels` y `lut = palette.with_overrides(overrides).lut(roles)`: `sample` devuelve por vecino más cercano los

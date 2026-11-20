@@ -455,7 +455,8 @@ class FigureBuilder:
 
         over = self.effective_overrides(cat)
         pal = cat.palette()
-        key = (meta.ref, str((meta.color or {}).get("sha256", "")), pal.digest() if pal is not None else "", tuple(sorted(over.items())))
+        key = (meta.ref, str((meta.color or {}).get("sha256", "")), pal.digest() if pal is not None else "", tuple(sorted(over.items())),
+               str(((meta.color or {}).get("retoque") or {}).get("sha256", "")))
         hit = self._color_tm_cache.get(meta.ref)
         if hit is not None and hit[0] == key:
             return hit[1]
@@ -465,30 +466,43 @@ class FigureBuilder:
         self._color_tm_cache[meta.ref] = (key, tm)
         return tm
 
+    def _saved_retouch(self, cat: Catalog, meta):
+        """Retoque manual guardado de la pieza (R05) o `None`. Un retoque ilegible no frena la vista previa: la pieza se ve sin él."""
+        if not (meta.color or {}).get("retoque"):
+            return None
+        try:
+            return cat.retouch(meta.ref)
+        except ValueError:
+            return None
+
     def piece_color_parts(self, meta, mesh):
         """`[(nombre, malla, rgba)]` de la pieza `meta` sola (en su marco), con el color de la figura; `None` si no lleva color."""
         from ..colorpreview import color_parts
 
-        tm = self._color_tm(self.catalog(), meta) if getattr(meta, "color", None) else None
-        return None if tm is None else color_parts(tm, mesh, prefix=f"{meta.id}_c")
+        cat = self.catalog()
+        tm = self._color_tm(cat, meta) if getattr(meta, "color", None) else None
+        return None if tm is None else color_parts(tm, mesh, prefix=f"{meta.id}_c", retouch=self._saved_retouch(cat, meta))
 
     def placed_color_parts(self, meta, sides):
         """Partes de color de la pieza `meta` ya puesta en la figura: `sides` = [(nombre, malla puesta)] (el lado izquierdo y, si hay, su espejo).
         Cada malla puesta es la del STL de la pieza movida por una transformación afín (giro, traslado, escala, espejo): se recupera esa matriz
         comparando vértices y la misma se aplica a la fuente de color. `None` si no se pudo (otra cantidad de vértices): la pieza va de color plano."""
         from ..colorpreview import color_parts, fit_affine
+        from ..retouch import Retouch, transform_strokes
 
         cat = self.catalog()
         tm = self._color_tm(cat, meta)
         if tm is None:
             return None
+        rt = self._saved_retouch(cat, meta)
         _m, orig = cat.load(meta.ref, check_hash=False)
         out: list = []
         for name, placed in sides:
             M = fit_affine(orig.vertices, placed.vertices)
             if M is None:
                 return None
-            out.extend(color_parts(tm.transformed(M), placed, prefix=f"{name}_c"))
+            out.extend(color_parts(tm.transformed(M), placed, prefix=f"{name}_c",
+                                   retouch=None if rt is None else Retouch(transform_strokes(rt.strokes, M))))
         return out
 
     def preview_color(self) -> tuple[list, list[str]]:
