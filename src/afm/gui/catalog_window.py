@@ -369,25 +369,36 @@ class CatalogManagerWindow(Gtk.Window):
         from .palette_window import PaletteWindow
 
         win = getattr(self, "_palette_win", None)
-        if win is not None:
+        if win is not None and win.get_visible():
             win.present()
             return
+        # En GTK4 «destroy» solo se emite al liberar el widget y esta referencia lo mantiene vivo: una ventana ya
+        # cerrada quedaba guardada y presentarla daba «A window is shown after it has been destroyed».
+        # Por eso se suelta al cerrar (connect_after: si la paleta frena el cierre por cambios sin aplicar, no se suelta)
+        # y, por si se cerró con destroy() directo, arriba se descarta la que ya no está visible.
         win = PaletteWindow(self, self.ctrl)
-        win.connect("destroy", lambda *_: setattr(self, "_palette_win", None))
         self._palette_win = win
+        win.connect_after("close-request", lambda w, *_: self._forget_window("_palette_win", w) or False)
+        win.connect("destroy", lambda w, *_: self._forget_window("_palette_win", w))
         win.present()
+
+    def _forget_window(self, attr: str, win) -> None:
+        """Suelta la referencia a una ventana auxiliar cerrada, solo si sigue siendo la guardada."""
+        if getattr(self, attr, None) is win:
+            setattr(self, attr, None)
 
     def _open_roles_wizard(self) -> None:
         """«Roles de color desde un FBX…»: abre el asistente (una sola ventana; si ya está abierta, la trae al frente)."""
         from .roles_wizard_window import RolesWizardWindow
 
         win = getattr(self, "_roles_win", None)
-        if win is not None:
+        if win is not None and win.get_visible():
             win.present()
             return
         win = RolesWizardWindow(self, self.ctrl, on_saved=self.refresh_if_changed)
-        win.connect("destroy", lambda *_: setattr(self, "_roles_win", None))
         self._roles_win = win
+        win.connect_after("close-request", lambda w, *_: self._forget_window("_roles_win", w) or False)
+        win.connect("destroy", lambda w, *_: self._forget_window("_roles_win", w))
         win.present()
 
     def _open_import(self, kind: str) -> None:
