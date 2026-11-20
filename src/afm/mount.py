@@ -1,8 +1,8 @@
-"""Monturas: geometría generada que engancha un arma (accesorio) a una parte del cuerpo de la figura (M01 de
+"""Monturas: geometría generada que engancha un arma (accesorio) a una parte del cuerpo de la figura (M01–M04 de
 `docs/PLAN_enganche_armas_cuerpo.md`).
 
 Este módulo empieza por los **datos**: `MountSpec` (qué arma, dónde, hacia dónde apunta, qué tipo de enganche y con qué juego)
-y sus constantes de defecto. La geometría (M02–M04) y la integración en `pipeline.build` (M05) vienen después.
+y sus constantes de defecto. M02: escala y pose; M03: secciones del arma; M04: el puente `lazo`. La integración en `pipeline.build` (M05) viene después.
 
 Los defectos de holgura y pared viven acá y **no** en `Params` (plan §6.3): `recipe_key` hashea `Params`, y un campo nuevo
 dejaría «vencida» la certificación de cada figura que no usa monturas.
@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+
+from . import solids as S
 
 MOUNT_FORMAT = "afm-montura-1"
 MOUNT_PLACES = ("pelvis", "torso", "brazo", "pierna", "cabeza")
@@ -203,3 +205,221 @@ def place_accessory(prop, matrix):
     import numpy as np
 
     return prop.transform(np.asarray(matrix, float)[:3, :].astype(np.float64))
+
+
+# ====================================================================== M03: secciones de la hoja y de la guarda
+# Todo se mide en el marco del accesorio. La «estación» `s` es la distancia (mm) desde el origen del accesorio (cara de la
+# guarda que mira a la mano) a lo largo de la hoja: el plano de la sección es x = −s.
+SECTION_STEP = 0.25                                # mm entre secciones al recorrer el arma
+GUARD_RATIO = 1.3                                  # una sección es «guarda» si es 1,3 × más ancha o más gruesa que la hoja
+
+
+@dataclass(frozen=True)
+class BladeProfile:
+    """Lo que el enganche necesita saber del arma: largo, medidas de la hoja y de la guarda."""
+
+    length: float                                  # mm, del origen a la punta
+    blade_width: float                             # mm (eje Y del accesorio), mediana del tramo central
+    blade_thickness: float                         # mm (eje Z), mediana del tramo central
+    has_guard: bool
+    guard_end: float                               # estación donde termina la guarda (0 si no hay)
+    guard_width: float
+    guard_thickness: float
+
+
+def _to_section_frame():
+    """Accesorio (x, y, z) → (y, z, −x): el eje de la hoja queda en +Z y `slice(s)` da la sección en x = −s."""
+    import numpy as np
+
+    return np.array([[0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [-1.0, 0.0, 0.0, 0.0]])[:3, :]
+
+
+def section_at(prop, s: float):
+    """Caja (ymin, zmin, ymax, zmax) de la sección del arma en la estación `s`, o `None` si el plano no la corta."""
+    cs = prop.transform(_to_section_frame()).slice(float(s))
+    if cs.is_empty():
+        return None
+    x0, y0, x1, y1 = cs.bounds()
+    return (float(x0), float(y0), float(x1), float(y1))
+
+
+def slab_extent(prop, s0: float, s1: float):
+    """Caja (ymin, zmin, ymax, zmax) del arma entre las estaciones `s0` y `s1`: la medida conservadora de un puente que cubre ese tramo."""
+    if not s1 > s0:
+        raise MountError(f"tramo vacío: {s0:g} … {s1:g} mm")
+    cube = S.Manifold.cube((s1 - s0, 1e4, 1e4), center=True).translate((-(s0 + s1) / 2, 0.0, 0.0))
+    part = S.intersection(prop, cube)
+    if part.is_empty():
+        raise MountError(f"el arma no pasa por el tramo {s0:g} … {s1:g} mm")
+    b = part.bounding_box()
+    return (float(b[1]), float(b[2]), float(b[4]), float(b[5]))
+
+
+def analyze_blade(prop, step: float = SECTION_STEP) -> BladeProfile:
+    """Recorre el arma (marco del accesorio, hoja hacia −X) y devuelve largo, sección de la hoja y de la guarda.
+
+    La hoja es la mediana del tramo 30–70 % del largo (no la afecta la punta afinada). La guarda es el tramo que empieza en el
+    origen y es más ancho o más grueso que la hoja (`GUARD_RATIO`); si la primera sección ya es como la hoja, no hay guarda.
+    La empuñadura (x > 0) no se mide.
+    """
+    import numpy as np
+
+    b = prop.bounding_box()
+    length = -float(b[0])
+    if not length > 1.0:
+        raise MountError("el arma no tiene hoja: tiene que extenderse hacia −X del origen del accesorio")
+    rows = []
+    s = 0.05
+    while s < length - 0.05:
+        box = section_at(prop, s)
+        if box is not None:
+            rows.append((s,) + box)
+        s += step
+    if len(rows) < 8:
+        raise MountError("el arma es demasiado corta para medirle la sección")
+    arr = np.asarray(rows, float)
+    w, t = arr[:, 3] - arr[:, 1], arr[:, 4] - arr[:, 2]
+    mid = (arr[:, 0] >= 0.3 * length) & (arr[:, 0] <= 0.7 * length)
+    if not mid.any():
+        mid = np.ones(len(arr), bool)
+    bw, bt = float(np.median(w[mid])), float(np.median(t[mid]))
+    big = (w > GUARD_RATIO * bw) | (t > GUARD_RATIO * bt)
+    guard_end, gw, gt = 0.0, bw, bt
+    if big[0]:
+        n = int(np.argmin(big)) if not big.all() else len(big)
+        lo, hi = float(arr[n - 1, 0]), float(arr[n, 0]) if n < len(arr) else length
+        for _ in range(14):                        # el borde real de la guarda cae entre dos secciones: bisección
+            mid_s = (lo + hi) / 2
+            bx = section_at(prop, mid_s)
+            is_big = bx is not None and ((bx[2] - bx[0]) > GUARD_RATIO * bw or (bx[3] - bx[1]) > GUARD_RATIO * bt)
+            lo, hi = (mid_s, hi) if is_big else (lo, mid_s)
+        guard_end = float(hi)
+        gw, gt = float(w[:n].max()), float(t[:n].max())
+    return BladeProfile(length=length, blade_width=bw, blade_thickness=bt, has_guard=bool(big[0]),
+                        guard_end=guard_end, guard_width=gw, guard_thickness=gt)
+
+
+def surface_normal(host, point, radius: float = 2.0):
+    """Normal saliente de la superficie de `host` (trimesh o Manifold) cerca de `point`: promedio, ponderado por el área, de las
+    caras a menos de `radius` mm de la cara más cercana. Solo numpy: sirve también en el navegador."""
+    import numpy as np
+
+    tm = host if hasattr(host, "face_normals") else S.to_trimesh(host)
+    p = np.asarray(_vec3(point, "point"), float)
+    cen = np.asarray(tm.triangles_center, float)
+    d = np.linalg.norm(cen - p, axis=1)
+    near = d <= d.min() + float(radius)
+    w = np.asarray(tm.area_faces, float)[near]
+    n = (np.asarray(tm.face_normals, float)[near] * w[:, None]).sum(0)
+    L = float(np.linalg.norm(n))
+    if L < 1e-9:
+        raise MountError("no se pudo calcular la normal de la superficie en el ancla")
+    return tuple(n / L)
+
+
+# ====================================================================== M04: el puente «lazo»
+BRIDGE_LENGTH = 3.0                                # mm del puente a lo largo de la hoja
+FOOT_DEPTH = 1.0                                   # mm que el pie se hunde en la pieza (la superficie no es plana)
+REST_GAP = 0.2                                     # mm entre la guarda y la cara del puente cuando la espada está enfundada
+STATION_SPACING = 8.0                              # mm entre centros de dos puentes
+TUNNEL_OVERRUN = 0.5                               # mm que el hueco sobresale del puente por cada lado (para cortar limpio)
+TIP_MARGIN = 2.0                                   # mm mínimos de hoja que tienen que quedar después del último puente
+RETENTION_OVERLAP = 0.8                            # mm que la guarda tiene que superar a la abertura para apoyar en el puente
+
+
+@dataclass
+class Lazo:
+    """Puente(s) generado(s) para una montura, en el marco de la pieza (lado de construcción, +X)."""
+
+    matrix: object                                 # 4×4 accesorio → pieza (`transport_matrix`)
+    lift: float                                    # mm que la hoja queda separada de la superficie
+    stations: tuple                                # centros de los puentes, mm desde el origen del accesorio
+    hole_w: float                                  # abertura (ancho × alto), con la holgura incluida
+    hole_t: float
+    outer: object                                  # sólido de los puentes con su pie (se une a la pieza)
+    tunnel: object                                 # hueco (se resta de pieza + puentes)
+    weapon: object                                 # el arma ya enfundada, en el marco de la pieza
+    info: dict
+
+
+def build_lazo(spec: MountSpec, prop, min_wall: float, normal=None, station: float | None = None) -> Lazo:
+    """Genera el/los puente(s) de un `lazo` para `spec` (M04).
+
+    `prop` es el accesorio en su marco (hoja hacia −X). La hoja queda tendida sobre la superficie, separada `holgura` mm; el hueco
+    es la caja de la hoja + `holgura` por cada lado; el techo y las paredes miden `spec.wall(min_wall)`. La guarda apoya sobre la cara
+    del puente con `REST_GAP` de juego (`station` por defecto), así la espada «cuelga» enfundada. `normal` es la normal saliente de la
+    superficie en el ancla (`surface_normal`); sin ella, ver `transport_matrix`.
+
+    Devuelve sólidos en el marco de la pieza del **lado de construcción**: para una montura `der`, `mirrored_for_side`.
+    No toca la pieza: `attach_lazo` la une y la ahueca.
+    """
+    import numpy as np
+
+    if spec.tipo != "lazo":
+        raise MountError(f"`build_lazo` solo genera el tipo «lazo» (la montura pide «{spec.tipo}»)")
+    cs = construction_spec(spec)
+    wall, c, L = cs.wall(min_wall), float(cs.holgura), BRIDGE_LENGTH
+    if not (isinstance(min_wall, (int, float)) and not isinstance(min_wall, bool) and wall > 0):
+        raise MountError("la pared del puente tiene que ser mayor que 0")
+    prof = analyze_blade(prop)
+    s1 = float(station) if station is not None else prof.guard_end + REST_GAP + L / 2
+    n = cs.estaciones
+    stations = tuple(s1 + i * STATION_SPACING for i in range(n))
+    if stations[0] - L / 2 < 0 or stations[-1] + L / 2 > prof.length - TIP_MARGIN:
+        raise MountError(f"{n} puente(s) de {L:g} mm no entran en la hoja ({prof.length:.1f} mm; estaciones {stations[0]:.1f}…{stations[-1]:.1f})")
+    y0, z0, y1, z1 = slab_extent(prop, stations[0] - L / 2, stations[-1] + L / 2)
+    hole_w, hole_t = (y1 - y0) + 2 * c, (z1 - z0) + 2 * c
+    yc = (y0 + y1) / 2
+    lift = c - z0                                  # la hoja (cara de abajo) queda a `c` mm de la superficie
+    z_floor = z0 - c                               # la superficie, en el marco del accesorio
+    z_roof = z1 + c + wall
+
+    def box(xa, xb, ya, yb, za, zb):
+        return S.Manifold.cube((xb - xa, yb - ya, zb - za)).translate((xa, ya, za))
+
+    outers, tunnels = [], []
+    for s in stations:
+        xa, xb = -s - L / 2, -s + L / 2
+        outers.append(box(xa, xb, yc - hole_w / 2 - wall, yc + hole_w / 2 + wall, z_floor - FOOT_DEPTH, z_roof))
+        tunnels.append(box(xa - TUNNEL_OVERRUN, xb + TUNNEL_OVERRUN, yc - hole_w / 2, yc + hole_w / 2, z_floor, z_floor + hole_t))
+    m = transport_matrix(cs, station=stations[0], normal=normal, lift=lift)
+    to_part = lambda mf: place_accessory(mf, m)    # noqa: E731
+    avisos = []
+    gw_over = prof.guard_width >= hole_w + RETENTION_OVERLAP
+    gt_over = prof.guard_thickness >= hole_t + RETENTION_OVERLAP
+    retains = prof.has_guard and (gw_over or gt_over)
+    if not prof.has_guard:
+        avisos.append("el arma no tiene guarda: nada la frena en el puente y se desliza")
+    elif not retains:
+        avisos.append(f"la guarda ({prof.guard_width:.1f} × {prof.guard_thickness:.1f} mm) no supera la abertura "
+                      f"({hole_w:.1f} × {hole_t:.1f} mm) en {RETENTION_OVERLAP:g} mm: la espada se desliza")
+    info = {"estaciones_mm": [round(s, 3) for s in stations], "abertura_mm": [round(hole_w, 3), round(hole_t, 3)],
+            "pared_mm": round(wall, 3), "largo_puente_mm": L, "separacion_hoja_mm": round(c, 3),
+            "alto_sobre_superficie_mm": round(hole_t + wall, 3), "ancho_total_mm": round(hole_w + 2 * wall, 3),
+            "retiene": bool(retains), "avisos": avisos}
+    return Lazo(matrix=m, lift=float(lift), stations=stations, hole_w=float(hole_w), hole_t=float(hole_t),
+                outer=to_part(S.union(*outers)), tunnel=to_part(S.union(*tunnels)), weapon=to_part(prop), info=info)
+
+
+def attach_lazo(host, lazo: Lazo):
+    """Une los puentes a `host` (`solids.Manifold`, mismo marco) y abre el hueco: el hueco queda exacto aunque el pie penetre la
+    superficie. Falla si la montura no toca la pieza (queda flotando) o si parte la pieza en más trozos."""
+    before = len(host.decompose())
+    out = S.difference(S.union(host, lazo.outer), lazo.tunnel)
+    if out.is_empty():
+        raise MountError("la montura dejó la pieza vacía")
+    if len(out.decompose()) > before:
+        raise MountError("el puente no toca la pieza (queda flotando) o la parte en trozos: revisá `ancla`, `direccion` y la normal")
+    return out
+
+
+def mirrored_for_side(lazo: Lazo, spec: MountSpec) -> Lazo:
+    """El `Lazo` en el marco real de la pieza: una montura `der` se construyó en +X y se espeja en X (plan §6.1)."""
+    if spec.lado == "izq":
+        return lazo
+    import numpy as np
+
+    flip = np.diag([-1.0, 1.0, 1.0, 1.0])
+    return Lazo(matrix=flip @ np.asarray(lazo.matrix, float), lift=lazo.lift, stations=lazo.stations, hole_w=lazo.hole_w,
+                hole_t=lazo.hole_t, outer=S.mirror_x(lazo.outer), tunnel=S.mirror_x(lazo.tunnel),
+                weapon=S.mirror_x(lazo.weapon), info=lazo.info)
