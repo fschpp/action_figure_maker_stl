@@ -1,5 +1,20 @@
 # Progreso del desarrollo
 
+## Current Focus — Fix vista previa de color del catálogo (2026-11-20, sobre main 64944fc)
+**Objetivo:** que la vista previa de color de «Administrar catálogo» (`colorpreview.color_parts`) no pinte triángulos negros/blancos/rojos sueltos en el torso de Sucre.
+**Hecho:** (1) `SUBDIV_MAX_ITER` = 8 (antes 4: con aristas de ~19 mm `subdivide_to_size` levantaba `ValueError` y el `except: pass` lo tragaba, así que se dibujaban las 3020 caras originales de un solo color). (2) El fallo de subdivisión ahora emite `warnings.warn` en vez de silenciarse (también si pasa de `MAX_FACES`). (3) La consulta usa el mismo criterio que el horneado (`ORIGIN_EPS_MM` 0,15 y `ORIGIN_MIN_DOT` 0,3, con la normal de cada cara) y las caras sin origen toman el color de la cara con origen más cercana de la propia pieza; si ninguna tiene origen, cae a la muestra más cercana como antes. (4) `tests/test_colorpreview.py`: 4 pruebas nuevas (aristas largas, aviso si falla, relleno de caras sin origen, caída a la muestra más cercana).
+**Medido:** `test_colorpreview.py` + `test_figure_color_preview.py` 14 pasan. Mutación detectada: con `SUBDIV_MAX_ITER = 4` falla la prueba de aristas largas.
+**No verificado:** con el FBX/STL reales de Sucre (no los tengo aquí): el diagnóstico de que la figura armada sale más limpia que la vista previa es una suposición, no se corrió `bake_piece`. Falta ver a ojo la ventana (GTK).
+**Decisiones (mías, fáciles de cambiar):** el relleno usa el vecino con origen más cercano por centro de cara (cKDTree), no una propagación por adyacencia.
+
+### Todo List
+- [x] `max_iter` 4 → 8 y aviso en vez de `pass`
+- [x] Consulta con normal compatible + relleno de caras sin origen
+- [x] Pruebas
+- [ ] Probar con Sucre real y comparar con la figura armada
+
+---
+
 ## Current Focus — Enganche de armas al cuerpo: M02 (2026-11-20, sobre main e800f24 = M01)
 **Hecho (M02):** en `mount.py`: `scale_from_real_length` (factor por una medida real, plan §3), `construction_spec` (una montura `der` se espeja en X y se construye como `izq`; `ancla` y `direccion` de una `der` vienen en el marco real de la pieza), `transport_matrix` (marco del accesorio → pieza: hoja sobre `direccion`, estación a `station` mm de la empuñadura sobre el ancla, espesor de la hoja a lo largo de la normal, `lift` hacia afuera) y `place_accessory`. `tests/test_mount_pose.py`: 22 pruebas (incluye `make_prop` colocada: la punta queda a `largo − estación` del ancla). Mutaciones detectadas: signo de la estación (2 fallan), sentido de Y (1 falla). Regresión: `test_accessories/weapon*/props*` 95 pasan.
 **Decisiones (mías, fáciles de cambiar):** (1) la normal por defecto es +X (flanco) y cae a +Z si el arma apunta a X; con la normal real del flanco (M04) se pasa explícita. (2) `lift` y `station` son parámetros de la pose, no de `MountSpec`: los calcula M04 desde la sección de la hoja. (3) La escala por medida real es una función pura; la sugerencia por altura de figura ya existe en `weapon.scale_for_length`.

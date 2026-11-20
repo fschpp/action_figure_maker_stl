@@ -8,12 +8,17 @@ Es solo una vista previa (el color real se hornea al armar la figura): no se esc
 """
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 
 SPACING_MM = 0.25            # espaciado de las muestras de color de la fuente (más grueso que al armar: es una vista previa)
 MAX_EDGE_MM = 1.2            # se subdividen las aristas más largas que esto
 MAX_FACES = 120_000          # tope de caras tras subdividir
 MAX_COLORS = 24              # cantidad máxima de colores distintos (una malla por color)
+SUBDIV_MAX_ITER = 8          # `subdivide_to_size` levanta ValueError si no llega en tantas pasadas; con aristas de ~19 mm hacen falta 5
+ORIGIN_EPS_MM = 0.15         # como el horneado (`bake_piece`): una cara «tiene origen» si la fuente está a esta distancia...
+ORIGIN_MIN_DOT = 0.3         # ...y su normal es compatible con la de la cara
 
 
 def _quantize(rgb: np.ndarray, max_colors: int) -> tuple[np.ndarray, np.ndarray]:
@@ -62,14 +67,32 @@ def color_parts(tm, mesh, *, spacing_mm: float = SPACING_MM, max_colors: int = M
 
     V, F = np.asarray(mesh.vertices, float), np.asarray(mesh.faces, np.int64)
     try:
-        V2, F2 = subdivide_to_size(V, F, max_edge=MAX_EDGE_MM, max_iter=4)
+        V2, F2 = subdivide_to_size(V, F, max_edge=MAX_EDGE_MM, max_iter=SUBDIV_MAX_ITER)
         if len(F2) <= MAX_FACES:
             V, F = V2, F2
-    except Exception:                                   # noqa: BLE001  (sin subdividir: la vista es más tosca, pero sirve)
-        pass
-    centers = V[F].mean(axis=1)
+        else:
+            warnings.warn(f"vista previa de color: la malla subdividida tendría {len(F2)} caras (tope {MAX_FACES}); se dibuja sin subdividir", stacklevel=2)
+    except Exception as exc:                            # noqa: BLE001  (sin subdividir: la vista es más tosca, pero sirve)
+        warnings.warn(f"vista previa de color: no se pudo subdividir la malla ({exc}); se dibuja sin subdividir", stacklevel=2)
+    tri = V[F]
+    centers = tri.mean(axis=1)
+    cr = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+    with np.errstate(invalid="ignore", divide="ignore"):
+        normals = np.nan_to_num(cr / np.linalg.norm(cr, axis=1, keepdims=True))
     src = ColorSource(tm, spacing_mm=spacing_mm)
-    rgb = src.query(centers, eps=1e9).rgb               # la muestra más cercana, aunque esté lejos (cortes y superficies internas toman el color vecino)
+    q = src.query(centers, normals, eps=ORIGIN_EPS_MM, min_dot=ORIGIN_MIN_DOT)
+    rgb = np.array(q.rgb, copy=True)
+    ok = np.asarray(q.has_origin, bool)
+    if ok.any() and not ok.all():
+        # Misma regla que el horneado: lo que no tiene origen en la fuente (cortes, paredes internas, la cara de un botón que el STL no
+        # tiene) no toma el color de «la muestra más cercana, la que sea» (eso pintaba triángulos sueltos de otra capa) sino el de la
+        # cara con origen más cercana de la propia pieza.
+        from scipy.spatial import cKDTree
+
+        _, near = cKDTree(centers[ok]).query(centers[~ok])
+        rgb[~ok] = rgb[ok][near]
+    elif not ok.any():                                  # nada coincide (similitud mala): la muestra más cercana, como antes
+        rgb = src.query(centers, eps=1e9).rgb
     inv, means = _quantize(rgb, max_colors)
     parts = []
     for g in range(len(means)):
