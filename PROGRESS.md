@@ -1,3 +1,13 @@
+## R09/R10 — cierre medible del retoque de color (2026-11-20, sobre main b9f8a41)
+**Hecho:** (1) `tests/test_retouch.py::test_normal_gate_does_not_go_through_a_thin_flap`: placa de 0,6 mm con dos pieles de normales opuestas; con la normal el pincel pinta solo la piel tocada y sin la normal atraviesa (por eso la ventana la manda siempre). (2) `scripts/medir_retoque_paint.py`: medición con una pieza sintética densa.
+**Medido (esfera sintética, 1 608 400 muestras, spacing 0,112 mm, `ColorSource` en 1,05 s):** 100 pinceladas 0,05 s · 1 000 → 0,11 s · 5 000 → 0,39 s · 20 000 (tope) → 1,42 s. **El riesgo 1 del plan (lentitud con ~1,6 M de muestras) no se materializa**, ni siquiera con el tope; no hace falta agrupar por rol/celda. Mutación detectada: apagar el filtro de normal (`> MIN_DOT` → `> -2`) rompe la prueba nueva y la del cubo. Regresión: retouch + catalog_retouch + retouch_session + retouch_editor + i18n + colorpreview, 86 pasan (≈30 s).
+**No hecho:** retocar a mano las manchas de Sucre real y compararlas con el armado (necesita el FBX/STL y tu pantalla); el gesto real del mouse (Mayús / arrastre) y la sensación del pincel. Las pruebas sintéticas no reemplazan eso.
+**Decisiones del plan §8 todavía abiertas (no las tomé):** «rellenar región» de un clic; exportar/importar entre piezas (la CLI ya tiene `--exportar/--importar`, falta ofrecerlo en la ventana y espejar izq→der); si un retoque invalida `validada`/`impresa`.
+
+- [x] R01–R08 · [x] R09 (medición y solapa fina; falta el caso real de Sucre a mano) · [x] R10 (tutorial + esta bitácora)
+
+---
+
 ## R09 — medición de `ColorSource.paint` con Sucre real (2026-11-20, sobre main 23756fd)
 Pieza `torso-sup-sucre-cuerpo-01@2` del catálogo `proceres-127` (216 469 muestras, `spacing_mm=0,25`, paleta de 7 roles), pinceladas de 1,5 mm sobre puntos y normales al azar de la superficie, rol «rojo»:
 | Pinceladas | `paint` | Muestras cambiadas |

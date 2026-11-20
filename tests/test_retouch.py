@@ -103,6 +103,30 @@ def test_with_roles_appends_without_touching_labels():
     assert pkg.with_roles(["piel"]) is pkg and pkg.roles == ["piel"]
 
 
+def thin_flap_source() -> ColorSource:
+    """Placa de 30 × 30 × 0,6 mm (una solapa fina): dos pieles a 0,6 mm con normales opuestas."""
+    box = trimesh.creation.box((30.0, 30.0, 0.6))
+    V, F = np.asarray(box.vertices, np.float32), np.asarray(box.faces, np.int32)
+    uv = np.full((len(F), 3, 2), 0.5, np.float32)
+    pkg = RolesPackage(V, F, uv, np.zeros((4, 4), np.uint8), ["piel"], {})
+    return ColorSource(pkg.with_roles(("azul", "oro")).to_textured(palette()), spacing_mm=0.25)
+
+
+def test_normal_gate_does_not_go_through_a_thin_flap():
+    """R09 · riesgo 2: con la normal el pincel no atraviesa una solapa de 0,6 mm; sin la normal sí pinta las dos pieles."""
+    src = thin_flap_source()
+    src.paint([Stroke((0, 0, 0.3), 4.0, "azul", (0, 0, 1))])                    # sobre la piel +Z
+    blue = (src.sample_rgb == rgb_of(AZUL)).all(axis=1)
+    nz = src.face_normals[src.sample_face][:, 2]
+    assert blue[nz > 0.99].any()                                                # la piel de arriba se pintó
+    assert not blue[nz < -0.99].any()                                           # la de atrás (a 0,6 mm) no
+    src2 = thin_flap_source()
+    src2.paint([Stroke((0, 0, 0.3), 4.0, "azul")])
+    blue2 = (src2.sample_rgb == rgb_of(AZUL)).all(axis=1)
+    nz2 = src2.face_normals[src2.sample_face][:, 2]
+    assert blue2[nz2 < -0.99].any()                                             # sin normal, atraviesa (por eso la GUI la manda siempre)
+
+
 # ------------------------------------------------------------------ R02 · paint
 def test_paint_inside_radius_only():
     src = source()
