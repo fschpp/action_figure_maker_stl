@@ -169,11 +169,12 @@ def catalog_color_sources(placed: dict, catalog, scaled=(), *, spacing_mm: float
             path = catalog.color_file(meta.ref)         # CatalogError: sin archivo de color o con otro hash
             roles_mode = (meta.color or {}).get("modo", "rgb") == "roles"
             pkg = _load_roles(path) if roles_mode else None
-        except ValueError as exc:                       # también RolesError: un .npz ilegible
+            rt = catalog.retouch(meta.ref) if roles_mode else None      # R04: retoque manual de la pieza (None si no tiene)
+        except ValueError as exc:                       # también RolesError: un .npz ilegible, y el retoque ilegible o alterado
             info["omitidas"][key] = str(exc)
             continue
         if roles_mode:
-            pending[key] = (meta, np.asarray(pp.T, float), pkg, path)
+            pending[key] = (meta, np.asarray(pp.T, float), pkg, path, rt)
             continue
         info["piezas"][key] = {"pieza": meta.ref, "fbx": path}
 
@@ -205,12 +206,29 @@ def _load_roles(path: str):
                         [pkg.roles[i] for i in used_idx], dict(pkg.origen or {}))
 
 
+def roles_color_source(pkg, palette, to_host, similarity, spacing_mm: float = 0.08, retouch=None):
+    """`ColorSource` en el marco del huésped de una pieza por roles, con su retoque manual (R04) si lo tiene.
+
+    Con retoque, los roles que pinta y el paquete no trae se agregan al final de sus roles (`RolesPackage.with_roles`: las etiquetas existentes no
+    cambian) y las pinceladas, que viven en el marco del STL de la pieza, se llevan al huésped con la misma `to_host` (`T`, o `M·T` en el lado
+    derecho) que el color. Sin retoque el resultado es exactamente el de antes."""
+    has = retouch is not None and len(retouch) > 0
+    if has:
+        pkg = pkg.with_roles(retouch.roles_used())
+    src = piece_color_source(pkg.to_textured(palette), None, to_host, similarity=similarity, spacing_mm=spacing_mm).source
+    if has:
+        from .retouch import transform_strokes
+
+        src.paint(transform_strokes(retouch.strokes, to_host))
+    return src
+
+
 def _roles_sources(pending: dict, catalog, spacing_mm: float, sources: dict, info: dict, overrides: dict | None = None) -> None:
     """Completa `sources`/`info` con las piezas por roles de `pending` (ver `catalog_color_sources`). Levanta `PaletteRolesError` si la
     paleta de la línea no se puede usar para alguna de ellas."""
     refs: dict = {}                                      # rol -> piezas que lo usan
-    for meta, _T, pkg, _path in pending.values():
-        for r in pkg.roles:
+    for meta, _T, pkg, _path, rt in pending.values():
+        for r in list(pkg.roles) + (rt.roles_used() if rt is not None else []):      # el retoque también pinta con roles de la paleta
             refs.setdefault(r, []).append(meta.ref)
     try:
         palette = catalog.palette()
@@ -233,18 +251,20 @@ def _roles_sources(pending: dict, catalog, spacing_mm: float, sources: dict, inf
             palette = palette.with_overrides(overrides)
         except PaletteError as exc:
             raise PaletteRolesError(f"{exc} (paleta de la línea «{catalog.name}»)") from exc
-    for key, (meta, T, pkg, path) in pending.items():
+    for key, (meta, T, pkg, path, rt) in pending.items():
         info["piezas"][key] = {"pieza": meta.ref, "modo": "roles", "paquete": path, "roles": list(pkg.roles)}
+        if rt is not None and len(rt):
+            info["piezas"][key]["retoque"] = len(rt)
 
-        def provide(res, _pkg=pkg, _pal=palette, _T=T, _A=meta.color["similitud"], _sp=spacing_mm):
-            return piece_color_source(_pkg.to_textured(_pal), None, _T, similarity=_A, spacing_mm=_sp).source
+        def provide(res, _pkg=pkg, _pal=palette, _T=T, _A=meta.color["similitud"], _sp=spacing_mm, _rt=rt):
+            return roles_color_source(_pkg, _pal, _T, _A, _sp, _rt)
         sources[key] = provide
         if getattr(meta, "lado", "centro") != "centro":
             # El lado derecho es `mirror_x` del izquierdo, y `register_piece` lleva la pieza IMPRESA al marco de su fuente: contra una fuente que
             # es solo el miembro izquierdo (x > 0) la `_der` (x < 0) no solapa y queda `sin_origen` (medido: 0 %). Con la fuente reflejada,
             # `M · T · A` (M = diag(−1, 1, 1)), registra igual que la izquierda. `Colorizer.source_for` mira primero el nombre completo.
-            def provide_right(res, _pkg=pkg, _pal=palette, _T=_MIRROR_X @ T, _A=meta.color["similitud"], _sp=spacing_mm):
-                return piece_color_source(_pkg.to_textured(_pal), None, _T, similarity=_A, spacing_mm=_sp).source
+            def provide_right(res, _pkg=pkg, _pal=palette, _T=_MIRROR_X @ T, _A=meta.color["similitud"], _sp=spacing_mm, _rt=rt):
+                return roles_color_source(_pkg, _pal, _T, _A, _sp, _rt)
             sources[f"{key}_der"] = provide_right
     info["paleta"] = {"hash": palette.digest(), "roles": {r.id: r.hex for r in palette.roles}}
     if overrides:

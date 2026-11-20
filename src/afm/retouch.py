@@ -1,0 +1,154 @@
+"""Retoque manual del color de una pieza del catálogo: pinceladas en 3D con un rol de la paleta (`PLAN_retoque_color_pieza.md`, R01).
+
+Una **pincelada** dice «las muestras de color que estén a menos de `r` mm de `c` pasan a tener el rol `rol`». Vive en el marco del STL de la
+pieza (mm reales), así que sobrevive a cualquier cambio de la geometría al armar (cavidades, cortes) y se lleva al marco del huésped con la
+misma 4×4 que el color. `rol = None` es el **borrador**: devuelve las muestras al rol que traía el paquete de roles.
+
+`n` (normal de la superficie en el punto pintado) es opcional: con ella el pincel no atraviesa una solapa fina ni pinta la cara de atrás.
+
+Sin PIL, sin scipy, sin GTK al importar (R3). Todo lo que sale a un informe es número, `str`, `bool`, lista o diccionario de eso (R5).
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import re
+from dataclasses import dataclass
+
+import numpy as np
+
+FORMAT = "afm-retoque-1"
+MAX_STROKES = 20_000             # pinceladas por pieza
+MIN_RADIUS_MM, MAX_RADIUS_MM = 0.05, 15.0
+MIN_DOT = 0.3                    # el mismo criterio que el horneado (`bake_piece`): la normal de la muestra tiene que ser compatible con `n`
+_ROLE_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")         # igual que `palette.Role`
+
+
+class RetouchError(ValueError):
+    """El retoque no sirve (formato, límites, rol inválido); el mensaje dice cuál es el problema."""
+
+
+def _vec3(x, what: str) -> tuple:
+    try:
+        v = tuple(float(a) for a in x)
+    except (TypeError, ValueError) as exc:
+        raise RetouchError(f"{what}: se esperaban tres números") from exc
+    if len(v) != 3 or not all(np.isfinite(v)):
+        raise RetouchError(f"{what}: se esperaban tres números finitos")
+    return v
+
+
+@dataclass(frozen=True)
+class Stroke:
+    c: tuple                                     # (x, y, z) mm, marco del STL de la pieza
+    r: float                                     # radio, mm
+    rol: str | None                              # id de rol de la paleta; None = borrador
+    n: tuple | None = None                       # normal de la superficie (unitaria) o None
+
+    def __post_init__(self):
+        object.__setattr__(self, "c", _vec3(self.c, "pincelada «c»"))
+        r = float(self.r)
+        if not np.isfinite(r) or not MIN_RADIUS_MM <= r <= MAX_RADIUS_MM:
+            raise RetouchError(f"pincelada: el radio {r:g} mm tiene que estar entre {MIN_RADIUS_MM:g} y {MAX_RADIUS_MM:g}")
+        object.__setattr__(self, "r", r)
+        if self.rol is not None and not (isinstance(self.rol, str) and _ROLE_RE.match(self.rol)):
+            raise RetouchError(f"pincelada: id de rol inválido {self.rol!r}")
+        if self.n is not None:
+            n = np.asarray(_vec3(self.n, "pincelada «n»"))
+            norm = float(np.linalg.norm(n))
+            if norm < 1e-9:
+                raise RetouchError("pincelada: la normal «n» es nula")
+            object.__setattr__(self, "n", tuple(float(a) for a in n / norm))
+
+    def to_dict(self) -> dict:
+        d = {"c": [round(a, 4) for a in self.c], "r": round(self.r, 4), "rol": self.rol}
+        d["n"] = None if self.n is None else [round(a, 4) for a in self.n]
+        return d
+
+    @classmethod
+    def from_dict(cls, d) -> "Stroke":
+        if not isinstance(d, dict) or "c" not in d or "r" not in d:
+            raise RetouchError("pincelada: faltan «c» o «r»")
+        return cls(d["c"], d["r"], d.get("rol"), d.get("n"))
+
+
+class Retouch:
+    """Lista ordenada de pinceladas (la última gana)."""
+
+    def __init__(self, strokes=()):
+        self.strokes: list[Stroke] = [s if isinstance(s, Stroke) else Stroke.from_dict(s) for s in strokes]
+        if len(self.strokes) > MAX_STROKES:
+            raise RetouchError(f"{len(self.strokes)} pinceladas: el máximo por pieza es {MAX_STROKES}")
+
+    def __len__(self) -> int:
+        return len(self.strokes)
+
+    def __eq__(self, other) -> bool:
+        return isinstance(other, Retouch) and self.strokes == other.strokes
+
+    def roles_used(self) -> list[str]:
+        """Roles que alguna pincelada pinta (sin repetir, en orden de primera aparición; el borrador no cuenta)."""
+        return list(dict.fromkeys(s.rol for s in self.strokes if s.rol is not None))
+
+    def add(self, stroke: Stroke) -> None:
+        if len(self.strokes) >= MAX_STROKES:
+            raise RetouchError(f"el máximo por pieza es {MAX_STROKES} pinceladas")
+        self.strokes.append(stroke)
+
+    def to_dict(self) -> dict:
+        return {"formato": FORMAT, "pinceladas": [s.to_dict() for s in self.strokes]}
+
+    @classmethod
+    def from_dict(cls, d) -> "Retouch":
+        if not isinstance(d, dict) or d.get("formato") != FORMAT:
+            raise RetouchError(f"formato desconocido: {d.get('formato') if isinstance(d, dict) else d!r} (se esperaba «{FORMAT}»)")
+        items = d.get("pinceladas")
+        if not isinstance(items, list):
+            raise RetouchError("falta la lista «pinceladas»")
+        return cls(items)
+
+    def digest(self) -> str:
+        """SHA-256 del contenido normalizado (orden de pinceladas incluido)."""
+        return hashlib.sha256(json.dumps(self.to_dict(), sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+    # ------------------------------------------------------------------ disco
+    def save(self, path) -> str:
+        """Escritura atómica (archivo temporal + `os.replace`); valida antes de escribir. Devuelve la ruta."""
+        data = Retouch.from_dict(self.to_dict()).to_dict()          # re-valida: nadie dejó una pincelada rota
+        path = os.fspath(path)
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
+            f.write("\n")
+        os.replace(tmp, path)
+        return path
+
+    @classmethod
+    def load(cls, path) -> "Retouch":
+        try:
+            with open(os.fspath(path), encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, ValueError) as exc:
+            raise RetouchError(f"{os.path.basename(os.fspath(path))}: no es un retoque legible ({exc})") from exc
+        return cls.from_dict(data)
+
+
+def transform_strokes(strokes, M) -> list[Stroke]:
+    """Las pinceladas llevadas por la 4×4 `M` (marco de la pieza → otro marco): centro con `M`, radio por `∛|det|`, normal con la parte lineal
+    (vale para giros, escala uniforme y espejo, que es lo que lleva el motor: `T`, `M·T`)."""
+    M = np.asarray(M, float)
+    if M.shape != (4, 4) or not np.all(np.isfinite(M)):
+        raise RetouchError("la transformación tiene que ser una 4×4 finita")
+    A = M[:3, :3]
+    det = abs(float(np.linalg.det(A)))
+    if det < 1e-12:
+        raise RetouchError("la transformación es singular")
+    k = float(np.cbrt(det))
+    out = []
+    for s in strokes:
+        n = None if s.n is None else tuple(A @ np.asarray(s.n))          # `Stroke` la vuelve a normalizar
+        # con una escala extrema el radio puede salirse del rango válido: se recorta en vez de fallar al armar
+        r = float(np.clip(s.r * k, MIN_RADIUS_MM, MAX_RADIUS_MM))
+        out.append(Stroke(tuple(A @ np.asarray(s.c) + M[:3, 3]), r, s.rol, n))
+    return out

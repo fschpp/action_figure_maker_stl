@@ -57,6 +57,8 @@ class ColorSource:
         # T45: ids de rol de las etiquetas (índice = etiqueta), para recolorear lo ya horneado con otra paleta
         self.label_roles = list(tm.info.get("roles", [])) if tm.labels is not None else None
         self.sample_rgb = tm.sample(face, bary, "base_color")
+        self._lut = None if tm.labels is None or tm.lut is None else np.asarray(tm.lut)       # R02: para `paint`
+        self._base_label = None                                 # etiquetas del paquete, antes de pintar (las crea `paint`)
         tm.release_image("base_color")                          # RG5: se libera la imagen decodificada
         self._tree = cKDTree(self.sample_xyz)
         self._coarse = cKDTree(self.sample_xyz[::4])
@@ -70,6 +72,42 @@ class ColorSource:
         if lut.shape != (256, 3) or lut.dtype != np.uint8:
             raise ValueError("la tabla de colores debe ser (256, 3) uint8")
         self.sample_rgb = lut[self.sample_label]
+
+    def paint(self, strokes) -> dict:
+        """Aplica pinceladas de retoque (`retouch.Stroke`, **ya en el marco de esta fuente**, ver `retouch.transform_strokes`) a las muestras.
+
+        Cada pincelada pasa a `rol` las muestras a menos de `r` mm de su centro; con normal `n`, solo las de normal compatible (`MIN_DOT`):
+        no atraviesa una solapa fina. `rol = None` (borrador) devuelve las muestras a su etiqueta original. Se aplican en orden, la última gana.
+        El rol tiene que estar en `label_roles` (se agregan al armar la fuente con `RolesPackage.with_roles`); si no, `ValueError` con la lista.
+        Después recalcula `sample_rgb = lut[sample_label]`. Informe: `{"pinceladas": n, "muestras": cantidad de muestras que cambiaron}`."""
+        from .retouch import MIN_DOT
+
+        strokes = list(strokes)
+        if not strokes:
+            return {"pinceladas": 0, "muestras": 0}
+        if self.sample_label is None or self._lut is None or self.label_roles is None:
+            raise ValueError("la fuente no se armó con etiquetas de rol: no se puede retocar")
+        index = {r: i for i, r in enumerate(self.label_roles)}
+        missing = sorted({s.rol for s in strokes if s.rol is not None and s.rol not in index})
+        if missing:
+            raise ValueError("la fuente no tiene etiqueta para los roles del retoque: " + ", ".join(missing))
+        if self._base_label is None:
+            self._base_label = self.sample_label.copy()
+        before = self.sample_label.copy()
+        sample_normals = None
+        for s in strokes:
+            idx = np.asarray(self._tree.query_ball_point(np.asarray(s.c, float), float(s.r)), np.int64)
+            if idx.size == 0:
+                continue
+            if s.n is not None:
+                if sample_normals is None:
+                    sample_normals = self.face_normals[self.sample_face]
+                idx = idx[sample_normals[idx] @ np.asarray(s.n, float) > MIN_DOT]
+                if idx.size == 0:
+                    continue
+            self.sample_label[idx] = self._base_label[idx] if s.rol is None else np.uint8(index[s.rol])
+        self.sample_rgb = self._lut[self.sample_label]
+        return {"pinceladas": len(strokes), "muestras": int((self.sample_label != before).sum())}
 
     def _counts(self, spacing: float) -> np.ndarray:
         return np.maximum(1, np.ceil(self.area / (spacing * spacing)).astype(np.int64))

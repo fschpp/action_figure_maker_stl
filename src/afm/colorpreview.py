@@ -34,10 +34,22 @@ def _quantize(rgb: np.ndarray, max_colors: int) -> tuple[np.ndarray, np.ndarray]
     return inv, np.rint(means).astype(np.uint8)
 
 
-def piece_color_source_tm(catalog, meta, overrides: dict | None = None):
+SAVED = "guardado"           # `retouch=SAVED`: el retoque que la pieza tiene guardado en el catálogo (None = ignorarlo, un `Retouch` = ese, sin guardar)
+
+
+def _retouch_for(catalog, meta, retouch):
+    if retouch is SAVED or (isinstance(retouch, str) and retouch == SAVED):
+        return catalog.retouch(meta.ref)
+    return retouch
+
+
+def piece_color_source_tm(catalog, meta, overrides: dict | None = None, retouch=SAVED):
     """`TexturedMesh` de color de la pieza en el marco de su STL, o `None` si no lleva color. `overrides` = `{rol: "#RRGGBB"}`: cambios de la paleta solo
     para esta figura (modo `roles`; en `rgb` no se usan). Levanta `ValueError` (`CatalogError`, `PaletteError`,
-    `FbxError`…) si el archivo de color falta, cambió o la paleta no tiene sus roles."""
+    `FbxError`…) si el archivo de color falta, cambió o la paleta no tiene sus roles.
+
+    `retouch` (modo `roles`, R05): por defecto el retoque guardado de la pieza; `None` lo ignora; un `Retouch` (p. ej. el que se está pintando en la
+    ventana, sin guardar) se usa tal cual. Los roles que pinta y el paquete no trae se agregan a la LUT; las pinceladas las aplica `color_parts`."""
     from .colorpiece import _as_4x4, _load_roles
     from .parts import color_mode
 
@@ -50,7 +62,11 @@ def piece_color_source_tm(catalog, meta, overrides: dict | None = None):
         palette = catalog.palette()
         if palette is None:
             raise ValueError(f"la línea no tiene paleta (falta paleta.json): no se puede mostrar el color de {meta.ref}")
-        tm = _load_roles(path).to_textured(palette, overrides or None)
+        pkg = _load_roles(path)
+        rt = _retouch_for(catalog, meta, retouch)
+        if rt is not None and len(rt):
+            pkg = pkg.with_roles(rt.roles_used())
+        tm = pkg.to_textured(palette, overrides or None)
     else:
         from .fbxio import load_textured
 
@@ -58,8 +74,10 @@ def piece_color_source_tm(catalog, meta, overrides: dict | None = None):
     return tm.transformed(_as_4x4(meta.color["similitud"], "similitud FBX → STL"))
 
 
-def color_parts(tm, mesh, *, spacing_mm: float = SPACING_MM, max_colors: int = MAX_COLORS, prefix: str = "pieza_color") -> list:
-    """`[(nombre, malla, rgba)]` con la malla de la pieza partida por color. `tm`: la fuente de color ya en el marco de `mesh`."""
+def color_parts(tm, mesh, *, spacing_mm: float = SPACING_MM, max_colors: int = MAX_COLORS, prefix: str = "pieza_color", retouch=None) -> list:
+    """`[(nombre, malla, rgba)]` con la malla de la pieza partida por color. `tm`: la fuente de color ya en el marco de `mesh`.
+    `retouch` (R05): `Retouch` cuyas pinceladas (en el marco de `mesh`) se aplican a la fuente antes de consultar el color; sus roles tienen que
+    estar en la LUT de `tm` (los agrega `piece_color_source_tm`)."""
     import trimesh
     from trimesh.remesh import subdivide_to_size
 
@@ -80,6 +98,8 @@ def color_parts(tm, mesh, *, spacing_mm: float = SPACING_MM, max_colors: int = M
     with np.errstate(invalid="ignore", divide="ignore"):
         normals = np.nan_to_num(cr / np.linalg.norm(cr, axis=1, keepdims=True))
     src = ColorSource(tm, spacing_mm=spacing_mm)
+    if retouch is not None and len(retouch):
+        src.paint(retouch.strokes)
     q = src.query(centers, normals, eps=ORIGIN_EPS_MM, min_dot=ORIGIN_MIN_DOT)
     rgb = np.array(q.rgb, copy=True)
     ok = np.asarray(q.has_origin, bool)
@@ -102,10 +122,11 @@ def color_parts(tm, mesh, *, spacing_mm: float = SPACING_MM, max_colors: int = M
     return parts
 
 
-def piece_color_parts(catalog, meta, mesh) -> list | None:
-    """Partes de color de la vista previa de `meta` (con su `mesh`), o `None` si la pieza no lleva color."""
-    tm = piece_color_source_tm(catalog, meta)
-    return None if tm is None else color_parts(tm, mesh)
+def piece_color_parts(catalog, meta, mesh, retouch=SAVED) -> list | None:
+    """Partes de color de la vista previa de `meta` (con su `mesh`), o `None` si la pieza no lleva color. `retouch`: ver `piece_color_source_tm`."""
+    rt = _retouch_for(catalog, meta, retouch) if getattr(meta, "color", None) else None
+    tm = piece_color_source_tm(catalog, meta, retouch=rt)
+    return None if tm is None else color_parts(tm, mesh, retouch=rt)
 
 
 def fit_affine(src, dst, tol_mm: float = 1e-3):

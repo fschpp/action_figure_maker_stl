@@ -230,8 +230,64 @@ class Catalog:
         os.replace(tmp, self.palette_path)
 
     def palette_usage(self, role_id: str) -> list[str]:
-        """Referencias `id@n` de las piezas cuyo bloque `color.roles` usa `role_id` (todas las versiones)."""
-        return [m.ref for m in self._metas() if role_id in ((m.color or {}).get("roles") or [])]
+        """Referencias `id@n` de las piezas cuyo bloque `color.roles` usa `role_id`, o cuyo retoque manual lo pinta (todas las versiones)."""
+        return [m.ref for m in self._metas() if role_id in ((m.color or {}).get("roles") or [])
+                or role_id in (((m.color or {}).get("retoque") or {}).get("roles") or [])]
+
+    # ------------------------------------------------------------------ retoque manual del color (`PLAN_retoque_color_pieza.md`, R03)
+    def retouch(self, ref: str):
+        """`Retouch` de la pieza `ref` (`id` o `id@n`), o `None` si no tiene. `CatalogError` si falta el archivo, su hash no coincide con la ficha o no se puede leer."""
+        from .retouch import Retouch, RetouchError
+
+        m = self.meta(ref)
+        rt = (m.color or {}).get("retoque")
+        if not rt:
+            return None
+        path = os.path.join(self._dir(m.tipo), rt.get("fuente") or P.retouch_name(m.id, m.version))
+        if not os.path.isfile(path):
+            raise CatalogError(f"{m.ref}: falta el retoque de color «{os.path.basename(path)}»")
+        if rt.get("sha256") and P.sha256_file(path) != rt["sha256"]:
+            raise CatalogError(f"{m.ref}: el retoque de color no coincide con el hash guardado (¿se modificó?)")
+        try:
+            return Retouch.load(path)
+        except RetouchError as exc:
+            raise CatalogError(f"{m.ref}: {exc}") from exc
+
+    def set_retouch(self, ref: str, retouch) -> P.PieceMeta:
+        """Guarda el retoque manual de una pieza con color por roles; `None` (o vacío) lo quita. Lo único mutable del color de una pieza: el STL, el
+        paquete de roles y los puertos no cambian. Todos los roles que pinta tienen que estar en la paleta de la línea (si no, no se escribe nada).
+        El archivo se escribe antes que la ficha (atómico): si algo falla a mitad, la ficha sigue apuntando al retoque anterior."""
+        m = self.meta(ref)
+        if not m.color or P.color_mode(m.color) != "roles":
+            raise CatalogError(f"{m.ref}: solo se puede retocar el color de una pieza con color por roles")
+        folder = self._dir(m.tipo)
+        name = P.retouch_name(m.id, m.version)
+        new_color = {k: v for k, v in m.color.items() if k != "retoque"}
+        if retouch is None or len(retouch) == 0:
+            old = os.path.join(folder, (m.color.get("retoque") or {}).get("fuente") or name)
+            m.color = new_color
+            self._write_meta(m)
+            if os.path.isfile(old):
+                os.remove(old)
+            return m
+        pal = self._palette_or_raise()
+        used = retouch.roles_used()
+        missing = [r for r in used if r not in pal.ids()]
+        if missing:
+            raise CatalogError(f"{m.ref}: la paleta de la línea no tiene los roles del retoque: {', '.join(missing)}")
+        path = retouch.save(os.path.join(folder, name))
+        new_color["retoque"] = {"fuente": name, "sha256": P.sha256_file(path), "n": len(retouch), "roles": used}
+        m.color = new_color
+        self._write_meta(m)
+        return m
+
+    def _write_meta(self, m: P.PieceMeta) -> None:
+        path = os.path.join(self._dir(m.tipo), P.meta_name(m.id, m.version))
+        tmp = path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(m.to_dict(), f, indent=2, ensure_ascii=False)
+        os.replace(tmp, path)
+        self.write_index()
 
     def _palette_or_raise(self) -> Palette:
         pal = self.palette()
@@ -696,6 +752,11 @@ class Catalog:
             col = os.path.join(folder, os.path.basename(meta.color.get("fuente") or default))
             if os.path.isfile(col):
                 files.append(col)
+            rt = (meta.color.get("retoque") or {}) if isinstance(meta.color.get("retoque"), dict) else {}
+            if rt:                      # el retoque manual (R03) también viaja con la pieza
+                rfile = os.path.join(folder, os.path.basename(rt.get("fuente") or P.retouch_name(meta.id, meta.version)))
+                if os.path.isfile(rfile):
+                    files.append(rfile)
         return files
 
     def delete_pieces(self, refs: list[str]) -> "DeleteResult":
@@ -889,6 +950,17 @@ class Catalog:
                     problems.append(f"{tag}: falta {what} «{m.color.get('fuente', '')}»")
                 elif m.color.get("sha256") and P.sha256_file(col) != m.color["sha256"]:
                     problems.append(f"{tag}: {what} no coincide con el hash guardado (¿se modificó?)")
+            rt = (m.color or {}).get("retoque")                     # R03: el retoque manual existe, es el de la ficha y pinta con roles de la paleta
+            if isinstance(rt, dict) and rt.get("fuente"):
+                rpath = os.path.join(os.path.dirname(path), rt["fuente"])
+                if not os.path.isfile(rpath):
+                    problems.append(f"{tag}: falta el retoque de color «{rt['fuente']}»")
+                elif rt.get("sha256") and P.sha256_file(rpath) != rt["sha256"]:
+                    problems.append(f"{tag}: el retoque de color no coincide con el hash guardado (¿se modificó?)")
+                if palette_error is None:
+                    rmiss = [r for r in dict.fromkeys(rt.get("roles") or []) if r not in (palette.ids() if palette else [])]
+                    if rmiss:
+                        problems.append(f"{tag}: el retoque pinta con roles que la paleta de la línea no tiene: {', '.join(rmiss)}")
             used_roles = (m.color or {}).get("roles") or []         # T39: los roles de la ficha tienen que estar en la paleta de la línea
             if used_roles and palette_error is None:
                 have = palette.ids() if palette else []

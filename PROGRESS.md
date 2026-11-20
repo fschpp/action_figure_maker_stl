@@ -1,5 +1,18 @@
 # Progreso del desarrollo
 
+## Current Focus — Retoque manual del color de piezas: R01–R05 (2026-11-20, sobre main 4ab6123)
+**Objetivo:** poder corregir a mano el color de una pieza del catálogo con pinceladas que usan roles de la paleta; el retoque vale para la pieza (`id@n`) y lo heredan todas las figuras que la usen (`docs/PLAN_retoque_color_pieza.md`).
+**Hecho:** (1) Plan `docs/PLAN_retoque_color_pieza.md` (R01–R10). (2) `src/afm/retouch.py`: `Stroke` (centro, radio, rol o borrador, normal), `Retouch` (archivo `afm-retoque-1`, atómico), `transform_strokes`. (3) `ColorSource.paint` y `RolesPackage.with_roles`. (4) Catálogo: `Catalog.retouch/set_retouch`, ficha `color.retoque`, `verify`, papelera, `palette_usage`. (5) Armado: `colorpiece.roles_color_source` (también lado derecho espejado) e informe `retoque`. (6) Vista previa: `colorpreview` y `figure_builder`. (7) Tests: `test_retouch.py` (21) y `test_catalog_retouch.py` (15).
+**Medido:** los 36 tests nuevos pasan (≈32 s). Los STL armados con y sin retoque son idénticos byte a byte.
+**No verificado:** la regresión completa de color/catálogo (se cortó por tiempo; sí pasan `test_colorsrc`, `test_roles_package`, `test_colorpreview`, `test_texmesh` y `test_palette` salvo `test_module_imports_without_pillow_or_skimage`, que ya falla sin mis cambios en este entorno); nada en pantalla; Sucre real; tiempo de `paint` con miles de pinceladas.
+**No hecho:** CLI `afm catalogo retoque` (R03b, hay que sumar textos es/en/pt), controlador del pincel (R06), picking 3D y modo «Retocar» en la ventana de Catálogo (R07, no verificable sin GTK), auditoría i18n (R08), caso real (R09), documentación (R10).
+**Decisiones (mías, fáciles de cambiar):** pinceladas en 3D en el marco del STL (no «cara → rol»: las caras cambian al armar); el borrador devuelve el rol original del paquete; una versión nueva de la pieza no hereda el retoque.
+
+### Todo List
+- [x] R01 · [x] R02 · [x] R03 (sin CLI) · [x] R04 · [x] R05
+- [ ] R03b CLI · [ ] R06 · [ ] R07 · [ ] R08 · [ ] R09 · [ ] R10
+
+---
 ## Current Focus — Fix vista previa de color del catálogo (2026-11-20, sobre main 64944fc)
 **Objetivo:** que la vista previa de color de «Administrar catálogo» (`colorpreview.color_parts`) no pinte triángulos negros/blancos/rojos sueltos en el torso de Sucre.
 **Hecho:** (1) `SUBDIV_MAX_ITER` = 8 (antes 4: con aristas de ~19 mm `subdivide_to_size` levantaba `ValueError` y el `except: pass` lo tragaba, así que se dibujaban las 3020 caras originales de un solo color). (2) El fallo de subdivisión ahora emite `warnings.warn` en vez de silenciarse (también si pasa de `MAX_FACES`). (3) La consulta usa el mismo criterio que el horneado (`ORIGIN_EPS_MM` 0,15 y `ORIGIN_MIN_DOT` 0,3, con la normal de cada cara) y las caras sin origen toman el color de la cara con origen más cercana de la propia pieza; si ninguna tiene origen, cae a la muestra más cercana como antes. (4) `tests/test_colorpreview.py`: 4 pruebas nuevas (aristas largas, aviso si falla, relleno de caras sin origen, caída a la muestra más cercana).

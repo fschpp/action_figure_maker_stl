@@ -90,6 +90,11 @@ def roles_name(piece_id: str, version: int) -> str:
     return f"{piece_id}@{version}.color.npz"
 
 
+def retouch_name(piece_id: str, version: int) -> str:
+    """Nombre del archivo de retoque manual del color de una pieza, junto a su STL (`PLAN_retoque_color_pieza.md`, R03)."""
+    return f"{piece_id}@{version}.retoque.json"
+
+
 COLOR_MODES = ("rgb", "roles")
 
 
@@ -113,6 +118,21 @@ def color_problems(color) -> list[str]:
         r = color["roles"]
         if not isinstance(r, list) or not r or not all(isinstance(x, str) and ROLE_ID_RE.match(x) for x in r) or len(set(r)) != len(r):
             out.append("color: «roles» tiene que ser una lista no vacía de ids de rol sin repetir")
+    if "retoque" in color:                       # R03: retoque manual (solo piezas por roles); el bloque es aditivo
+        rt = color["retoque"]
+        if mode != "roles":
+            out.append("color: «retoque» solo vale para piezas con color por roles")
+        elif not isinstance(rt, dict):
+            out.append("color: «retoque» tiene que ser un diccionario")
+        else:
+            for k in ("fuente", "sha256"):
+                if not isinstance(rt.get(k), str) or not rt.get(k):
+                    out.append(f"color.retoque: falta «{k}»")
+            if not isinstance(rt.get("n"), int) or isinstance(rt.get("n"), bool) or rt["n"] < 0:
+                out.append("color.retoque: «n» tiene que ser un entero ≥ 0")
+            rr = rt.get("roles")
+            if not isinstance(rr, list) or not all(isinstance(x, str) and ROLE_ID_RE.match(x) for x in rr) or len(set(rr)) != len(rr):
+                out.append("color.retoque: «roles» tiene que ser una lista de ids de rol sin repetir")
     sim = color.get("similitud")
     if sim is not None:
         try:
