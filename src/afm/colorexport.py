@@ -55,8 +55,16 @@ class Colorizer:
         la pieza sigue con la fuente de la figura y el motivo queda en `source_errors[clave]`."""
         from .colorreg import _split_name
 
-        key = _split_name(name)[0]
+        key, side = _split_name(name)
         slot = name if name in self.sources else key         # T43: un lado con su propia fuente (la reflejada de `_der`) va antes que la de la clave
+        if slot not in self.sources and res is not None:
+            # Pieza de una articulación (antebrazo, muslo, pantorrilla…): la fuente es la de su miembro (`brazo`, `pierna`), que es la pieza de catálogo entera.
+            from .colorreg import _joint_info, _owner
+
+            ji = _joint_info(_owner(res, side), key)
+            if ji is not None:
+                limb = ji[1].get("limb")
+                slot = next((c for c in ((f"{limb}_{side}" if side else None), limb) if c and c in self.sources), slot)
         own = self.sources.get(slot)
         if own is not None and not hasattr(own, "query"):
             try:

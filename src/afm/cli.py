@@ -212,6 +212,17 @@ def run(stl_path: str, project: Project, outdir: str, name: str, progress=print,
     return info
 
 
+def _placed_with_host_bodies(asm) -> dict:
+    """`res.placed` más el torso y la pelvis de catálogo (el cuerpo del huésped): no son «piezas colocadas» pero llevan color y su fuente
+    va con `T` = su transformación al marco del huésped (identidad para el torso; la de la cintura para la pelvis)."""
+    from types import SimpleNamespace
+
+    placed = dict(asm.res.placed)
+    for name, (choice, T) in (getattr(getattr(asm, "host", None), "bodies", None) or {}).items():
+        placed.setdefault(name, SimpleNamespace(choice=choice, T=T))
+    return placed
+
+
 def run_armar(recipe_path: str, outdir: str, name: str | None = None, catalog_root: str | None = None, progress=print,
               orient: bool | str = False, max_angle: float = 45.0, flat: float | None = None, color_overrides: dict | None = None,
               keep: dict | None = None) -> dict:
@@ -245,7 +256,7 @@ def run_armar(recipe_path: str, outdir: str, name: str | None = None, catalog_ro
     from .colorpiece import PaletteRolesError, catalog_color_sources
 
     try:                           # T36: piezas de catálogo con su propio FBX; T43: o con roles + la paleta de la línea; el resto sale en color plano
-        c_src, color_info = catalog_color_sources(asm.res.placed, asm.catalog, set(asm.recipe.scales()),
+        c_src, color_info = catalog_color_sources(_placed_with_host_bodies(asm), asm.catalog, set(asm.recipe.scales()),
                                                   overrides={**(recipe.paleta_override or {}), **(color_overrides or {})} or None)
     except PaletteRolesError:      # a la paleta le faltan roles de las piezas elegidas: no se inventa color, se frena antes de exportar
         raise

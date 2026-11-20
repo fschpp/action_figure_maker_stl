@@ -281,6 +281,7 @@ class SyntheticHost:
     head: object | None = None  # HeadSpec desde el puerto `cuello` del torso
     waist: object | None = None  # WaistSpec desde el puerto `cintura`
     notes: list = field(default_factory=list)
+    bodies: dict = field(default_factory=dict)  # «torso»/«pelvis» -> (PartChoice del catálogo, 4×4 STL de la pieza → huésped): de acá sale su color
 
 
 def _choice_mesh(choice: PartChoice, T=None):
@@ -316,6 +317,7 @@ def synthesize_host(parts: dict, params=None) -> SyntheticHost:
     else:
         raise AssemblyError("sin figura de origen hace falta una pieza «torso» (o «torso_sup» y «pelvis»)")
     waist = None
+    bodies = {"torso": (upper, np.eye(4))}
     body = _choice_mesh(upper)
     if upper is not lower:
         cp = upper.meta.puertos.get("cintura")
@@ -324,7 +326,9 @@ def synthesize_host(parts: dict, params=None) -> SyntheticHost:
         lp = lower.meta.puertos.get("cintura")
         if lp is None:
             raise AssemblyError(f"«{lower.meta.ref}» no tiene el puerto «cintura»")
-        lower = transform_choice(lower, coupling_transform(lp.frame, cp.frame))
+        T_lower = np.asarray(coupling_transform(lp.frame, cp.frame), float)
+        bodies["pelvis"] = (lower, T_lower)
+        lower = transform_choice(lower, T_lower)
         body = S.union(body, _choice_mesh(lower))
         waist = WaistSpec(plane=Plane.from_normal(cp.frame.center, -cp.frame.axis, "cintura"))
     head = None
@@ -355,7 +359,7 @@ def synthesize_host(parts: dict, params=None) -> SyntheticHost:
                               polygon=np.zeros((3, 3)), thickness=1.0, contact_axis=tuple(abs(float(x)) for x in toma.frame.axis),
                               pin_center=tuple(float(x) for x in c), sweep_deg=_declared_sweep(kind, lp.sweep_deg),
                               mechanism=mech))
-    return SyntheticHost(body, limbs, faces, parts, head, waist, notes)
+    return SyntheticHost(body, limbs, faces, parts, head, waist, notes, bodies)
 
 
 def _declared_sweep(kind: str, sweep) -> tuple | None:
