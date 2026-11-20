@@ -105,6 +105,7 @@ class FigureBuilderWindow(Gtk.Window):
         box.append(self._build_scale_section())
         box.append(self._build_accessory_section())
         box.append(self._build_colors_section())
+        box.append(self._build_flat_section())
         self.lbl_problems = Gtk.Label(xalign=0, wrap=True)
         self.lbl_problems.add_css_class("dim-label")
         box.append(self.lbl_problems)
@@ -253,6 +254,44 @@ class FigureBuilderWindow(Gtk.Window):
         exp.set_child(box)
         self.exp_colors = exp
         return exp
+
+    def _build_flat_section(self) -> Gtk.Widget:
+        """«Imprimir sin soportes» (lo mismo que la ventana principal): aplana piernas y cola con un corte horizontal y gira los brazos hacia
+        adelante. Es una opción de exportación: no cambia la receta. La lógica está en `FigureBuilder` (`flat`, `flat_depth`, `fill_hip`)."""
+        exp = Gtk.Expander(label=tr("generar.impresion_sin_soportes"))
+        self.exp_flat = exp
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, margin_top=4)
+        self.chk_flat = Gtk.CheckButton(label=tr("generar.modificar_para_imprimir_sin_soportes_aplan"))
+        self.chk_flat.set_tooltip_text(tr("generar.corta_con_un_plano_horizontal_sobre"))
+        self.chk_flat.connect("toggled", self._on_flat)
+        box.append(self.chk_flat)
+        row = Gtk.Box(spacing=6)
+        row.append(Gtk.Label(label=tr("figure_window.sin_soportes_altura_del_corte"), xalign=0, hexpand=True, wrap=True))
+        self.sp_flat = Gtk.SpinButton.new_with_range(0.2, 6.0, 0.1)
+        self.sp_flat.set_digits(1)
+        self.sp_flat.set_value(float(self.builder.catalog().params.flat_depth))
+        self.sp_flat.connect("value-changed", self._on_flat)
+        row.append(self.sp_flat)
+        self.row_flat = row
+        box.append(row)
+        self.chk_fill_hip = Gtk.CheckButton(label=tr("generar.rellenar_los_muslos_hasta_la_pelvis"))
+        self.chk_fill_hip.set_tooltip_text(tr("generar.el_corte_plano_le_saca_a"))
+        self.chk_fill_hip.connect("toggled", self._on_flat)
+        box.append(self.chk_fill_hip)
+        note = Gtk.Label(label=tr("figure_window.sin_soportes_nota"), xalign=0, wrap=True)
+        note.add_css_class("dim-label")
+        box.append(note)
+        exp.set_child(box)
+        return exp
+
+    def _on_flat(self, *_args) -> None:
+        b = self.builder
+        b.flat = self.chk_flat.get_active()
+        b.flat_depth = round(self.sp_flat.get_value(), 3)
+        b.fill_hip = self.chk_fill_hip.get_active()
+        self.row_flat.set_sensitive(b.flat and not self._busy)
+        self.chk_fill_hip.set_sensitive(b.flat and not self._busy)
+        self._update_color_status()
 
     def _sync_colors(self) -> None:
         """Vuelve a armar las filas (una por rol de la línea) con los colores de ahora y los textos de estado."""
@@ -521,6 +560,10 @@ class FigureBuilderWindow(Gtk.Window):
         finally:
             self._updating = False
         has_hand = bool(b.choices.get("mano")) and not self._busy
+        if hasattr(self, "exp_flat"):
+            self.exp_flat.set_sensitive(not self._busy)
+            self.row_flat.set_sensitive(b.flat and not self._busy)
+            self.chk_fill_hip.set_sensitive(b.flat and not self._busy)
         self.exp_hand.set_sensitive(has_hand)
         self.row_overlap.set_sensitive(b.hand["union"] == "solape")
         for place in SCALE_PLACES:

@@ -942,6 +942,7 @@
   "color_omitido_motivo": "Cor omitida (%{motivo})."
  },
  "figure_builder": {
+  "sin_soportes_resumen": "Sem suportes: corte a %{corte} mm sobre a cauda; braços girados para frente: %{giro}",
   "torso": "Torso",
   "pelvis": "Pelve",
   "brazo": "Braço",
@@ -991,6 +992,8 @@
   "color_no_disponible": "%{ref}: não foi possível mostrar a sua cor (%{exc}); aparece em cor lisa."
  },
  "figure_window": {
+  "sin_soportes_altura_del_corte": "Altura do corte sobre a cauda (mm)",
+  "sin_soportes_nota": "É uma opção de exportação: não altera a receita. Ao montar, as peças saem aplanadas e os braços giram para frente.",
   "receta_abierta_path_retocala_y_guardala": "Receita aberta: %{path}\nAjuste-a e salve-a com outro nome, ou monte-a.",
   "carga_una_receta_guardada_piezas_opciones": "Carrega uma receita salva (peças, opções, mão e escalas) para ajustá-la. Salve-a com outro nome para não sobrescrever a original.",
   "guarda_las_piezas_elegidas_en_catalogo": "Salva as peças escolhidas em <catálogo>/figuras/<nome>.receta.json (pode ser montada de novo com “afm armar” e conta como uso de cada peça).",

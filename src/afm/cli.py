@@ -224,7 +224,7 @@ def _placed_with_host_bodies(asm) -> dict:
 
 
 def run_armar(recipe_path: str, outdir: str, name: str | None = None, catalog_root: str | None = None, progress=print,
-              orient: bool | str = False, max_angle: float = 45.0, flat: float | None = None, color_overrides: dict | None = None,
+              orient: bool | str = False, max_angle: float = 45.0, flat: float | None = None, color_overrides: dict | None = None, fill_hip: bool = False,
               keep: dict | None = None) -> dict:
     """`afm armar`: arma la figura de una receta (`afm-receta-1`) solo con piezas de catálogo, valida y exporta.
 
@@ -238,6 +238,8 @@ def run_armar(recipe_path: str, outdir: str, name: str | None = None, catalog_ro
     os.makedirs(outdir, exist_ok=True)
     t0 = time.time()
     asm = assemble(recipe, catalog_root, progress=progress)
+    if fill_hip:                  # «imprimir sin soportes» (`flat`): el muslo se queda con la loncha de pelvis que saca el corte plano
+        asm.params = dataclasses.replace(asm.params, flat_fill_hip=True)
     if flat is not None and flat < 0:
         flat = asm.params.flat_depth
     progress("Validando la figura…")
@@ -435,6 +437,8 @@ def main(argv=None) -> int:
     a.add_argument("--name", default=None, help="nombre de los archivos de salida (por defecto el personaje de la receta)")
     a.add_argument("--sin-soportes", nargs="?", type=float, const=-1.0, default=None, metavar="MM",
                    help="aplanar la base y girar los brazos para imprimir sin soportes (sin MM: el de la línea)")
+    a.add_argument("--rellenar-muslos", action="store_true",
+                   help="con --sin-soportes: el muslo se queda con la loncha de pelvis que saca el corte plano y la pelvis se talla de nuevo alrededor")
     a.add_argument("--orient", action="store_true", help="exportar apoyado en la cama en la pose de la vista previa")
     a.add_argument("--orient-auto", action="store_true", help="exportar en la orientación de menor voladizo")
     a.add_argument("--max-angle", type=float, default=45.0, help="ángulo de voladizo tolerado (grados desde la vertical)")
@@ -519,7 +523,8 @@ def main(argv=None) -> int:
                 ap.error(f"--color-cambio «{item}»: {exc}")
         try:
             info = run_armar(args.receta, args.out, args.name, args.catalogo, orient="auto" if args.orient_auto else args.orient,
-                             max_angle=args.max_angle, flat=args.sin_soportes, color_overrides=cambios or None)
+                             max_angle=args.max_angle, flat=args.sin_soportes, color_overrides=cambios or None,
+                             fill_hip=args.rellenar_muslos)
         except (RecipeError, OSError) as exc:
             print(f"ERROR (receta): {exc}", file=sys.stderr)
             return 2

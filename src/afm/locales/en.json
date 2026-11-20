@@ -942,6 +942,7 @@
   "color_omitido_motivo": "Color skipped (%{motivo})."
  },
  "figure_builder": {
+  "sin_soportes_resumen": "No supports: cut %{corte} mm above the tail; arms rotated forward: %{giro}",
   "torso": "Torso",
   "pelvis": "Pelvis",
   "brazo": "Arm",
@@ -991,6 +992,8 @@
   "color_no_disponible": "%{ref}: its color could not be shown (%{exc}); shown in a flat color."
  },
  "figure_window": {
+  "sin_soportes_altura_del_corte": "Cut height above the tail (mm)",
+  "sin_soportes_nota": "This is an export option: it does not change the recipe. When building, the parts come out flattened and the arms rotate forward.",
   "receta_abierta_path_retocala_y_guardala": "Recipe opened: %{path}\nTweak it and save it under another name, or assemble it.",
   "carga_una_receta_guardada_piezas_opciones": "Loads a saved recipe (parts, options, hand and scales) so you can tweak it. Save it under another name so you do not overwrite the original.",
   "guarda_las_piezas_elegidas_en_catalogo": "Saves the chosen parts to <catalog>/figuras/<name>.receta.json (it can be assembled again with “afm armar” and counts as a use of each part).",

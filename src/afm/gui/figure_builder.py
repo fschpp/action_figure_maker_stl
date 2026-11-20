@@ -41,6 +41,9 @@ class FigureBuilder:
         self.accessories: list[str] = []                                                # «id@versión» de los accesorios que acompañan a la figura
         self.palette_override: dict[str, str] = {}                                      # T48: {rol: "#RRGGBB"} colores que cambian SOLO en esta figura
         self._color_tm_cache: dict = {}                                                 # ref -> (clave, fuente de color de la vista previa)
+        self.flat = False                                                               # «imprimir sin soportes»: aplana piernas y cola, los brazos giran hacia adelante
+        self.flat_depth: float | None = None                                            # altura del corte sobre la cola (mm); None = la de la línea (`Params.flat_depth`)
+        self.fill_hip = False                                                           # con `flat`: el muslo se queda con la loncha de pelvis que saca el corte
         self._built: dict | None = None                                                 # T48: último armado (Colorizer, carpeta, nombre, geometría) para recolorear
 
     # ------------------------------------------------------------------ catálogo
@@ -374,6 +377,7 @@ class FigureBuilder:
         d = self.recipe().to_dict()
         d.pop("personaje", None)
         d.pop("paleta_override", None)
+        d["_sin_soportes"] = [bool(self.flat), self.flat_depth, bool(self.fill_hip)] if self.flat else None      # el corte plano cambia las piezas
         return json.dumps(d, sort_keys=True, default=str)
 
     def recolor(self) -> dict:
@@ -521,7 +525,9 @@ class FigureBuilder:
         self.recipe().save(recipe_path)
         keep: dict = {}
         self._built = None
-        info = run_armar(recipe_path, outdir, self.name, self.root, progress=progress, orient=orient, keep=keep)
+        flat = None if not self.flat else (-1.0 if self.flat_depth is None else float(self.flat_depth))      # -1: la altura de la línea
+        info = run_armar(recipe_path, outdir, self.name, self.root, progress=progress, orient=orient, keep=keep, flat=flat,
+                         fill_hip=bool(self.flat and self.fill_hip))
         info["ensamblada"] = os.path.join(outdir, info["archivos"]["ensamblada"])
         self._built = {"colorizer": keep.get("colorizer"), "outdir": outdir, "name": self.name, "geom": self._geometry_key(),
                        "overrides": self.effective_overrides()}
@@ -655,6 +661,11 @@ def summary(info: dict) -> str:
     lines += [f"✗ {t}" for t in val.get("problems", [])[:10]]
     lines += [f"• {t}" for t in (val.get("avisos", []) + val.get("avisos_pasador", []))[:10]]
     lines.append(tr("figure_builder.piezas_exportadas_n_mas_la_figura", n=len(info.get('archivos', {}).get('piezas', []))))
+    ss = (info.get("archivos") or {}).get("sin_soportes")
+    if ss:
+        giro = ", ".join(f"{k} {v:g}°" for k, v in (ss.get("giro_brazos_grados") or {}).items()) or "0°"
+        lines.append(tr("figure_builder.sin_soportes_resumen", corte=f"{ss['corte_sobre_cola_mm']:g}", giro=giro))
+        lines += [f"• {t}" for t in ss.get("avisos", [])[:5]]
     if info.get("proyecto"):
         lines.append(tr("figure_builder.proyecto_basename_se_abre_en_la", basename=os.path.basename(info['proyecto'])))
     return "\n".join(lines)
