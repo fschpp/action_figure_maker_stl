@@ -24,6 +24,7 @@ COMMANDS: dict[str, tuple[str, bool, bool]] = {
     "usos": (GUI, False, False),               # «Se usa en» de la ficha
     "eliminar": (GUI, False, True),            # va a la papelera
     "restaurar": (GUI, False, True),           # «Recuperar lo eliminado» (el último grupo; `--lote ID` queda en consola)
+    "taladrar-mano": (GUI, True, True),        # botón «Taladrar agarre…» de la ventana (busca el canal: tarda)
     "importar-mano": (GUI, False, True),       # «Importar ▾ → Mano estándar…» (archivo + id)
     "importar-arma": (GUI, False, True),       # «Importar ▾ → Arma…» (archivo + largo + los 3 puntos del corte, escritos X,Y,Z)
     "importar-accesorio": (GUI, False, True),  # «Importar ▾ → Accesorio…» (archivo + datos de la empuñadura)
@@ -395,6 +396,26 @@ def import_hand(cat: Catalog, stl: str, piece_id: str | None = None, new_version
     meta, warns = cat.import_hand(stl, piece_id or None, new_version)
     line = f"Mano guardada como {meta.ref} (muñeca Ø{2 * meta.puertos['muneca'].face.radius_eq:.2f} mm, {meta.volumen_mm3:.0f} mm³)"
     return ImportResult(meta, [line], list(warns))
+
+
+def drill_hand(cat: Catalog, ref: str | None = None, *, bore_d: float | None = None, shaft_d: float | None = None, slit_w: float | None = None,
+               finger_len: float | None = None, new_version: bool = True) -> ImportResult:
+    """`afm catalogo taladrar-mano`: taladra el agarre en una mano del catálogo (por defecto la más reciente) y guarda la versión nueva."""
+    from .props import GripError, GripSpec, drill_catalog_hand
+
+    if not ref:
+        hands = cat.list(tipo="mano")
+        if not hands:
+            raise GripError("el catálogo no tiene ninguna mano")
+        ref = hands[-1].ref
+    kw = {k: v for k, v in (("bore_d", bore_d), ("shaft_d", shaft_d), ("slit_w", slit_w), ("finger_len", finger_len)) if v is not None}
+    meta, warns, res = drill_catalog_hand(cat, ref, GripSpec(**kw), new_version)
+    f = res.fit
+    lines = [f"Mano con agarre guardada como {meta.ref}, a partir de {ref}: canal natural Ø{res.channel.free_d:.2f} mm → taladro Ø{res.spec.bore_d:g} mm · "
+             f"largo {f.length:.1f} mm · pared mín. del anillo {f.wall_min:.2f} mm · apoyo del dentado ≈ {f.support_deg:.0f}°"]
+    if f.support_deg < 270:
+        warns.append("el hombro apoya solo en parte del contorno del taladro: la orientación de la espada importa y el agarre es más flojo que con un tubo completo")
+    return ImportResult(meta, lines, warns)
 
 
 def parse_cut_points(text: str):

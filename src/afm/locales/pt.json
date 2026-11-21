@@ -78,7 +78,11 @@
   "el_corte_son_tres_puntos_separados": "o corte são três pontos separados por “;”, cada um com três números X,Y,Z (decimais com ponto)",
   "label_tiene_que_ser_mayor_que": "%{label} tem de ser maior que 0.",
   "giro": "Giro",
-  "altura": "Altura"
+  "altura": "Altura",
+  "taladrar_agarre_titulo": "Furar encaixe em uma mão",
+  "taladrar_agarre_ayuda": "Procura o canal que os dedos deixam com a palma de uma mão que já está no catálogo, fura-o no Ø pedido e a guarda como versão nova da mesma peça (a anterior permanece; a nova não herda a cor). Com a mão do Güemes, 2,4 mm é quase o máximo.",
+  "mano_del_catalogo": "Mão do catálogo",
+  "vacio_la_mas_reciente": "Vazio: a mais recente."
  },
  "common": {
   "largo_de_la_lengueta_mm": "Comprimento da lingueta (mm)",
@@ -414,7 +418,10 @@
   "retocar_sin_nada": "Não há pinceladas para exportar.",
   "retocar_importado": "Somadas %{n} pinceladas%{espejo}.",
   "retocar_espejado": " (espelhadas)",
-  "retocar_no_entra": "Não foi possível somar o retoque: %{exc}"
+  "retocar_no_entra": "Não foi possível somar o retoque: %{exc}",
+  "taladrar_agarre": "Furar encaixe…",
+  "taladrar_agarre_ayuda": "Fura o encaixe de armas na mão escolhida e a guarda como versão nova (afm catalogo taladrar-mano)",
+  "elegi_una_sola_mano": "Escolha uma única mão da lista."
  },
  "controller": {
   "arista_de_la_caja_mm": "Aresta da caixa (mm)",

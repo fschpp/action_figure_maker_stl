@@ -16,7 +16,7 @@ from .recipe import RecipeError
 
 
 def add_parsers(sub) -> None:
-    c = sub.add_parser("catalogo", help="catálogo de piezas de una línea (crear, listar, verificar, importar-mano, agregar, agregar-stl, guardar-montura, cortar-muneca, usos, eliminar, estado, compat, certificar, matriz, cobertura, contrato, capacidad, paleta, color, retoque)")
+    c = sub.add_parser("catalogo", help="catálogo de piezas de una línea (crear, listar, verificar, importar-mano, taladrar-mano, agregar, agregar-stl, guardar-montura, cortar-muneca, usos, eliminar, estado, compat, certificar, matriz, cobertura, contrato, capacidad, paleta, color, retoque)")
     cs = c.add_subparsers(dest="catcmd", required=True)
 
     def root(p):
@@ -60,6 +60,13 @@ def add_parsers(sub) -> None:
     a.add_argument("stl")
     a.add_argument("--id", default=None)
     a.add_argument("--nueva-version", action="store_true", help="si el id ya existe, guardar la versión siguiente")
+    a = cs.add_parser("taladrar-mano", help="taladrar el agarre de armas en una mano que ya está en el catálogo y guardarla como versión nueva (la más reciente si no se da REF)")
+    root(a)
+    a.add_argument("--mano", default=None, metavar="REF", help="id o id@versión de la mano (por defecto la más reciente)")
+    a.add_argument("--taladro", type=float, default=None, help="Ø del agujero en el puño (mm); por defecto 2,4")
+    a.add_argument("--vastago", type=float, default=None, help="Ø de la empuñadura (mm); por defecto 2,0")
+    a.add_argument("--ranura", type=float, default=None, help="ancho de la ranura entre lengüetas (mm); por defecto 0,5")
+    a.add_argument("--largo-lengueta", type=float, default=None, help="largo de la lengüeta (mm); por defecto 8,0")
     a = cs.add_parser("importar-arma", help="importar un STL cualquiera como arma de la línea: lo escala, le corta el mango por un plano y le pone la empuñadura dentada que encaja en la mano con agarre del catálogo")
     root(a)
     a.add_argument("stl", help="STL del arma, en cualquier orientación y unidad")
@@ -579,6 +586,15 @@ def _run(args) -> int:
             print(f"ERROR: {exc}", file=sys.stderr)
             return 2
         return _print_import(res)
+    if cmd == "taladrar-mano":
+        from .hand import HandError
+        from .props import GripError
+
+        try:
+            return _print_import(OPS.drill_hand(cat, args.mano, bore_d=args.taladro, shaft_d=args.vastago, slit_w=args.ranura, finger_len=args.largo_lengueta))
+        except (GripError, HandError, CatalogError) as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
     if cmd == "importar-mano":
         return _print_import(OPS.import_hand(cat, args.stl, args.id, args.nueva_version))
     if cmd == "agregar-stl":

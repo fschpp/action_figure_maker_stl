@@ -1,3 +1,9 @@
+## Current Focus — Taladrar agarre en una mano del catálogo (2026-11-21)
+Botón «Taladrar agarre…» en «Administrar catálogo» (una mano elegida) y `afm catalogo taladrar-mano [--mano REF] [--taladro …]`: taladra el agarre sobre la pieza `mano` del catálogo y la guarda como versión nueva del mismo id (nombre, origen y etiquetas se conservan; el color NO se hereda). Así el catálogo ya tiene una «mano con agarre» y se pueden guardar armas. `props.drill_catalog_hand`, `catalog_ops.drill_hand`, formulario `catalog_import.FORMS["agarre"]`.
+- Probado con la mano de Güemes de `proceres-127` (`@2` → `@3`): taladro Ø2,4, canal 10 mm, pared 2,55 mm, apoyo del dentado ≈220° (aviso). `line_hand` la encuentra. `tests/test_catalog_drill_hand.py` (6, con el taladro simulado).
+- NO verificado: el botón y el diálogo (sin GTK en este entorno).
+- Ya fallaban antes de este cambio: `test_catalog_ops::test_every_catalog_subcommand_is_registered_for_the_window` (faltan `guardar-montura` y `retoque` en `OPS.COMMANDS`) y `test_catalog_import::test_parse_builds_the_arguments_of_catalog_ops` (espera `bore_d` por defecto en el accesorio).
+
 ## Current Focus — Caballos compatibles: E15 ventana, sección «Caballo» (2026-11-21, sobre main 0a40fcf = E14)
 Sección «Caballo» de `FigureBuilderWindow`: elegir/importar caballo (escala desde una medida real, giro), asiento por clic sobre el lomo, dirección por arrastre, modo (tallado/silla/ambos), holgura, límites, silla y despeje, «Calcular y comprobar pose» en un hilo y vista conjunta con colores de diagnóstico. La lógica está en `gui/ride_pick.py` (sin GTK).
 

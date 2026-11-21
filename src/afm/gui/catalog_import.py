@@ -49,6 +49,16 @@ FORMS: dict[str, dict] = {
             Field("dentado", lz("catalog_import.del_dentado_mm"), FLOAT, 2.9), Field("juego", lz("catalog_import.juego_axial_mm"), FLOAT, 0.4),
             _ID, _DESC, _NEW],
     },
+    "agarre": {                                      # no es una importación de STL: taladra una mano que ya está en el catálogo (botón «Taladrar agarre…»)
+        "titulo": lz("catalog_import.taladrar_agarre_titulo"), "comando": "taladrar-mano",
+        "ayuda": lz("catalog_import.taladrar_agarre_ayuda"),
+        "campos": [
+            Field("mano", lz("catalog_import.mano_del_catalogo"), TEXT, "", False, (), lz("catalog_import.vacio_la_mas_reciente")),
+            Field("taladro", lz("catalog_import.del_taladro_de_la_mano_mm"), FLOAT, 2.4),
+            Field("vastago", lz("catalog_import.del_vastago_mm"), FLOAT, 2.0),
+            Field("ranura", lz("catalog_import.ancho_de_la_ranura_mm"), FLOAT, 0.5),
+            Field("largo_lengueta", lz("common.largo_de_la_lengueta_mm"), FLOAT, 8.0)],
+    },
     "arma": {
         "titulo": lz("catalog_import.importar_un_arma"), "comando": "importar-arma",
         "ayuda": lz("catalog_import.cualquier_stl_se_escala_se_le"),
@@ -125,6 +135,16 @@ def parse(kind: str, values: dict) -> dict:
     pid = (str(values.get("id", "")).strip() or None)
     new = bool(values.get("nueva_version", False))
     desc = str(values.get("descripcion", "")).strip()
+    if kind == "agarre":
+        kw = {}
+        for key, name, label in (("taladro", "bore_d", tr("catalog_import.del_taladro")), ("vastago", "shaft_d", tr("catalog_import.del_vastago")),
+                                 ("ranura", "slit_w", tr("catalog_import.ancho_de_la_ranura")), ("largo_lengueta", "finger_len", tr("catalog_import.largo_de_la_lengueta"))):
+            v = _num(values.get(key), label)
+            if v is not None:
+                if v <= 0:
+                    raise ValueError(tr("catalog_import.label_tiene_que_ser_mayor_que", label=label))
+                kw[name] = v
+        return {"stl": "", "args": (str(values.get("mano", "")).strip() or None,), "kwargs": kw}
     if kind == "mano":
         return {"stl": stl, "args": (), "kwargs": {"piece_id": pid, "new_version": new}}
     if kind == "accesorio":
@@ -172,6 +192,8 @@ def run(kind: str, root: str, parsed: dict) -> OPS.ImportResult:
     from ..catalog import Catalog
 
     cat = Catalog.open(root)
+    if kind == "agarre":
+        return OPS.drill_hand(cat, *parsed["args"], **parsed["kwargs"])
     fn = {"mano": OPS.import_hand, "accesorio": OPS.import_accessory, "arma": OPS.import_weapon, "pieza": OPS.add_loose_piece}[kind]
     return fn(cat, parsed["stl"], *parsed["args"], **parsed["kwargs"])
 

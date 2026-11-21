@@ -78,7 +78,11 @@
   "el_corte_son_tres_puntos_separados": "the cut is three points separated by “;”, each with three X,Y,Z numbers (decimals with a dot)",
   "label_tiene_que_ser_mayor_que": "%{label} must be greater than 0.",
   "giro": "Rotation",
-  "altura": "Height"
+  "altura": "Height",
+  "taladrar_agarre_titulo": "Drill a grip in a hand",
+  "taladrar_agarre_ayuda": "Finds the channel left by the fingers and the palm of a hand already in the catalog, drills it to the requested Ø and saves it as a new version of the same piece (the old one stays; the new one does not inherit the color). With Güemes's hand, 2.4 mm is almost the maximum.",
+  "mano_del_catalogo": "Catalog hand",
+  "vacio_la_mas_reciente": "Empty: the most recent one."
  },
  "common": {
   "largo_de_la_lengueta_mm": "Tab length (mm)",
@@ -414,7 +418,10 @@
   "retocar_sin_nada": "There are no strokes to export.",
   "retocar_importado": "Added %{n} strokes%{espejo}.",
   "retocar_espejado": " (mirrored)",
-  "retocar_no_entra": "Could not add the retouch: %{exc}"
+  "retocar_no_entra": "Could not add the retouch: %{exc}",
+  "taladrar_agarre": "Drill grip…",
+  "taladrar_agarre_ayuda": "Drills the weapon grip in the selected hand and saves it as a new version (afm catalogo taladrar-mano)",
+  "elegi_una_sola_mano": "Choose a single hand from the list."
  },
  "controller": {
   "arista_de_la_caja_mm": "Box edge (mm)",

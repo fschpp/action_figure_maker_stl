@@ -561,3 +561,41 @@ def add_to_catalog(res: GripResult, cat, barb: float | None = None, hand_id: str
     acc_meta, w2 = cat.add_accessory(S.to_printable_trimesh(prop), acc_id or "espada-prueba-01", accessory_grip(sp, res.fit.length),
                                      new_version, f"Espada de prueba con dentado Ø{sp.barb_d:g} mm", stem)
     return hand_meta, acc_meta, list(w1) + list(w2)
+
+
+def drill_catalog_hand(cat, ref: str, spec: GripSpec | None = None, new_version: bool = True, progress=None) -> tuple:
+    """Taladra el agarre en una mano que YA está en el catálogo y la guarda como versión nueva de esa misma pieza (mismo id, nombre y origen).
+
+    Es lo que hace `afm agarre --catalogo` pero partiendo de la pieza `mano` del catálogo y no de un STL suelto: la malla de la pieza está en el
+    marco de la mano estándar, así que se taladra igual. La versión nueva NO hereda el color (el taladro cambia la geometría); el anterior sigue
+    en el catálogo. Devuelve `(meta de la versión nueva, avisos, GripResult)`. `GripError` si la pieza no es una mano; `HandError` si no se
+    encuentra el canal."""
+    import json
+    import tempfile
+
+    from . import hand as H
+    from . import parts as PT
+
+    spec = spec or GripSpec()
+    old, mesh = cat.load(ref)
+    if old.tipo != "mano":
+        raise GripError(f"«{old.ref}» es una pieza «{old.tipo}»: solo se le taladra el agarre a una mano")
+    warns: list[str] = []
+    if (old.mecanismo or {}).get("agarre"):
+        warns.append(f"«{old.ref}» ya tenía agarre: se vuelve a taladrar sobre la mano taladrada")
+    with tempfile.TemporaryDirectory() as tmp:
+        stl = os.path.join(tmp, "mano.stl")
+        mesh.export(stl)
+        hand_meta = {"formato": H.HAND_FORMAT, "lado_origen": {"izq": "izquierda", "der": "derecha"}.get(old.lado, "izquierda"),
+                     "origen_figura": (old.origen or {}).get("figura", ""), "altura_figura_mm": old.altura_figura_mm}
+        with open(H.meta_path(stl), "w", encoding="utf-8") as f:
+            json.dump(hand_meta, f, ensure_ascii=False)
+        res = compute_grip(stl, spec, progress)
+        hand_path = write_grip_hand(res, os.path.join(tmp, "mano_agarre.stl"))
+        meta, new_mesh = PT.piece_from_standard_hand(hand_path, old.id)
+    meta.nombre, meta.etiquetas, meta.espejable = old.nombre, list(old.etiquetas), old.espejable
+    meta.origen = {**(old.origen or {}), "nota": f"mano taladrada a partir de {old.ref}"}
+    meta.descripcion = old.descripcion or meta.descripcion
+    new_meta, w = cat.add_piece(new_mesh, meta, new_version)
+    return new_meta, warns + list(w), res
+

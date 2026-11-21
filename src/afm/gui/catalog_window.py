@@ -228,6 +228,10 @@ class CatalogManagerWindow(Gtk.Window):
         self.btn_wrist.set_sensitive(False)
         self.btn_wrist.connect("clicked", self._on_wrist_start)
         bar.append(self.btn_wrist)
+        self.btn_grip = Gtk.Button(label=tr("catalog_window.taladrar_agarre"))
+        self.btn_grip.set_sensitive(False)
+        self.btn_grip.connect("clicked", self._on_grip_start)
+        bar.append(self.btn_grip)
         self.btn_joint = Gtk.Button(label=tr("catalog_window.reajustar_articulacion"))
         self.btn_joint.set_sensitive(False)
         self.btn_joint.connect("clicked", self._on_joint_start)
@@ -814,8 +818,25 @@ class CatalogManagerWindow(Gtk.Window):
         if ok and self._shown is None:
             ok, why = False, tr("catalog_window.no_hay_vista_previa_de_la")
         self.btn_wrist.set_sensitive(ok and self._cutter is None and self._jeditor is None and self._reditor is None)
+        self._sync_grip_button(refs)
         self._sync_rename_button(refs)
         self.btn_wrist.set_tooltip_text(tr("catalog_window.le_corta_la_mano_al_brazo") if ok else why)
+
+    def _sync_grip_button(self, refs: list[str]) -> None:
+        """«Taladrar agarre…» se puede usar con UNA mano elegida y sin otra tarea en curso."""
+        ok, why = False, tr("catalog_window.elegi_una_sola_mano")
+        if len(refs) == 1:
+            meta = next((m for _row, m in self._rows if m.ref == refs[0]), None)
+            ok = meta is not None and meta.tipo == "mano"
+        if ok and self.ctrl.busy:
+            ok, why = False, tr("common.espera_a_que_termine_la_tarea")
+        self.btn_grip.set_sensitive(ok and self._cutter is None and self._jeditor is None and self._reditor is None)
+        self.btn_grip.set_tooltip_text(tr("catalog_window.taladrar_agarre_ayuda") if ok else why)
+
+    def _on_grip_start(self, *_) -> None:
+        refs = self._selected_refs()
+        if len(refs) == 1 and self._ops_free():
+            ImportDialog(self, "agarre", self._start_import, initial={"mano": refs[0]}).present()
 
     def _on_wrist_start(self, *_) -> None:
         if self._shown is None or self._cutter is not None:
@@ -1999,7 +2020,7 @@ class CatalogManagerWindow(Gtk.Window):
 class ImportDialog(Gtk.Window):
     """Formulario de una importación (`catalog_import.FORMS[kind]`): archivo + parámetros. «Importar» valida y lanza la tarea."""
 
-    def __init__(self, parent: Gtk.Window, kind: str, start):
+    def __init__(self, parent: Gtk.Window, kind: str, start, initial: dict | None = None):
         form = CI.FORMS[kind]
         super().__init__(title=form["titulo"], transient_for=parent, modal=True, default_width=620)
         self.kind, self._start, self._form = kind, start, form
@@ -2018,13 +2039,17 @@ class ImportDialog(Gtk.Window):
                 lab.set_tooltip_text(f.help)
             grid.attach(w, 1, r, 1, 1)
         outer.append(grid)
+        for key, val in (initial or {}).items():                  # valores de partida (p. ej. la mano elegida en la lista)
+            w = self._w.get(key)
+            if isinstance(w, Gtk.Entry):
+                w.set_text(str(val))
         self.lbl_error = Gtk.Label(label="", xalign=0, wrap=True)
         self.lbl_error.add_css_class("error")
         outer.append(self.lbl_error)
         bar = Gtk.Box(spacing=8, halign=Gtk.Align.END)
         cancel = Gtk.Button(label=tr("common.cancelar"))
         cancel.connect("clicked", lambda *_: self.close())
-        go = Gtk.Button(label=tr("catalog_window.importar_2"))
+        go = Gtk.Button(label=tr("catalog_window.taladrar_agarre").rstrip("…") if kind == "agarre" else tr("catalog_window.importar_2"))
         go.add_css_class("suggested-action")
         go.connect("clicked", self._on_go)
         bar.append(cancel)
