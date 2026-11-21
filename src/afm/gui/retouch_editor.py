@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from ..retouch import Retouch
+from ..retouch import MIN_DOT, Retouch
 from .camera import OrbitCamera
 from .catalog_manager import preview_camera, view_bounds, widget_to_image
 from .picking import Picker
@@ -18,6 +18,36 @@ from .retouch_session import ERASE, FILL, PAINT, RetouchSession
 
 OVERLAY_MAX_POINTS = 3000          # puntos que se dibujan encima de la pieza (los más recientes): dibujar 20 000 en cada movimiento sobra
 ERASER_COLOR = (1.0, 1.0, 1.0, 1.0)
+HOVER_MAX_EDGES = 6000             # aristas que se resaltan como máximo (con el pincel grande sobre una malla densa)
+
+
+def brush_faces(mesh, c, n, radius: float, only_nearest: bool = False) -> np.ndarray:
+    """Índices de las caras que el pincel de radio `radius` en `c` (normal `n`) alcanzaría a pintar: las que tienen su centro o algún
+    vértice a menos de `radius` mm de `c` y una normal compatible con `n` (el mismo criterio de `MIN_DOT` del horneado). Siempre incluye la
+    cara más cercana. `only_nearest=True` devuelve solo esa (la semilla de «Rellenar región», cuyo alcance real depende del color)."""
+    c = np.asarray(c, float)
+    tri = np.asarray(mesh.triangles, float)                          # (F, 3, 3)
+    d_v = np.linalg.norm(tri - c, axis=2)                            # (F, 3)
+    d_c = np.linalg.norm(tri.mean(axis=1) - c, axis=1)               # (F,)
+    d = np.minimum(d_v.min(axis=1), d_c)
+    near = int(np.argmin(d_c))
+    if only_nearest:
+        return np.array([near])
+    ok = d <= float(radius)
+    if n is not None:
+        ok &= np.asarray(mesh.face_normals, float) @ np.asarray(n, float) >= MIN_DOT
+    ok[near] = True
+    idx = np.flatnonzero(ok)
+    return idx
+
+
+def face_edges(mesh, faces: np.ndarray, limit: int = HOVER_MAX_EDGES) -> np.ndarray:
+    """Aristas (sin repetir) de `faces` como segmentos `(E, 2, 3)` en el marco de la malla; como mucho `limit`."""
+    e = np.asarray(mesh.faces)[faces][:, [0, 1, 1, 2, 2, 0]].reshape(-1, 2)
+    e = np.unique(np.sort(e, axis=1), axis=0)
+    if len(e) > limit:
+        e = e[:: int(np.ceil(len(e) / limit))]
+    return np.asarray(mesh.vertices, float)[e]
 
 
 def _rgba(hex_color: str | None, alpha: float = 1.0):
@@ -35,6 +65,7 @@ class RetouchEditor:
         self._picker: Picker | None = None
         self.message = ""
         self.result_shown = False                  # la vista ya muestra el color real del retoque sin guardar («Ver resultado»)
+        self._hover: np.ndarray | None = None      # aristas (E, 2, 3) de lo que el pincel pintaría bajo el mouse (None = nada)
 
     # ------------------------------------------------------------------ picking
     def camera(self, image_size, yaw_off: float, pitch_off: float, zoom: float, pan) -> OrbitCamera:
@@ -81,6 +112,30 @@ class RetouchEditor:
             self.message = f"máx. de pinceladas alcanzado ({len(self.session)})"
         return n
 
+    # ------------------------------------------------------------------ resaltado bajo el mouse
+    def hover(self, *pick_args, **pick_kw) -> bool:
+        """El mouse está sobre la vista: calcula las aristas de las caras que se pintarían con un clic ahí (el pincel actual; en «Rellenar»,
+        la cara donde empezaría el relleno). Devuelve `True` si el resaltado cambió (hay que redibujar)."""
+        p = self.pick(*pick_args, **pick_kw)
+        if p is None:
+            return self.clear_hover()
+        c, n = p
+        faces = brush_faces(self.mesh, c, n, self.session.radius, only_nearest=self.session.mode == FILL)
+        new = face_edges(self.mesh, faces)
+        changed = self._hover is None or self._hover.shape != new.shape or not np.array_equal(self._hover, new)
+        self._hover = new
+        return changed
+
+    def clear_hover(self) -> bool:
+        """Quita el resaltado (el mouse salió de la pieza o de la vista). `True` si había uno."""
+        had = self._hover is not None
+        self._hover = None
+        return had
+
+    def hover_segments(self) -> np.ndarray | None:
+        """Aristas `(E, 2, 3)` a resaltar encima de la pieza, o `None`."""
+        return self._hover
+
     # ------------------------------------------------------------------ dibujo
     def overlay(self) -> dict:
         """Lo que se dibuja encima de la pieza: `{nombre: (puntos Nx3, rgba)}`, un grupo por rol (el borrador, en blanco). Son los centros de las
@@ -117,4 +172,4 @@ class RetouchEditor:
         return meta
 
 
-__all__ = ["RetouchEditor", "PAINT", "ERASE", "FILL", "OVERLAY_MAX_POINTS"]
+__all__ = ["RetouchEditor", "PAINT", "ERASE", "FILL", "OVERLAY_MAX_POINTS", "HOVER_MAX_EDGES", "brush_faces", "face_edges"]

@@ -62,6 +62,7 @@ class CatalogManagerWindow(Gtk.Window):
         self._rpaint = False                         # hay un trazo del pincel en curso (arrastre con el botón izquierdo)
         self._rupdating = False
         self._rbusy = 0                              # «Ver resultado» en curso (hilo)
+        self._hover_idle = 0                         # GLib source del redibujado pendiente del resaltado bajo el pincel
         self._rview_pending = False                  # se soltó el pincel con un «Ver resultado» en curso: recalcular al terminar
         self._pending_select = ""                    # pieza recién importada que hay que dejar elegida
         self._task_label = ""                        # tarea larga de catálogo en curso (certificar, compatibilidad…); "" = ninguna
@@ -204,7 +205,8 @@ class CatalogManagerWindow(Gtk.Window):
         pinch.connect("scale-changed", self._on_pinch)
         self.picture.add_controller(pinch)
         motion = Gtk.EventControllerMotion()
-        motion.connect("motion", lambda _c, x, y: setattr(self, "_cursor", (x, y)))
+        motion.connect("motion", self._on_picture_motion)
+        motion.connect("leave", self._on_picture_leave)
         self.picture.add_controller(motion)
         frame = Gtk.Frame()
         frame.set_child(self.picture)
@@ -1376,6 +1378,9 @@ class CatalogManagerWindow(Gtk.Window):
         self._reditor = None
         self._rpaint = False
         self._rview_pending = False
+        if self._hover_idle:
+            GLib.source_remove(self._hover_idle)
+            self._hover_idle = 0
         self.retouch_panel.set_visible(False)
         self._color_shown = None
         self._sync_wrist_button(self._selected_refs())
@@ -1815,6 +1820,7 @@ class CatalogManagerWindow(Gtk.Window):
                 cs = getattr(self, "_color_shown", None)
                 cparts = cs[1] if cs is not None and cs[0] == meta.ref else None
                 img = self.preview.render(mesh, meta, self._dyaw, self._dpitch, None, zoom=self._zoom, pan=self._pan, color_parts=cparts, guides=False,      # al retocar el color no se dibujan los pasadores ni el plano de la articulación
+                                          hover=re_.hover_segments(),            # y se iluminan las aristas que el pincel pintaría bajo el mouse
                                           overlay=re_.overlay(), dot_px=re_.dot_size_px(self._img_size, self._dyaw, self._dpitch, self._zoom, self._pan))
             elif c is not None and c.preview_parts() is not None:          # corte calculado: brazo sin mano en gris y la mano en verde
                 img = self.preview.render_parts(c.preview_parts(), self._dyaw, self._dpitch, c.marks(),
@@ -1877,6 +1883,32 @@ class CatalogManagerWindow(Gtk.Window):
         c.pick_at(x, y, (float(self.picture.get_width()), float(self.picture.get_height())), self._img_size, self._dyaw, self._dpitch,
                     self._zoom, self._pan)
         self._wrist_refresh()
+
+    def _on_picture_motion(self, _c, x: float, y: float) -> None:
+        """El mouse se mueve sobre la vista previa: guarda el cursor y, retocando, ilumina las aristas que el pincel pintaría ahí."""
+        self._cursor = (x, y)
+        re_ = self._reditor
+        if re_ is None or self._shown is None:
+            return
+        if re_.hover(x, y, self._widget_size(), self._img_size, self._dyaw, self._dpitch, self._zoom, self._pan):
+            self._schedule_hover_redraw()
+
+    def _on_picture_leave(self, *_) -> None:
+        if self._reditor is not None and self._reditor.clear_hover():
+            self._schedule_hover_redraw()
+
+    def _schedule_hover_redraw(self) -> None:
+        """Un solo redibujado por vuelta del bucle principal: si el mouse se mueve rápido solo se dibuja la última posición."""
+        if self._hover_idle:
+            return
+
+        def run():
+            self._hover_idle = 0
+            if self._reditor is not None:
+                self._redraw()
+            return False
+
+        self._hover_idle = GLib.idle_add(run)
 
     def _on_drag(self, _g, dx: float, dy: float) -> None:
         if self._rpaint and self._reditor is not None:                # pintando: el arrastre no gira la vista

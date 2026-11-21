@@ -1,3 +1,14 @@
+## Current Focus — Retocar color: resaltar bajo el mouse lo que el pincel pintaría (2026-11-21)
+En modo «Retocar color…», al pasar el mouse sobre la pieza se iluminan (cian) las aristas de las caras que un clic pintaría: las que están a menos del radio del pincel con normal compatible (`MIN_DOT`); en «Rellenar», solo la cara donde empezaría el relleno.
+
+### Todo List
+- [x] Done: `retouch_editor.brush_faces` / `face_edges` / `RetouchEditor.hover*` (sin GTK, tope `HOVER_MAX_EDGES` = 6000); `PreviewRenderer._hover` y parámetro `hover=` de `render`; `catalog_window` (`_on_picture_motion`, `_on_picture_leave`, redibujado con `GLib.idle_add` agrupado); `tests/test_retouch_editor.py` (+4)
+- [ ] Todo: probar a mano en la ventana real (arrastrar pintando, zoom, pieza densa)
+
+### Latest Blockers/Discoveries
+- El resaltado en «Rellenar» muestra solo la semilla: el alcance real del relleno depende del color y no se calcula al pasar el mouse.
+- NO verificado: la ventana GTK (sin GTK/EGL en este entorno).
+
 ## Current Focus — Taladrar agarre en una mano del catálogo (2026-11-21)
 Botón «Taladrar agarre…» en «Administrar catálogo» (una mano elegida) y `afm catalogo taladrar-mano [--mano REF] [--taladro …]`: taladra el agarre sobre la pieza `mano` del catálogo y la guarda como versión nueva del mismo id (nombre, origen y etiquetas se conservan; el color NO se hereda). Así el catálogo ya tiene una «mano con agarre» y se pueden guardar armas. `props.drill_catalog_hand`, `catalog_ops.drill_hand`, formulario `catalog_import.FORMS["agarre"]`.
 - Probado con la mano de Güemes de `proceres-127` (`@2` → `@3`): taladro Ø2,4, canal 10 mm, pared 2,55 mm, apoyo del dentado ≈220° (aviso). `line_hand` la encuentra. `tests/test_catalog_drill_hand.py` (6, con el taladro simulado).

@@ -363,12 +363,23 @@ class PreviewRenderer:
             off.scene.set_points(name, np.asarray(pts, float), rgba, size=float(dot_px), on_top=False)
         self._overlay_names = wanted
 
+    HOVER_COLOR = (0.35, 1.0, 1.0, 1.0)          # aristas que se iluminan bajo el pincel (modo «Retocar»)
+
+    def _hover(self, off, segments) -> None:
+        """Aristas `(E, 2, 3)` resaltadas encima de la pieza (lo que el pincel pintaría bajo el mouse); `None` las quita."""
+        if segments is None or len(segments) == 0:
+            if "hover_pincel" in off.scene.items:
+                off.scene.remove("hover_pincel")
+            return
+        off.scene.set_lines("hover_pincel", np.asarray(segments, float), self.HOVER_COLOR, on_top=False, width=2.0)
+
     def render(self, mesh, meta: PieceMeta | None = None, yaw_off: float = 0.0, pitch_off: float = 0.0, marks=None,
-               zoom: float = 1.0, pan=(0.0, 0.0), color_parts=None, overlay=None, dot_px: float = 14.0, guides: bool = True) -> np.ndarray:
+               zoom: float = 1.0, pan=(0.0, 0.0), color_parts=None, overlay=None, dot_px: float = 14.0, guides: bool = True, hover=None) -> np.ndarray:
         """Imagen RGBA (alto × ancho × 4, uint8) de `mesh` en vista 3/4; `yaw_off` / `pitch_off` giran la vista (°).
         `marks`: puntos (Nx3) a marcar encima, p. ej. los de la muñeca. `color_parts` (`colorpreview.piece_color_parts`): la misma pieza
         partida por color, `[(nombre, malla, rgba)]`; con ella la pieza se dibuja a color en lugar de gris (pasadores y ejes igual).
-        `guides=False` deja afuera los pasadores, los puertos y el plano de la articulación (p. ej. al retocar el color)."""
+        `guides=False` deja afuera los pasadores, los puertos y el plano de la articulación (p. ej. al retocar el color).
+        `hover`: aristas `(E, 2, 3)` a resaltar (lo que el pincel pintaría bajo el mouse)."""
         off = self._ensure()
         if off is None:
             raise RuntimeError(self.error or tr("catalog_manager.sin_vista_previa"))
@@ -394,6 +405,7 @@ class PreviewRenderer:
                 self._overlay_names = set()                          # scene.clear() ya se llevó las capas
             self._marks(off, marks)
             self._overlay(off, overlay, dot_px)
+            self._hover(off, hover)
             return off.render(preview_camera(view_bounds(mesh, meta), off.width / off.height, yaw_off, pitch_off, zoom, pan))
 
     def render_parts(self, parts, yaw_off: float = 0.0, pitch_off: float = 0.0, marks=None, bounds=None,

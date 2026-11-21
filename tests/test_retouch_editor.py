@@ -145,3 +145,57 @@ def test_color_cache_key_changes_with_saved_retouch(line):
     cat.set_retouch(REF, Retouch([Stroke(tuple(np.asarray(mesh.vertices)[0]), 2.0, cat.palette().ids()[0])]))
     after = cat.meta(REF).color["retoque"]["sha256"]
     assert before is None and len(after) == 64
+
+
+# ---------------------------------------------------------------- resaltado bajo el mouse
+def test_brush_faces_respects_radius_and_normal(ed):
+    from afm.gui.retouch_editor import brush_faces
+
+    _cat, e = ed
+    x, y = center_click(e)
+    c, n = e.pick(x, y, WIDGET, IMG)
+    small = brush_faces(e.mesh, c, n, 0.5)
+    big = brush_faces(e.mesh, c, n, 1e6)
+    assert len(small) >= 1 and len(big) >= len(small)
+    assert set(small) <= set(big)
+    assert (e.mesh.face_normals[big] @ n >= 0.3 - 1e-9).all() or len(big) == 1   # MIN_DOT
+    only = brush_faces(e.mesh, c, n, 1e6, only_nearest=True)
+    assert len(only) == 1 and only[0] in small
+
+
+def test_face_edges_unique_and_capped(ed):
+    from afm.gui.retouch_editor import face_edges
+
+    _cat, e = ed
+    faces = np.arange(len(e.mesh.faces))
+    seg = face_edges(e.mesh, faces, limit=10_000_000)
+    assert seg.shape[1:] == (2, 3)
+    assert len(seg) == len(e.mesh.edges_unique)
+    assert len(face_edges(e.mesh, faces, limit=5)) <= 5
+
+
+def test_hover_changes_and_clears(ed):
+    _cat, e = ed
+    assert e.hover_segments() is None and not e.clear_hover()
+    x, y = center_click(e)
+    assert e.hover(x, y, WIDGET, IMG) is True
+    assert e.hover_segments() is not None and len(e.hover_segments()) > 0
+    assert e.hover(x, y, WIDGET, IMG) is False                 # misma posición: no hay que redibujar
+    assert e.hover(0.5, 0.5, WIDGET, IMG) is True              # cae al fondo: se quita
+    assert e.hover_segments() is None
+
+
+def test_preview_hover_adds_and_removes_layer():
+    from afm.gui.catalog_manager import PreviewRenderer
+
+    class Scene:
+        def __init__(self): self.items, self.lines = {}, {}
+        def set_lines(self, name, segs, color, on_top=False, width=1.0): self.items[name] = 1; self.lines[name] = (len(segs), color, width)
+        def remove(self, name): self.items.pop(name, None)
+
+    off = type("Off", (), {"scene": Scene()})()
+    pr = PreviewRenderer.__new__(PreviewRenderer)
+    pr._hover(off, np.zeros((4, 2, 3)))
+    assert off.scene.lines["hover_pincel"][0] == 4 and "hover_pincel" in off.scene.items
+    pr._hover(off, None)
+    assert "hover_pincel" not in off.scene.items
