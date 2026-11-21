@@ -7,6 +7,7 @@ from __future__ import annotations
 from ..i18n import tr, lz, loc
 
 import dataclasses
+import json
 import os
 import re
 
@@ -16,7 +17,10 @@ from ..catalog import Catalog, CatalogError
 from ..customize import is_identity, normalize_scale, scale_vector
 from ..hand import DEFAULT_OVERLAP_MM
 from ..mount import DEFAULT_CLEARANCE, DEFAULT_STATIONS, MOUNT_PLACES, MountError, MountSpec
+from ..equestrian import CarveLimits, HorseError, ReliefSpec, SaddleError, SaddleSpec, horse_back_z
+from ..horse_library import HorseLibrary, parse_horse_ref
 from ..recipe import PLACES, SCALE_PLACES, Recipe, RecipeError, accessory_fit
+from ..ride import RideSpec, geometry_hash, resolve_horse
 
 # lugar -> tipos de pieza que acepta (el torso puede ser entero o solo la parte de arriba)
 PLACE_TYPES = {"torso": ("torso", "torso_sup"), "pelvis": ("pelvis",), "cabeza": ("cabeza",), "brazo": ("brazo",),
@@ -27,6 +31,8 @@ NONE_LABEL = lz("common.ninguna")
 HAND_JOINS = ("solape", "giro")
 MOUNT_DEFAULT_DIRECTION = (0.0, 0.0, -1.0)      # empuñadura arriba y punta hacia abajo: la gravedad apoya la guarda en el puente (M07)
 MOUNT_FIELDS_EDITABLE = ("arma", "lugar", "lado", "tipo", "ancla", "direccion", "holgura", "pared", "estaciones")
+RIDE_DEFAULTS = {"asiento": None, "direccion": (0.0, 1.0, 0.0), "inclinacion": 0.0, "modo": "tallado", "silla": None, "relieve": None,
+                 "holgura": None, "limites": None}
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _RANK = {"ok": 0, "aviso": 1, "no": 2}
 FIT_TEXT = {"ok": "ok", "aviso": lz("figure_builder.aviso"), "no": lz("figure_builder.no_se_sujeta"), "sin_datos": lz("figure_builder.sin_datos_de_agarre")}   # accesorio vs. mano elegida
@@ -50,6 +56,11 @@ class FigureBuilder:
         self.flat = False                                                               # «imprimir sin soportes»: aplana piernas y cola, los brazos giran hacia adelante
         self.flat_depth: float | None = None                                            # altura del corte sobre la cola (mm); None = la de la línea (`Params.flat_depth`)
         self.fill_hip = False                                                           # con `flat`: el muslo se queda con la loncha de pelvis que saca el corte
+        self.horse: str | None = None                                                   # E14: «id@versión» del caballo de la biblioteca de la línea (None = sin caballo)
+        self.ride: dict = dict(RIDE_DEFAULTS)                                           # E14: asiento y ajustes de la cabalgadura (marco del caballo, mm)
+        self.ride_hash: str | None = None                                               # E14: hash de la geometría derivada de la última vez que se validó
+        self._ride_sha: str | None = None                                               # SHA-256 del STL del caballo elegido (el que fija la receta)
+        self._ride_cache: dict = {}                                                     # E14: figura armada, caballo abierto y ajuste (para `check_ride`)
         self._built: dict | None = None                                                 # T48: último armado (Colorizer, carpeta, nombre, geometría) para recolorear
 
     # ------------------------------------------------------------------ catálogo
@@ -279,6 +290,195 @@ class FigureBuilder:
     def scale_of(self, place: str) -> list[float]:
         return list(self.scales.get(place, (1.0, 1.0, 1.0)))
 
+    # ------------------------------------------------------------------ cabalgadura (E14): caballo, asiento y ajustes
+    def horse_library(self) -> HorseLibrary:
+        return HorseLibrary(self.root)
+
+    def horses(self) -> list:
+        """Los caballos de la biblioteca de la línea (la última versión de cada id)."""
+        return self.horse_library().list()
+
+    def add_horse(self, stl_path: str, hid: str, **campos):
+        """Agrega un caballo STL a la biblioteca (`HorseLibrary.add`: `nombre`, `escala`, `yaw`, `ref_tipo`, `ref_mm`, `new_version`)."""
+        return self.horse_library().add(stl_path, hid, **campos)
+
+    def _ride_changed(self) -> None:
+        self.ride_hash = None                              # el hash validado ya no es de lo que hay ahora
+        self._ride_cache.pop("fit", None)
+
+    def set_horse(self, ref: str | None) -> None:
+        """Elige el caballo (`id` = su última versión, o `id@versión`); None quita la cabalgadura. Cambiar de caballo borra el asiento
+        (está en el marco de ese caballo); elegir el mismo no cambia nada."""
+        if ref is None:
+            self.clear_ride()
+            return
+        try:
+            meta = self.horse_library().meta(ref)
+        except HorseError as exc:
+            raise ValueError(str(exc)) from exc
+        if meta.ref != self.horse:
+            self.horse, self._ride_sha = meta.ref, meta.spec.sha256
+            self.ride = {**RIDE_DEFAULTS, "modo": self.ride["modo"]}
+            self._ride_cache.clear()
+            self._ride_changed()
+
+    def clear_ride(self) -> None:
+        self.horse, self._ride_sha, self.ride = None, None, dict(RIDE_DEFAULTS)
+        self._ride_cache.clear()
+        self.ride_hash = None
+
+    def _spec_from(self, ride: dict) -> RideSpec:
+        return RideSpec(caballo=self.horse, sha256=self._ride_sha, asiento=ride["asiento"] or (0.0, 0.0, 0.0), direccion=ride["direccion"],
+                        inclinacion=ride["inclinacion"], modo=ride["modo"], silla=ride["silla"], relieve=ride["relieve"],
+                        holgura=ride["holgura"], limites=ride["limites"])
+
+    def _set_ride(self, **campos) -> None:
+        """Cambia campos de la cabalgadura; si el resultado no es válido (`RideSpec`) no cambia nada y levanta `ValueError`."""
+        if not self.horse:
+            raise ValueError(tr("figure_builder.elegi_un_caballo"))
+        new = {**self.ride, **campos}
+        try:
+            self._spec_from(new)
+        except (HorseError, SaddleError) as exc:
+            raise ValueError(str(exc)) from exc
+        self.ride = new
+        self._ride_changed()
+
+    def set_seat(self, asiento=None, direccion=None, inclinacion: float | None = None) -> None:
+        """Punto del asiento y dirección hacia la cabeza (marco del caballo, mm) e inclinación del jinete (grados)."""
+        c = {}
+        if asiento is not None:
+            c["asiento"] = tuple(float(v) for v in asiento) if len(asiento) == 3 else asiento
+        if direccion is not None:
+            c["direccion"] = tuple(float(v) for v in direccion) if len(direccion) == 3 else direccion
+        if inclinacion is not None:
+            c["inclinacion"] = inclinacion
+        self._set_ride(**c)
+
+    def horse_model(self):
+        """El caballo elegido, abierto (con el hash de la biblioteca verificado) y guardado para no cargarlo dos veces."""
+        if not self.horse:
+            raise ValueError(tr("figure_builder.elegi_un_caballo"))
+        key = (self.horse, self._ride_sha)
+        if self._ride_cache.get("horse_key") != key:
+            try:
+                self._ride_cache["horse"] = self.horse_library().open(self.horse)
+            except HorseError as exc:
+                raise ValueError(str(exc)) from exc
+            self._ride_cache["horse_key"] = key
+        return self._ride_cache["horse"]
+
+    def seat_on_back(self, x: float, y: float, direccion=None) -> tuple:
+        """Pone el asiento en el punto más alto del caballo bajo `(x, y)` (el clic sobre el lomo) y lo devuelve."""
+        z = horse_back_z(self.horse_model(), float(x), float(y))
+        if z is None:
+            raise ValueError(tr("figure_builder.sin_lomo", x=f"{x:g}", y=f"{y:g}"))
+        self.set_seat((float(x), float(y), z), direccion)
+        return self.ride["asiento"]
+
+    def set_ride_mode(self, modo: str) -> None:
+        """`tallado`, `silla` o `ambos`. Lo que no corresponde al modo nuevo se descarta (la silla no va con `tallado`; los límites no van con `silla`)."""
+        c: dict = {"modo": modo}
+        if modo == "tallado":
+            c.update(silla=None, relieve=None)
+        elif modo == "silla":
+            c["limites"] = None
+        self._set_ride(**c)
+
+    def set_saddle(self, **campos) -> None:
+        """Medidas de la silla (`SaddleSpec`: ancho, largo, alto, bajada, encaje, desplazamiento) sobre las que ya hay; sin argumentos, las de siempre."""
+        try:
+            cur = self.ride["silla"] or SaddleSpec()
+            self._set_ride(silla=dataclasses.replace(cur, **campos))
+        except (SaddleError, TypeError) as exc:
+            raise ValueError(str(exc)) from exc
+
+    def set_relief(self, **campos) -> None:
+        """Despeje y faldones (`ReliefSpec`: clearance, skirt_drop, skirt_thick)."""
+        try:
+            cur = self.ride["relieve"] or ReliefSpec()
+            self._set_ride(relieve=dataclasses.replace(cur, **campos))
+        except (SaddleError, TypeError) as exc:
+            raise ValueError(str(exc)) from exc
+
+    def set_ride_clearance(self, holgura: float | None) -> None:
+        """Holgura ecuestre en mm; None = la de la línea."""
+        self._set_ride(holgura=holgura)
+
+    def set_ride_limits(self, **campos) -> None:
+        """Límites del tallado (`CarveLimits`: max_depth, min_wall, max_removed_frac, zone); sin argumentos, los de siempre."""
+        try:
+            cur = self.ride["limites"] or CarveLimits(min_wall=self.catalog().params.min_wall)
+            self._set_ride(limites=dataclasses.replace(cur, **campos))
+        except (HorseError, TypeError) as exc:
+            raise ValueError(str(exc)) from exc
+
+    def ride_spec(self) -> RideSpec | None:
+        """La cabalgadura lista para la receta, o None si falta el caballo o el asiento. Levanta `ValueError` si algo no es válido."""
+        if not self.horse or self.ride["asiento"] is None:
+            return None
+        try:
+            return self._spec_from(self.ride).with_geometry_hash(self.ride_hash)
+        except (HorseError, SaddleError) as exc:
+            raise ValueError(str(exc)) from exc
+
+    def ride_problems(self) -> list[str]:
+        """Lo que falta o sobra de la cabalgadura antes de armar (vacío = sin caballo o lista)."""
+        if not self.horse:
+            return []
+        out = []
+        hid, v = parse_horse_ref(self.horse)
+        if v not in self.horse_library().versions(hid):
+            out.append(tr("figure_builder.caballo_no_esta", ref=self.horse))
+        if self.ride["asiento"] is None:
+            out.append(tr("figure_builder.caballo_falta_asiento"))
+        else:
+            try:
+                self.ride_spec()
+            except ValueError as exc:
+                out.append(str(exc))
+        if self.flat:
+            out.append(tr("figure_builder.caballo_sin_soportes"))
+        return out
+
+    def check_ride(self, progress=None):
+        """«Calcular y comprobar pose» (flujo 4.6): arma la figura (sin caballo), monta el caballo con `RidingFitter` y devuelve el `FitResult`
+        (`ok`, `problems`, `warnings`, `validation`, `assembly`). No exporta nada. La figura armada y el caballo se guardan: al cambiar solo el
+        asiento, la silla o los límites no se arma de nuevo. Si pasa, guarda el hash de la geometría derivada para la receta. Tarda."""
+        from ..equestrian import RidingFitter
+        from ..horse_cli import ride_params
+        from ..recipe import assemble
+
+        spec = self.ride_spec()
+        if spec is None:
+            raise ValueError(tr("figure_builder.falta_asiento_para_comprobar"))
+        bad = [p for p in self.problems() if p not in self.ride_problems()]
+        if bad:
+            raise ValueError("; ".join(bad))
+        base = dataclasses.replace(self.recipe(), cabalgadura={})
+        key = json.dumps(base.to_dict(), sort_keys=True)
+        if self._ride_cache.get("asm_key") != key:
+            self._ride_cache["asm"] = assemble(base, self.root, progress=progress)
+            self._ride_cache["asm_key"] = key
+        asm = self._ride_cache["asm"]
+        horse = self.horse_model()
+        fitter = RidingFitter(horse, asm, params=ride_params(asm, spec), limits=spec.carve_limits(asm.params.min_wall))
+        fit = fitter.fit(**spec.fit_kwargs())
+        self._ride_cache["fit"] = fit
+        if fit.ok:
+            self.ride_hash = geometry_hash(fit.assembly)
+        return fit
+
+    def ride_warnings(self) -> list[str]:
+        """Avisos del caballo guardado en la receta (p. ej. su SHA-256 cambió: revalidar)."""
+        spec = self.ride_spec() if self.horse else None
+        if spec is None:
+            return []
+        hid, v = parse_horse_ref(self.horse)
+        if v not in self.horse_library().versions(hid):
+            return [tr("figure_builder.caballo_no_esta", ref=self.horse)]
+        return resolve_horse(spec, self.horse_library())[1]
+
     # ------------------------------------------------------------------ receta y armado
     def recipe(self) -> Recipe:
         cat = self.catalog()
@@ -295,7 +495,12 @@ class FigureBuilder:
             ajustes["escalas"] = esc
         if self.mounts:
             ajustes["monturas"] = [m.to_dict() for m in self.mounts]
-        return Recipe(self.name, cat.name, lugares, opciones, ajustes, list(self.accessories), self.effective_overrides(cat))
+        try:                                                  # E14: una cabalgadura inválida la dice `problems()`; la receta sale sin ella
+            ride = self.ride_spec()
+        except ValueError:
+            ride = None
+        return Recipe(self.name, cat.name, lugares, opciones, ajustes, list(self.accessories), self.effective_overrides(cat),
+                      ride.to_dict() if ride is not None else {})
 
     def load_recipe(self, path: str) -> list[str]:
         """Carga una receta (`afm-receta-1`) para retocarla: piezas, opciones, mano y escalas pasan al constructor. Es de
@@ -335,6 +540,16 @@ class FigureBuilder:
                 self.mounts.append(self._make_mount(raw))
             except (ValueError, MountError, TypeError, AttributeError) as exc:
                 warns.append(tr("figure_builder.montura_n_se_descarto", n=i, exc=exc))
+        self.clear_ride()                                     # E14: la cabalgadura de la receta (si trae)
+        try:
+            ride = r.ride_spec()
+        except ValueError as exc:
+            ride = None
+            warns.append(tr("figure_builder.cabalgadura_descartada", exc=exc))
+        if ride is not None:
+            self.horse, self._ride_sha, self.ride_hash = ride.caballo, ride.sha256, ride.hash_geometria
+            self.ride = {k: getattr(ride, k) for k in RIDE_DEFAULTS}
+            warns += self.ride_warnings()
         self.name = r.personaje
         self.choices = choices
         if not self.waist:
@@ -548,6 +763,7 @@ class FigureBuilder:
         if self.choices.get("mano") and not self.choices.get("brazo"):
             out.append(tr("figure_builder.la_mano_se_acopla_a_la"))
         out += self.recipe().problems()
+        out += self.ride_problems()
         return list(dict.fromkeys(out))
 
     def save_recipe(self) -> str:
@@ -654,7 +870,10 @@ class FigureBuilder:
         flat = None if not self.flat else (-1.0 if self.flat_depth is None else float(self.flat_depth))      # -1: la altura de la línea
         info = run_armar(recipe_path, outdir, self.name, self.root, progress=progress, orient=orient, keep=keep, flat=flat,
                          fill_hip=bool(self.flat and self.fill_hip))
-        info["ensamblada"] = os.path.join(outdir, info["archivos"]["ensamblada"])
+        cab = info.get("cabalgadura")                                      # E14: con caballo, si el asiento no pasa no se exporta el conjunto
+        info["ensamblada"] = os.path.join(outdir, info["archivos"]["ensamblada"]) if info["archivos"].get("ensamblada") else None
+        if cab and cab.get("ok"):
+            self.ride_hash = cab.get("hash_geometria")
         self._mount_report = ([m.to_dict() for m in self.mounts], info["monturas"]) if info.get("monturas") else None
         self._built = {"colorizer": keep.get("colorizer"), "outdir": outdir, "name": self.name, "geom": self._geometry_key(),
                        "overrides": self.effective_overrides()}

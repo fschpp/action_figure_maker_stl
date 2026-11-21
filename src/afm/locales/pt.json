@@ -1039,7 +1039,14 @@
   "montura_campo_desconocido": "Campo de suporte desconhecido: %{campo} (há %{hay}).",
   "no_hay_una_montura_numero": "Não há um suporte número %{n}.",
   "montura_n_se_descarto": "O suporte %{n} foi descartado: %{exc}",
-  "montura_sin_pieza_base": "Não há uma peça escolhida em «%{lugar}» para guardar o suporte."
+  "montura_sin_pieza_base": "Não há uma peça escolhida em «%{lugar}» para guardar o suporte.",
+  "caballo_no_esta": "O cavalo «%{ref}» não está na biblioteca da linha (importe-o com «afm caballo agregar»).",
+  "caballo_falta_asiento": "Você escolheu um cavalo: falta marcar o assento sobre o lombo.",
+  "caballo_sin_soportes": "Com cavalo o conjunto se apoia em z = 0 sem achatar: desative «imprimir sem suportes».",
+  "cabalgadura_descartada": "A cavalgadura da receita foi descartada: %{exc}",
+  "elegi_un_caballo": "Escolha um cavalo antes de marcar o assento.",
+  "sin_lomo": "Não há cavalo sob o ponto (%{x}, %{y}): o assento tem que ficar sobre o lombo.",
+  "falta_asiento_para_comprobar": "Falta escolher o cavalo e marcar o assento para verificar a pose."
  },
  "figure_window": {
   "sin_soportes_altura_del_corte": "Altura do corte sobre a cauda (mm)",

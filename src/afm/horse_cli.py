@@ -147,6 +147,12 @@ def open_ride_horse(ride: RideSpec, catalog_root: str):
     return lib, model, warns
 
 
+def ride_params(asm, ride: RideSpec):
+    """`Params` del ajuste: la holgura ecuestre de la receta (plano 7.2) reemplaza a la de la línea solo en el ajuste (tallado, despeje y
+    validación); el jinete se exporta con la suya."""
+    return asm.params if ride.holgura is None else dataclasses.replace(asm.params, clearance=ride.holgura)
+
+
 def armar_ecuestre(asm, ride: RideSpec, model, outdir: str, name: str, progress=print, items=None, warns=None, fijar_geometria: bool = False) -> dict:
     """Monta la figura armada `asm` en el caballo `model` según `ride`, valida y exporta el conjunto.
 
@@ -156,8 +162,7 @@ def armar_ecuestre(asm, ride: RideSpec, model, outdir: str, name: str, progress=
     Devuelve el resumen para el informe (`info["cabalgadura"]`) y, si se pidió, la receta con el hash de la geometría validada."""
     say = progress or (lambda *_: None)
     t0 = time.time()
-    # la holgura ecuestre (plano 7.2) reemplaza a la de la línea solo en el ajuste (tallado, despeje y validación); el jinete se exporta con la suya
-    fparams = asm.params if ride.holgura is None else dataclasses.replace(asm.params, clearance=ride.holgura)
+    fparams = ride_params(asm, ride)
     fitter = RidingFitter(model, asm, params=fparams, limits=ride.carve_limits(asm.params.min_wall))
     say(f"Montando la figura en «{ride.caballo}» (modo {ride.modo})…")
     fit = fitter.fit(**ride.fit_kwargs())

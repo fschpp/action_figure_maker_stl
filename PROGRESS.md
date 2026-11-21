@@ -1,3 +1,30 @@
+## Current Focus — Caballos compatibles: E14 `FigureBuilder` (2026-11-21, sobre main + E13)
+`FigureBuilder` (sin GTK) elige el caballo de la biblioteca, marca el asiento sobre el lomo, ajusta modo/silla/despeje/holgura/límites, comprueba la pose y guarda la `cabalgadura` en la receta.
+
+### Todo List
+- [x] Done: E14 en `src/afm/gui/figure_builder.py` (`horses`, `add_horse`, `set_horse`, `set_seat`, `seat_on_back`, `set_ride_mode`, `set_saddle`, `set_relief`, `set_ride_clearance`, `set_ride_limits`, `ride_spec`, `ride_problems`, `check_ride`, `ride_warnings`; `recipe`, `load_recipe`, `problems` y `generate` la conocen); `equestrian.horse_back_z` y `horse_cli.ride_params` (sacados de `RidingFitter.back_z` y de `armar_ecuestre`, sin cambiar su comportamiento); 7 textos nuevos es/en/pt; `tests/test_figure_builder_caballo.py` (8 pruebas)
+- [x] Done: ya no se pierde la `cabalgadura` al guardar desde el constructor (pendiente que dejó E12)
+- [ ] Todo: E00 `tools/ecuestre_fase0.py`; E15 ventana (sección Caballo, asiento por clic con `mount_pick`); E16–E18
+- [ ] Todo: correr la suite completa
+
+### Latest Blockers/Discoveries
+- Pruebas corridas (`PYTHONPATH=src`): `test_figure_builder_caballo.py` → 8 pasan. Al generar este patch las regresiones (`test_figure_builder*`, `test_i18n`, `test_engine_portability`, `test_equestrian_fit/recipe/cli`, `test_color_catalog_head`) estaban corriendo y NO tengo su resultado; E13 había dejado 123 pasando sobre el mismo código de `cli.py`/`recipe.py`.
+- Diseño (mío, fácil de cambiar): cambiar de caballo borra el asiento (está en el marco de ese caballo); cualquier cambio del asiento o de los ajustes descarta `ride_hash` (el hash validado ya no es de lo que hay). `set_ride_mode` descarta lo que no corresponde al modo (silla/despeje con `tallado`; límites con `silla`). Con caballo, `problems()` rechaza «imprimir sin soportes». `check_ride` guarda la figura armada (clave = receta sin cabalgadura) y el caballo abierto: al mover solo el asiento no se arma de nuevo. `Recipe.load` ya rechaza una cabalgadura mal formada, así que `load_recipe` no llega a descartarla. Una receta con un caballo que no está en la biblioteca se carga igual (la receta fija ese caballo) y avisa.
+- No verificado: la ventana (E15); `check_ride` con modo `silla`/`ambos`; piernas y pelvis reales de Güemes/Belgrano.
+
+## Current Focus — Caballos compatibles: E14 `FigureBuilder` (2026-11-21, sobre main 7864dfc + E13)
+`FigureBuilder` (lógica sin GTK) elige el caballo de la biblioteca de la línea, marca el asiento sobre el lomo, ajusta modo/silla/despeje/holgura/límites, comprueba la pose (`check_ride`) y guarda la `cabalgadura` en la receta. Resuelve el pendiente de E12: guardar desde el constructor ya no pierde la cabalgadura.
+
+### Todo List
+- [x] Done: E14 en `src/afm/gui/figure_builder.py` (`horses`, `add_horse`, `set_horse`, `set_seat`, `seat_on_back`, `set_ride_mode`, `set_saddle`, `set_relief`, `set_ride_clearance`, `set_ride_limits`, `ride_spec`, `ride_problems`, `ride_warnings`, `check_ride`, `clear_ride`; `recipe()`, `load_recipe()`, `problems()` y `generate()` la contemplan); `equestrian.horse_back_z`; `horse_cli.ride_params`; 7 textos nuevos en es/en/pt; `tests/test_figure_builder_caballo.py` (8 pruebas)
+- [ ] Todo: E15 ventana (sin GTK en este entorno: marcar «sin probar»); E00 `tools/ecuestre_fase0.py`; E16–E18
+- [ ] Todo: correr la suite completa
+
+### Latest Blockers/Discoveries
+- Diseño (mío, fácil de cambiar): cambiar de caballo borra el asiento (está en el marco de ese caballo); cada setter valida con `RideSpec` y, si falla, no cambia nada y levanta `ValueError`; `set_ride_mode` descarta lo que no corresponde (silla/despeje con `tallado`, límites con `silla`); cualquier cambio de la cabalgadura borra `ride_hash` (ya no es el validado); `check_ride` pasa a guardarlo si el ajuste es válido y `generate` lo toma del informe. `check_ride` guarda la figura armada (clave = receta sin cabalgadura) y el caballo abierto: cambiar asiento, silla o límites no arma de nuevo. Con `flat` activado el constructor lo marca como problema (el conjunto no admite aplanar).
+- `Recipe.load` ya rechaza una cabalgadura mal formada (E12): al abrir una receta así, `load_recipe` levanta el error de siempre en vez de descartarla con aviso. Un caballo que falta en la biblioteca se conserva (la receta fija ese caballo) con un aviso; un SHA-256 distinto avisa «revalidar».
+- No verificado: la ventana (E15); `check_ride` con silla/ambos; piernas y pelvis reales de Güemes/Belgrano.
+
 ## Current Focus — Caballos compatibles: E13 CLI (2026-11-21, sobre main 7864dfc = E12 mergeada)
 `afm caballo agregar|listar|verificar` (biblioteca `caballos/` de la línea) y `afm armar` con una receta que trae `cabalgadura`: abre el caballo `id@versión`, ajusta el asiento con `RidingFitter`, valida y exporta el conjunto con `export_riding`.
 

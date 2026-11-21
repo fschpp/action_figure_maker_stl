@@ -1039,7 +1039,14 @@
   "montura_campo_desconocido": "Campo de montura desconocido: %{campo} (hay %{hay}).",
   "no_hay_una_montura_numero": "No hay una montura número %{n}.",
   "montura_n_se_descarto": "La montura %{n} se descartó: %{exc}",
-  "montura_sin_pieza_base": "No hay una pieza elegida en «%{lugar}» donde guardar la montura."
+  "montura_sin_pieza_base": "No hay una pieza elegida en «%{lugar}» donde guardar la montura.",
+  "caballo_no_esta": "El caballo «%{ref}» no está en la biblioteca de la línea (importarlo con «afm caballo agregar»).",
+  "caballo_falta_asiento": "Elegiste un caballo: falta marcar el asiento sobre el lomo.",
+  "caballo_sin_soportes": "Con caballo el conjunto se apoya en z = 0 sin aplanar: desactivá «imprimir sin soportes».",
+  "cabalgadura_descartada": "La cabalgadura de la receta se descartó: %{exc}",
+  "elegi_un_caballo": "Elegí un caballo antes de marcar el asiento.",
+  "sin_lomo": "No hay caballo bajo el punto (%{x}, %{y}): el asiento tiene que quedar sobre el lomo.",
+  "falta_asiento_para_comprobar": "Falta elegir el caballo y marcar el asiento para comprobar la pose."
  },
  "figure_window": {
   "sin_soportes_altura_del_corte": "Altura del corte sobre la cola (mm)",

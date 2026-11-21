@@ -1194,6 +1194,12 @@ class FitResult:
     seconds: float = 0.0
 
 
+def horse_back_z(horse: HorseModel, x: float, y: float) -> float | None:
+    """Altura del lomo (punto más alto del caballo) bajo `(x, y)`; None si no hay caballo ahí. No necesita la figura (E14)."""
+    col = S.intersection(horse.manifold, _box_mf((0.5, 0.5, 4000.0), (x, y, 0.0)))
+    return None if col.is_empty() else float(np.asarray(col.bounding_box(), float).reshape(2, 3)[1][2])
+
+
 class RidingFitter:
     """Ajuste iterativo del asiento (E09): se construye una vez con la figura armada y el caballo y se recalcula tallado,
     silla y validación cada vez que cambian el punto, la dirección, la inclinación o el tamaño de la silla.
@@ -1220,8 +1226,7 @@ class RidingFitter:
 
     def back_z(self, x: float, y: float) -> float | None:
         """Altura del lomo (punto más alto del caballo) bajo `(x, y)`; None si no hay caballo ahí."""
-        col = S.intersection(self.horse.manifold, _box_mf((0.5, 0.5, 4000.0), (x, y, 0.0)))
-        return None if col.is_empty() else float(np.asarray(col.bounding_box(), float).reshape(2, 3)[1][2])
+        return horse_back_z(self.horse, x, y)
 
     def fit(self, seat_origin, direction=(0.0, 1.0, 0.0), pitch_deg: float = 0.0, mode: str = "tallado",
             saddle_spec: SaddleSpec | None = None, relief_spec: ReliefSpec | None = None) -> FitResult:

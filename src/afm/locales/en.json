@@ -1039,7 +1039,14 @@
   "montura_campo_desconocido": "Unknown mount field: %{campo} (options: %{hay}).",
   "no_hay_una_montura_numero": "There is no mount number %{n}.",
   "montura_n_se_descarto": "Mount %{n} was dropped: %{exc}",
-  "montura_sin_pieza_base": "No piece is chosen in «%{lugar}» to save the mount into."
+  "montura_sin_pieza_base": "No piece is chosen in «%{lugar}» to save the mount into.",
+  "caballo_no_esta": "The horse “%{ref}” is not in the line's library (import it with “afm caballo agregar”).",
+  "caballo_falta_asiento": "A horse is chosen: the seat on its back is still missing.",
+  "caballo_sin_soportes": "With a horse the set rests on z = 0 without flattening: turn off “print without supports”.",
+  "cabalgadura_descartada": "The recipe's riding setup was discarded: %{exc}",
+  "elegi_un_caballo": "Choose a horse before marking the seat.",
+  "sin_lomo": "There is no horse under the point (%{x}, %{y}): the seat must sit on its back.",
+  "falta_asiento_para_comprobar": "Choose the horse and mark the seat to check the pose."
  },
  "figure_window": {
   "sin_soportes_altura_del_corte": "Cut height above the tail (mm)",
