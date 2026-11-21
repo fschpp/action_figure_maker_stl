@@ -104,6 +104,7 @@ class FigureBuilderWindow(Gtk.Window):
         box.append(self._build_hand_section())
         box.append(self._build_scale_section())
         box.append(self._build_accessory_section())
+        box.append(self._build_mount_section())
         box.append(self._build_colors_section())
         box.append(self._build_flat_section())
         self.lbl_problems = Gtk.Label(xalign=0, wrap=True)
@@ -200,6 +201,174 @@ class FigureBuilderWindow(Gtk.Window):
             self.builder.set_accessory(ref, chk.get_active())
         except ValueError as exc:
             self.lbl_result.set_text(str(exc))
+        self._sync()
+
+    # ------------------------------------------------------------ armas en el cuerpo (M13)
+    def _build_mount_section(self) -> Gtk.Widget:
+        """Monturas de armas al cuerpo (`FigureBuilder.mounts`): una lista, y los campos de la que está elegida. Ancla y dirección son
+        números por ahora (el clic sobre la figura es M14)."""
+        self.exp_mount = Gtk.Expander(label=tr("figure_window.armas_en_el_cuerpo"), expanded=False)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, margin_start=12, margin_top=4)
+        top = Gtk.Box(spacing=6)
+        self.dd_mount = Gtk.DropDown.new_from_strings([""])
+        self.dd_mount.set_hexpand(True)
+        self.dd_mount.connect("notify::selected", self._on_mount_pick)
+        self.btn_mount_add = Gtk.Button(label=tr("figure_window.montura_agregar"))
+        self.btn_mount_add.connect("clicked", self._on_mount_add)
+        self.btn_mount_del = Gtk.Button(label=tr("figure_window.montura_quitar"))
+        self.btn_mount_del.connect("clicked", self._on_mount_del)
+        for w in (self.dd_mount, self.btn_mount_add, self.btn_mount_del):
+            top.append(w)
+        box.append(top)
+        self.box_mount_form = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+
+        def row(label: str, *widgets) -> None:
+            r = Gtk.Box(spacing=6)
+            r.append(Gtk.Label(label=label, xalign=0, hexpand=True))
+            for w in widgets:
+                r.append(w)
+            self.box_mount_form.append(r)
+
+        def spins(lo: float, hi: float, step: float, digits: int, n: int = 3) -> list:
+            out = []
+            for _ in range(n):
+                sp = Gtk.SpinButton.new_with_range(lo, hi, step)
+                sp.set_digits(digits)
+                sp.set_width_chars(6)
+                sp.connect("value-changed", self._on_mount_field)
+                out.append(sp)
+            return out
+
+        self.dd_m_weapon = Gtk.DropDown.new_from_strings([""])
+        self.dd_m_place = Gtk.DropDown.new_from_strings([""])
+        self.dd_m_side = Gtk.DropDown.new_from_strings([tr("figure_window.montura_lado_izq"), tr("figure_window.montura_lado_der")])
+        for dd in (self.dd_m_weapon, self.dd_m_place, self.dd_m_side):
+            dd.connect("notify::selected", self._on_mount_field)
+        row(tr("figure_window.montura_arma"), self.dd_m_weapon)
+        row(tr("figure_window.montura_lugar"), self.dd_m_place)
+        row(tr("figure_window.montura_lado"), self.dd_m_side)
+        self._m_anchor = spins(-500.0, 500.0, 0.1, 2)
+        self._m_dir = spins(-1.0, 1.0, 0.05, 2)
+        row(tr("figure_window.montura_ancla_mm"), *self._m_anchor)
+        row(tr("figure_window.montura_direccion"), *self._m_dir)
+        (self.sp_m_gap,) = spins(0.0, 2.0, 0.05, 2, 1)
+        (self.sp_m_wall,) = spins(0.0, 5.0, 0.1, 1, 1)
+        row(tr("figure_window.montura_holgura_mm"), self.sp_m_gap)
+        row(tr("figure_window.montura_pared_mm"), self.sp_m_wall)
+        self.lbl_mount_status = Gtk.Label(xalign=0, wrap=True)
+        self.box_mount_form.append(self.lbl_mount_status)
+        note = Gtk.Label(label=tr("figure_window.montura_nota"), xalign=0, wrap=True)
+        note.add_css_class("dim-label")
+        self.box_mount_form.append(note)
+        box.append(self.box_mount_form)
+        self.exp_mount.set_child(box)
+        self._mount_refill_pending = False
+        return self.exp_mount
+
+    def _mount_index(self) -> int | None:
+        """Índice de la montura elegida en la lista, o None si no hay (GTK da un valor enorme sin selección)."""
+        i = self.dd_mount.get_selected()
+        return i if i < len(self.builder.mounts) else None
+
+    def _refill_mounts(self, select: int | None = None) -> None:
+        """Pone lista y campos como están en el constructor. Se llama con `_updating` activo (o lo activa); nunca desde un `notify` del
+        desplegable cuyo modelo cambia (ver `_schedule_mount_refill`)."""
+        b = self.builder
+        was, self._updating = self._updating, True
+        try:
+            n = len(b.mounts)
+            cur = select if select is not None else (self._mount_index() or 0)
+            cur = min(cur, n - 1) if n else None
+            self.dd_mount.set_model(Gtk.StringList.new([b.mount_label(i) for i in range(n)] or [""]))
+            weapons = b.mount_weapons()
+            self.dd_m_weapon.set_model(Gtk.StringList.new(weapons or [""]))
+            places = list(b.mount_places())
+            self.dd_m_place.set_model(Gtk.StringList.new([loc(PLACE_LABELS[p]) for p in places]))
+            if cur is not None:
+                self.dd_mount.set_selected(cur)
+                m = b.mounts[cur]
+                self.dd_m_weapon.set_selected(weapons.index(m.arma) if m.arma in weapons else 0)
+                self.dd_m_place.set_selected(places.index(m.lugar) if m.lugar in places else 0)
+                self.dd_m_side.set_selected(0 if m.lado == "izq" else 1)
+                for sp, v in zip(self._m_anchor, m.ancla):
+                    sp.set_value(v)
+                for sp, v in zip(self._m_dir, m.direccion):
+                    sp.set_value(v)
+                self.sp_m_gap.set_value(m.holgura)
+                self.sp_m_wall.set_value(0.0 if m.pared is None else m.pared)
+                self.lbl_mount_status.set_text(self._mount_status_text(cur))
+        finally:
+            self._updating = was
+        ok = not self._busy
+        self.box_mount_form.set_visible(bool(b.mounts))
+        self.btn_mount_add.set_sensitive(ok and bool(b.mount_weapons()))
+        self.btn_mount_del.set_sensitive(ok and bool(b.mounts))
+        self.box_mount_form.set_sensitive(ok)
+        self.exp_mount.set_sensitive(bool(b.accessories) or bool(b.mounts))
+
+    def _mount_status_text(self, i: int) -> str:
+        st = self.builder.mount_status(i)
+        if st is None:
+            return tr("figure_window.montura_sin_armar")
+        head = tr({"ok": "figure_window.montura_estado_ok", "aviso": "figure_window.montura_estado_aviso",
+                   "no": "figure_window.montura_estado_no"}.get(st["nivel"], "figure_window.montura_estado_ok"))
+        return "\n".join([head] + [f"- {t}" for t in st["problemas"] + st["avisos"]])
+
+    def _schedule_mount_refill(self, select: int | None = None) -> None:
+        if not self._mount_refill_pending:
+            self._mount_refill_pending = True
+            GLib.idle_add(self._mount_refill_idle, select)
+
+    def _mount_refill_idle(self, select) -> bool:
+        self._mount_refill_pending = False
+        self._refill_mounts(select)
+        return False
+
+    def _on_mount_pick(self, *_args) -> None:
+        if self._updating or self._mount_index() is None:
+            return
+        self._schedule_mount_refill(self._mount_index())
+
+    def _on_mount_add(self, *_args) -> None:
+        weapons = self.builder.mount_weapons()
+        if not weapons:
+            self.lbl_result.set_text(tr("figure_window.montura_marca_un_accesorio"))
+            return
+        try:
+            i = self.builder.add_mount(weapons[0])
+        except ValueError as exc:
+            self.lbl_result.set_text(str(exc))
+            return
+        self._schedule_mount_refill(i)
+        self._sync()
+
+    def _on_mount_del(self, *_args) -> None:
+        i = self._mount_index()
+        if i is None:
+            return
+        try:
+            self.builder.remove_mount(i)
+        except ValueError as exc:
+            self.lbl_result.set_text(str(exc))
+        self._schedule_mount_refill(max(0, i - 1))
+        self._sync()
+
+    def _on_mount_field(self, *_args) -> None:
+        """Un campo del formulario cambió: va a la montura elegida. Si el valor no vale, se avisa y el formulario vuelve a lo que había."""
+        i = self._mount_index()
+        if self._updating or i is None:
+            return
+        b = self.builder
+        weapons, places = b.mount_weapons(), list(b.mount_places())
+        w, p = self.dd_m_weapon.get_selected(), self.dd_m_place.get_selected()
+        try:
+            b.set_mount(i, arma=weapons[w] if w < len(weapons) else b.mounts[i].arma, lugar=places[p] if p < len(places) else b.mounts[i].lugar,
+                        lado="izq" if self.dd_m_side.get_selected() == 0 else "der", ancla=[s.get_value() for s in self._m_anchor],
+                        direccion=[s.get_value() for s in self._m_dir], holgura=self.sp_m_gap.get_value(),
+                        pared=self.sp_m_wall.get_value() or None)
+        except ValueError as exc:
+            self.lbl_result.set_text(str(exc))
+        self._schedule_mount_refill(i)
         self._sync()
 
     def _build_scale_section(self) -> Gtk.Widget:
@@ -493,6 +662,7 @@ class FigureBuilderWindow(Gtk.Window):
         self._updating = True
         try:
             self._refill_accessories(cat)
+            self._refill_mounts()
         finally:
             self._updating = False
         self._sync_controls()

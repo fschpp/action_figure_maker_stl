@@ -185,7 +185,7 @@ La lógica va en un módulo propio sin GTK, probado sin ventana (como `palette_e
 - **M12** Informe: la montura y sus avisos en `info["construccion"]` y en la lista de piezas; el nivel de `compat` refleja los problemas de la montura. **Hecha** (`mount.report_by_mount/level_of`, `pipeline.mounts_report`, sección «Monturas» en la lista de piezas, `monturas` en `compat.json`).
 
 ### Fase 3 — Interfaz
-- **M13** Bloque «Armas en el cuerpo» en `figure_window`.
+- **M13** Bloque «Armas en el cuerpo» en `figure_window`. **Hecha** (lógica en `FigureBuilder`, probada; el bloque de la ventana no se pudo ejecutar sin GTK).
 - **M14** Ancla por clic y orientación con el ratón (según §7, punto 2).
 - **M15** Vista previa, mapa de zonas y estado con los avisos.
 
