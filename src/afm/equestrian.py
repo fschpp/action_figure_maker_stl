@@ -592,3 +592,223 @@ def build_saddle(horse: HorseModel, spec: SaddleSpec, seat_origin, direction=(0.
     if build.contact_volume > 1e-3 and p <= 0:
         build.warnings.append("la silla penetra en el caballo más de lo previsto")
     return build
+
+
+# ---------------------------------------------------------------------------------------------------------------- E05
+CARVE_SAMPLE_SPACING = 0.15    # mm: separación de los puntos con que se mide la profundidad (error ≤ ~1 spacing)
+CARVE_MAX_RAYS = 600           # caras de la cavidad que se miden para la pared residual
+CARVE_GAP_TOL = 0.05           # mm: lo que puede faltar a la holgura medida por la decimación de la herramienta
+
+
+@dataclass(frozen=True)
+class CarveLimits:
+    """Límites del tallado (plano 5.3): si no se cumplen, la combinación se declara incompatible y no se recorta más."""
+
+    max_depth: float = 6.0                 # mm: hasta dónde puede entrar el corte por debajo de la superficie original del caballo
+    min_wall: float = 1.2                  # mm: pared residual mínima (≈ 3 líneas de 0,4 mm)
+    max_removed_frac: float = 0.03         # fracción del volumen del caballo que se puede retirar
+    zone: tuple | None = None              # (xmin, ymin, zmin, xmax, ymax, zmax) en el marco del caballo: el corte no puede salirse
+
+    def __post_init__(self):
+        for name in ("max_depth", "min_wall"):
+            if not _num(getattr(self, name), name) > 0:
+                raise HorseError(f"«{name}» tiene que ser mayor que 0")
+        if not 0 < _num(self.max_removed_frac, "max_removed_frac") <= 1:
+            raise HorseError("«max_removed_frac» tiene que estar entre 0 y 1")
+        if self.zone is not None:
+            z = tuple(float(_num(v, "zone")) for v in self.zone)
+            if len(z) != 6 or not (z[0] < z[3] and z[1] < z[4] and z[2] < z[5]):
+                raise HorseError("«zone» tiene que ser (xmin, ymin, zmin, xmax, ymax, zmax) con mín < máx")
+            object.__setattr__(self, "zone", z)
+
+
+@dataclass
+class CarveResult:
+    """Qué pasó al tallar el caballo. `carved` es None si el tallado no cumple los límites (`attempt` guarda el intento)."""
+
+    ok: bool
+    carved: object | None
+    attempt: object
+    tool: object
+    clearance: float
+    removed_volume: float = 0.0
+    removed_frac: float = 0.0
+    max_depth: float = 0.0
+    wall_min: float | None = None          # pared residual mínima estimada con rayos (None: no se talló nada)
+    components: int = 1
+    genus_delta: int = 0                   # túneles abiertos (> 0)
+    voids: int = 0
+    gap: float | None = None               # distancia mínima piernas–caballo tallado (medida con las piernas sin decimar)
+    legs_overlap: float = 0.0              # volumen de las piernas que sigue dentro del caballo tallado
+    cut_bounds: tuple | None = None
+    zones: dict = field(default_factory=dict)        # pierna -> volumen retirado por su herramienta
+    problems: list = field(default_factory=list)
+    warnings: list = field(default_factory=list)
+
+
+def _mesh_arrays(mf):
+    mm = mf.to_mesh()
+    return np.asarray(mm.vert_properties, float)[:, :3], np.asarray(mm.tri_verts, np.int64), mm
+
+
+def _first_hit_distances(origins, dirs, tris, tmin: float = 1e-6) -> np.ndarray:
+    """Distancia al primer triángulo que cada rayo cruza hacia adelante (Möller–Trumbore con numpy; inf si no cruza)."""
+    v0, e1, e2 = tris[:, 0], tris[:, 1] - tris[:, 0], tris[:, 2] - tris[:, 0]
+    out = np.full(len(origins), np.inf)
+    for i, (o, d) in enumerate(zip(origins, dirs)):
+        p = np.cross(d, e2)
+        det = np.einsum("ij,ij->i", e1, p)
+        ok = np.abs(det) > 1e-12
+        inv = np.where(ok, 1.0 / np.where(ok, det, 1.0), 0.0)
+        s = o - v0
+        u = np.einsum("ij,ij->i", s, p) * inv
+        q = np.cross(s, e1)
+        v = (q @ d) * inv
+        t = np.einsum("ij,ij->i", e2, q) * inv
+        hit = ok & (u >= 0) & (v >= 0) & (u + v <= 1) & (t > tmin)
+        if hit.any():
+            out[i] = t[hit].min()
+    return out
+
+
+def _surface_distance(points, verts, faces, seed: int = 0) -> np.ndarray:
+    """Distancia de cada punto a la superficie de la malla, con puntos muestreados cada `CARVE_SAMPLE_SPACING` (scipy, sin rtree)."""
+    from scipy.spatial import cKDTree
+
+    tm = trimesh.Trimesh(verts, faces, process=False)
+    count = int(min(600_000, max(2000, tm.area / CARVE_SAMPLE_SPACING ** 2)))
+    try:
+        pts, _ = trimesh.sample.sample_surface(tm, count, seed=seed)
+    except TypeError:                                          # trimesh viejo, sin «seed»
+        np.random.seed(seed)
+        pts, _ = trimesh.sample.sample_surface(tm, count)
+    return cKDTree(np.vstack([pts, verts])).query(points)[0]
+
+
+def verify_carved(carved, legs: dict, clearance: float, tol: float = CARVE_GAP_TOL) -> tuple:
+    """Comprueba el tallado contra las piernas ORIGINALES (sin decimar): `(overlap, gap, problems)`.
+
+    Una herramienta sin la holgura, o con la decimación demasiado agresiva, se detecta acá: la distancia piernas–caballo
+    tiene que ser ≥ `clearance − tol` y ningún volumen de pierna puede quedar dentro."""
+    allegs = S.union(*legs.values()) if len(legs) > 1 else next(iter(legs.values()))
+    overlap = abs(float(S.intersection(carved, allegs).volume()))
+    lb = np.asarray(allegs.bounding_box(), float).reshape(2, 3)
+    reach = clearance + 1.0
+    box = _box_mf(lb[1] - lb[0] + 2 * reach, (lb[0] + lb[1]) / 2.0)
+    win = S.intersection(carved, box)
+    gap = float(allegs.min_gap(win, reach)) if not win.is_empty() else float("inf")
+    problems = []
+    if overlap > 1e-3:
+        problems.append(f"las piernas siguen {overlap:.2f} mm³ dentro del caballo tallado")
+    if gap < clearance - tol:
+        problems.append(f"holgura piernas–caballo {gap:.3f} mm < {clearance:g} mm previstos")
+    return overlap, gap, problems
+
+
+def carve_horse(horse: HorseModel, legs: dict, clearance: float = 0.5, limits: CarveLimits | None = None,
+                tool_max_tris: int = 20_000, rim_exclude: float | None = None) -> CarveResult:
+    """Tallado del caballo (plano 5.3): `caballo − (piernas completas dilatadas por la holgura)`, sobre una copia.
+
+    `legs`: `{nombre: Manifold}` de las piernas completas YA colocadas en el marco del caballo (`place_rider`). La herramienta
+    se dilata sobre una copia decimada (`tool_max_tris`); la holgura se comprueba después con las piernas sin decimar. Se mide
+    volumen y zonas retirados, profundidad máxima, pared residual (rayos desde la cavidad; se ignora el borde de entrada, a menos
+    de `rim_exclude` mm de donde la herramienta sale del caballo), componentes, túneles y cavidades cerradas. Si algo pasa los
+    límites no se recorta más: `ok` False, `carved` None. El caballo original no se modifica.
+    """
+    lim = limits or CarveLimits()
+    if not legs:
+        raise HorseError("faltan las piernas del jinete para tallar")
+    if isinstance(clearance, bool) or not isinstance(clearance, (int, float)) or not clearance >= 0:
+        raise HorseError("«clearance» tiene que ser un número ≥ 0")
+    rim = lim.min_wall if rim_exclude is None else float(rim_exclude)
+    hmf = horse.manifold
+    dil = {}
+    for name, mf in legs.items():
+        src = mf
+        n = int(mf.num_tri())
+        if n > tool_max_tris and S.can_decimate():
+            src = S.decimate(mf, reduction=1.0 - tool_max_tris / n)
+        dil[name] = S.dilate(src, clearance)
+    tool = S.union(*dil.values()).as_original()
+    h0 = hmf.as_original()
+    cut = S.intersection(h0, tool)
+    base_genus, base_vol = int(hmf.genus()), abs(float(hmf.volume()))
+    base_comp = shell_stats(hmf)["components"]
+    res = CarveResult(ok=True, carved=hmf, attempt=hmf, tool=tool, clearance=float(clearance))
+    if cut.is_empty() or abs(float(cut.volume())) < 1e-6:
+        res.warnings.append("las piernas no tocan el caballo: no hay nada que tallar")
+        return res
+    carved = S.difference(h0, tool)
+    res.attempt = carved
+    res.removed_volume = abs(float(cut.volume()))
+    res.removed_frac = res.removed_volume / base_vol
+    cb = np.asarray(cut.bounding_box(), float).reshape(2, 3)
+    res.cut_bounds = (tuple(cb[0]), tuple(cb[1]))
+    for name, d in dil.items():
+        res.zones[name] = abs(float(S.intersection(cut, d).volume()))
+    st = shell_stats(carved)
+    res.components, res.voids = st["components"], st["voids"]
+    res.genus_delta = int(carved.genus()) - base_genus
+    cv, cf, cmesh = _mesh_arrays(carved)
+    # profundidad: distancia de los puntos del corte a la superficie ORIGINAL del caballo
+    hv, hf, _ = _mesh_arrays(hmf)
+    R = lim.max_depth * 1.5 + 3.0
+    lo, hi = cb[0] - R, cb[1] + R
+    fmax, fmin = hv[hf].max(axis=1), hv[hf].min(axis=1)
+    keep = (fmax >= lo).all(axis=1) & (fmin <= hi).all(axis=1)
+    sub_v, sub_f = hv, hf[keep]
+    ev, ef, _ = _mesh_arrays(cut)
+    pts = np.vstack([ev, ev[ef].mean(axis=1)])
+    res.max_depth = float(_surface_distance(pts, sub_v, sub_f).max())
+    # pared residual: rayos desde las caras de la cavidad hacia el material
+    ids = list(cmesh.run_original_id)
+    ridx = np.asarray(cmesh.run_index, np.int64) // 3
+    tid = tool.original_id()
+    cav = np.concatenate([np.arange(ridx[i], ridx[i + 1]) for i, r in enumerate(ids) if r == tid] or [np.array([], np.int64)])
+    tri = cv[cf]
+    if len(cav):
+        nrm = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+        nrm = nrm / np.maximum(np.linalg.norm(nrm, axis=1, keepdims=True), 1e-12)
+        iscav = np.zeros(len(cf), bool)
+        iscav[cav] = True
+        rim_v = np.intersect1d(np.unique(cf[iscav]), np.unique(cf[~iscav]))          # vértices donde la cavidad se une a la superficie original
+        cen = tri.mean(axis=1)
+        pick = cav
+        if len(rim_v):
+            from scipy.spatial import cKDTree
+            pick = cav[cKDTree(cv[rim_v]).query(cen[cav])[0] > rim]
+        if len(pick):
+            pick = pick[np.linspace(0, len(pick) - 1, min(CARVE_MAX_RAYS, len(pick))).astype(int)]
+            W = lim.max_depth * 2 + lim.min_wall + 10.0
+            wl, wh = cb[0] - W, cb[1] + W
+            near = ((tri.max(axis=1) >= wl).all(axis=1)) & ((tri.min(axis=1) <= wh).all(axis=1))
+            t = _first_hit_distances(cen[pick] - nrm[pick] * 1e-3, -nrm[pick], tri[near])
+            t = t[np.isfinite(t)] + 1e-3
+            res.wall_min = float(t.min()) if len(t) else None
+    _, res.gap, vprob = verify_carved(carved, legs, clearance)
+    res.legs_overlap = abs(float(S.intersection(carved, S.union(*legs.values()) if len(legs) > 1 else next(iter(legs.values()))).volume()))
+    pr = res.problems
+    pr.extend(vprob)
+    if res.max_depth > lim.max_depth:
+        pr.append(f"el corte entra {res.max_depth:.2f} mm bajo la superficie del caballo (máximo {lim.max_depth:g})")
+    if res.wall_min is not None and res.wall_min < lim.min_wall:
+        pr.append(f"la pared que queda detrás del corte mide {res.wall_min:.2f} mm (mínimo {lim.min_wall:g})")
+    if res.removed_frac > lim.max_removed_frac:
+        pr.append(f"se retira el {100 * res.removed_frac:.1f} % del caballo (máximo {100 * lim.max_removed_frac:g} %)")
+    if res.components > base_comp:
+        pr.append(f"el corte parte el caballo en {res.components} componentes")
+    if res.genus_delta > 0:
+        pr.append(f"el corte abre {res.genus_delta} túnel(es) a través del caballo")
+    if res.voids:
+        pr.append(f"el corte deja {res.voids} cavidad(es) cerrada(s) dentro del caballo")
+    if lim.zone is not None:
+        z = np.asarray(lim.zone, float)
+        if np.any(cb[0] < z[:3] - 1e-6) or np.any(cb[1] > z[3:] + 1e-6):
+            pr.append("el corte se sale de la zona permitida")
+    if pr:
+        res.ok = False
+        res.carved = None
+        pr.append("este caballo no admite esta figura en la pose estándar con estos límites (no se recorta más)")
+    else:
+        res.carved = carved
+    return res

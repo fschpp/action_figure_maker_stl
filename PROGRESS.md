@@ -1,3 +1,17 @@
+## Current Focus — Caballos compatibles: E05 tallado del caballo (2026-11-21, sobre main efe40b2 = E06 mergeada)
+`carve_horse` talla una copia del caballo con la herramienta «piernas completas dilatadas por la holgura» y mide el resultado contra los límites del plano 5.3. Se hizo a pedido directo del usuario, que con eso da por aceptada la puerta G0; **E00 (`tools/ecuestre_fase0.py`) sigue sin hacerse**.
+
+### Todo List
+- [x] Done: E05 `CarveLimits`, `CarveResult`, `carve_horse`, `verify_carved` en `src/afm/equestrian.py` + `tests/test_equestrian_carve.py` (10 pruebas)
+- [ ] Todo: E00 `tools/ecuestre_fase0.py` (tabla con Güemes + caballo definitivo); E07 relieve de pelvis y canales; E08 `validate_riding` (puede arrancar con el tallado); E10 exportación agrupada; E11 biblioteca `caballos/`; E12 `Recipe.cabalgadura`
+
+### Latest Blockers/Discoveries
+- Pruebas corridas (`PYTHONPATH=src`): `test_equestrian_{spec,load,rider,frame,saddle,carve}.py`, `test_engine_portability.py`, `test_i18n.py`, `test_recipe.py` → 107 pasan, 1 salteada (sin `AFM_PROCERES_127`). Con caballos y piernas sintéticos: caballo ancho se adapta; demasiado profundo, pared fina (medida ≈1,5 y ≈1,0 mm contra 1,5 y 1,0 esperados), corte que parte el caballo, túnel y zona fuera de límite se rechazan sin recortar; el STL y el `Manifold` del caballo quedan idénticos; una herramienta sin holgura se detecta con `verify_carved`.
+- Decisiones (mías, fáciles de cambiar): límites por defecto `max_depth` 6 mm, `min_wall` 1,2 mm, `max_removed_frac` 3 %; sin `rtree`: la profundidad se mide con muestreo de superficie cada 0,15 mm + `scipy.cKDTree` (error ≲ 0,15 mm) y la pared con rayos Möller–Trumbore en numpy desde las caras de la cavidad (se ignora el borde de entrada a menos de `min_wall`). La herramienta se decima a `tool_max_tris` = 20 000 y la holgura se verifica después con las piernas sin decimar (`gap` ≥ holgura − 0,05 mm).
+- Si no se cumplen los límites: `ok` False, `carved` None (`attempt` guarda el intento), mensaje «este caballo no admite esta figura en la pose estándar…».
+- Con `horse_baseless.stl` (3×, guiño 180°) y las piernas del muñeco de ejemplo (no las de Güemes) en tres asientos: tarda ≈5–6 s, la holgura medida es 0,477 mm, y con `max_depth` 6 mm los tres se rechazan por profundidad (7,0–9,0 mm); paredes 1,3–6,3 mm. Los números con las piernas de Güemes (§1.4) dependen de E00 y no se midieron.
+- No verificado: piernas reales de Güemes/Belgrano; la simetría del tallado (no se fuerza); suite completa; que la pelvis no necesite tallado (solo se miden las piernas).
+
 ## Current Focus — Caballos compatibles: E06 volumen base de silla (2026-11-21, sobre main 0197520 = E01–E04)
 `build_saddle` arma una almohadilla paramétrica en el marco de asiento y la recorta contra el caballo (`silla = almohadilla − caballo`); mide y avisa de problemas. No depende de G0 (el plan la deja en paralelo con E05).
 
