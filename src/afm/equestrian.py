@@ -1170,3 +1170,117 @@ def validate_riding(ra: RidingAssembly, params=None) -> dict:
         av.extend(f"caballo tallado: {w}" for w in c.warnings)
     out["ok"] = not pr
     return out
+
+
+# ---------------------------------------------------------------------------------------------------------------- E09
+SAFE_MAX_DEPTH = 10.0            # mm: tope duro de profundidad del tallado; ningún ajuste puede pedir más
+FIT_MODES = ("tallado", "silla", "ambos")
+
+
+@dataclass
+class FitResult:
+    """Un intento de montar la figura en un asiento. `ok` solo es True si pasó `validate_riding` sin problemas."""
+
+    ok: bool
+    mode: str
+    seat_origin: np.ndarray
+    direction: np.ndarray
+    pitch_deg: float
+    assembly: RidingAssembly | None = None
+    validation: dict | None = None
+    problems: list = field(default_factory=list)
+    warnings: list = field(default_factory=list)
+    stage: str = ""                  # dónde se detuvo: «silla», «tallado», «despeje», «validación» o «ok»
+    seconds: float = 0.0
+
+
+class RidingFitter:
+    """Ajuste iterativo del asiento (E09): se construye una vez con la figura armada y el caballo y se recalcula tallado,
+    silla y validación cada vez que cambian el punto, la dirección, la inclinación o el tamaño de la silla.
+
+    La figura NO se vuelve a armar: el perfil del jinete se lee una sola vez y cada intento aplica una matriz rígida nueva a las
+    piezas ya armadas (D4: pasadores, holguras y articulaciones quedan como salieron del motor). Un intento solo se acepta si
+    pasa la validación ecuestre; si no, `current` sigue siendo el último intento aceptado. La profundidad del tallado nunca puede
+    pasar de `SAFE_MAX_DEPTH`.
+    """
+
+    def __init__(self, horse: HorseModel, asm, params=None, limits: CarveLimits | None = None):
+        self.horse = horse
+        self.asm = asm
+        self.params = params if params is not None else asm.params
+        self.rp = rider_profile(asm)
+        mw = float(getattr(self.params, "min_wall", 1.2))
+        self.limits = limits or CarveLimits(min_wall=mw)
+        if self.limits.max_depth > SAFE_MAX_DEPTH:
+            raise HorseError(f"«max_depth» {self.limits.max_depth:g} mm pasa el máximo seguro de {SAFE_MAX_DEPTH:g} mm")
+        self.clearance = float(getattr(self.params, "clearance", 0.5))
+        self.min_wall = mw
+        self.current: FitResult | None = None
+        self.history: list = []
+
+    def back_z(self, x: float, y: float) -> float | None:
+        """Altura del lomo (punto más alto del caballo) bajo `(x, y)`; None si no hay caballo ahí."""
+        col = S.intersection(self.horse.manifold, _box_mf((0.5, 0.5, 4000.0), (x, y, 0.0)))
+        return None if col.is_empty() else float(np.asarray(col.bounding_box(), float).reshape(2, 3)[1][2])
+
+    def fit(self, seat_origin, direction=(0.0, 1.0, 0.0), pitch_deg: float = 0.0, mode: str = "tallado",
+            saddle_spec: SaddleSpec | None = None, relief_spec: ReliefSpec | None = None) -> FitResult:
+        """Un intento: marco de asiento → tallado y/o silla con despeje → validación. Se detiene en la primera etapa que falla."""
+        import time
+
+        if mode not in FIT_MODES:
+            raise HorseError(f"«mode» tiene que ser uno de {', '.join(FIT_MODES)}")
+        t0 = time.time()
+        o = np.asarray(seat_origin, float)
+        res = FitResult(ok=False, mode=mode, seat_origin=o, direction=np.asarray(direction, float), pitch_deg=float(pitch_deg))
+        use_saddle, use_carve = mode in ("silla", "ambos"), mode in ("tallado", "ambos")
+        sad = rel = carve = None
+        anchor_z = float(o[2])
+        if use_saddle:
+            sad = build_saddle(self.horse, saddle_spec or suggest_saddle_spec(self.rp), o, direction, self.min_wall)
+            anchor_z = o[2] + sad.lift
+            if not sad.ok:
+                res.problems.extend(f"silla: {p}" for p in sad.problems)
+                res.stage = "silla"
+        if not res.problems:
+            frame = seat_frame(self.rp, (o[0], o[1], anchor_z), direction, pitch_deg)
+            placed = place_rider(self.asm, frame)
+            low = rider_lower(self.rp, placed)
+            legs = {k: v for k, v in low.items() if k != self.rp.pelvis_name}
+            if use_carve:
+                carve = carve_horse(self.horse, legs, self.clearance, self.limits)
+                res.warnings.extend(carve.warnings)
+                if not carve.ok:
+                    res.problems.extend(f"tallado: {p}" for p in carve.problems)
+                    res.stage = "tallado"
+            if not res.problems and use_saddle:
+                rel = relieve_saddle(self.horse, sad, low, relief_spec or ReliefSpec(clearance=self.clearance), self.min_wall)
+                res.warnings.extend(rel.warnings)
+                if not rel.ok:
+                    res.problems.extend(f"despeje: {p}" for p in rel.problems)
+                    res.stage = "despeje"
+            res.assembly = RidingAssembly(horse=self.horse, rider=placed, lower=low, pelvis_name=self.rp.pelvis_name,
+                                          carve=carve, saddle=sad, relief=rel, limits=self.limits)
+            if not res.problems:
+                res.validation = validate_riding(res.assembly, self.params)
+                res.warnings.extend(res.validation["avisos"])
+                if not res.validation["ok"]:
+                    res.problems.extend(res.validation["problems"])
+                    res.stage = "validación"
+        res.ok = not res.problems
+        if res.ok:
+            res.stage = "ok"
+            self.current = res
+        res.seconds = time.time() - t0
+        self.history.append(res)
+        return res
+
+    def sweep(self, ys, x: float = 0.0, direction=(0.0, 1.0, 0.0), **kw) -> list:
+        """Prueba un asiento por cada `y` a lo largo del lomo (el punto es el más alto del caballo bajo `(x, y)`). Devuelve los intentos."""
+        out = []
+        for y in ys:
+            z = self.back_z(x, float(y))
+            if z is None:
+                continue
+            out.append(self.fit((x, float(y), z), direction, **kw))
+        return out

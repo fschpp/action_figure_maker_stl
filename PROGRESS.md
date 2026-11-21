@@ -1,3 +1,16 @@
+## Current Focus — Caballos compatibles: E09 ajuste iterativo (2026-11-21, sobre main 3d42710 = E08 mergeada)
+`RidingFitter` recalcula tallado, silla y validación cada vez que cambian punto, dirección, inclinación o tamaño de la silla, sin volver a armar la figura. Un intento solo se acepta si pasa `validate_riding`.
+
+### Todo List
+- [x] Done: E09 `RidingFitter` (`fit`, `sweep`, `back_z`), `FitResult`, `SAFE_MAX_DEPTH`, `FIT_MODES` en `src/afm/equestrian.py` + `tests/test_equestrian_fit.py` (5 pruebas)
+- [ ] Todo: E00 `tools/ecuestre_fase0.py` (puede apoyarse en `RidingFitter.sweep`); E10 exportación agrupada; E11 biblioteca `caballos/`; E12 `Recipe.cabalgadura`
+
+### Latest Blockers/Discoveries
+- Pruebas corridas (`PYTHONPATH=src`): `test_equestrian_{spec,load,rider,frame,saddle,carve,relief,validate,fit}.py`, `test_engine_portability.py`, `test_i18n.py` (resultado en el mensaje de entrega). No corrí la suite completa.
+- Diseño (mío, fácil de cambiar): modos `tallado`, `silla`, `ambos`; el intento se detiene en la primera etapa que falla (`silla` → `tallado` → `despeje` → `validación`) y `FitResult.stage` lo dice; `current` queda en el último intento aceptado y `history` guarda todos. El perfil del jinete se lee una vez; cada intento aplica una matriz rígida nueva a las piezas ya armadas (comprobado: los volúmenes de `asm.res.pieces` no cambian). `max_depth` por encima de `SAFE_MAX_DEPTH` (10 mm) levanta `HorseError`. En modo silla el ancla del jinete sube `lift` sobre el punto elegido.
+- Con `horse_baseless.stl` (3×, guiño 180°) y el muñeco de ejemplo, modo tallado, `max_depth` 10 mm: y = −30, −20 y 40 mm se aceptan (≈6 s cada uno); y = 0 y 20 mm se rechazan porque retiran 3,4 % y 3,0 % del caballo (máximo 3 %). En modo silla y = 0 se detiene en la silla base (lomo sobre la cara superior).
+- No verificado: piernas y pelvis reales de Güemes/Belgrano; modos `silla` y `ambos` aceptados de punta a punta con el caballo real (ningún asiento probado pasó la silla base); suite completa; ajuste automático de parámetros (por ahora solo se recalcula lo que se pide, no se busca la mejor combinación).
+
 ## Current Focus — Caballos compatibles: E08 `validate_riding` (2026-11-21, sobre main dd7a926 = E07 mergeada)
 `validate_riding(RidingAssembly, params)` revisa el conjunto jinete + caballo (tallado y/o silla) con las comprobaciones del plano 6, separada de `pipeline.validate` (que no se tocó). Cada problema nombra la pareja (`pierna_izq ↔ caballo`, `pelvis ↔ silla`).
 
