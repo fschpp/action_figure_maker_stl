@@ -1,3 +1,15 @@
+## Current Focus — Caballos compatibles: E11 biblioteca `caballos/` (2026-11-21, sobre main 68914eb = E10 mergeada)
+`HorseLibrary` (`src/afm/horse_library.py`) agrega, lista, abre y verifica los caballos de la línea, separada del catálogo de piezas (no usa `PieceMeta` ni `Catalog.add_piece`; el catálogo no recorre `caballos/`).
+
+### Todo List
+- [x] Done: E11 `HorseLibrary` (`add`, `list`, `meta`, `path`, `open`, `versions`, `verify`) y `parse_horse_ref` + `tests/test_equestrian_library.py` (8 pruebas)
+- [ ] Todo: E00 `tools/ecuestre_fase0.py`; E12 `Recipe.cabalgadura` (resolverá `id@versión` con `HorseLibrary.meta/open`); E13 CLI (importar/listar caballos sobre `HorseLibrary`)
+
+### Latest Blockers/Discoveries
+- Pruebas corridas (`PYTHONPATH=src`): `test_equestrian_{library,spec,load}.py`, `test_catalog.py`, `test_engine_portability.py`, `test_i18n.py`. No corrí la suite completa.
+- Diseño (mío, fácil de cambiar): cada versión en su carpeta, `<catalogo>/caballos/<id>/v<N>/{caballo.json, modelo.stl}` (el plano 7.1 muestra una sola carpeta por id; se agregó `v<N>` para que las versiones sean inmutables). `add` copia el STL (la copia administrada no depende del origen), lo valida con `load_horse_mesh` antes de guardar y escribe en una carpeta temporal que se renombra al final (un STL inválido no deja nada). Mismo id: idéntico a la última versión → devuelve esa sin crear nada; distinto sin `new_version=True` → `HorseError` («no se sobrescriben»); con `new_version=True` → versión + 1. `verify` revisa ficha (y que esté en su carpeta), presencia del STL y SHA-256; con `deep` también lo carga. No hay borrado (no estaba en la ficha).
+- No verificado: uso desde la CLI y la ventana (E13–E15); `HorseSpec.ref_mm` se guarda como lo da quien llama (no se mide contra el modelo).
+
 ## Current Focus — Caballos compatibles: E10 exportación agrupada (2026-11-21, sobre main e66a373 = E09 mergeada)
 `export_riding` escribe el conjunto jinete + caballo (tallado si se talló) + silla (con despeje y faldones) con las posiciones relativas intactas: `<nombre>_ensamblada.stl` y un STL por componente en `piezas/` (las piezas del jinete con los nombres de siempre, más `<nombre>_caballo.stl` y `<nombre>_silla.stl`). No pasa por `pipeline.export`.
 
