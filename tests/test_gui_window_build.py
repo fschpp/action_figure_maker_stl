@@ -238,3 +238,27 @@ def test_trim_size_row_follows_shape_and_profile_is_first_in_params():
     assert res["poly"] is False and res["box"] == (True, "Arista de la caja (mm)") and res["back"] is False
     t = res["titles"]
     assert t.index("Perfil de línea") < t.index("Parámetros de articulación")
+
+
+def test_catalog_menu_closes_when_an_item_is_chosen():
+    """Al elegir una opción del menú «Catálogo» el menú se cierra (antes quedaba encima de la ventana que se abría)."""
+    res = {}
+    app = Gtk.Application(application_id="ar.afm.test3")
+
+    def act(a):
+        try:
+            win = MainWindow(a, Controller())
+            win.present()
+            pop = win.menu_catalog.get_popover()
+            pop.popup()
+            res["abierto"] = pop.get_visible()
+            win.btn_cat_forget.emit("clicked")                      # acción inocua: sin catálogo no hace nada
+            res["cerrado"] = not pop.get_visible() or not pop.is_mapped()
+        except Exception as e:      # noqa: BLE001
+            res["error"] = e
+        GLib.idle_add(a.quit)
+
+    app.connect("activate", act)
+    app.run([])
+    assert "error" not in res, res.get("error")
+    assert res["abierto"] and res["cerrado"]

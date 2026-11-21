@@ -53,6 +53,7 @@ def build(win) -> None:
         b.set_halign(Gtk.Align.FILL)
         if b.get_child() is not None:
             b.get_child().set_halign(Gtk.Align.START)
+        b.connect("clicked", lambda *_: popover.popdown())          # el menú se cierra al elegir (si no, queda encima de la ventana que se abre)
         pop_box.append(b)
     win.btn_cat_forget.add_css_class("destructive-action")      # «Olvidar» ya no queda junto a las acciones frecuentes
     win.menu_catalog = Gtk.MenuButton(label=tr("common.catalogo"), popover=popover)
