@@ -332,3 +332,10 @@ def test_la_ventana_conecta_cada_aviso_a_un_metodo():
     assert {"_on_ride_horse", "_on_ride_import", "_on_ride_scale", "_on_ride_add", "_on_ride_field", "_on_ride_pick_toggle",
             "_on_ride_view_toggle", "_on_ride_mode", "_on_ride_check"} <= handlers
     assert handlers <= methods
+
+
+def test_el_formulario_va_en_un_area_con_desplazamiento():
+    """Sin esto, abrir la sección «Caballo» sube la altura mínima de la ventana y deja de poder achicarse o maximizarse."""
+    src = open(os.path.join(SRC, "gui", "figure_window.py"), encoding="utf-8").read()
+    assert "form_sw.set_child(self._build_form())" in src and "paned.set_start_child(form_sw)" in src
+    assert "paned.set_start_child(self._build_form())" not in src

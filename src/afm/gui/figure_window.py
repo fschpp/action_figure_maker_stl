@@ -81,7 +81,12 @@ class FigureBuilderWindow(Gtk.Window):
         self._ride_refill_pending = False
 
         paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL, wide_handle=True)
-        paned.set_start_child(self._build_form())
+        # El formulario crece al abrir secciones (p. ej. «Caballo»): dentro de un área con desplazamiento su altura mínima no empuja a la ventana,
+        # que se puede achicar, redimensionar y maximizar siempre.
+        form_sw = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, vscrollbar_policy=Gtk.PolicyType.AUTOMATIC, min_content_width=380,
+                                     propagate_natural_height=False)
+        form_sw.set_child(self._build_form())
+        paned.set_start_child(form_sw)
         paned.set_end_child(self._build_preview())
         paned.set_position(400)
         paned.set_resize_start_child(False)
