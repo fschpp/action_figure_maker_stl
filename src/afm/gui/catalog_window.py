@@ -1517,11 +1517,13 @@ class CatalogManagerWindow(Gtk.Window):
         if self._reditor is not None and self._reditor.session.undo():
             self._reditor.result_shown = False
             self._retouch_refresh()
+            self._on_retouch_view()                              # como al soltar el pincel: se muestra el color real del retoque que quedó
 
     def _on_retouch_redo(self) -> None:
         if self._reditor is not None and self._reditor.session.redo():
             self._reditor.result_shown = False
             self._retouch_refresh()
+            self._on_retouch_view()
 
     def _on_retouch_discard(self, *_) -> None:
         ed = self._reditor

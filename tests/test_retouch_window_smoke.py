@@ -230,3 +230,29 @@ def test_window_minimum_size_allows_maximizing(win, line):
     pump(30)
     min_h = win.get_child().measure(Gtk.Orientation.VERTICAL, -1)[0]
     assert min_h <= 600, f"altura mínima {min_h}px: la ventana no entraría en una pantalla chica ni se podría maximizar"
+
+
+def _wait_view(win, ed):
+    for _ in range(100):
+        pump(5)
+        if ed.result_shown and not win._rbusy:
+            return
+    raise AssertionError("«Ver resultado» no terminó")
+
+
+def test_retouch_undo_and_redo_show_result_automatically(win, line):
+    """Deshacer y rehacer también recalculan «Ver resultado», sin apretar el botón."""
+    win._select_ref(REF)
+    pump(30)
+    win._on_retouch_start()
+    ed = win._reditor
+    win.dd_rrole.set_selected(len(ed.session.palette_ids) - 1)
+    _paint_stroke(win, ed)
+    _wait_view(win, ed)
+    win._on_retouch_undo()
+    assert not ed.result_shown and win._rbusy == 1          # arrancó solo el cálculo del estado deshecho
+    _wait_view(win, ed)
+    win._on_retouch_redo()
+    assert not ed.result_shown and win._rbusy == 1
+    _wait_view(win, ed)
+    assert win._color_shown is not None and win._color_shown[0] == REF
