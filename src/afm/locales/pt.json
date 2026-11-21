@@ -1033,7 +1033,12 @@
   "lo_elegido_cambio_desde_el_armado": "o que foi escolhido mudou desde que a figura foi montada (peças, opções, mão ou escalas): monte-a de novo",
   "la_linea_no_tiene_paleta": "a linha não tem paleta (falta paleta.json)",
   "a_la_paleta_le_faltan_roles": "à paleta da linha faltam papéis usados pelas peças escolhidas: %{roles}. Adicione-os em «Paleta da linha…» ou escolha outras peças",
-  "color_no_disponible": "%{ref}: não foi possível mostrar a sua cor (%{exc}); aparece em cor lisa."
+  "color_no_disponible": "%{ref}: não foi possível mostrar a sua cor (%{exc}); aparece em cor lisa.",
+  "montura_arma_no_esta_entre_accesorios": "A arma «%{arma}» não está entre os acessórios da figura: marque-a primeiro.",
+  "montura_lugar_no_disponible": "O lugar «%{lugar}» não serve para um suporte (há %{hay}).",
+  "montura_campo_desconocido": "Campo de suporte desconhecido: %{campo} (há %{hay}).",
+  "no_hay_una_montura_numero": "Não há um suporte número %{n}.",
+  "montura_n_se_descarto": "O suporte %{n} foi descartado: %{exc}"
  },
  "figure_window": {
   "sin_soportes_altura_del_corte": "Altura do corte sobre a cauda (mm)",

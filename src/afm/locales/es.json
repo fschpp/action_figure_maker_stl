@@ -1033,7 +1033,12 @@
   "lo_elegido_cambio_desde_el_armado": "lo elegido cambió desde que se armó la figura (piezas, opciones, mano o escalas): armala de nuevo",
   "la_linea_no_tiene_paleta": "la línea no tiene paleta (falta paleta.json)",
   "a_la_paleta_le_faltan_roles": "a la paleta de la línea le faltan roles que usan las piezas elegidas: %{roles}. Agregalos en «Paleta de la línea…» o elegí otras piezas",
-  "color_no_disponible": "%{ref}: no se pudo mostrar su color (%{exc}); se ve de color plano."
+  "color_no_disponible": "%{ref}: no se pudo mostrar su color (%{exc}); se ve de color plano.",
+  "montura_arma_no_esta_entre_accesorios": "El arma «%{arma}» no está entre los accesorios de la figura: marcala primero.",
+  "montura_lugar_no_disponible": "El lugar «%{lugar}» no sirve para una montura (hay %{hay}).",
+  "montura_campo_desconocido": "Campo de montura desconocido: %{campo} (hay %{hay}).",
+  "no_hay_una_montura_numero": "No hay una montura número %{n}.",
+  "montura_n_se_descarto": "La montura %{n} se descartó: %{exc}"
  },
  "figure_window": {
   "sin_soportes_altura_del_corte": "Altura del corte sobre la cola (mm)",

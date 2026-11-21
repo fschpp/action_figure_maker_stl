@@ -1033,7 +1033,12 @@
   "lo_elegido_cambio_desde_el_armado": "what is chosen changed since the figure was built (pieces, options, hand or scales): build it again",
   "la_linea_no_tiene_paleta": "the line has no palette (paleta.json is missing)",
   "a_la_paleta_le_faltan_roles": "the line's palette is missing roles used by the chosen pieces: %{roles}. Add them in “Line palette…” or choose other pieces",
-  "color_no_disponible": "%{ref}: its color could not be shown (%{exc}); shown in a flat color."
+  "color_no_disponible": "%{ref}: its color could not be shown (%{exc}); shown in a flat color.",
+  "montura_arma_no_esta_entre_accesorios": "The weapon «%{arma}» is not among the figure's accessories: tick it first.",
+  "montura_lugar_no_disponible": "The place «%{lugar}» cannot hold a mount (options: %{hay}).",
+  "montura_campo_desconocido": "Unknown mount field: %{campo} (options: %{hay}).",
+  "no_hay_una_montura_numero": "There is no mount number %{n}.",
+  "montura_n_se_descarto": "Mount %{n} was dropped: %{exc}"
  },
  "figure_window": {
   "sin_soportes_altura_del_corte": "Cut height above the tail (mm)",

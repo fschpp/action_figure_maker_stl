@@ -6,6 +6,7 @@ guardar en `<catálogo>/figuras/`, que es donde `Catalog.usages` y `afm catalogo
 from __future__ import annotations
 from ..i18n import tr, lz, loc
 
+import dataclasses
 import os
 import re
 
@@ -14,6 +15,7 @@ import numpy as np
 from ..catalog import Catalog, CatalogError
 from ..customize import is_identity, normalize_scale, scale_vector
 from ..hand import DEFAULT_OVERLAP_MM
+from ..mount import DEFAULT_CLEARANCE, DEFAULT_STATIONS, MOUNT_PLACES, MountError, MountSpec
 from ..recipe import PLACES, SCALE_PLACES, Recipe, RecipeError, accessory_fit
 
 # lugar -> tipos de pieza que acepta (el torso puede ser entero o solo la parte de arriba)
@@ -23,6 +25,8 @@ PLACE_ORDER = ("torso", "pelvis", "cabeza", "brazo", "pierna", "mano")
 PLACE_LABELS = {"torso": lz("figure_builder.torso"), "pelvis": lz("figure_builder.pelvis"), "cabeza": lz("common.cabeza"), "brazo": lz("figure_builder.brazo"), "pierna": lz("figure_builder.pierna"), "mano": lz("figure_builder.mano")}
 NONE_LABEL = lz("common.ninguna")
 HAND_JOINS = ("solape", "giro")
+MOUNT_DEFAULT_DIRECTION = (0.0, 0.0, -1.0)      # empuñadura arriba y punta hacia abajo: la gravedad apoya la guarda en el puente (M07)
+MOUNT_FIELDS_EDITABLE = ("arma", "lugar", "lado", "ancla", "direccion", "holgura", "pared", "estaciones")
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _RANK = {"ok": 0, "aviso": 1, "no": 2}
 FIT_TEXT = {"ok": "ok", "aviso": lz("figure_builder.aviso"), "no": lz("figure_builder.no_se_sujeta"), "sin_datos": lz("figure_builder.sin_datos_de_agarre")}   # accesorio vs. mano elegida
@@ -39,6 +43,8 @@ class FigureBuilder:
         self.hand = {"yaw": 0.0, "union": "solape", "solape": DEFAULT_OVERLAP_MM}     # ajustes de la mano (grados, unión, mm)
         self.scales: dict[str, list[float]] = {}                                        # lugar -> [sx, sy, sz] (solo los ≠ ×1)
         self.accessories: list[str] = []                                                # «id@versión» de los accesorios que acompañan a la figura
+        self.mounts: list[MountSpec] = []                                               # M13: armas enganchadas al cuerpo (`Recipe.ajustes["monturas"]`)
+        self._mount_report: tuple | None = None                                         # (monturas armadas, informe `monturas`) del último armado
         self.palette_override: dict[str, str] = {}                                      # T48: {rol: "#RRGGBB"} colores que cambian SOLO en esta figura
         self._color_tm_cache: dict = {}                                                 # ref -> (clave, fuente de color de la vista previa)
         self.flat = False                                                               # «imprimir sin soportes»: aplana piernas y cola, los brazos giran hacia adelante
@@ -138,9 +144,83 @@ class FigureBuilder:
             if meta.tipo != "accesorio":
                 raise ValueError(tr("figure_builder.ref_es_una_pieza_tipo_no", ref=meta.ref, tipo=meta.tipo))
             self.accessories = [r for r in self.accessories if r.split("@")[0] != meta.id] + [meta.ref]
+            self.mounts = [dataclasses.replace(m, arma=meta.ref) if m.arma.split("@")[0] == meta.id else m for m in self.mounts]
         else:
             pid = ref.split("@")[0]
             self.accessories = [r for r in self.accessories if r.split("@")[0] != pid]
+            self.mounts = [m for m in self.mounts if m.arma.split("@")[0] != pid]          # sin el accesorio no hay arma que enganchar
+
+    # ------------------------------------------------------------------ armas en el cuerpo (M13)
+    def mount_places(self) -> tuple:
+        """Lugares donde se puede enganchar un arma. `pelvis` sin cintura cae en el torso (`mount.resolve_host`)."""
+        return tuple(MOUNT_PLACES[:2])
+
+    def mount_weapons(self) -> list[str]:
+        """Armas que se pueden enganchar: los accesorios marcados para la figura."""
+        return list(self.accessories)
+
+    def _mount_arma(self, arma: str) -> str:
+        """Referencia completa del accesorio marcado que corresponde a `arma` (con o sin versión)."""
+        pid = str(arma).split("@")[0]
+        for ref in self.accessories:
+            if ref.split("@")[0] == pid and ("@" not in str(arma) or ref == arma):
+                return ref
+        raise ValueError(tr("figure_builder.montura_arma_no_esta_entre_accesorios", arma=arma))
+
+    def _make_mount(self, base: dict) -> MountSpec:
+        d = dict(base)
+        d["arma"] = self._mount_arma(d["arma"])
+        if d.get("lugar") not in self.mount_places():
+            raise ValueError(tr("figure_builder.montura_lugar_no_disponible", lugar=d.get("lugar"), hay=", ".join(self.mount_places())))
+        try:
+            return MountSpec.from_dict(d)
+        except MountError as exc:
+            raise ValueError(str(exc)) from exc
+
+    def add_mount(self, arma: str, lugar: str = "pelvis", lado: str = "izq", ancla=(0.0, 0.0, 0.0), direccion=MOUNT_DEFAULT_DIRECTION,
+                  holgura: float = DEFAULT_CLEARANCE, pared: float | None = None, estaciones: int = DEFAULT_STATIONS) -> int:
+        """Engancha `arma` (un accesorio marcado) al `lugar` y `lado` del cuerpo. `ancla` es un punto de la superficie de la pieza (marco
+        de la pieza) y `direccion` el eje empuñadura → punta; la punta hacia abajo es la que retiene. Devuelve el índice de la montura."""
+        spec = self._make_mount({"arma": arma, "lugar": lugar, "lado": lado, "ancla": ancla, "direccion": direccion,
+                                 "holgura": holgura, "pared": pared, "estaciones": estaciones})
+        self.mounts.append(spec)
+        return len(self.mounts) - 1
+
+    def set_mount(self, index: int, **campos) -> None:
+        """Cambia campos de una montura (`MOUNT_FIELDS_EDITABLE`). No cambia nada si algo viene mal formado."""
+        spec = self._mount_at(index)
+        bad = sorted(k for k in campos if k not in MOUNT_FIELDS_EDITABLE)
+        if bad:
+            raise ValueError(tr("figure_builder.montura_campo_desconocido", campo=", ".join(bad), hay=", ".join(MOUNT_FIELDS_EDITABLE)))
+        self.mounts[index] = self._make_mount({**spec.to_dict(), **campos})
+
+    def remove_mount(self, index: int) -> None:
+        self._mount_at(index)
+        del self.mounts[index]
+
+    def _mount_at(self, index: int) -> MountSpec:
+        if not isinstance(index, int) or not 0 <= index < len(self.mounts):
+            raise ValueError(tr("figure_builder.no_hay_una_montura_numero", n=index))
+        return self.mounts[index]
+
+    def mount_label(self, index: int) -> str:
+        """Texto de una montura en la lista: «espada@1 — pelvis izq (23, 0, 38)», más el estado del último armado si lo hay."""
+        m = self._mount_at(index)
+        txt = f"{m.arma} — {m.lugar} {m.lado} ({', '.join(f'{c:g}' for c in m.ancla)})"
+        st = self.mount_status(index)
+        return txt if st is None else f"{txt} — {st['nivel']}"
+
+    def mount_status(self, index: int) -> dict | None:
+        """Lo que dijo el último armado de la montura `index`: `{nivel, problemas, avisos}` (nivel «ok» | «aviso» | «no»). None si todavía no
+        se armó con estas monturas: cambiar cualquiera borra el estado, porque ya no es de lo que se armó."""
+        if self._mount_report is None or self._mount_report[0] != [m.to_dict() for m in self.mounts]:
+            return None
+        self._mount_at(index)
+        for name, rec in self._mount_report[1].items():
+            if name.startswith(f"montura_{index + 1}_"):
+                return {"nivel": rec.get("nivel") or "ok", "problemas": list(rec.get("problemas") or []),
+                        "avisos": list(rec.get("avisos") or rec.get("avisos_construccion") or [])}
+        return None
 
     # ------------------------------------------------------------------ ajustes de mano y escalas
     def set_hand(self, yaw: float | None = None, union: str | None = None, solape: float | None = None) -> None:
@@ -190,6 +270,8 @@ class FigureBuilder:
         esc = {p: normalize_scale(k) for p, k in self.scales.items() if lugares.get(p)}
         if esc:
             ajustes["escalas"] = esc
+        if self.mounts:
+            ajustes["monturas"] = [m.to_dict() for m in self.mounts]
         return Recipe(self.name, cat.name, lugares, opciones, ajustes, list(self.accessories), self.effective_overrides(cat))
 
     def load_recipe(self, path: str) -> list[str]:
@@ -223,6 +305,13 @@ class FigureBuilder:
                 self.set_accessory(ref, True)
             except ValueError as exc:
                 warns.append(tr("figure_builder.accesorio_exc_se_descarto", exc=exc))
+        self.mounts = []
+        self._mount_report = None
+        for i, raw in enumerate(r.ajustes.get("monturas") or [], start=1):
+            try:
+                self.mounts.append(self._make_mount(raw))
+            except (ValueError, MountError, TypeError, AttributeError) as exc:
+                warns.append(tr("figure_builder.montura_n_se_descarto", n=i, exc=exc))
         self.name = r.personaje
         self.choices = choices
         if not self.waist:
@@ -543,6 +632,7 @@ class FigureBuilder:
         info = run_armar(recipe_path, outdir, self.name, self.root, progress=progress, orient=orient, keep=keep, flat=flat,
                          fill_hip=bool(self.flat and self.fill_hip))
         info["ensamblada"] = os.path.join(outdir, info["archivos"]["ensamblada"])
+        self._mount_report = ([m.to_dict() for m in self.mounts], info["monturas"]) if info.get("monturas") else None
         self._built = {"colorizer": keep.get("colorizer"), "outdir": outdir, "name": self.name, "geom": self._geometry_key(),
                        "overrides": self.effective_overrides()}
         return info
