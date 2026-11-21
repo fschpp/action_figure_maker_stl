@@ -1,3 +1,16 @@
+## Current Focus — Caballos compatibles: E01 `HorseSpec`/`HorseMeta` (2026-11-20, sobre main 099f188)
+Primera tarea del `PLAN_caballos_compatibles.md` v0.3: modelos de datos del caballo, sin cargar mallas ni tocar el flujo existente.
+
+### Todo List
+- [x] Done: E01 — `src/afm/equestrian.py` (`HorseSpec`, `HorseMeta`, `HorseError`, formato `afm-caballo-1`), `tests/test_equestrian_spec.py` (27 pruebas)
+- [ ] Todo: E02 `load_horse_mesh`, E03 `RiderProfile`, E11 biblioteca `caballos/` (paralelas); E00 `tools/ecuestre_fase0.py` y puerta G0 antes de E05
+- [ ] Todo: copiar `PLAN_caballos_compatibles.md` a `docs/`
+
+### Latest Blockers/Discoveries
+- Pruebas corridas: `test_equestrian_spec.py` + `test_engine_portability.py` → 28 pasan (con `PYTHONPATH=src`).
+- No verificado: no se corrió la suite completa; `test_i18n.py` no se pudo importar (falta el paquete `python-i18n` en el entorno); E01 no agrega textos de interfaz.
+- Decisión: `HorseSpec` guarda archivo+SHA-256, `escala` (>0, uniforme), `yaw` y referencia física opcional (`alto_dorso|largo|alto_total` + mm); `HorseMeta` agrega `id`, `version`, `nombre`. Es una elección mía, fácil de cambiar.
+
 ## Current Focus — Enganche de armas al cuerpo: M17, «guardar como pieza» (2026-11-21, sobre main a7dcc8e = M16)
 **Hecho:** `mount_bake.py` (`bake_mount`, `bake_from_recipe`, `baked_builds`): hornea la montura en la malla cruda de un torso/torso_sup/pelvis y la guarda como pieza nueva (`PieceMeta.montura`, formato `afm-montura-pieza-1`; estado borrador, sin color heredado). Al armar, `recipe.assemble` rehace el puente y lo anota en `res.mounts` (`MountBuild.baked`), así `validate` lo mide igual que a una montura de la receta. `afm catalogo guardar-montura` (con `--receta` o `--base/--arma/--ancla`), `FigureBuilder.bake_mount`, botón «Guardar como pieza» y textos es/en/pt. `flat_for_print` avisa si el plano corta un puente horneado.
 **Medido (scripts descartables, catálogo de ejemplo + espada de prueba):** horneada vs aplicada al armar: misma validación (extracción 34,3 mm, holgura a la pierna 2,06 mm), diferencia de geometría 0,35 mm³ sobre 13 721; `afm catalogo verificar` limpio; con `torso_mirror=true` el torso sale con dos puentes (13 762,5 vs 13 721,2 mm³).
