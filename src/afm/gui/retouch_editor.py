@@ -97,6 +97,7 @@ class RetouchEditor:
         if p is None:
             return False
         self.session.begin_stroke(*p)
+        self.result_shown = False                  # el color real queda viejo: mientras se pinta vuelven los puntos guía
         return True
 
     def move(self, *pick_args, **pick_kw) -> int:
@@ -139,7 +140,10 @@ class RetouchEditor:
     # ------------------------------------------------------------------ dibujo
     def overlay(self) -> dict:
         """Lo que se dibuja encima de la pieza: `{nombre: (puntos Nx3, rgba)}`, un grupo por rol (el borrador, en blanco). Son los centros de las
-        pinceladas, no el color real (ese lo da «Ver resultado» o «Aplicar»)."""
+        pinceladas, no el color real (ese lo da «Ver resultado» o «Aplicar»). Solo son la guía mientras se pinta y mientras se calcula el color
+        real: cuando la vista ya muestra el color real (`result_shown`) no se dibujan, para no tapar la pieza con manchas."""
+        if self.result_shown and not self.session.stroking:
+            return {}
         strokes = self.session.retouch().strokes[-OVERLAY_MAX_POINTS:]
         groups: dict = {}
         for s in strokes:

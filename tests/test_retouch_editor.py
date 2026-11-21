@@ -199,3 +199,17 @@ def test_preview_hover_adds_and_removes_layer():
     assert off.scene.lines["hover_pincel"][0] == 4 and "hover_pincel" in off.scene.items
     pr._hover(off, None)
     assert "hover_pincel" not in off.scene.items
+
+
+def test_overlay_hidden_once_real_color_is_shown(ed):
+    """Con el color real a la vista no se dibujan las manchas del pincel; al empezar un trazo nuevo vuelven."""
+    _cat, e = ed
+    x, y = center_click(e)
+    assert e.press(x, y, WIDGET, IMG) is True
+    e.release()
+    assert e.overlay()                                        # recién pintado, sin color real todavía: puntos guía
+    e.result_shown = True
+    assert e.overlay() == {}                                  # color real calculado: sin manchas
+    assert e.press(x, y, WIDGET, IMG) is True                 # trazo nuevo: el color real queda viejo
+    assert e.result_shown is False and e.overlay()
+    e.release()
