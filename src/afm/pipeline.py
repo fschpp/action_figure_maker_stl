@@ -608,21 +608,23 @@ def _bbox_gap(a: S.Manifold, b: S.Manifold) -> float:
 
 
 def cap_export_triangles(pieces: dict, max_tris: int, tol: float = 0.02, max_vol_change: float = 0.002,
-                          clearance: float = 0.5) -> tuple[dict, dict]:
+                          clearance: float = 0.5, only=None) -> tuple[dict, dict]:
     """Limita los triángulos de cada pieza antes de escribir el STL (las booleanas, el barrido por marching cubes y las
     holguras Minkowski multiplican las caras: un STL de entrada de 0,5 MB puede salir en decenas de MB).
 
     Solo toca las piezas que superan `max_tris`: las decima (cuádrica, `S.decimate`) hasta ese tope y acepta el
     resultado solo si el volumen cambia menos de `max_vol_change` y la holgura mínima con cada otra pieza no baja más de
     `tol` mm; si no, prueba una reducción menor y, si ninguna cumple, deja la pieza como está. Devuelve
-    (piezas, {pieza: [antes, después]}) con las piezas que superaban el tope ([n, n] = no se pudo reducir)."""
+    (piezas, {pieza: [antes, después]}) con las piezas que superaban el tope ([n, n] = no se pudo reducir).
+    `only` (opcional, conjunto de nombres): solo se decima esas piezas; las demás cuentan para la holgura pero no se tocan
+    (la exportación ecuestre, E10, le pone un tope propio al caballo y a la silla)."""
     out = dict(pieces)
     rep: dict = {}
     if not max_tris or max_tris <= 0:
         return out, rep
     for name, mf in pieces.items():
         n0 = mf.num_tri()
-        if n0 <= max_tris:
+        if n0 <= max_tris or (only is not None and name not in only):
             continue
         # Solo las piezas que pueden estar a menos del radio de búsqueda (caja envolvente) y con ese radio, no 5 mm contra
         # todas: el costo de `min_gap` crece muy rápido con el radio (figura real, 190–430 k tri: 296 s en nativo, 1545 s en el navegador).

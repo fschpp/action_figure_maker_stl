@@ -1,3 +1,16 @@
+## Current Focus — Caballos compatibles: E10 exportación agrupada (2026-11-21, sobre main e66a373 = E09 mergeada)
+`export_riding` escribe el conjunto jinete + caballo (tallado si se talló) + silla (con despeje y faldones) con las posiciones relativas intactas: `<nombre>_ensamblada.stl` y un STL por componente en `piezas/` (las piezas del jinete con los nombres de siempre, más `<nombre>_caballo.stl` y `<nombre>_silla.stl`). No pasa por `pipeline.export`.
+
+### Todo List
+- [x] Done: E10 `export_riding`, `riding_components`, `EXPORT_MAX_TRIS` en `src/afm/equestrian.py` + `tests/test_equestrian_export.py` (15 pruebas); `pipeline.cap_export_triangles` ganó el parámetro opcional `only` (por defecto None: igual que antes)
+- [ ] Todo: E00 `tools/ecuestre_fase0.py`; E11 biblioteca `caballos/`; E12 `Recipe.cabalgadura`; E13 CLI (usará `export_riding`)
+
+### Latest Blockers/Discoveries
+- Pruebas corridas (`PYTHONPATH=src`): `test_equestrian_{spec,load,rider,frame,saddle,carve,relief,validate,fit,export}.py`, `test_export_cap.py`, `test_export_clean.py`, `test_engine_portability.py`, `test_i18n.py` → 140 pasan, 1 salteada (sin `AFM_PROCERES_127`). No corrí la suite completa.
+- Diseño (mío, fácil de cambiar): todas las piezas del jinete (incluidas las que traen monturas de armas) ya vienen colocadas con la matriz de `place_rider`; la exportación solo les aplica UNA traslación en Z, igual para todos los componentes, que apoya la parte más baja del conjunto en `z = 0` (normalmente las pezuñas; si una pieza del jinete queda más abajo se apoya en esa y sale un aviso en `info["avisos"]`). `orient` y `flat` se rechazan con `HorseError` (orientación natural, plano E10/§13). Se rechaza exportar un tallado rechazado, una silla sin despeje, una pieza del jinete llamada `caballo`/`silla` y una validación (`validation=`) que no esté `ok`. Tope de triángulos del jinete = `Params.export_max_tris`; el del caballo y la silla = `horse_max_tris` (150 000 por defecto), con la misma regla de holgura/volumen. Los accesorios sueltos (`extras`) van al costado solo en la ensamblada (D5). Con `res=` se escribe la lista de piezas de siempre. Sin color (D8).
+- Con `horse_baseless.stl` (3×, guiño 180°), muñeco de ejemplo, modo tallado, y = −20 mm: el caballo exportado tiene las pezuñas en z = 0, es el tallado (volumen menor que el original) y el jinete conserva su pose con la misma traslación.
+- No verificado: silla de punta a punta con el caballo real (ningún asiento probado pasó la silla base, ver E09); piernas y pelvis reales de Güemes/Belgrano; apertura de los STL en un slicer; suite completa; la CLI y la ventana (E13–E15) todavía no usan `export_riding`.
+
 ## Current Focus — Caballos compatibles: E09 ajuste iterativo (2026-11-21, sobre main 3d42710 = E08 mergeada)
 `RidingFitter` recalcula tallado, silla y validación cada vez que cambian punto, dirección, inclinación o tamaño de la silla, sin volver a armar la figura. Un intento solo se acepta si pasa `validate_riding`.
 

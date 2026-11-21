@@ -1284,3 +1284,114 @@ class RidingFitter:
                 continue
             out.append(self.fit((x, float(y), z), direction, **kw))
         return out
+
+
+# ---------------------------------------------------------------------------------------------------------------- E10
+EXPORT_MAX_TRIS = 150_000        # tope de triángulos del caballo y de la silla en el STL (el del jinete es `Params.export_max_tris`)
+HORSE_PART = "caballo"           # nombre del caballo en los STL por componente (`<nombre>_caballo.stl`)
+SADDLE_PART = "silla"            # y de la silla (`<nombre>_silla.stl`)
+
+
+def riding_components(ra: RidingAssembly) -> dict:
+    """Los componentes que se exportan, todos en el marco del caballo y en este orden: las piezas del jinete (con las que
+    traigan monturas de armas: forman parte de él, D5), el caballo (tallado si se talló) y la silla final (si hay).
+
+    Levanta `HorseError` si el conjunto no se puede exportar tal cual: un tallado rechazado (el STL no sería el que se validó),
+    una silla sin despeje (chocaría con las piernas) o una pieza del jinete que se llame `caballo` o `silla`."""
+    if ra.carve is not None and ra.carve.carved is None:
+        raise HorseError("el tallado del caballo fue rechazado: no hay caballo tallado que exportar")
+    if ra.saddle is not None and (ra.relief is None or ra.relief.manifold is None):
+        raise HorseError("la silla no tiene despeje para el jinete: no se exporta una silla que choca con las piernas")
+    clash = [n for n in ra.rider if n in (HORSE_PART, SADDLE_PART)]
+    if clash:
+        raise HorseError(f"una pieza del jinete se llama «{clash[0]}»: chocaría con el archivo del caballo/silla")
+    comps = dict(ra.rider)
+    comps[HORSE_PART] = ra.horse_mf
+    if ra.saddle is not None:
+        comps[SADDLE_PART] = ra.saddle_mf
+    return comps
+
+
+def export_riding(ra: RidingAssembly, outdir: str, name: str = "figura", params=None, progress=None, extras=None, res=None,
+                  validation: dict | None = None, horse_max_tris: int = EXPORT_MAX_TRIS, orient=False, flat=None) -> dict:
+    """Exporta el conjunto jinete + caballo (+ silla) con las posiciones relativas intactas (E10, RF-07).
+
+    Escribe `<nombre>_ensamblada.stl` (todo junto) y un STL por componente en `piezas/`: las piezas del jinete con los mismos
+    nombres de siempre (`<nombre>_<pieza>.stl`), `<nombre>_caballo.stl` y, si hay, `<nombre>_silla.stl`. No pasa por
+    `pipeline.export` (que reconstruye el `BuildResult` y mueve solo al jinete): las piezas ya vienen colocadas con la misma
+    matriz rígida (`place_rider`) y acá solo se les aplica UNA traslación en Z, igual para todas, que apoya el conjunto en
+    `z = 0` (la parte más baja de cualquier componente; normalmente las pezuñas). No se gira ni se deforma nada, no se aplana la
+    base (`flat`) ni se gira la figura (`orient`): ambos se rechazan con `HorseError` en este modo (MVP: orientación natural).
+
+    `params` (`Params`): tope de triángulos del jinete (`export_max_tris`) y holgura. El caballo y la silla usan `horse_max_tris`;
+    ambos topes decimaron solo lo que lo supera y sin perder holgura ni volumen (`pipeline.cap_export_triangles`).
+    `extras`: accesorios sueltos (mallas en pose de impresión); solo van al lado en la ensamblada, no son parte del conjunto.
+    `res` (`BuildResult` del armado): si se pasa, se escribe la lista de piezas de siempre. `validation` (resultado de
+    `validate_riding`): si se pasa y no está `ok`, no se exporta. No hay color (fuera del MVP, D8)."""
+    from . import pipeline as P
+    from .params import Params
+
+    if orient or flat is not None:
+        raise HorseError("la exportación ecuestre no admite «orient» ni «flat»: el conjunto se apoya en z = 0 sin girarlo ni aplanarlo")
+    if validation is not None and not validation.get("ok"):
+        raise HorseError("la validación ecuestre tiene problemas: no se exporta (corregir y revalidar)")
+    if isinstance(horse_max_tris, bool) or not isinstance(horse_max_tris, int) or horse_max_tris < 0:
+        raise HorseError("«horse_max_tris» tiene que ser un entero ≥ 0 (0 = sin tope)")
+    say = progress or (lambda *_: None)
+    p = params if params is not None else Params()
+    comps = riding_components(ra)
+    rider_names = [n for n in comps if n not in (HORSE_PART, SADDLE_PART)]
+    os.makedirs(os.path.join(outdir, "piezas"), exist_ok=True)
+    info: dict = {}
+    reduced: dict = {}
+    cap = p.export_max_tris
+    if cap and cap > 0 and any(comps[n].num_tri() > cap for n in rider_names):
+        say("Reduciendo triángulos de las piezas del jinete…")
+        rider_only = {n: comps[n] for n in rider_names}
+        capped, rep = P.cap_export_triangles(rider_only, cap, clearance=p.clearance)
+        comps.update(capped)
+        reduced.update(rep)
+    if horse_max_tris > 0 and any(comps[n].num_tri() > horse_max_tris for n in (HORSE_PART, SADDLE_PART) if n in comps):
+        say("Reduciendo triángulos del caballo y la silla…")
+        capped, rep = P.cap_export_triangles(comps, horse_max_tris, clearance=p.clearance, only={HORSE_PART, SADDLE_PART})
+        comps = capped
+        reduced.update(rep)
+    if reduced:
+        info["triangulos_reducidos"] = reduced             # {pieza: [antes, después]}; [n, n] = no se pudo reducir sin perder holgura/volumen
+    meshes = {n: S.to_printable_trimesh(mf) for n, mf in comps.items()}
+    lows = {n: float(m.bounds[0][2]) for n, m in meshes.items()}
+    lowest = min(lows, key=lows.get)
+    dz = -lows[lowest]
+    for m in meshes.values():
+        m.apply_translation([0.0, 0.0, dz])                 # la misma traslación para todos: posiciones relativas intactas
+    info["apoyo"] = {"traslado_z_mm": round(dz, 4), "componente_mas_bajo": lowest}
+    if lowest != HORSE_PART and lows[lowest] < lows[HORSE_PART] - 1e-6:
+        info["avisos"] = [f"«{lowest}» queda más abajo que las pezuñas del caballo ({lows[HORSE_PART] - lows[lowest]:.2f} mm): el conjunto se apoyó en esa pieza"]
+    for n, m in meshes.items():
+        say(f"Escribiendo «{n}»…")
+        m.export(os.path.join(outdir, "piezas", f"{name}_{n}.stl"))
+    say("Escribiendo el conjunto ensamblado…")
+    asm = trimesh.util.concatenate(list(meshes.values()))
+    if extras:
+        from .accessories import place_beside
+
+        asm = trimesh.util.concatenate([asm] + place_beside(asm, list(extras)))
+        info["accesorios_en_ensamblada"] = len(extras)
+    asm.export(os.path.join(outdir, f"{name}_ensamblada.stl"))
+    info.update({"ensamblada": f"{name}_ensamblada.stl", "piezas": sorted(rider_names),
+                 "caballo": f"piezas/{name}_{HORSE_PART}.stl",
+                 "silla": f"piezas/{name}_{SADDLE_PART}.stl" if SADDLE_PART in meshes else None,
+                 "caballo_tallado": ra.carve is not None and ra.carve.carved is not None,
+                 "triangulos": {n: int(len(m.faces)) for n, m in meshes.items()}})
+    if res is not None:
+        lst = P.parts_list(res, name)
+        if lst is not None:
+            import json
+
+            say("Escribiendo la lista de piezas…")
+            with open(os.path.join(outdir, f"{name}_lista_de_piezas.json"), "w", encoding="utf-8") as fh:
+                json.dump(lst, fh, ensure_ascii=False, indent=2)
+            with open(os.path.join(outdir, f"{name}_lista_de_piezas.md"), "w", encoding="utf-8") as fh:
+                fh.write(P.parts_list_markdown(lst))
+            info["lista_de_piezas"] = f"{name}_lista_de_piezas.json"
+    return info
