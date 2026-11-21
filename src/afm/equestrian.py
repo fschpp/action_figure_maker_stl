@@ -215,3 +215,106 @@ def load_horse_mesh(spec: HorseSpec, base_dir: str = ".", repair: bool = True, c
     if rep.triangles > DECIMATE_ABOVE and S.can_decimate():
         light = S.decimate(mf, reduction=1.0 - LIGHT_TARGET / rep.triangles)
     return HorseModel(spec=spec, mesh=mesh, manifold=mf, light=light, report=rep)
+
+
+# ---------------------------------------------------------------------------------------------------------------- E03
+LEG_PREFIXES = ("pierna", "muslo", "rodilla", "pantorrilla", "bota")     # piezas que forman la «pierna completa» (muslo + rodilla + bota)
+MIN_FACING_MM = 1.0       # distancia mínima (XY) entre el centroide de las piernas y el de la pelvis para fiarse del frente
+
+
+class RiderError(ValueError):
+    """La figura armada no sirve como jinete (sin piernas ni cadera, sin frente claro…)."""
+
+
+@dataclass
+class RiderProfile:
+    """Lo que el caballo necesita saber del jinete, leído de una figura ya armada en pose sentada (marco del motor, mm).
+
+    Función pura sobre `recipe.Assembled`: no recalcula nada ni modifica la figura (D4). Las mallas son los `Manifold` de
+    `BuildResult.pieces` (no los STL exportados: ver plan 1.3-8).
+    """
+
+    pelvis: object                    # Manifold de la pelvis; si la figura no tiene cintura, el torso (que lleva las caderas)
+    pelvis_name: str                  # «pelvis» o «torso»
+    legs: dict                        # nombre -> Manifold (muslo_izq, pantorrilla_izq, … o pierna_izq)
+    hip_left: object                  # ports.PortFrame (centro, eje de giro de la cadera, referencia)
+    hip_right: object                 # el mismo, espejado en X
+    hip_separation: float             # distancia entre los dos centros de cadera
+    lower_min: tuple                  # caja envolvente de pelvis + piernas
+    lower_max: tuple
+    facing: np.ndarray                # vector unitario en XY hacia donde mira el jinete (z = 0)
+    sit_angle: float
+    knee_print_angle: float
+    other_pieces: tuple               # piezas que no entran en el perfil (torso, brazos, cabeza…), para moverlas igual
+    warnings: list = field(default_factory=list)
+
+
+def _mf_bounds(mf) -> np.ndarray:
+    return np.asarray(mf.bounding_box(), float).reshape(2, 3)
+
+
+def _mf_centroid_xy(mfs) -> np.ndarray:
+    """Centroide XY ponderado por volumen (el de la caja envolvente si el volumen es nulo)."""
+    pts, ws = [], []
+    for mf in mfs:
+        v = abs(float(mf.volume()))
+        b = _mf_bounds(mf)
+        tm = S.to_trimesh(mf)
+        c = np.asarray(tm.center_mass, float)[:2] if tm.is_watertight and v > 0 else b.mean(axis=0)[:2]
+        pts.append(c)
+        ws.append(v if v > 0 else 1.0)
+    return np.average(np.asarray(pts), axis=0, weights=np.asarray(ws))
+
+
+def rider_profile(asm) -> RiderProfile:
+    """Perfil del jinete de una figura armada (`recipe.Assembled`, con `sit=True`). Levanta `RiderError` con un mensaje útil."""
+    from .ports import PortFrame
+
+    res = asm.res
+    pieces = res.pieces
+    legs = {k: v for k, v in pieces.items() if k.startswith(LEG_PREFIXES)}
+    if not legs:
+        raise RiderError("la figura no tiene piernas (piezas pierna/muslo/pantorrilla): no hay con qué montar")
+    motion = (res.motion or {}).get("pierna")
+    if motion is None:
+        raise RiderError("la figura no tiene articulación de cadera (sin recorrido «pierna»): faltan los puertos de cadera")
+    center = np.asarray(motion[1], float)
+    axis = np.asarray(motion[2], float)
+    if center.shape != (3,) or axis.shape != (3,) or not np.linalg.norm(axis) > 0:
+        raise RiderError("la cadera de la figura no tiene centro y eje válidos")
+    axis = axis / np.linalg.norm(axis)
+    warns = []
+    if "pelvis" in pieces:
+        pname = "pelvis"
+    elif "torso" in pieces:
+        pname = "torso"
+        warns.append("la figura no tiene pelvis separada (sin cintura): se usa el torso entero como pelvis")
+    else:
+        raise RiderError("la figura no tiene pelvis ni torso")
+    placed = (res.placed or {}).get("pierna")
+    frame = getattr(getattr(placed, "port", None), "frame", None)
+    ref = np.asarray(frame.ref, float) if frame is not None else None
+    if ref is None or not np.linalg.norm(ref) > 0:
+        ref = np.cross(axis, [0.0, 0.0, 1.0])
+        if not np.linalg.norm(ref) > 1e-6:
+            ref = np.cross(axis, [0.0, 1.0, 0.0])
+    ref = ref / np.linalg.norm(ref)
+    mir = np.array([-1.0, 1.0, 1.0])
+    left, right = (PortFrame(center, axis, ref), PortFrame(center * mir, axis * mir, ref * mir))
+    if center[0] < 0:                                         # el motor trabaja en +X; por si acaso, «izq» es el de +X
+        left, right = right, left
+    if getattr(res, "right", None) is not None:
+        warns.append("figura asimétrica: la cadera derecha se toma por espejo de la izquierda")
+    pel = pieces[pname]
+    b = np.vstack([_mf_bounds(pel)] + [_mf_bounds(m) for m in legs.values()])
+    d = _mf_centroid_xy(list(legs.values())) - _mf_centroid_xy([pel])
+    if np.linalg.norm(d) < MIN_FACING_MM:
+        raise RiderError("no se puede saber hacia dónde mira el jinete: las piernas quedan a menos de "
+                         f"{MIN_FACING_MM:g} mm del centro de la pelvis (¿figura sin pose sentada?)")
+    facing = np.array([d[0], d[1], 0.0]) / np.linalg.norm(d)
+    others = tuple(k for k in pieces if k not in legs and k != pname)
+    return RiderProfile(pelvis=pel, pelvis_name=pname, legs=legs, hip_left=left, hip_right=right,
+                        hip_separation=float(np.linalg.norm(left.center - right.center)),
+                        lower_min=tuple(float(x) for x in b[:, :].min(axis=0)), lower_max=tuple(float(x) for x in b.max(axis=0)),
+                        facing=facing, sit_angle=float(asm.params.sit_angle), knee_print_angle=float(asm.params.knee_print_angle),
+                        other_pieces=others, warnings=warns)

@@ -1,3 +1,19 @@
+## Current Focus — Caballos compatibles: E03 `RiderProfile` (2026-11-20, sobre E02)
+`rider_profile(asm)` lee de una figura armada (pose sentada) la pelvis, las piernas, las caderas y hacia dónde mira, sin modificarla.
+
+### Todo List
+- [x] Done: E01 `HorseSpec`/`HorseMeta`; E02 `load_horse_mesh` (patches 0001 y 0002)
+- [x] Done: E03 `RiderProfile`/`rider_profile`/`RiderError` en `src/afm/equestrian.py` + `tests/test_equestrian_rider.py` (8 pruebas + 1 con el catálogo real)
+- [ ] Todo: E04 `RiderFrame` y matriz rígida (depende de E03); E11 biblioteca `caballos/`; E00 `tools/ecuestre_fase0.py` + puerta G0 antes de E05
+- [ ] Todo: copiar `PLAN_caballos_compatibles.md` a `docs/`
+
+### Latest Blockers/Discoveries
+- Pruebas corridas: `test_equestrian_{rider,spec,load}.py`, `test_engine_portability.py`, `test_recipe.py` → 62 pasan (con `AFM_PROCERES_127=<catálogo>` para la prueba real; sin esa variable esa prueba se saltea).
+- Belgrano de `proceres-127` (con `recipe.assemble`, ~65 s): pelvis separada, muslo/pantorrilla, frente +Y, pantorrilla z mín 22,2 mm y muslo 3 019 mm³: coincide con el plan §1.4.
+- Diferencia con el plan: la figura demo (`catalogo/ejemplo/muneco`) no tiene cintura ni pelvis separada; en ese caso el perfil usa el torso como pelvis y lo avisa en `warnings`. «Sin pelvis» da error solo si tampoco hay torso. Las piernas del muñeco son una pieza `pierna_*` (sin muslo/pantorrilla).
+- Centro/eje de cadera salen de `res.motion["pierna"]` (el lado derecho es el espejo); en figuras asimétricas se avisa.
+- No verificado: suite completa; `test_i18n.py`; E03 no agrega textos de interfaz.
+
 ## Current Focus — Caballos compatibles: E02 `load_horse_mesh` (2026-11-20, sobre E01 / main 099f188)
 Carga del caballo con escala y guiño (`HorseModel`, `HorseReport`), probada con el STL real, que se sube a `examples/referencia/caballo/`.
 
