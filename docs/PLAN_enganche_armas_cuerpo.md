@@ -174,15 +174,15 @@ La lógica va en un módulo propio sin GTK, probado sin ventana (como `palette_e
 - **M03** Sección transversal de la hoja y de la guarda en 1 o 2 estaciones (`trimesh.section`).
 - **M04** Generar el `lazo` (puente rectangular o aro): pie conformado a la superficie, techo, resta del arma ensanchada. La abertura sigue la sección de la hoja.
 - **M05** Integración en `build` según §6.2: `BuildResult.mounts`, `lado`, resolución de `lugar`, espejado para `der`. *Primer caso:* costado de la pelvis de Güemes.
-- **M06** Compatibilidad con `flat_for_print` según §6.5 (`host_bare`, plano, reunión al final, avisos). *Prueba:* figura con `flat` y montura; la montura sigue completa.
+- **M06** Compatibilidad con `flat_for_print` según §6.5 (`host_bare`, plano, reunión al final, avisos). *Prueba:* figura con `flat` y montura; la montura sigue completa. **Hecha** (`BuildResult.host_bare`, `pipeline._reattach_mounts`; si el plano corta el puente se lo corta y se avisa).
 - **M07** `_validate_mount`: extracción, holguras, retención, estabilidad, imprimibilidad, componentes (§6.4).
-- **M08** Mapa de espacio libre del flanco (también sirve a la GUI).
+- **M08** Mapa de espacio libre del flanco (también sirve a la GUI). **Hecha** (`mount_map.py`, `pipeline.mount_flank_map`, `afm montura-mapa`).
 - **M09** Probeta de la montura: `probes.probe_files(tipo="montura")`, el puente solo sobre base plana con varias holguras en la misma placa, siguiendo el estilo de las probetas del clic (`PROTOCOLO_probetas_clic.md`, `afm probe --clearances`). Ya hay una hecha a mano que sirve de referencia. La holgura elegida se guarda en la `MountSpec`.
 
 ### Fase 2 — Receta y CLI
 - **M10** `Recipe.ajustes["monturas"]`, validación en `problems()`, coherencia con `accesorios`, **clave de compat** (§6.3). Se guarda solo si hay. **Hecha** (`Recipe.mount_problems/mount_specs/key_ajustes`, `recipe.load_mounts`, `assemble` pasa `mounts=` a `build`; la clave suma el sha256 de cada arma).
 - **M11** CLI: `afm armar` ya lee la receta, así que **no** hace falta la sintaxis `--montura ARMA:LUGAR:x,y,z:dx,dy,dz` de la v0.3. Se agrega `afm probe --tipo montura` y, opcional, `--montura ARCHIVO.json`.
-- **M12** Informe: la montura y sus avisos en `info["construccion"]` y en la lista de piezas; el nivel de `compat` refleja los problemas de la montura.
+- **M12** Informe: la montura y sus avisos en `info["construccion"]` y en la lista de piezas; el nivel de `compat` refleja los problemas de la montura. **Hecha** (`mount.report_by_mount/level_of`, `pipeline.mounts_report`, sección «Monturas» en la lista de piezas, `monturas` en `compat.json`).
 
 ### Fase 3 — Interfaz
 - **M13** Bloque «Armas en el cuerpo» en `figure_window`.
