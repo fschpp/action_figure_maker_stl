@@ -222,3 +222,11 @@ def test_detail_rows_wrap_when_window_is_narrow(win, line):
     win.set_default_size(900, 700)
     pump(20)
     assert win.get_width() <= 900 or win.is_maximized()
+
+
+def test_window_minimum_size_allows_maximizing(win, line):
+    """La altura mínima de la ventana no depende de los botones apilados del detalle: se puede maximizar y achicar."""
+    win._select_ref(REF)
+    pump(30)
+    min_h = win.get_child().measure(Gtk.Orientation.VERTICAL, -1)[0]
+    assert min_h <= 600, f"altura mínima {min_h}px: la ventana no entraría en una pantalla chica ni se podría maximizar"

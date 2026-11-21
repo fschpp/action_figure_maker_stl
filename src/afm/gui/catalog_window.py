@@ -272,7 +272,12 @@ class CatalogManagerWindow(Gtk.Window):
         self.lbl_status = Gtk.Label(xalign=0, wrap=True)
         self.lbl_status.add_css_class("dim-label")
         box.append(self.lbl_status)
-        return box
+        # Con scroll vertical y sin scroll horizontal: las filas `WrapRow` se acomodan al ancho de la ventana y, si no entra todo en el alto,
+        # el panel se desplaza. Sin esto la altura mínima del panel (todos los botones en una sola columna) impide maximizar la ventana.
+        scroller = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, vscrollbar_policy=Gtk.PolicyType.AUTOMATIC,
+                                      min_content_width=240, min_content_height=200, hexpand=True, vexpand=True)
+        scroller.set_child(box)
+        return scroller
 
     # ------------------------------------------------------------ estado de las piezas elegidas
     def _build_state_row(self) -> Gtk.Widget:
