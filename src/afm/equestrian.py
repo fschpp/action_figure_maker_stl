@@ -407,3 +407,188 @@ def place_rider(asm, frame: RiderFrame) -> dict:
     """Todas las piezas del jinete (`BuildResult.pieces`, incluidas las que traen monturas de armas) movidas con la MISMA matriz.
     No recalcula pasadores ni holguras, no escala; los accesorios sueltos (`Recipe.accesorios`) no entran (D5)."""
     return {k: frame.apply(v) for k, v in asm.res.pieces.items()}
+
+
+# ---------------------------------------------------------------------------------------------------------------- E06
+SADDLE_TOUCH_TOL = 0.1       # mm: más allá de la separación prevista, la silla «flota»
+SADDLE_PAD_MARGIN = 2.0      # mm: margen de la ventana del caballo alrededor de la silla
+SADDLE_TALL = 50.0           # mm sobre la cara superior hasta donde se mira si el lomo sobresale de la silla
+SADDLE_SEARCH = 5.0          # mm: hasta esta distancia se mide el hueco bajo una silla que flota
+
+
+class SaddleError(ValueError):
+    """Parámetros de silla inválidos."""
+
+
+@dataclass(frozen=True)
+class SaddleSpec:
+    """Silla mínima (almohadilla) en el marco de asiento (plano 5.4, paso 1). Medidas en mm.
+
+    `ancho` va en X (a través del lomo), `largo` a lo largo de `direction` (hacia la cabeza). La cara superior queda
+    `alto` mm sobre el punto de asiento y los costados bajan `bajada` mm por debajo de él: la almohadilla abraza el lomo.
+    `encaje` > 0 hunde la cara inferior esa cantidad en el caballo (para fusionarlas); < 0 deja esa holgura; 0 apoya.
+    """
+
+    ancho: float = 40.0
+    largo: float = 45.0
+    alto: float = 5.0
+    bajada: float = 8.0
+    encaje: float = 0.0
+    desplazamiento: float = 0.0       # mm a lo largo de la dirección (+ hacia la cabeza)
+
+    def __post_init__(self):
+        for name in ("ancho", "largo", "alto"):
+            if not _num(getattr(self, name), name) > 0:
+                raise SaddleError(f"«{name}» tiene que ser mayor que 0")
+        if not _num(self.bajada, "bajada") >= 0:
+            raise SaddleError("«bajada» no puede ser negativa")
+        _num(self.encaje, "encaje")
+        _num(self.desplazamiento, "desplazamiento")
+        if abs(self.encaje) > self.alto + self.bajada:
+            raise SaddleError("«encaje» no puede superar el alto total de la almohadilla")
+
+    def to_dict(self) -> dict:
+        return {k: float(getattr(self, k)) for k in ("ancho", "largo", "alto", "bajada", "encaje", "desplazamiento")}
+
+    @classmethod
+    def from_dict(cls, d) -> "SaddleSpec":
+        if not isinstance(d, dict):
+            raise SaddleError("la silla tiene que ser un diccionario")
+        extra = set(d) - set(cls.__dataclass_fields__)
+        if extra:
+            raise SaddleError(f"campos desconocidos en la silla: {', '.join(sorted(extra))}")
+        return cls(**d)
+
+
+def suggest_saddle_spec(rp: RiderProfile, margin: float = 4.0) -> SaddleSpec:
+    """Medidas iniciales desde el jinete (flujo 4.5): ancho y largo de los muslos (o de las piernas) más un margen por lado."""
+    base = [m for k, m in rp.legs.items() if k.startswith("muslo")] or list(rp.legs.values())
+    b = np.vstack([_mf_bounds(m) for m in base])
+    ext = b.max(axis=0) - b.min(axis=0)
+    return SaddleSpec(ancho=float(ext[0] + 2 * margin), largo=float(ext[1] + 2 * margin))
+
+
+@dataclass
+class SaddleBuild:
+    """Silla generada y lo que se midió de ella. `problems` vacío = silla válida (sola; falta el despeje de la pelvis, E07)."""
+
+    spec: SaddleSpec
+    manifold: object
+    seat_origin: np.ndarray
+    direction: np.ndarray
+    z_top: float                      # cara superior: ahí se apoya el jinete (el ancla del jinete va a esta altura)
+    volume: float = 0.0
+    components: int = 0
+    fragments: list = field(default_factory=list)      # volúmenes de las componentes que no son la mayor
+    voids: int = 0                    # cavidades cerradas dentro de la silla
+    contact_volume: float = 0.0       # volumen de la silla que penetra en el caballo (mm³)
+    gap: float = 0.0                  # distancia mínima silla–caballo (0 si se tocan o penetran)
+    floating: bool = False
+    top_thickness: float | None = None    # espesor de la silla sobre el punto más alto del lomo bajo su huella
+    problems: list = field(default_factory=list)
+    warnings: list = field(default_factory=list)
+
+    @property
+    def lift(self) -> float:
+        """Cuánto sube el jinete respecto del lomo: la cara superior sobre el punto de asiento."""
+        return float(self.spec.alto)
+
+    @property
+    def ok(self) -> bool:
+        return not self.problems
+
+
+def _box_mf(extents, center, yaw_rad: float = 0.0):
+    m = trimesh.creation.box(extents=extents)
+    m.apply_translation(center)
+    if yaw_rad:
+        m.apply_transform(trimesh.transformations.rotation_matrix(yaw_rad, [0, 0, 1]))
+    return S.to_manifold(m)
+
+
+def shell_stats(mf) -> dict:
+    """Componentes (cáscaras exteriores), volúmenes de las menores y cavidades cerradas (cáscaras de volumen negativo).
+
+    `Manifold.decompose` trata la cavidad interior como una componente más, por eso se cuenta por cáscaras con signo."""
+    if mf.is_empty():
+        return {"components": 0, "fragments": [], "voids": 0}
+    tm = S.to_trimesh(mf)
+    tm.merge_vertices()
+    vols = [float(s.volume) for s in tm.split(only_watertight=False)]
+    outer = sorted((v for v in vols if v > 0), reverse=True)
+    return {"components": len(outer), "fragments": outer[1:], "voids": sum(1 for v in vols if v < 0)}
+
+
+def build_saddle(horse: HorseModel, spec: SaddleSpec, seat_origin, direction=(0.0, 1.0, 0.0), min_wall: float = 1.2) -> SaddleBuild:
+    """Silla mínima sobre el lomo: almohadilla `spec` cuya cara inferior copia el caballo (plano 5.4, pasos 1 y 2).
+
+    `silla = almohadilla − caballo` (el caballo bajado `encaje` mm). Trabaja sobre una ventana del caballo y no lo toca.
+    Detecta silla flotante, fragmentos, cavidades, lomo que sobresale de la cara superior y vacío bajo la huella.
+    """
+    o = np.asarray(seat_origin, float)
+    d = np.asarray(direction, float)
+    if o.shape != (3,) or not np.all(np.isfinite(o)):
+        raise SaddleError("«seat_origin» tiene que ser un punto [x, y, z] finito")
+    if d.shape != (3,) or not np.all(np.isfinite(d)) or np.linalg.norm(d[:2]) < 1e-6:
+        raise SaddleError("«direction» tiene que tener una parte horizontal (XY) no nula")
+    d = np.array([d[0], d[1], 0.0]) / np.linalg.norm(d[:2])
+    yaw = math.atan2(d[1], d[0]) - math.pi / 2.0
+    c_xy = o[:2] + spec.desplazamiento * d[:2]
+    z_top = float(o[2] + spec.alto)
+    zc = float(o[2] + (spec.alto - spec.bajada) / 2.0)
+    h = spec.alto + spec.bajada
+
+    def at(extents, zlo, zhi):                                 # caja con la misma huella, rotada y centrada como la silla
+        m = trimesh.creation.box(extents=(extents[0], extents[1], zhi - zlo))
+        m.apply_translation((0, 0, (zlo + zhi) / 2.0))
+        m.apply_transform(trimesh.transformations.rotation_matrix(yaw, [0, 0, 1]))
+        m.apply_translation((c_xy[0], c_xy[1], 0))
+        return S.to_manifold(m)
+
+    pad = at((spec.ancho, spec.largo), zc - h / 2.0, zc + h / 2.0)
+    reach = abs(spec.encaje) + SADDLE_PAD_MARGIN + SADDLE_SEARCH
+    win = np.asarray(pad.bounding_box(), float).reshape(2, 3)
+    lo, hi = win[0] - reach, win[1] + reach
+    hi[2] = z_top + SADDLE_TALL + reach
+    box = _box_mf(hi - lo, (lo + hi) / 2.0)
+    horse_win = S.intersection(horse.manifold, box)
+    build = SaddleBuild(spec=spec, manifold=pad, seat_origin=o, direction=d, z_top=z_top)
+    if horse_win.is_empty():
+        build.floating = True
+        build.gap = float("inf")
+        build.problems.append(f"no hay caballo a menos de {SADDLE_SEARCH:g} mm de la silla (asiento fuera del lomo o muy alto)")
+        return build
+    p = float(spec.encaje)
+    horse_shift = horse_win.translate((0.0, 0.0, -p)) if p else horse_win
+    saddle = S.difference(pad, horse_shift)
+    build.manifold = saddle
+    if saddle.is_empty():
+        build.problems.append("la silla desapareció al recortarla contra el caballo")
+        return build
+    build.volume = abs(float(saddle.volume()))
+    st = shell_stats(saddle)
+    build.components, build.fragments, build.voids = st["components"], st["fragments"], st["voids"]
+    build.contact_volume = abs(float(S.intersection(saddle, horse_win).volume()))
+    expected = max(0.0, -p)
+    if build.contact_volume > 1e-3:
+        build.gap = 0.0
+    else:
+        search = expected + SADDLE_SEARCH
+        build.gap = float(saddle.min_gap(horse_win, search))
+    build.floating = build.gap > expected + SADDLE_TOUCH_TOL
+    # espesor sobre el punto más alto del lomo bajo la huella (el lomo que sobresale de la cara superior rompe la silla)
+    under = S.intersection(horse_shift, at((spec.ancho, spec.largo), float(win[0][2]) - reach, z_top + SADDLE_TALL))
+    if not under.is_empty():
+        build.top_thickness = float(z_top - np.asarray(under.bounding_box(), float).reshape(2, 3)[1][2])
+    if build.floating:
+        build.problems.append(f"la silla flota: {build.gap:.2f} mm sobre el caballo (esperado {expected:.2f} mm)")
+    if build.components > 1:
+        vols = ", ".join(f"{v:.1f}" for v in build.fragments)
+        build.problems.append(f"la silla tiene {build.components} componentes (fragmentos de {vols} mm³): el caballo la parte")
+    if build.voids:
+        build.problems.append(f"la silla tiene {build.voids} cavidad(es) cerrada(s)")
+    if build.top_thickness is not None and build.top_thickness < min_wall:
+        build.problems.append(f"el lomo deja solo {build.top_thickness:.2f} mm de silla sobre él (mínimo {min_wall:g}): subir «alto» o mover el asiento")
+    if build.contact_volume > 1e-3 and p <= 0:
+        build.warnings.append("la silla penetra en el caballo más de lo previsto")
+    return build

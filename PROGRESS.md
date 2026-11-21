@@ -1,3 +1,17 @@
+## Current Focus — Caballos compatibles: E06 volumen base de silla (2026-11-21, sobre main 0197520 = E01–E04)
+`build_saddle` arma una almohadilla paramétrica en el marco de asiento y la recorta contra el caballo (`silla = almohadilla − caballo`); mide y avisa de problemas. No depende de G0 (el plan la deja en paralelo con E05).
+
+### Todo List
+- [x] Done: E06 `SaddleSpec`, `SaddleBuild`, `build_saddle`, `suggest_saddle_spec`, `shell_stats`, `SaddleError` en `src/afm/equestrian.py` + `tests/test_equestrian_saddle.py` (12 pruebas); `docs/PLAN_caballos_compatibles.md` copiado
+- [ ] Todo: E00 `tools/ecuestre_fase0.py` + puerta G0 (decide el usuario); E05 tallado (bloqueado por G0); E07 relieve de pelvis y canales (depende de E06, E04); E11 biblioteca `caballos/`; E12 `Recipe.cabalgadura`
+
+### Latest Blockers/Discoveries
+- Pruebas corridas (`PYTHONPATH=src`): `test_equestrian_{spec,load,rider,frame,saddle}.py`, `test_engine_portability.py`, `test_i18n.py` → pasan. La prueba de E02 `test_real_horse_at_3x_with_180_yaw` falla si falta `fast-simplification` (sin él `light` no se decima); no es de E06 y pasa al instalarlo.
+- Diseño: `ancho` en X, `largo` a lo largo de `direction`; la cara superior queda `alto` sobre el punto de asiento y los costados bajan `bajada` (la almohadilla abraza el lomo). `encaje` > 0 hunde la cara inferior en el caballo (fusión), < 0 deja holgura, 0 apoya (plano 5.4-5: no se fusionan por defecto). `SaddleBuild.lift` = `alto`: cuánto debe subir el ancla del jinete (para E07/E09).
+- Detecta: silla flotante (hueco medido hasta 5 mm; más lejos «no hay caballo a menos de 5 mm»), fragmentos (el caballo la parte), cavidades cerradas (por cáscaras con signo: `Manifold.decompose` cuenta la cavidad como componente), y lomo que sobresale de la cara superior (`top_thickness` < `min_wall`). Verificado contra el volumen analítico sobre un lomo cilíndrico (±1 %) y sobre losa plana (exacto).
+- Con `horse_baseless.stl` (3×, guiño 180°), almohadilla 30×30×5 en el punto más alto bajo el eje del caballo: válida para y = −40…−20 y 50 mm; no válida entre −10 y 40 mm porque el lomo sube hasta 10 mm sobre la cara superior dentro de la huella (cada llamada tarda < 1 s). Con asiento tan adelantado (§1.4) hará falta subir `alto` o mover el asiento.
+- No verificado: suite completa; silla con la pelvis y las piernas reales (despeje es E07, no hecho); inclinación (`pitch`) de la silla (no está: la almohadilla solo gira sobre Z); impresión; `pipeline.validate` no se tocó.
+
 ## Current Focus — Caballos compatibles: E04 `RiderFrame` y matriz rígida (2026-11-20, sobre main 00b7928 = E01–E03 ya mergeados)
 `seat_frame` arma una única matriz rígida (giro sobre Z hacia la cabeza del caballo + inclinación opcional + traslado al asiento) y `place_rider` la aplica a todas las piezas del jinete.
 
