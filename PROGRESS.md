@@ -1,3 +1,17 @@
+## Current Focus — Caballos compatibles: E15 ventana, sección «Caballo» (2026-11-21, sobre main 0a40fcf = E14)
+Sección «Caballo» de `FigureBuilderWindow`: elegir/importar caballo (escala desde una medida real, giro), asiento por clic sobre el lomo, dirección por arrastre, modo (tallado/silla/ambos), holgura, límites, silla y despeje, «Calcular y comprobar pose» en un hilo y vista conjunta con colores de diagnóstico. La lógica está en `gui/ride_pick.py` (sin GTK).
+
+### Todo List
+- [x] Done: `src/afm/gui/ride_pick.py` (`pick_seat*`, `direction_on_ground/_from_widget`, `seat_marks`, `suggest_scale`, `horse_scene`, `diagnostic_scene`, `fit_text`); `figure_window.py` (sección, vistas «caballo»/«resultado», gestos «asiento»/«rumbo»); `FigureBuilder.saddle_suggestion` y `RIDE_MODES`; ~70 textos es/en/pt (`figure_window.caballo_*`, `ride_pick.*`); `tests/test_ride_pick.py` (17 pruebas)
+- [ ] Todo: E00 `tools/ecuestre_fase0.py`; E16–E18; suite completa
+
+### Latest Blockers/Discoveries
+- Pruebas: `test_ride_pick.py` 17 pasan; `test_i18n` y `test_engine_portability` pasan. Las demás regresiones (`test_figure_builder*`, `test_equestrian_*`, `test_compat`) estaban corriendo al generar el patch: SIN resultado todavía.
+- NO verificado: la ventana (sin GTK/EGL en este entorno; solo se comprobó por AST que cada nombre existe y cada aviso va a un método). Pendiente probarla a mano.
+- Corregido respecto de los archivos recibidos: la prueba del clic tapado usaba una losa que el rayo no tocaba (ahora ±90 mm); `alto_dorso` medía el tercio central (daba la cruz, escala 2,54 en vez de 3,0): ahora usa la mitad trasera.
+- Límite conocido: el resultado de la pose se descarta al cambiar caballo, asiento, ajustes o pieza, pero no al cambiar escalas o mano; hay que volver a calcular.
+- G0 no se decidió en esta sesión (E05–E14 ya estaban en main).
+
 ## Current Focus — Caballos compatibles: E14 `FigureBuilder` (2026-11-21, sobre main + E13)
 `FigureBuilder` (sin GTK) elige el caballo de la biblioteca, marca el asiento sobre el lomo, ajusta modo/silla/despeje/holgura/límites, comprueba la pose y guarda la `cabalgadura` en la receta.
 

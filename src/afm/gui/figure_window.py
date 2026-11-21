@@ -3,7 +3,7 @@
 La lógica está en `figure_builder.py` (se prueba sin GTK). Acá: un desplegable por lugar (cada pieza marcada con cómo
 acopla a la ya elegida), vista previa 3/4 de la pieza elegida y, al armar, de la figura entera, y el armado en un hilo."""
 from __future__ import annotations
-from ..i18n import tr, loc
+from ..i18n import tr, loc, lz
 
 import os
 import re
@@ -19,11 +19,14 @@ from .catalog_manager import PreviewRenderer, view_bounds  # noqa: E402,F401  (v
 from ..recipe import SCALE_PLACES  # noqa: E402
 from ..mount import MOUNT_TYPES  # noqa: E402
 from .progress_panel import ProgressPanel  # noqa: E402
-from .figure_builder import NONE_LABEL, PLACE_LABELS, PLACE_ORDER, FigureBuilder, summary  # noqa: E402
+from .figure_builder import NONE_LABEL, PLACE_LABELS, PLACE_ORDER, RIDE_MODES, FigureBuilder, summary  # noqa: E402
+from ..equestrian import MAX_PITCH_DEG, SAFE_MAX_DEPTH, CarveLimits, ReliefSpec, SaddleSpec  # noqa: E402
 from . import mount_pick as MP  # noqa: E402
 from . import mount_preview as PV  # noqa: E402
+from . import ride_pick as RP  # noqa: E402
 
 YAW_MAX = 1.0e6      # GTK pide un tope numérico: este es técnico, el giro no tiene límite superior en la práctica
+RIDE_NONE_LABEL = lz("figure_window.caballo_ninguno")      # E15: primera opción del desplegable de caballos
 HEX_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 
 
@@ -67,6 +70,15 @@ class FigureBuilderWindow(Gtk.Window):
         self._mount_token = 0                   # M15: un cálculo más nuevo invalida al anterior
         self._combo = (None, None, [])          # M15: (id del grupo, id de lo extra, grupo + extra): se sube a la GPU solo si cambia
         self._last_dir = remember_dir
+        self._ride_refs: list[str] = []         # E15: «id@versión» de cada caballo del desplegable (en orden)
+        self._ride_guard = False                # E15: los campos y botones se cambian por código sin disparar sus avisos
+        self._ride_view = None                  # E15: None | "caballo" (el caballo solo, para elegir el asiento) | "resultado" (conjunto con diagnóstico)
+        self._ride_horse = None                 # E15: RideScene del caballo solo
+        self._ride_horse_src = None             # E15: el HorseModel de esa escena (si cambia, se rehace)
+        self._ride_fit = None                   # E15: RideScene de la última comprobación (None si ya no vale)
+        self._ride_token = 0                    # E15: un cálculo más nuevo invalida al anterior
+        self._ride_import_path: str | None = None
+        self._ride_refill_pending = False
 
         paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL, wide_handle=True)
         paned.set_start_child(self._build_form())
@@ -78,6 +90,7 @@ class FigureBuilderWindow(Gtk.Window):
         self.set_child(paned)
         self.connect("destroy", lambda *_: self.preview.close())
         self._refill()
+        self._ride_refill_idle()
 
     # ------------------------------------------------------------ construcción
     def _build_form(self) -> Gtk.Widget:
@@ -115,6 +128,7 @@ class FigureBuilderWindow(Gtk.Window):
         box.append(self._build_scale_section())
         box.append(self._build_accessory_section())
         box.append(self._build_mount_section())
+        box.append(self._build_ride_section())
         box.append(self._build_colors_section())
         box.append(self._build_flat_section())
         self.lbl_problems = Gtk.Label(xalign=0, wrap=True)
@@ -447,6 +461,14 @@ class FigureBuilderWindow(Gtk.Window):
     def _set_pick_mode(self, mode: str | None) -> None:
         """Pone el modo del ratón y deja los dos botones como corresponde, sin que sus avisos vuelvan a entrar."""
         self._pick_mode = mode
+        if mode is not None and hasattr(self, "tgl_ride_seat"):      # E15: un solo gesto del ratón a la vez
+            was_r, self._ride_guard = self._ride_guard, True
+            try:
+                self.tgl_ride_seat.set_active(False)
+                self.tgl_ride_dir.set_active(False)
+            finally:
+                self._ride_guard = was_r
+            self.lbl_ride_pick.set_text("")
         was, self._pick_guard = self._pick_guard, True
         try:
             self.tgl_m_pick.set_active(mode == "ancla")
@@ -897,6 +919,8 @@ class FigureBuilderWindow(Gtk.Window):
         except ValueError as exc:
             self.lbl_result.set_text(str(exc))
         self._sync()
+        if self.builder.horse:
+            self._ride_after_change()     # E15: el jinete cambió: el resultado de la pose ya no vale
         self._schedule_refill()          # NO ahora: GTK se cae si se cambia el modelo del desplegable que está avisando el cambio
         if ref:
             self._show_piece(ref)
@@ -1002,6 +1026,10 @@ class FigureBuilderWindow(Gtk.Window):
         self.chk_shoulder.set_active(self.builder.options["clic_hombro"])
         self.chk_hip.set_active(self.builder.options["clic_cadera"])
         self._refill()
+        self._ride_fit = self._ride_horse = None                 # E15: la receta puede traer otro caballo y otro asiento
+        self._set_ride_pick_mode(None)
+        self._ride_view = None
+        self._ride_after_change()
         msg = tr("figure_window.receta_abierta_path_retocala_y_guardala", path=path)
         if warns:
             msg += ('\n' + tr("figure_window.no_se_pudo_cargar_todo") + '\n') + "\n".join(f"• {w}" for w in warns)
@@ -1014,6 +1042,10 @@ class FigureBuilderWindow(Gtk.Window):
     def _on_toggle_all(self, *_) -> None:
         if self.tgl_all.get_active():
             self._dyaw = self._dpitch = 0.0
+            if self._ride_view is not None:                   # E15: una sola vista conjunta a la vez
+                self._ride_view = None
+                self._set_ride_pick_mode(None)
+                self._sync_ride_view_toggles()
         self._refresh_group()
 
     def _refresh_group(self) -> None:
@@ -1021,7 +1053,8 @@ class FigureBuilderWindow(Gtk.Window):
         if not self.tgl_all.get_active():
             self._group = self._pick_group = None
             if hasattr(self, "tgl_m_pick"):
-                self._set_pick_mode(None)           # sin vista conjunta no hay dónde elegir
+                if self._pick_mode not in ("asiento", "rumbo"):       # E15: el asiento se elige sobre el caballo solo, sin vista conjunta
+                    self._set_pick_mode(None)           # sin vista conjunta no hay dónde elegir
                 self._set_view_toggles(False)
             self._redraw()
             return
@@ -1111,11 +1144,15 @@ class FigureBuilderWindow(Gtk.Window):
         self._start_color_preview()
 
     def _redraw(self) -> None:
-        group = self._draw_group() if self.tgl_all.get_active() else None
-        if group is None and self._shown is None and self._tex_parts is None:
+        ride = self._ride_current()                           # E15: el caballo solo o el conjunto con diagnóstico
+        group = None if ride is not None else (self._draw_group() if self.tgl_all.get_active() else None)
+        if ride is None and group is None and self._shown is None and self._tex_parts is None:
             return
         try:
-            if group is not None:
+            if ride is not None:
+                marks = RP.seat_marks(self.builder.ride["asiento"], self.builder.ride["direccion"]) if self._ride_view == "caballo" else ride.marks
+                img = self.preview.render_parts(ride.parts, self._dyaw, self._dpitch, marks=marks, bounds=ride.bounds)
+            elif group is not None:
                 bounds = MP.parts_bounds(self._pick_group) if self._pick_group else None      # el mismo encuadre que usa el clic
                 img = self.preview.render_parts(group, self._dyaw, self._dpitch, marks=MP.mount_marks(self.builder.mounts), bounds=bounds,
                                                overlay=self._mount_overlay)
@@ -1145,9 +1182,13 @@ class FigureBuilderWindow(Gtk.Window):
             self._apply_pick_anchor(x0, y0)
         elif self._pick_mode == "dir":
             self._apply_pick_direction(x0, y0, x0 + dx, y0 + dy)
+        elif self._pick_mode == "asiento" and MP.is_click(dx, dy):           # E15: clic sobre el lomo
+            self._apply_ride_seat(x0, y0)
+        elif self._pick_mode == "rumbo":                                     # E15: arrastre hacia la cabeza del caballo
+            self._apply_ride_direction(x0, y0, x0 + dx, y0 + dy)
 
     def _on_drag(self, _g, dx: float, dy: float) -> None:
-        if self._pick_mode == "dir":
+        if self._pick_mode in ("dir", "rumbo"):
             return                  # el arrastre marca la dirección: no gira la vista
         y0, p0 = self._drag0
         self._dyaw, self._dpitch = y0 - dx * 0.4, p0 + dy * 0.4
@@ -1156,6 +1197,499 @@ class FigureBuilderWindow(Gtk.Window):
     def _on_reset_view(self, *_) -> None:
         self._dyaw = self._dpitch = 0.0
         self._redraw()
+
+# ------------------------------------------------------------ E15: caballo, asiento y comprobación de pose
+    def _build_ride_section(self) -> Gtk.Widget:
+        """Sección «Caballo» (`FigureBuilder.horse` y `ride`): elegir o importar un caballo, marcar el asiento con el ratón, modo de adaptación
+        (tallado, silla o ambos) y «Calcular y comprobar pose». La lógica está en `FigureBuilder` y `ride_pick` (se prueban sin GTK)."""
+        self.exp_ride = Gtk.Expander(label=tr("figure_window.caballo_seccion"), expanded=False)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, margin_start=12, margin_top=4)
+        self._ride_refs: list[str] = []
+        top = Gtk.Box(spacing=6)
+        self.dd_ride_horse = Gtk.DropDown.new_from_strings([loc(RIDE_NONE_LABEL)])
+        self.dd_ride_horse.set_hexpand(True)
+        self.dd_ride_horse.connect("notify::selected", self._on_ride_horse)
+        self.btn_ride_import = Gtk.Button(label=tr("figure_window.caballo_importar"))
+        self.btn_ride_import.connect("clicked", self._on_ride_import)
+        top.append(self.dd_ride_horse)
+        top.append(self.btn_ride_import)
+        box.append(top)
+
+        def row(parent, label: str, *widgets) -> None:
+            r = Gtk.Box(spacing=6)
+            r.append(Gtk.Label(label=label, xalign=0, hexpand=True, wrap=True))
+            for w in widgets:
+                r.append(w)
+            parent.append(r)
+
+        # --- importar: STL, id, nombre, escala (a mano o desde una medida real) y giro
+        self.box_ride_import = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, visible=False)
+        self.lbl_ride_file = Gtk.Label(xalign=0, wrap=True)
+        self.lbl_ride_file.add_css_class("dim-label")
+        self.box_ride_import.append(self.lbl_ride_file)
+        self.ent_ride_id = Gtk.Entry(width_chars=16)
+        self.ent_ride_name = Gtk.Entry(width_chars=16)
+        row(self.box_ride_import, tr("figure_window.caballo_id"), self.ent_ride_id)
+        row(self.box_ride_import, tr("figure_window.caballo_nombre"), self.ent_ride_name)
+        self.sp_ride_scale = Gtk.SpinButton.new_with_range(0.001, 1000.0, 0.01)
+        self.sp_ride_scale.set_digits(4)
+        self.sp_ride_scale.set_value(1.0)
+        row(self.box_ride_import, tr("figure_window.caballo_escala"), self.sp_ride_scale)
+        self.dd_ride_yaw = Gtk.DropDown.new_from_strings([f"{int(y)}" for y in RP.YAW_CHOICES])
+        row(self.box_ride_import, tr("figure_window.caballo_giro"), self.dd_ride_yaw)
+        self.dd_ride_ref = Gtk.DropDown.new_from_strings([tr("figure_window.caballo_ref_ninguna")] + [tr(f"figure_window.caballo_ref_{k}") for k in RP.REF_KINDS])
+        self.sp_ride_ref_mm = Gtk.SpinButton.new_with_range(1.0, 2000.0, 1.0)
+        self.sp_ride_ref_mm.set_digits(1)
+        self.sp_ride_ref_mm.set_value(100.0)
+        row(self.box_ride_import, tr("figure_window.caballo_ref"), self.dd_ride_ref)
+        row(self.box_ride_import, tr("figure_window.caballo_ref_mm"), self.sp_ride_ref_mm)
+        btns = Gtk.Box(spacing=6)
+        self.btn_ride_scale = Gtk.Button(label=tr("figure_window.caballo_escala_desde_medida"))
+        self.btn_ride_scale.connect("clicked", self._on_ride_scale)
+        self.btn_ride_add = Gtk.Button(label=tr("figure_window.caballo_agregar"))
+        self.btn_ride_add.connect("clicked", self._on_ride_add)
+        btns.append(self.btn_ride_scale)
+        btns.append(self.btn_ride_add)
+        self.box_ride_import.append(btns)
+        box.append(self.box_ride_import)
+
+        # --- asiento y ajustes (solo con caballo elegido)
+        self.box_ride_form = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+
+        def spin(lo: float, hi: float, step: float, digits: int, key: str) -> Gtk.SpinButton:
+            sp = Gtk.SpinButton.new_with_range(lo, hi, step)
+            sp.set_digits(digits)
+            sp.set_width_chars(6)
+            sp.connect("value-changed", self._on_ride_field, key)
+            return sp
+
+        self._ride_seat_sp = [spin(-2000.0, 2000.0, 0.1, 2, "asiento") for _ in range(3)]
+        self._ride_dir_sp = [spin(-1.0, 1.0, 0.05, 2, "direccion") for _ in range(2)]
+        self.sp_ride_pitch = spin(-MAX_PITCH_DEG, MAX_PITCH_DEG, 1.0, 1, "inclinacion")
+        row(self.box_ride_form, tr("figure_window.caballo_asiento_mm"), *self._ride_seat_sp)
+        row(self.box_ride_form, tr("figure_window.caballo_direccion"), *self._ride_dir_sp)
+        row(self.box_ride_form, tr("figure_window.caballo_inclinacion"), self.sp_ride_pitch)
+        pick = Gtk.Box(spacing=6)
+        self.tgl_ride_seat = Gtk.ToggleButton(label=tr("figure_window.caballo_pick_asiento"))
+        self.tgl_ride_dir = Gtk.ToggleButton(label=tr("figure_window.caballo_pick_dir"))
+        self.tgl_ride_seat.connect("toggled", self._on_ride_pick_toggle, "asiento")
+        self.tgl_ride_dir.connect("toggled", self._on_ride_pick_toggle, "rumbo")
+        self.tgl_ride_horse = Gtk.ToggleButton(label=tr("figure_window.caballo_ver_caballo"))
+        self.tgl_ride_fit = Gtk.ToggleButton(label=tr("figure_window.caballo_ver_resultado"))
+        self.tgl_ride_horse.connect("toggled", self._on_ride_view_toggle, "caballo")
+        self.tgl_ride_fit.connect("toggled", self._on_ride_view_toggle, "resultado")
+        for w in (self.tgl_ride_seat, self.tgl_ride_dir, self.tgl_ride_horse, self.tgl_ride_fit):
+            pick.append(w)
+        self.box_ride_form.append(pick)
+        self.lbl_ride_pick = Gtk.Label(xalign=0, wrap=True)
+        self.lbl_ride_pick.add_css_class("dim-label")
+        self.box_ride_form.append(self.lbl_ride_pick)
+
+        self.dd_ride_mode = Gtk.DropDown.new_from_strings([tr(f"figure_window.caballo_modo_{m}") for m in RIDE_MODES])
+        self.dd_ride_mode.connect("notify::selected", self._on_ride_mode)
+        row(self.box_ride_form, tr("figure_window.caballo_modo"), self.dd_ride_mode)
+        self.sp_ride_gap = spin(0.0, 3.0, 0.05, 2, "holgura")
+        row(self.box_ride_form, tr("figure_window.caballo_holgura"), self.sp_ride_gap)
+        # tallado: límites
+        self.box_ride_carve = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.sp_ride_depth = spin(0.5, SAFE_MAX_DEPTH, 0.5, 1, "limites")
+        self.sp_ride_wall = spin(0.4, 5.0, 0.1, 1, "limites")
+        self.sp_ride_frac = spin(0.1, 100.0, 0.5, 1, "limites")
+        row(self.box_ride_carve, tr("figure_window.caballo_lim_prof"), self.sp_ride_depth)
+        row(self.box_ride_carve, tr("figure_window.caballo_lim_pared"), self.sp_ride_wall)
+        row(self.box_ride_carve, tr("figure_window.caballo_lim_frac"), self.sp_ride_frac)
+        self.box_ride_form.append(self.box_ride_carve)
+        # silla: medidas y despeje
+        self.box_ride_saddle = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.lbl_ride_auto = Gtk.Label(label=tr("figure_window.caballo_silla_auto"), xalign=0, wrap=True)
+        self.lbl_ride_auto.add_css_class("dim-label")
+        self.box_ride_saddle.append(self.lbl_ride_auto)
+        self._ride_saddle_sp = {"ancho": spin(1.0, 400.0, 0.5, 1, "silla"), "largo": spin(1.0, 400.0, 0.5, 1, "silla"),
+                                "alto": spin(0.5, 100.0, 0.5, 1, "silla"), "bajada": spin(0.0, 100.0, 0.5, 1, "silla"),
+                                "encaje": spin(-50.0, 50.0, 0.5, 1, "silla")}
+        for k, sp in self._ride_saddle_sp.items():
+            row(self.box_ride_saddle, tr(f"figure_window.caballo_silla_{k}"), sp)
+        self._ride_relief_sp = {"clearance": spin(0.0, 5.0, 0.05, 2, "relieve"), "skirt_drop": spin(0.0, 50.0, 0.5, 1, "relieve"),
+                                "skirt_thick": spin(0.4, 10.0, 0.1, 1, "relieve")}
+        for k, label in (("clearance", "relieve_holgura"), ("skirt_drop", "faldon_caida"), ("skirt_thick", "faldon_espesor")):
+            row(self.box_ride_saddle, tr(f"figure_window.caballo_{label}"), self._ride_relief_sp[k])
+        self.box_ride_form.append(self.box_ride_saddle)
+        self.btn_ride_check = Gtk.Button(label=tr("figure_window.caballo_calcular"))
+        self.btn_ride_check.add_css_class("suggested-action")
+        self.btn_ride_check.connect("clicked", self._on_ride_check)
+        self.box_ride_form.append(self.btn_ride_check)
+        self.lbl_ride_status = Gtk.Label(xalign=0, wrap=True)
+        self.box_ride_form.append(self.lbl_ride_status)
+        note = Gtk.Label(label=tr("figure_window.caballo_nota"), xalign=0, wrap=True)
+        note.add_css_class("dim-label")
+        self.box_ride_form.append(note)
+        box.append(self.box_ride_form)
+        self.exp_ride.set_child(box)
+        return self.exp_ride
+
+    def _refill_ride(self) -> None:
+        """Pone el desplegable de caballos, los campos y la visibilidad como están en el constructor. Se llama con `_updating` activo; nunca desde un
+        `notify` del desplegable cuyo modelo cambia (ver `_schedule_ride_refill`)."""
+        b = self.builder
+        was, self._ride_guard = self._ride_guard, True
+        try:
+            try:
+                metas = b.horses()
+            except Exception as exc:                          # noqa: BLE001  (carpeta ilegible: se dice y la sección queda sin caballos)
+                metas = []
+                self.lbl_result.set_text(str(exc))
+            self._ride_refs = [m.ref for m in metas]
+            labels = [f"{m.nombre or m.id} ({m.ref})" for m in metas]
+            if b.horse and b.horse not in self._ride_refs:     # la receta fija un caballo (o una versión) que la biblioteca ya no lista
+                self._ride_refs.append(b.horse)
+                labels.append(b.horse)
+            self.dd_ride_horse.set_model(Gtk.StringList.new([loc(RIDE_NONE_LABEL)] + labels))
+            self.dd_ride_horse.set_selected(self._ride_refs.index(b.horse) + 1 if b.horse in self._ride_refs else 0)
+            r = b.ride
+            for sp, v in zip(self._ride_seat_sp, r["asiento"] or (0.0, 0.0, 0.0)):
+                sp.set_value(v)
+            for sp, v in zip(self._ride_dir_sp, r["direccion"][:2]):
+                sp.set_value(v)
+            self.sp_ride_pitch.set_value(r["inclinacion"])
+            self.dd_ride_mode.set_selected(RIDE_MODES.index(r["modo"]))
+            self.sp_ride_gap.set_value(r["holgura"] or 0.0)
+            cat_params = b.catalog().params
+            lim = r["limites"] or CarveLimits(min_wall=cat_params.min_wall)
+            self.sp_ride_depth.set_value(lim.max_depth)
+            self.sp_ride_wall.set_value(lim.min_wall)
+            self.sp_ride_frac.set_value(100.0 * lim.max_removed_frac)
+            sad = r["silla"] or b.saddle_suggestion() or SaddleSpec()
+            for k, sp in self._ride_saddle_sp.items():
+                sp.set_value(getattr(sad, k))
+            rel = r["relieve"] or ReliefSpec(clearance=r["holgura"] or cat_params.clearance)
+            for k, sp in self._ride_relief_sp.items():
+                sp.set_value(getattr(rel, k))
+        finally:
+            self._ride_guard = was
+        has = bool(b.horse)
+        self.box_ride_form.set_visible(has)
+        self.box_ride_carve.set_visible(has and b.ride["modo"] in ("tallado", "ambos"))
+        self.box_ride_saddle.set_visible(has and b.ride["modo"] in ("silla", "ambos"))
+        self.lbl_ride_auto.set_visible(b.ride["silla"] is None)
+        self.box_ride_form.set_sensitive(not self._busy)
+        self.dd_ride_horse.set_sensitive(not self._busy)
+        self.btn_ride_import.set_sensitive(not self._busy)
+        self.btn_ride_check.set_sensitive(has and not self._busy and b.ride["asiento"] is not None)
+        self._sync_ride_view_toggles()
+        if self._ride_fit is None:
+            probs = b.ride_problems() if has else []
+            self.lbl_ride_status.set_text("; ".join(probs) if probs else (tr("figure_window.caballo_sin_comprobar") if has else ""))
+            self.lbl_ride_status.remove_css_class("error")
+
+    def _schedule_ride_refill(self) -> None:
+        if not self._ride_refill_pending:
+            self._ride_refill_pending = True
+            GLib.idle_add(self._ride_refill_idle)
+
+    def _ride_refill_idle(self) -> bool:
+        self._ride_refill_pending = False
+        was, self._updating = self._updating, True
+        try:
+            self._refill_ride()
+        finally:
+            self._updating = was
+        return False
+
+    def _sync_ride_view_toggles(self) -> None:
+        was, self._ride_guard = self._ride_guard, True
+        try:
+            self.tgl_ride_horse.set_active(self._ride_view == "caballo")
+            self.tgl_ride_fit.set_active(self._ride_view == "resultado")
+        finally:
+            self._ride_guard = was
+        self.tgl_ride_horse.set_sensitive(bool(self.builder.horse))
+        self.tgl_ride_fit.set_sensitive(self._ride_fit is not None)
+
+    # --- caballo: elegir e importar
+    def _on_ride_horse(self, dd: Gtk.DropDown, _p) -> None:
+        if self._ride_guard or self._updating:
+            return
+        i = dd.get_selected()
+        ref = self._ride_refs[i - 1] if 0 < i <= len(self._ride_refs) else None
+        if ref == self.builder.horse:
+            return                  # GTK avisa también los cambios de selección de nuestro `set_model` (ver `_on_pick`)
+        try:
+            self.builder.set_horse(ref)
+        except ValueError as exc:
+            self.lbl_result.set_text(str(exc))
+        self._ride_fit = self._ride_horse = None
+        if self.builder.horse is None:
+            self._set_ride_pick_mode(None)
+        self._ride_after_change()
+
+    def _on_ride_import(self, *_args) -> None:
+        dlg = Gtk.FileDialog(title=tr("figure_window.caballo_importar_titulo"))
+        flt = Gtk.FileFilter()
+        flt.set_name("STL")
+        flt.add_pattern("*.stl")
+        flt.add_pattern("*.STL")
+        store = Gio.ListStore.new(Gtk.FileFilter)
+        store.append(flt)
+        dlg.set_filters(store)
+        if self._last_dir and os.path.isdir(self._last_dir):
+            dlg.set_initial_folder(Gio.File.new_for_path(self._last_dir))
+
+        def picked(d, res):
+            try:
+                path = d.open_finish(res).get_path()
+            except GLib.Error:
+                return                                        # cancelado
+            self._ride_import_path = path
+            self._last_dir = os.path.dirname(path)
+            self.lbl_ride_file.set_text(tr("figure_window.caballo_archivo", name=os.path.basename(path)))
+            self.ent_ride_id.set_text(RP.suggest_horse_id(path))
+            self.ent_ride_name.set_text(os.path.splitext(os.path.basename(path))[0])
+            self.box_ride_import.set_visible(True)
+
+        dlg.open(self, None, picked)
+
+    def _ride_import_args(self) -> dict:
+        i = self.dd_ride_ref.get_selected()
+        kind = RP.REF_KINDS[i - 1] if 0 < i <= len(RP.REF_KINDS) else None
+        return {"escala": self.sp_ride_scale.get_value(), "yaw": RP.YAW_CHOICES[min(self.dd_ride_yaw.get_selected(), len(RP.YAW_CHOICES) - 1)],
+                "ref_tipo": kind, "ref_mm": self.sp_ride_ref_mm.get_value() if kind else None}
+
+    def _on_ride_scale(self, *_args) -> None:
+        """Escala desde la medida real: lleva «alto del dorso», «largo» o «alto total» del STL (ya girado) a los milímetros pedidos."""
+        a = self._ride_import_args()
+        path = getattr(self, "_ride_import_path", None)
+        if path is None or a["ref_tipo"] is None:
+            self.lbl_result.set_text(tr("ride_pick.ref_mm"))
+            return
+        try:
+            k = RP.suggest_scale(path, a["ref_tipo"], a["ref_mm"], a["yaw"])
+        except ValueError as exc:
+            self.lbl_result.set_text(str(exc))
+            return
+        self.sp_ride_scale.set_value(k)
+        self.lbl_result.set_text(tr("figure_window.caballo_escala_puesta", k=f"{k:.4f}"))
+
+    def _on_ride_add(self, *_args) -> None:
+        path = getattr(self, "_ride_import_path", None)
+        if path is None or self._busy:
+            return
+        a = self._ride_import_args()
+        try:
+            meta = self.builder.add_horse(path, self.ent_ride_id.get_text().strip(), nombre=self.ent_ride_name.get_text().strip(), **a)
+            self.builder.set_horse(meta.ref)
+        except ValueError as exc:                             # HorseError es un ValueError
+            self.lbl_result.set_text(tr("figure_window.caballo_error", exc=str(exc)))
+            return
+        self.box_ride_import.set_visible(False)
+        self._ride_import_path = None
+        self._ride_fit = self._ride_horse = None
+        self.lbl_result.set_text(tr("figure_window.caballo_agregado", ref=meta.ref))
+        self._ride_after_change()
+
+    # --- vistas y escenas
+    def _ensure_ride_horse(self) -> None:
+        """La escena del caballo solo (donde se elige el asiento); se rehace si cambia el caballo. Levanta `ValueError` si no se puede abrir."""
+        horse = self.builder.horse_model()
+        if self._ride_horse is None or self._ride_horse_src is not horse:
+            self._ride_horse, self._ride_horse_src = RP.horse_scene(horse), horse
+
+    def _ride_current(self):
+        """La escena que se dibuja ahora (`RideScene`), o None si se ve la vista de siempre."""
+        if self._ride_view == "resultado" and self._ride_fit is not None:
+            return self._ride_fit
+        if self._ride_view == "caballo":
+            return self._ride_horse
+        return None
+
+    def _set_ride_view(self, view: str | None) -> None:
+        """None = la vista de siempre; «caballo» = el caballo solo con el asiento; «resultado» = el conjunto con colores de diagnóstico."""
+        if view == "resultado" and self._ride_fit is None:
+            view = "caballo"
+        if view is not None:
+            try:
+                if not self.builder.horse:
+                    raise ValueError(tr("figure_window.caballo_pick_sin_caballo"))
+                self._ensure_ride_horse()
+            except ValueError as exc:
+                self.lbl_result.set_text(str(exc))
+                view = None
+        changed = view != self._ride_view
+        self._ride_view = view
+        if view is None or view != "caballo":
+            if self._pick_mode in ("asiento", "rumbo"):
+                self._set_ride_pick_mode(None)
+        if view is not None and self.tgl_all.get_active():
+            self.tgl_all.set_active(False)                    # una sola vista conjunta a la vez
+        if changed:
+            self._dyaw = self._dpitch = 0.0
+        self._sync_ride_view_toggles()
+        self._redraw()
+
+    def _on_ride_view_toggle(self, btn: Gtk.ToggleButton, which: str) -> None:
+        if self._ride_guard:
+            return
+        if btn.get_active():
+            self._set_ride_view(which)
+        elif self._ride_view == which:
+            self._set_ride_view(None)
+
+    def _ride_after_change(self) -> None:
+        """Cambió el caballo, el asiento o un ajuste: el resultado de la última comprobación ya no vale."""
+        self._ride_fit = None
+        if self._ride_view == "resultado":
+            self._ride_view = "caballo"
+        if self.builder.horse is None:
+            self._ride_view = None
+        elif self._ride_view == "caballo":
+            try:
+                self._ensure_ride_horse()
+            except ValueError as exc:
+                self.lbl_result.set_text(str(exc))
+                self._ride_view = None
+        self._schedule_ride_refill()
+        self._sync()
+        self._redraw()
+
+    # --- asiento y dirección con el ratón
+    def _set_ride_pick_mode(self, mode: str | None) -> None:
+        """Pone el modo del ratón («asiento», «rumbo» o ninguno) y deja los botones como corresponde, sin que sus avisos vuelvan a entrar."""
+        self._set_pick_mode(None)                             # apaga los del arma
+        self._pick_mode = mode
+        was, self._ride_guard = self._ride_guard, True
+        try:
+            self.tgl_ride_seat.set_active(mode == "asiento")
+            self.tgl_ride_dir.set_active(mode == "rumbo")
+        finally:
+            self._ride_guard = was
+        self.lbl_ride_pick.set_text({"asiento": tr("figure_window.caballo_pick_ayuda_asiento"), "rumbo": tr("figure_window.caballo_pick_ayuda_dir")}.get(mode, ""))
+
+    def _on_ride_pick_toggle(self, btn: Gtk.ToggleButton, mode: str) -> None:
+        if self._ride_guard:
+            return
+        if not btn.get_active():
+            if self._pick_mode == mode:
+                self._set_ride_pick_mode(None)
+            return
+        if not self.builder.horse:
+            self._set_ride_pick_mode(None)
+            self.lbl_ride_pick.set_text(tr("figure_window.caballo_pick_sin_caballo"))
+            return
+        self._set_ride_view("caballo")                        # elegir con el ratón necesita el caballo solo a la vista
+        if self._ride_view != "caballo":
+            self._set_ride_pick_mode(None)
+            return
+        self._set_ride_pick_mode(mode)
+
+    def _apply_ride_seat(self, x: float, y: float) -> None:
+        scene = self._ride_current()
+        if scene is None or self._ride_view != "caballo":
+            return
+        try:
+            sp = RP.pick_seat_from_widget(x, y, (self.picture.get_width(), self.picture.get_height()), self._image_size(), scene.parts,
+                                          self._dyaw, self._dpitch)
+            seat = self.builder.seat_on_back(sp.x, sp.y)
+        except ValueError as exc:                             # RidePickError y los avisos del constructor (sin lomo bajo el clic…)
+            self.lbl_ride_pick.set_text(str(exc))
+            return
+        self.lbl_ride_pick.set_text(tr("figure_window.caballo_pick_asiento_puesto", x=f"{seat[0]:g}", y=f"{seat[1]:g}", z=f"{seat[2]:g}"))
+        self._ride_after_change()
+
+    def _apply_ride_direction(self, x0: float, y0: float, x1: float, y1: float) -> None:
+        scene = self._ride_current()
+        seat = self.builder.ride["asiento"]
+        if scene is None or self._ride_view != "caballo":
+            return
+        if seat is None:
+            self.lbl_ride_pick.set_text(tr("figure_window.caballo_pick_ayuda_asiento"))
+            return
+        try:
+            d = RP.direction_from_widget(x0, y0, x1, y1, (self.picture.get_width(), self.picture.get_height()), self._image_size(), scene.parts,
+                                         seat, self._dyaw, self._dpitch)
+            self.builder.set_seat(direccion=d)
+        except ValueError as exc:
+            self.lbl_ride_pick.set_text(str(exc))
+            return
+        self.lbl_ride_pick.set_text(tr("figure_window.caballo_pick_dir_puesta", x=f"{d[0]:g}", y=f"{d[1]:g}"))
+        self._ride_after_change()
+
+    # --- campos del formulario
+    def _on_ride_mode(self, dd: Gtk.DropDown, _p) -> None:
+        if self._ride_guard or self._updating or not self.builder.horse:
+            return
+        i = dd.get_selected()
+        if i >= len(RIDE_MODES) or RIDE_MODES[i] == self.builder.ride["modo"]:
+            return
+        try:
+            self.builder.set_ride_mode(RIDE_MODES[i])
+        except ValueError as exc:
+            self.lbl_result.set_text(str(exc))
+        self._ride_after_change()
+
+    def _on_ride_field(self, _sp, key: str) -> None:
+        """Un campo numérico cambió: va a la cabalgadura. Si el valor no vale, se avisa y el formulario vuelve a lo que había."""
+        b = self.builder
+        if self._ride_guard or self._updating or not b.horse:
+            return
+        try:
+            if key == "asiento":
+                b.set_seat(asiento=[s.get_value() for s in self._ride_seat_sp])
+            elif key == "direccion":
+                b.set_seat(direccion=(*(s.get_value() for s in self._ride_dir_sp), 0.0))
+            elif key == "inclinacion":
+                b.set_seat(inclinacion=self.sp_ride_pitch.get_value())
+            elif key == "holgura":
+                b.set_ride_clearance(self.sp_ride_gap.get_value() or None)
+            elif key == "limites":
+                b.set_ride_limits(max_depth=self.sp_ride_depth.get_value(), min_wall=self.sp_ride_wall.get_value(),
+                                  max_removed_frac=self.sp_ride_frac.get_value() / 100.0)
+            elif key == "silla":
+                b.set_saddle(**{k: s.get_value() for k, s in self._ride_saddle_sp.items()})
+            elif key == "relieve":
+                b.set_relief(**{k: s.get_value() for k, s in self._ride_relief_sp.items()})
+        except ValueError as exc:
+            self.lbl_result.set_text(str(exc))
+        self._ride_after_change()
+
+    # --- «Calcular y comprobar pose»
+    def _on_ride_check(self, *_args) -> None:
+        """Arma la figura, la monta en el caballo con el tallado y/o la silla elegidos y la valida (`FigureBuilder.check_ride`). Tarda: va en un hilo."""
+        if self._busy:
+            return
+        b = self.builder
+        self._ride_token += 1
+        token = self._ride_token
+        self._t0 = time.monotonic()
+        self._set_busy(True)
+        self.lbl_ride_status.remove_css_class("error")
+        self.lbl_ride_status.set_text(tr("figure_window.caballo_calculando"))
+
+        def work() -> None:
+            try:
+                fit = b.check_ride()
+                scene = RP.diagnostic_scene(fit, b.horse_model())
+            except Exception as exc:                          # noqa: BLE001 — se informa en la ventana
+                GLib.idle_add(self._ride_check_done, token, None, exc)
+            else:
+                GLib.idle_add(self._ride_check_done, token, scene, None)
+
+        threading.Thread(target=work, daemon=True, name="afm-pose-caballo").start()
+
+    def _ride_check_done(self, token: int, scene, error) -> bool:
+        if token != self._ride_token:
+            return False
+        self._set_busy(False)
+        if error is not None:
+            self.lbl_ride_status.set_text(tr("figure_window.caballo_error_calculo", exc=str(error)))
+            self.lbl_ride_status.add_css_class("error")
+            return False
+        self._ride_fit = scene
+        self.lbl_result.set_text(scene.text)
+        self.lbl_ride_status.set_text(scene.text.split("\n", 1)[0])
+        (self.lbl_ride_status.remove_css_class if scene.level != "no" else self.lbl_ride_status.add_css_class)("error")
+        self._set_ride_view("resultado")
+        self._schedule_ride_refill()                          # la silla propuesta ya se conoce y el hash validado cambió
+        self._sync()
+        return False
 
     # ------------------------------------------------------------ guardar receta y armar
     def _on_save_recipe(self, *_) -> None:
@@ -1185,6 +1719,7 @@ class FigureBuilderWindow(Gtk.Window):
         else:
             self.spinner.stop()
         self._schedule_refill()
+        self._schedule_ride_refill()
         self._sync()
 
     def _start_build(self, folder: str) -> None:
@@ -1228,6 +1763,9 @@ class FigureBuilderWindow(Gtk.Window):
         self._last_project = info.get("proyecto")
         self.btn_open_main.set_visible(bool(self._last_project))
         self.lbl_result.set_text(summary(info) + ('\n\n' + tr("figure_window.exportado_en_folder", folder=folder)))
+        if self._ride_view is not None:
+            self._ride_fit = None                # E15: se muestra la figura armada de verdad, no la vista del asiento
+            self._set_ride_view(None)
         if self.tgl_all.get_active():
             self.tgl_all.set_active(False)       # se muestra la figura armada de verdad
         self._update_color_status()

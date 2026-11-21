@@ -17,7 +17,8 @@ from ..catalog import Catalog, CatalogError
 from ..customize import is_identity, normalize_scale, scale_vector
 from ..hand import DEFAULT_OVERLAP_MM
 from ..mount import DEFAULT_CLEARANCE, DEFAULT_STATIONS, MOUNT_PLACES, MountError, MountSpec
-from ..equestrian import CarveLimits, HorseError, ReliefSpec, SaddleError, SaddleSpec, horse_back_z
+from ..equestrian import (FIT_MODES, CarveLimits, HorseError, ReliefSpec, RiderError, SaddleError, SaddleSpec, horse_back_z, rider_profile,
+                          suggest_saddle_spec)
 from ..horse_library import HorseLibrary, parse_horse_ref
 from ..recipe import PLACES, SCALE_PLACES, Recipe, RecipeError, accessory_fit
 from ..ride import RideSpec, geometry_hash, resolve_horse
@@ -33,6 +34,7 @@ MOUNT_DEFAULT_DIRECTION = (0.0, 0.0, -1.0)      # empuñadura arriba y punta hac
 MOUNT_FIELDS_EDITABLE = ("arma", "lugar", "lado", "tipo", "ancla", "direccion", "holgura", "pared", "estaciones")
 RIDE_DEFAULTS = {"asiento": None, "direccion": (0.0, 1.0, 0.0), "inclinacion": 0.0, "modo": "tallado", "silla": None, "relieve": None,
                  "holgura": None, "limites": None}
+RIDE_MODES = FIT_MODES                                  # E15: «tallado», «silla» o «ambos» (los que ofrece la ventana)
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _RANK = {"ok": 0, "aviso": 1, "no": 2}
 FIT_TEXT = {"ok": "ok", "aviso": lz("figure_builder.aviso"), "no": lz("figure_builder.no_se_sujeta"), "sin_datos": lz("figure_builder.sin_datos_de_agarre")}   # accesorio vs. mano elegida
@@ -468,6 +470,17 @@ class FigureBuilder:
         if fit.ok:
             self.ride_hash = geometry_hash(fit.assembly)
         return fit
+
+    def saddle_suggestion(self) -> SaddleSpec | None:
+        """Medidas de silla propuestas desde los muslos de la figura ya armada por `check_ride` (flujo 4.5); None mientras no se haya armado
+        (la ventana muestra entonces las de siempre). No arma nada."""
+        asm = self._ride_cache.get("asm")
+        if asm is None:
+            return None
+        try:
+            return suggest_saddle_spec(rider_profile(asm))
+        except (RiderError, SaddleError):
+            return None
 
     def ride_warnings(self) -> list[str]:
         """Avisos del caballo guardado en la receta (p. ej. su SHA-256 cambió: revalidar)."""
