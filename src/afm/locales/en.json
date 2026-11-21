@@ -1217,7 +1217,9 @@
   "caballo_calculando": "Computing the pose: it assembles the figure and mounts it on the horse; this takes a while.",
   "caballo_error_calculo": "The pose could not be computed: %{exc}",
   "caballo_sin_comprobar": "Pose not checked yet.",
-  "caballo_nota": "The figure's seated pose does not change: the horse is carved and/or a saddle is generated around the rider. The check certifies the pose geometry, not the durability of the joints."
+  "caballo_nota": "The figure's seated pose does not change: the horse is carved and/or a saddle is generated around the rider. The check certifies the pose geometry, not the durability of the joints.",
+  "caballo_nueva_version": "New version if the id already exists",
+  "caballo_id_existe": "The id “%{id}” is already in the library: tick “New version” or use another id."
  },
  "hero_wizard": {
   "el_heroe": "The hero",
@@ -2139,6 +2141,8 @@
   "fit_tallado": "Carving: %{vol} cm³ removed (%{pct} of the horse), up to %{prof} mm deep; minimum wall %{pared} mm.",
   "fit_silla_pared": "Saddle: minimum wall %{mm} mm.",
   "fit_holgura": "Shortest clearance: %{par}, %{mm} mm.",
-  "fit_leyenda": "Colors: red = problem, amber = warning, teal = wall opened by the carving."
+  "fit_leyenda": "Colors: red = problem, amber = warning, teal = wall opened by the carving.",
+  "medidas": "Horse: length %{largo} mm · back height %{dorso} mm · total height %{total} mm.",
+  "medidas_aviso": "Scale? The back is %{ratio}× the figure (%{fig} mm) and 0.6–0.9 is usual: check the horse's scale."
  }
 }

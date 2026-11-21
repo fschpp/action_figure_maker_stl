@@ -47,6 +47,8 @@ PREVIEW_MAX_TRIS = 30_000                    # tope por pieza de la vista previa
 MIN_GROUND_DZ = 0.05                         # componente vertical mínima de un rayo para cortar el plano horizontal del asiento
 MARK_STEP_MM = 3.0                           # separación de los puntos que dibujan la dirección del asiento
 MARK_COUNT = 8
+SCALE_RATIO_LO = 0.4                          # alto del dorso / alto de la figura fuera de [0,4; 1,5]: casi seguro la escala está mal
+SCALE_RATIO_HI = 1.5
 YAW_CHOICES = (0.0, 90.0, 180.0, 270.0)      # guiños que ofrece la importación (el STL de origen mira a −Y: 180° lo da vuelta)
 
 PAIR_RE = re.compile(r"([^\s:↔]+) ↔ ([^\s:↔]+)")
@@ -178,6 +180,24 @@ def horse_measure(mesh, tipo: str) -> float:
         return float(np.ptp(v[:, 2]))
     rear = v[v[:, 1] <= (float(v[:, 1].min()) + float(v[:, 1].max())) / 2.0]
     return float(rear[:, 2].max() - v[:, 2].min()) if len(rear) else float(np.ptp(v[:, 2]))
+
+
+def horse_dims(mesh) -> dict:
+    """Largo, alto del dorso y alto total del caballo (mm si la escala es la buena), con las mismas medidas que fijan la escala."""
+    return {k: horse_measure(mesh, k) for k in REF_KINDS}
+
+
+def dims_text(mesh, figure_mm: float | None = None) -> tuple:
+    """(texto, dudoso): las medidas del caballo en mm y, si se conoce el alto de la figura, un aviso cuando el dorso queda fuera de proporción
+    (un caballo importado a escala 1 de un STL sin unidades suele quedar a un tercio de lo que debe)."""
+    d = horse_dims(mesh)
+    text = tr("ride_pick.medidas", largo=f"{d['largo']:.0f}", dorso=f"{d['alto_dorso']:.0f}", total=f"{d['alto_total']:.0f}")
+    if not figure_mm or figure_mm <= 0:
+        return text, False
+    ratio = d["alto_dorso"] / float(figure_mm)
+    if SCALE_RATIO_LO <= ratio <= SCALE_RATIO_HI:
+        return text, False
+    return text + " " + tr("ride_pick.medidas_aviso", ratio=f"{ratio:.2f}", fig=f"{float(figure_mm):.0f}"), True
 
 
 def suggest_scale(stl_path: str, tipo: str, mm: float, yaw: float = 0.0) -> float:

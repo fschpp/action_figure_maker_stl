@@ -339,3 +339,22 @@ def test_el_formulario_va_en_un_area_con_desplazamiento():
     src = open(os.path.join(SRC, "gui", "figure_window.py"), encoding="utf-8").read()
     assert "form_sw.set_child(self._build_form())" in src and "paned.set_start_child(form_sw)" in src
     assert "paned.set_start_child(self._build_form())" not in src
+
+
+def test_las_medidas_del_caballo_y_el_aviso_de_escala(tmp_path):
+    m = _box((0, 0, 0), (10, 50, 40))
+    txt, dudoso = RP.dims_text(m, 127.0)                                   # dorso 40 vs figura 127: 0,31 → dudoso
+    assert "largo 50 mm" in txt and "alto total 40 mm" in txt and dudoso and "0.31" in txt
+    big = _box((0, 0, 0), (30, 150, 120))
+    txt, dudoso = RP.dims_text(big, 127.0)                                 # 0,94: bien
+    assert not dudoso and "¿Escala?" not in txt
+    assert RP.dims_text(m, None)[1] is False
+
+
+@pytest.mark.skipif(not os.path.exists(HORSE), reason="falta el caballo de referencia")
+def test_el_caballo_a_escala_1_se_avisa_y_a_3x_no():
+    mesh = trimesh.load(HORSE, force="mesh")
+    mesh.apply_transform(trimesh.transformations.rotation_matrix(np.pi, [0, 0, 1]))
+    assert RP.dims_text(mesh, 127.0)[1] is True
+    mesh.apply_scale(3.0)
+    assert RP.dims_text(mesh, 127.0)[1] is False

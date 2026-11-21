@@ -1217,7 +1217,9 @@
   "caballo_calculando": "Calculando a pose: monta a figura e a coloca no cavalo; demora.",
   "caballo_error_calculo": "Não foi possível calcular a pose: %{exc}",
   "caballo_sin_comprobar": "Pose ainda não verificada.",
-  "caballo_nota": "A pose sentada da figura não muda: o cavalo é entalhado e/ou se gera uma sela em volta do cavaleiro. A verificação certifica a geometria da pose, não a durabilidade das articulações."
+  "caballo_nota": "A pose sentada da figura não muda: o cavalo é entalhado e/ou se gera uma sela em volta do cavaleiro. A verificação certifica a geometria da pose, não a durabilidade das articulações.",
+  "caballo_nueva_version": "Nova versão se o id já existir",
+  "caballo_id_existe": "O id «%{id}» já está na biblioteca: marque «Nova versão» ou use outro id."
  },
  "hero_wizard": {
   "el_heroe": "O herói",
@@ -2139,6 +2141,8 @@
   "fit_tallado": "Entalhe: removem-se %{vol} cm³ (%{pct} do cavalo), até %{prof} mm de profundidade; parede mínima %{pared} mm.",
   "fit_silla_pared": "Sela: parede mínima %{mm} mm.",
   "fit_holgura": "Menor folga: %{par}, %{mm} mm.",
-  "fit_leyenda": "Cores: vermelho = problema, âmbar = aviso, verde-azulado = parede aberta pelo entalhe."
+  "fit_leyenda": "Cores: vermelho = problema, âmbar = aviso, verde-azulado = parede aberta pelo entalhe.",
+  "medidas": "Cavalo: comprimento %{largo} mm · altura do dorso %{dorso} mm · altura total %{total} mm.",
+  "medidas_aviso": "Escala? O dorso mede %{ratio}× a figura (%{fig} mm) e o habitual é entre 0,6 e 0,9: revise a escala do cavalo."
  }
 }

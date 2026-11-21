@@ -1217,7 +1217,9 @@
   "caballo_calculando": "Calculando la pose: arma la figura y la monta en el caballo; tarda.",
   "caballo_error_calculo": "No se pudo calcular la pose: %{exc}",
   "caballo_sin_comprobar": "Pose sin comprobar.",
-  "caballo_nota": "La pose sentada de la figura no cambia: se talla el caballo y/o se genera una silla alrededor del jinete. La validación certifica la geometría de la pose, no la durabilidad de las articulaciones."
+  "caballo_nota": "La pose sentada de la figura no cambia: se talla el caballo y/o se genera una silla alrededor del jinete. La validación certifica la geometría de la pose, no la durabilidad de las articulaciones.",
+  "caballo_nueva_version": "Nueva versión si el id ya existe",
+  "caballo_id_existe": "El id «%{id}» ya está en la biblioteca: marcá «Nueva versión» o usá otro id."
  },
  "hero_wizard": {
   "el_heroe": "El héroe",
@@ -2139,6 +2141,8 @@
   "fit_tallado": "Tallado: se retiran %{vol} cm³ (%{pct} del caballo), hasta %{prof} mm de profundidad; pared mínima %{pared} mm.",
   "fit_silla_pared": "Silla: pared mínima %{mm} mm.",
   "fit_holgura": "Holgura más corta: %{par}, %{mm} mm.",
-  "fit_leyenda": "Colores: rojo = problema, ámbar = aviso, verde azulado = pared que abrió el tallado."
+  "fit_leyenda": "Colores: rojo = problema, ámbar = aviso, verde azulado = pared que abrió el tallado.",
+  "medidas": "Caballo: largo %{largo} mm · alto del dorso %{dorso} mm · alto total %{total} mm.",
+  "medidas_aviso": "¿Escala? El dorso mide %{ratio}× la figura (%{fig} mm) y lo habitual es entre 0,6 y 0,9: revisá la escala del caballo."
  }
 }

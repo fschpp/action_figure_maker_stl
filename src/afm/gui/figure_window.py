@@ -1248,6 +1248,8 @@ class FigureBuilderWindow(Gtk.Window):
         self.sp_ride_ref_mm.set_value(100.0)
         row(self.box_ride_import, tr("figure_window.caballo_ref"), self.dd_ride_ref)
         row(self.box_ride_import, tr("figure_window.caballo_ref_mm"), self.sp_ride_ref_mm)
+        self.chk_ride_newver = Gtk.CheckButton(label=tr("figure_window.caballo_nueva_version"))
+        self.box_ride_import.append(self.chk_ride_newver)
         btns = Gtk.Box(spacing=6)
         self.btn_ride_scale = Gtk.Button(label=tr("figure_window.caballo_escala_desde_medida"))
         self.btn_ride_scale.connect("clicked", self._on_ride_scale)
@@ -1268,6 +1270,9 @@ class FigureBuilderWindow(Gtk.Window):
             sp.connect("value-changed", self._on_ride_field, key)
             return sp
 
+        self.lbl_ride_dims = Gtk.Label(xalign=0, wrap=True)
+        self.lbl_ride_dims.add_css_class("dim-label")
+        self.box_ride_form.append(self.lbl_ride_dims)
         self._ride_seat_sp = [spin(-2000.0, 2000.0, 0.1, 2, "asiento") for _ in range(3)]
         self._ride_dir_sp = [spin(-1.0, 1.0, 0.05, 2, "direccion") for _ in range(2)]
         self.sp_ride_pitch = spin(-MAX_PITCH_DEG, MAX_PITCH_DEG, 1.0, 1, "inclinacion")
@@ -1380,6 +1385,15 @@ class FigureBuilderWindow(Gtk.Window):
         self.dd_ride_horse.set_sensitive(not self._busy)
         self.btn_ride_import.set_sensitive(not self._busy)
         self.btn_ride_check.set_sensitive(has and not self._busy and b.ride["asiento"] is not None)
+        self.lbl_ride_dims.remove_css_class("error")
+        self.lbl_ride_dims.set_text("")
+        if has:
+            try:                                              # medidas en mm del caballo elegido (ya con escala y giro) y aviso de escala dudosa
+                txt, dudoso = RP.dims_text(b.horse_model().mesh, b.catalog().height_mm)
+                self.lbl_ride_dims.set_text(txt)
+                (self.lbl_ride_dims.add_css_class if dudoso else self.lbl_ride_dims.remove_css_class)("error")
+            except ValueError as exc:
+                self.lbl_ride_dims.set_text(str(exc))
         self._sync_ride_view_toggles()
         if self._ride_fit is None:
             probs = b.ride_problems() if has else []
@@ -1447,7 +1461,9 @@ class FigureBuilderWindow(Gtk.Window):
             self._ride_import_path = path
             self._last_dir = os.path.dirname(path)
             self.lbl_ride_file.set_text(tr("figure_window.caballo_archivo", name=os.path.basename(path)))
-            self.ent_ride_id.set_text(RP.suggest_horse_id(path))
+            hid = RP.suggest_horse_id(path)
+            self.ent_ride_id.set_text(hid)
+            self.chk_ride_newver.set_active(any(r.split("@")[0] == hid for r in self._ride_refs))      # el id ya existe: sugiere una versión nueva
             self.ent_ride_name.set_text(os.path.splitext(os.path.basename(path))[0])
             self.box_ride_import.set_visible(True)
 
@@ -1479,8 +1495,13 @@ class FigureBuilderWindow(Gtk.Window):
         if path is None or self._busy:
             return
         a = self._ride_import_args()
+        hid = self.ent_ride_id.get_text().strip()
+        newver = self.chk_ride_newver.get_active()
+        if not newver and any(r.split("@")[0] == hid for r in self._ride_refs):
+            self.lbl_result.set_text(tr("figure_window.caballo_id_existe", id=hid))
+            return
         try:
-            meta = self.builder.add_horse(path, self.ent_ride_id.get_text().strip(), nombre=self.ent_ride_name.get_text().strip(), **a)
+            meta = self.builder.add_horse(path, hid, nombre=self.ent_ride_name.get_text().strip(), new_version=newver, **a)
             self.builder.set_horse(meta.ref)
         except ValueError as exc:                             # HorseError es un ValueError
             self.lbl_result.set_text(tr("figure_window.caballo_error", exc=str(exc)))
