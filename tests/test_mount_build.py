@@ -84,11 +84,9 @@ def test_ancla_en_el_aire_falla_con_mensaje(base):
         _build(base, [(_spec(ancla=(60.0, 0.0, 38.0)), _sword())])
 
 
-def test_lugar_no_soportado_y_tipo_no_soportado(base):
+def test_lugar_no_soportado(base):
     with pytest.raises(ValueError, match="por ahora"):
         _build(base, [(_spec(lugar="brazo"), _sword())])
-    with pytest.raises(ValueError, match="solo «lazo»"):
-        _build(base, [(_spec(tipo="clip"), _sword())])
 
 
 def test_resolve_host_usa_la_pelvis_si_hay_cintura():

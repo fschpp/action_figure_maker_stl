@@ -325,6 +325,9 @@ STATION_SPACING = 8.0                              # mm entre centros de dos pue
 TUNNEL_OVERRUN = 0.5                               # mm que el hueco sobresale del puente por cada lado (para cortar limpio)
 TIP_MARGIN = 2.0                                   # mm mínimos de hoja que tienen que quedar después del último puente
 RETENTION_OVERLAP = 0.8                            # mm que la guarda tiene que superar a la abertura para apoyar en el puente
+CLIP_SNAP = 0.45                                   # mm que cada labio del techo del `clip` avanza sobre el borde del hueco; retiene si supera la holgura
+CLIP_MIN_SLOT = 0.8                                # mm mínimos de la ranura del techo del `clip` (menos no se imprime)
+OPEN_TYPES = ("clip", "cuna")                      # tipos abiertos: el arma entra y sale levantándola de la superficie, no deslizándola por un túnel
 
 
 @dataclass
@@ -340,10 +343,31 @@ class Lazo:
     tunnel: object                                 # hueco (se resta de pieza + puentes)
     weapon: object                                 # el arma ya enfundada, en el marco de la pieza
     info: dict
+    kind: str = "lazo"                             # «lazo», «clip» o «cuna» (M16)
+    lips: object = None                            # solo `clip`: los labios del techo, que ceden al encajar la hoja (no son obstáculo al levantarla)
 
 
 def build_lazo(spec: MountSpec, prop, min_wall: float, normal=None, station: float | None = None) -> Lazo:
-    """Genera el/los puente(s) de un `lazo` para `spec` (M04).
+    """Genera el/los puente(s) de un `lazo` para `spec` (M04); ver `_build_bridge`. Solo el tipo «lazo»: `build_mount` elige el tipo."""
+    if spec.tipo != "lazo":
+        raise MountError(f"`build_lazo` solo genera el tipo «lazo» (la montura pide «{spec.tipo}»)")
+    return _build_bridge(spec, prop, min_wall, normal=normal, station=station)
+
+
+def build_mount(spec: MountSpec, prop, min_wall: float, normal=None, station: float | None = None) -> Lazo:
+    """Genera la montura según `spec.tipo` («lazo», «clip» o «cuna»); devuelve un `Lazo` (con `kind`)."""
+    return _build_bridge(spec, prop, min_wall, normal=normal, station=station)
+
+
+def _build_bridge(spec: MountSpec, prop, min_wall: float, normal=None, station: float | None = None) -> Lazo:
+    """Genera el/los puente(s) de `spec.tipo` (M04, M16).
+
+    **lazo**: túnel cerrado; el arma entra por la punta y se saca deslizándola.
+    **clip**: como el lazo, pero el techo tiene una ranura más angosta que el hueco (los labios avanzan `CLIP_SNAP` sobre cada borde):
+    el arma entra y sale levantándola de la superficie, a presión si el labio supera la holgura. Sirve para hojas curvas o armas que no
+    se pueden enhebrar por la punta.
+    **cuna**: canal sin techo, con paredes laterales hasta el borde de la hoja: la guía a los costados y la guarda apoya en la cara del
+    puente; no la retiene hacia afuera (la sostiene la gravedad).
 
     `prop` es el accesorio en su marco (hoja hacia −X). La hoja queda tendida sobre la superficie, separada `holgura` mm; el hueco
     es la caja de la hoja + `holgura` por cada lado; el techo y las paredes miden `spec.wall(min_wall)`. La guarda apoya sobre la cara
@@ -355,8 +379,7 @@ def build_lazo(spec: MountSpec, prop, min_wall: float, normal=None, station: flo
     """
     import numpy as np
 
-    if spec.tipo != "lazo":
-        raise MountError(f"`build_lazo` solo genera el tipo «lazo» (la montura pide «{spec.tipo}»)")
+    kind = spec.tipo
     cs = construction_spec(spec)
     wall, c, L = cs.wall(min_wall), float(cs.holgura), BRIDGE_LENGTH
     if not (isinstance(min_wall, (int, float)) and not isinstance(min_wall, bool) and wall > 0):
@@ -377,29 +400,53 @@ def build_lazo(spec: MountSpec, prop, min_wall: float, normal=None, station: flo
     def box(xa, xb, ya, yb, za, zb):
         return S.Manifold.cube((xb - xa, yb - ya, zb - za)).translate((xa, ya, za))
 
-    outers, tunnels = [], []
+    slot_w = hole_w - 2 * CLIP_SNAP                # ranura del techo del clip
+    if kind == "clip" and slot_w < CLIP_MIN_SLOT:
+        raise MountError(f"clip: la hoja ({y1 - y0:.2f} mm de ancho) es muy angosta para una ranura de {CLIP_MIN_SLOT:g} mm con labios de {CLIP_SNAP:g} mm")
+    top = z_floor + hole_t if kind == "cuna" else z_roof
+    outers, tunnels, lips = [], [], []
     for s in stations:
         xa, xb = -s - L / 2, -s + L / 2
-        outers.append(box(xa, xb, yc - hole_w / 2 - wall, yc + hole_w / 2 + wall, z_floor - FOOT_DEPTH, z_roof))
+        outers.append(box(xa, xb, yc - hole_w / 2 - wall, yc + hole_w / 2 + wall, z_floor - FOOT_DEPTH, top))
+        if kind == "cuna":                         # canal abierto hacia arriba
+            tunnels.append(box(xa - TUNNEL_OVERRUN, xb + TUNNEL_OVERRUN, yc - hole_w / 2, yc + hole_w / 2, z_floor, top + 1.0))
+            continue
         tunnels.append(box(xa - TUNNEL_OVERRUN, xb + TUNNEL_OVERRUN, yc - hole_w / 2, yc + hole_w / 2, z_floor, z_floor + hole_t))
+        if kind == "clip":                         # ranura que atraviesa el techo, más angosta que el hueco
+            slot = box(xa - TUNNEL_OVERRUN, xb + TUNNEL_OVERRUN, yc - slot_w / 2, yc + slot_w / 2, z_floor + hole_t - 0.01, z_roof + 1.0)
+            tunnels.append(slot)
+            lips.append(S.difference(box(xa, xb, yc - hole_w / 2, yc + hole_w / 2, z_floor + hole_t, z_roof), slot))
     m = transport_matrix(cs, station=stations[0], normal=normal, lift=lift)
     to_part = lambda mf: place_accessory(mf, m)    # noqa: E731
-    avisos = []
+    avisos, notas = [], []
     gw_over = prof.guard_width >= hole_w + RETENTION_OVERLAP
     gt_over = prof.guard_thickness >= hole_t + RETENTION_OVERLAP
-    retains = prof.has_guard and (gw_over or gt_over)
-    if not prof.has_guard:
-        avisos.append("el arma no tiene guarda: nada la frena en el puente y se desliza")
-    elif not retains:
-        avisos.append(f"la guarda ({prof.guard_width:.1f} × {prof.guard_thickness:.1f} mm) no supera la abertura "
-                      f"({hole_w:.1f} × {hole_t:.1f} mm) en {RETENTION_OVERLAP:g} mm: la espada se desliza")
-    info = {"estaciones_mm": [round(s, 3) for s in stations], "abertura_mm": [round(hole_w, 3), round(hole_t, 3)],
+    guard_retains = prof.has_guard and (gw_over or gt_over)
+    snap = max(0.0, CLIP_SNAP - c) if kind == "clip" else 0.0      # mm de interferencia por lado al encajar la hoja
+    retains = guard_retains or snap > 0
+    if kind == "cuna":
+        notas.append("cuna: guía a la hoja por los costados y la guarda apoya en el puente; no la retiene hacia afuera (la sostiene la gravedad)")
+    if not retains or (kind != "clip" and not guard_retains):
+        if not prof.has_guard:
+            avisos.append("el arma no tiene guarda: nada la frena en el puente y se desliza")
+        else:
+            avisos.append(f"la guarda ({prof.guard_width:.1f} × {prof.guard_thickness:.1f} mm) no supera la abertura "
+                          f"({hole_w:.1f} × {hole_t:.1f} mm) en {RETENTION_OVERLAP:g} mm: la espada se desliza")
+    if kind == "clip" and snap <= 0:
+        avisos.append(f"clip: la holgura ({c:g} mm) iguala o supera el resalte de los labios ({CLIP_SNAP:g} mm): no retiene a presión")
+    lift_out = (z1 - z0) + c + (wall if kind == "clip" else 0.0)    # cuánto hay que levantar la hoja para que libre el puente
+    info = {"tipo": kind, "estaciones_mm": [round(s, 3) for s in stations], "abertura_mm": [round(hole_w, 3), round(hole_t, 3)],
             "pared_mm": round(wall, 3), "largo_puente_mm": L, "separacion_hoja_mm": round(c, 3),
-            "alto_sobre_superficie_mm": round(hole_t + wall, 3), "ancho_total_mm": round(hole_w + 2 * wall, 3),
-            "retiene": bool(retains), "avisos": avisos,
+            "alto_sobre_superficie_mm": round(hole_t + (wall if kind != "cuna" else 0.0), 3), "ancho_total_mm": round(hole_w + 2 * wall, 3),
+            "retiene": bool(retains), "avisos": avisos, "notas": notas,
             "largo_arma_mm": round(float(prof.length), 3), "guarda_fin_mm": round(float(prof.guard_end), 3)}
+    if kind == "clip":
+        info.update(ranura_mm=round(slot_w, 3), interferencia_mm=round(snap, 3))
+    if kind in OPEN_TYPES:
+        info["levantar_mm"] = round(lift_out, 3)
     return Lazo(matrix=m, lift=float(lift), stations=stations, hole_w=float(hole_w), hole_t=float(hole_t),
-                outer=to_part(S.union(*outers)), tunnel=to_part(S.union(*tunnels)), weapon=to_part(prop), info=info)
+                outer=to_part(S.union(*outers)), tunnel=to_part(S.union(*tunnels)), weapon=to_part(prop), info=info, kind=kind,
+                lips=to_part(S.union(*lips)) if lips else None)
 
 
 def attach_lazo(host, lazo: Lazo):
@@ -423,7 +470,8 @@ def mirrored_for_side(lazo: Lazo, spec: MountSpec) -> Lazo:
     flip = np.diag([-1.0, 1.0, 1.0, 1.0])
     return Lazo(matrix=flip @ np.asarray(lazo.matrix, float), lift=lazo.lift, stations=lazo.stations, hole_w=lazo.hole_w,
                 hole_t=lazo.hole_t, outer=S.mirror_x(lazo.outer), tunnel=S.mirror_x(lazo.tunnel),
-                weapon=S.mirror_x(lazo.weapon), info=lazo.info)
+                weapon=S.mirror_x(lazo.weapon), info=lazo.info, kind=lazo.kind,
+                lips=None if lazo.lips is None else S.mirror_x(lazo.lips))
 
 
 # ====================================================================== M05: integración en `pipeline.build`
@@ -463,13 +511,11 @@ def apply_mounts(pieces: dict, mounts: list, min_wall: float) -> tuple:
     for i, (spec, prop) in enumerate(mounts, start=1):
         name = f"montura_{i}_{spec.lugar}_{spec.lado}"
         try:
-            if spec.tipo != "lazo":
-                raise MountError(f"tipo «{spec.tipo}»: por ahora solo «lazo»")
             host = resolve_host(spec, out)
             normal = surface_normal(out[host], spec.ancla)
             if spec.lado == "der":                  # la montura se construye en +X: la normal también
                 normal = (-normal[0], normal[1], normal[2])
-            lazo = mirrored_for_side(build_lazo(spec, prop, min_wall, normal=normal), spec)
+            lazo = mirrored_for_side(build_mount(spec, prop, min_wall, normal=normal), spec)
             out[host] = attach_lazo(out[host], lazo)
         except MountError as exc:
             raise MountError(f"{name}: {exc}") from exc
@@ -501,6 +547,17 @@ def extraction_distance(lazo: Lazo, margin: float = EXTRACT_MARGIN) -> float:
     return max(0.0, float(lazo.info["largo_arma_mm"]) - first) + margin
 
 
+def extraction_vector(lazo: Lazo, margin: float = EXTRACT_MARGIN) -> tuple:
+    """`(dirección unitaria, recorrido mm, modo)` con que se saca el arma de la montura: en el `lazo`, deslizándola hacia la
+    empuñadura («deslizar»); en el `clip` y la `cuna`, levantándola de la superficie, a lo largo del espesor de la hoja («levantar»)."""
+    import numpy as np
+
+    if lazo.kind in OPEN_TYPES:
+        z = np.asarray(lazo.matrix, float)[:3, 2]
+        return z / np.linalg.norm(z), float(lazo.info["levantar_mm"]) + margin, "levantar"
+    return handle_direction(lazo), extraction_distance(lazo, margin), "deslizar"
+
+
 def _boxes_overlap(a, b, tol: float = 1e-6) -> bool:
     return all(a[i] < b[i + 3] + tol and b[i] < a[i + 3] + tol for i in range(3))
 
@@ -509,12 +566,12 @@ def extraction_scan(lazo: Lazo, obstacles: dict, step: float = EXTRACT_STEP) -> 
     """Traslada el arma entera a lo largo de su eje, de a `step` mm, hasta librar el puente, y mide en cada paso cuánto se mete en
     cada obstáculo (`{nombre: Manifold}`). Sin `swept_offset`: una traslación en pasos no necesita `scipy` ni `skimage` (plan §6.5).
 
-    Devuelve `{distancia_mm, pasos, direccion, choques: {nombre: {desde_mm, max_mm3}}}`; `desde_mm` es el primer recorrido con choque."""
+    Devuelve `{distancia_mm, pasos, direccion, modo, choques: {nombre: {desde_mm, max_mm3}}}`; `desde_mm` es el primer recorrido con choque."""
     import numpy as np
 
     if not step > 0:
         raise MountError("el paso de extracción tiene que ser mayor que 0")
-    dist, e = extraction_distance(lazo), handle_direction(lazo)
+    e, dist, mode = extraction_vector(lazo)
     n = int(np.ceil(dist / step - 1e-9))
     boxes = {k: ob.bounding_box() for k, ob in obstacles.items()}
     hits: dict = {}
@@ -529,7 +586,7 @@ def extraction_scan(lazo: Lazo, obstacles: dict, step: float = EXTRACT_STEP) -> 
             if v > CONTACT_TOL_MM3:
                 h = hits.setdefault(k, {"desde_mm": round(d, 3), "max_mm3": 0.0})
                 h["max_mm3"] = round(max(h["max_mm3"], v), 4)
-    return {"distancia_mm": round(dist, 3), "pasos": n + 1, "direccion": [round(float(x), 4) for x in e], "choques": hits}
+    return {"distancia_mm": round(dist, 3), "pasos": n + 1, "direccion": [round(float(x), 4) for x in e], "modo": mode, "choques": hits}
 
 
 def mount_solid(lazo: Lazo):

@@ -64,7 +64,7 @@ def test_valores_mal_formados_se_rechazan_y_no_cambian_nada(b):
     with pytest.raises(ValueError, match="lado"):
         b.set_mount(0, lado="centro")
     with pytest.raises(ValueError, match="desconocido"):
-        b.set_mount(0, tipo="clip")
+        b.set_mount(0, gancho="clip")
     assert b.mounts[0].lado == "izq" and b.mounts[0].ancla == (1.0, 2.0, 3.0)
     with pytest.raises(ValueError, match="número 3"):
         b.remove_mount(3)
@@ -138,3 +138,24 @@ def test_armar_con_montura_deja_su_estado_y_se_borra_al_cambiarla(b, tmp_path):
     assert b.mount_label(0).endswith(" — aviso")
     b.set_mount(0, direccion=(0, 0, -1))
     assert b.mount_status(0) is None                                         # ya no es de lo que se armó
+
+
+def test_el_tipo_de_enganche_se_elige_se_guarda_y_cambia_la_clave(b):
+    b.set_accessory(ARMA)
+    i = b.add_mount(ARMA, ancla=(23, 0, 38), tipo="clip")
+    assert b.mounts[i].tipo == "clip" and b.mount_label(i).endswith(" [clip]")
+    k_clip = b._geometry_key()
+    b.set_mount(i, tipo="cuna")
+    assert b.mounts[i].tipo == "cuna" and b._geometry_key() != k_clip
+    again = FB.FigureBuilder(b.root)
+    again.load_recipe(b.save_recipe())
+    assert [m.tipo for m in again.mounts] == ["cuna"]
+
+
+def test_el_tipo_de_enganche_por_defecto_es_lazo_y_uno_desconocido_se_rechaza(b):
+    b.set_accessory(ARMA)
+    i = b.add_mount(ARMA, ancla=(23, 0, 38))
+    assert b.mounts[i].tipo == "lazo" and "[" not in b.mount_label(i)
+    with pytest.raises(ValueError, match="tipo"):
+        b.set_mount(i, tipo="gancho")
+    assert b.mounts[i].tipo == "lazo"

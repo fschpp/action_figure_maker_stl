@@ -17,6 +17,7 @@ from gi.repository import Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 
 from .catalog_manager import PreviewRenderer, view_bounds  # noqa: E402,F401  (view_bounds: el encuadre lo hace PreviewRenderer)
 from ..recipe import SCALE_PLACES  # noqa: E402
+from ..mount import MOUNT_TYPES  # noqa: E402
 from .progress_panel import ProgressPanel  # noqa: E402
 from .figure_builder import NONE_LABEL, PLACE_LABELS, PLACE_ORDER, FigureBuilder, summary  # noqa: E402
 from . import mount_pick as MP  # noqa: E402
@@ -251,11 +252,13 @@ class FigureBuilderWindow(Gtk.Window):
         self.dd_m_weapon = Gtk.DropDown.new_from_strings([""])
         self.dd_m_place = Gtk.DropDown.new_from_strings([""])
         self.dd_m_side = Gtk.DropDown.new_from_strings([tr("figure_window.montura_lado_izq"), tr("figure_window.montura_lado_der")])
-        for dd in (self.dd_m_weapon, self.dd_m_place, self.dd_m_side):
+        self.dd_m_type = Gtk.DropDown.new_from_strings([tr("figure_window.montura_tipo_lazo"), tr("figure_window.montura_tipo_clip"), tr("figure_window.montura_tipo_cuna")])
+        for dd in (self.dd_m_weapon, self.dd_m_place, self.dd_m_side, self.dd_m_type):
             dd.connect("notify::selected", self._on_mount_field)
         row(tr("figure_window.montura_arma"), self.dd_m_weapon)
         row(tr("figure_window.montura_lugar"), self.dd_m_place)
         row(tr("figure_window.montura_lado"), self.dd_m_side)
+        row(tr("figure_window.montura_tipo"), self.dd_m_type)
         self._m_anchor = spins(-500.0, 500.0, 0.1, 2)
         self._m_dir = spins(-1.0, 1.0, 0.05, 2)
         row(tr("figure_window.montura_ancla_mm"), *self._m_anchor)
@@ -320,6 +323,7 @@ class FigureBuilderWindow(Gtk.Window):
                 self.dd_m_weapon.set_selected(weapons.index(m.arma) if m.arma in weapons else 0)
                 self.dd_m_place.set_selected(places.index(m.lugar) if m.lugar in places else 0)
                 self.dd_m_side.set_selected(0 if m.lado == "izq" else 1)
+                self.dd_m_type.set_selected(MOUNT_TYPES.index(m.tipo))
                 for sp, v in zip(self._m_anchor, m.ancla):
                     sp.set_value(v)
                 for sp, v in zip(self._m_dir, m.direccion):
@@ -539,7 +543,8 @@ class FigureBuilderWindow(Gtk.Window):
         w, p = self.dd_m_weapon.get_selected(), self.dd_m_place.get_selected()
         try:
             b.set_mount(i, arma=weapons[w] if w < len(weapons) else b.mounts[i].arma, lugar=places[p] if p < len(places) else b.mounts[i].lugar,
-                        lado="izq" if self.dd_m_side.get_selected() == 0 else "der", ancla=[s.get_value() for s in self._m_anchor],
+                        lado="izq" if self.dd_m_side.get_selected() == 0 else "der", tipo=MOUNT_TYPES[self.dd_m_type.get_selected()],
+                        ancla=[s.get_value() for s in self._m_anchor],
                         direccion=[s.get_value() for s in self._m_dir], holgura=self.sp_m_gap.get_value(),
                         pared=self.sp_m_wall.get_value() or None)
         except ValueError as exc:

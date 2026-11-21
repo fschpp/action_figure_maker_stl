@@ -26,7 +26,7 @@ PLACE_LABELS = {"torso": lz("figure_builder.torso"), "pelvis": lz("figure_builde
 NONE_LABEL = lz("common.ninguna")
 HAND_JOINS = ("solape", "giro")
 MOUNT_DEFAULT_DIRECTION = (0.0, 0.0, -1.0)      # empuñadura arriba y punta hacia abajo: la gravedad apoya la guarda en el puente (M07)
-MOUNT_FIELDS_EDITABLE = ("arma", "lugar", "lado", "ancla", "direccion", "holgura", "pared", "estaciones")
+MOUNT_FIELDS_EDITABLE = ("arma", "lugar", "lado", "tipo", "ancla", "direccion", "holgura", "pared", "estaciones")
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _RANK = {"ok": 0, "aviso": 1, "no": 2}
 FIT_TEXT = {"ok": "ok", "aviso": lz("figure_builder.aviso"), "no": lz("figure_builder.no_se_sujeta"), "sin_datos": lz("figure_builder.sin_datos_de_agarre")}   # accesorio vs. mano elegida
@@ -178,11 +178,12 @@ class FigureBuilder:
             raise ValueError(str(exc)) from exc
 
     def add_mount(self, arma: str, lugar: str = "pelvis", lado: str = "izq", ancla=(0.0, 0.0, 0.0), direccion=MOUNT_DEFAULT_DIRECTION,
-                  holgura: float = DEFAULT_CLEARANCE, pared: float | None = None, estaciones: int = DEFAULT_STATIONS) -> int:
-        """Engancha `arma` (un accesorio marcado) al `lugar` y `lado` del cuerpo. `ancla` es un punto de la superficie de la pieza (marco
+                  holgura: float = DEFAULT_CLEARANCE, pared: float | None = None, estaciones: int = DEFAULT_STATIONS,
+                  tipo: str = "lazo") -> int:
+        """Engancha `arma` (un accesorio marcado) al `lugar` y `lado` del cuerpo, con un enganche `tipo` («lazo», «clip» o «cuna»). `ancla` es un punto de la superficie de la pieza (marco
         de la pieza) y `direccion` el eje empuñadura → punta; la punta hacia abajo es la que retiene. Devuelve el índice de la montura."""
         spec = self._make_mount({"arma": arma, "lugar": lugar, "lado": lado, "ancla": ancla, "direccion": direccion,
-                                 "holgura": holgura, "pared": pared, "estaciones": estaciones})
+                                 "holgura": holgura, "pared": pared, "estaciones": estaciones, "tipo": tipo})
         self.mounts.append(spec)
         return len(self.mounts) - 1
 
@@ -206,7 +207,7 @@ class FigureBuilder:
     def mount_label(self, index: int) -> str:
         """Texto de una montura en la lista: «espada@1 — pelvis izq (23, 0, 38)», más el estado del último armado si lo hay."""
         m = self._mount_at(index)
-        txt = f"{m.arma} — {m.lugar} {m.lado} ({', '.join(f'{c:g}' for c in m.ancla)})"
+        txt = f"{m.arma} — {m.lugar} {m.lado} ({', '.join(f'{c:g}' for c in m.ancla)})" + ("" if m.tipo == "lazo" else f" [{m.tipo}]")
         st = self.mount_status(index)
         return txt if st is None else f"{txt} — {st['nivel']}"
 

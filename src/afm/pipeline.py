@@ -1206,8 +1206,8 @@ def _validate_mount(res: BuildResult, p: Params, out: dict, limbs=(), hip_step: 
                     extract_step: float | None = None) -> dict:
     """Monturas de armas (plan §6.4). Para cada una:
 
-    * **extracción libre**: el arma sale por su eje, de a `extract_step` mm, hasta librar el puente, sin entrar en el cuerpo ni en
-      los miembros (de pie): si no, es un problema;
+    * **extracción libre**: el arma sale por su eje (`lazo`) o levantándola de la superficie (`clip`, `cuna`), de a `extract_step` mm,
+      hasta librar el puente, sin entrar en el cuerpo ni en los miembros (de pie): si no, es un problema;
     * **holgura a miembros**: el puente (sin su pie) contra los miembros de su lado, de pie y en todo el recorrido de la cadera y
       de los brazos: choque o holgura < 0,9 · `clearance` es un problema; el arma enfundada contra los mismos miembros es un
       problema de pie y un aviso en movimiento (el arma es un accesorio que se saca);
@@ -1256,10 +1256,14 @@ def _validate_mount(res: BuildResult, p: Params, out: dict, limbs=(), hip_step: 
         poses = _mount_poses(res, p, limbs, side, hip_step, arm_step)
         stand = poses[0][2]
         # extracción libre (de pie)
-        scan = MT.extraction_scan(lz, dict(body, **stand), step)
+        obstacles = dict(body, **stand)
+        if lz.lips is not None and mb.host in obstacles:        # los labios del clip ceden al encajar la hoja: no cuentan como choque
+            obstacles[mb.host] = S.difference(obstacles[mb.host], lz.lips)
+        scan = MT.extraction_scan(lz, obstacles, step)
         rec["extraccion"] = scan
         for k, h in scan["choques"].items():
-            out["problems"].append(f"{name}: el arma no sale por su eje: choca con {k} a {h['desde_mm']:g} mm de recorrido "
+            how = "el arma no sale por su eje" if scan.get("modo", "deslizar") == "deslizar" else "el arma no se puede levantar de la montura"
+            out["problems"].append(f"{name}: {how}: choca con {k} a {h['desde_mm']:g} mm de recorrido "
                                    f"({h['max_mm3']:.3f} mm³)")
         # holguras: puente y arma enfundada contra los miembros
         bridge = MT.mount_solid(lz)

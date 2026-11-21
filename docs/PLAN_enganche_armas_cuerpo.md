@@ -190,7 +190,7 @@ La lógica va en un módulo propio sin GTK, probado sin ventana (como `palette_e
 - **M15** Vista previa, mapa de zonas y estado con los avisos. *Hecha:* `gui/mount_preview.py` + «Ver arma y montura» y «Mapa de zonas» en la ventana; el mapa es con la figura de pie.
 
 ### Fase 4 — Más tipos y catálogo
-- **M16** Tipos `clip` y `cuna`.
+- **M16** Tipos `clip` y `cuna`. *Hecha (motor y selector; falta probeta, imprimir y probar la ventana):* `clip` = puente con ranura en el techo y labios de `CLIP_SNAP` (0,45 mm) que encaja a presión; `cuna` = canal sin techo; los dos se sacan **levantando** el arma de la superficie (`levantar_mm`), el `lazo` deslizándola. El `clip` es la salida para hojas curvas y armas que no se pueden enhebrar por la punta (§10).
 - **M17** «Guardar como pieza» (opción B).
 
 **Orden:** M00 → M01–M04 → M05 → M07 → M09 → M10–M12 → M06 y M08 (en paralelo a partir de M05) → Fase 3. No depende de T49–T51 (paleta).
