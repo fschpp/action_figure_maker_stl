@@ -284,6 +284,9 @@ def run_armar(recipe_path: str, outdir: str, name: str | None = None, catalog_ro
     info = {"receta": recipe.to_dict(), "construccion": asm.res.report, "validacion": val, "archivos": files}
     if acc_info:
         info["accesorios"] = acc_info
+    if asm.res.mounts:                    # M12: las monturas con lo que dijo la validación, en el informe y en la lista de piezas
+        info["monturas"] = P.mounts_report(asm.res, val)
+        P.attach_mounts_to_parts_list(outdir, name, info["monturas"])
     if colorize is not None:
         info["color"] = {**color_info, **({"salida": files["color"]} if "color" in files else {})}
         if keep is not None:

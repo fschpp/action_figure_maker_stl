@@ -122,13 +122,22 @@ def entry_from_validation(recipe: Recipe, key: str, piezas: dict, val: dict, sec
     """Entrada de `compat.json` a partir del resultado de `pipeline.validate` (la misma que usa `afm armar`)."""
     gaps = [v for v in (val.get("gaps") or {}).values() if isinstance(v, (int, float))]
     niveles = [r.get("nivel") for r in (val.get("piezas") or {}).values() if r.get("nivel")]
+    mon = {}
+    if val.get("montura"):                       # M12: la montura también cuenta para el nivel (problemas = «no», avisos = «aviso»)
+        from .mount import level_of, report_by_mount
+
+        mon = {n: {**r, "nivel": level_of(r)} for n, r in report_by_mount(val).items()}
+        niveles += [r["nivel"] for r in mon.values()]
     peor = max(niveles, key=LEVELS.index) if niveles else None
-    return {"formato": COMPAT_FORMAT, "personaje": recipe.personaje, "linea": recipe.linea, "piezas": piezas,
+    entry = {"formato": COMPAT_FORMAT, "personaje": recipe.personaje, "linea": recipe.linea, "piezas": piezas,
             "ok": bool(val.get("ok")), "problemas": list(val.get("problems") or []), "avisos": list(val.get("avisos") or []),
             "avisos_pasador": list(val.get("avisos_pasador") or []), "compat_piezas": val.get("piezas") or {},
             "nivel": peor, "holgura_min_mm": min(gaps) if gaps else None, "motor": __version__,
             "fecha": datetime.datetime.now().isoformat(timespec="seconds"),
             "segundos": None if seconds is None else round(seconds, 1)}
+    if mon:                                      # solo si hay monturas: las entradas de siempre no cambian
+        entry["monturas"] = mon
+    return entry
 
 
 def record(asm, val: dict, seconds: float | None = None) -> dict | None:

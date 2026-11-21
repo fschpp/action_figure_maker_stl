@@ -1695,6 +1695,26 @@ def print_orientation(res: BuildResult, max_angle: float = 45.0, extra_tilts=(0.
     return pose_orientation(asm, max_angle)
 
 
+def mounts_report(res: BuildResult, val: dict | None = None) -> dict:
+    """Monturas de armas de la figura para el informe y la lista de piezas (M12): por montura, el arma, dónde va, la abertura del
+    puente y, si se pasa el resultado de `validate`, el nivel y lo que la validación dijo (problemas y avisos). Vacío sin monturas."""
+    from . import mount as MT
+
+    if not getattr(res, "mounts", None):
+        return {}
+    by = MT.report_by_mount(val) if val else {}
+    out = {}
+    for name, mb in res.mounts.items():
+        info, sp = mb.info, mb.spec
+        rec = {"arma": sp.arma, "lugar": sp.lugar, "lado": sp.lado, "tipo": sp.tipo, "huesped": mb.host,
+               "holgura_mm": float(sp.holgura), "pared_mm": info.get("pared_mm"), "abertura_mm": info.get("abertura_mm"),
+               "retiene": info.get("retiene"), "avisos_construccion": list(info.get("avisos") or [])}
+        if name in by:
+            rec.update(by[name], nivel=MT.level_of(by[name]))
+        out[name] = rec
+    return out
+
+
 def parts_list(res: BuildResult, name: str = "figura") -> dict | None:
     """Lista de piezas de catálogo usadas en la figura (plan de piezas intercambiables, §4.5): lugar -> id@versión,
     sha256, origen y resultado de compatibilidad. None si la figura no usa piezas de catálogo."""
@@ -1707,7 +1727,10 @@ def parts_list(res: BuildResult, name: str = "figura") -> dict | None:
         lugares[lugar] = {"pieza": f"{r.get('id')}@{r.get('version')}", "id": r.get("id"), "version": r.get("version"),
                           "sha256": r.get("sha256"), "origen": r.get("origen"), "lugar_puerto": r.get("lugar"),
                           "compat": c.get("nivel", c.get("resultado")), "avisos": list(c.get("avisos") or []) + list(r.get("avisos") or [])}
-    return {"formato": "afm-lista-piezas-1", "figura": name, "piezas": lugares}
+    lst = {"formato": "afm-lista-piezas-1", "figura": name, "piezas": lugares}
+    if getattr(res, "mounts", None):                         # solo si hay: la lista de siempre no cambia
+        lst["monturas"] = mounts_report(res)
+    return lst
 
 
 def parts_list_markdown(lst: dict) -> str:
@@ -1721,9 +1744,34 @@ def parts_list_markdown(lst: dict) -> str:
         out += ["", "## Accesorios", "", "| Accesorio | Archivo | Mano de la figura | sha256 |", "|---|---|---|---|"]
         out += [f"| {a['pieza']} | `{a['archivo']}` | {a.get('compat') or '-'} | `{(a.get('sha256') or '')[:12]}` |" for a in acc]
         notes += [(a["pieza"], x) for a in acc for x in list(a.get("motivos") or []) + list(a.get("avisos") or [])]
+    mon = lst.get("monturas") or {}
+    if mon:
+        out += ["", "## Monturas", "", "| Montura | Arma | Va en | Abertura (mm) | Pared (mm) | Retiene | Estado |", "|---|---|---|---|---|---|---|"]
+        for n, m in mon.items():
+            ab = " × ".join(f"{x:g}" for x in (m.get("abertura_mm") or [])) or "-"
+            ret = {True: "sí", False: "no"}.get(m.get("retiene"), "-")
+            out.append(f"| {n} | {m['arma']} | {m['huesped']} ({m['lado']}) | {ab} | {m.get('pared_mm') or '-'} | {ret} | {m.get('nivel') or '-'} |")
+            notes += [(n, a) for a in (list(m.get("problemas") or []) + list(m.get("avisos") or []) or m.get("avisos_construccion") or [])]
     if notes:
         out += ["", "## Avisos", *[f"- **{lugar}**: {a}" for lugar, a in notes]]
     return "\n".join(out) + "\n"
+
+
+def attach_mounts_to_parts_list(outdir: str, name: str, monturas: dict) -> bool:
+    """Pone (o actualiza) las monturas, ya con lo que dijo la validación, en la lista de piezas escrita por `export` (JSON y Markdown)."""
+    import json
+
+    path = os.path.join(outdir, f"{name}_lista_de_piezas.json")
+    if not monturas or not os.path.isfile(path):
+        return False
+    with open(path, encoding="utf-8") as fh:
+        lst = json.load(fh)
+    lst["monturas"] = monturas
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(lst, fh, ensure_ascii=False, indent=2)
+    with open(os.path.join(outdir, f"{name}_lista_de_piezas.md"), "w", encoding="utf-8") as fh:
+        fh.write(parts_list_markdown(lst))
+    return True
 
 
 def attach_accessories_to_parts_list(outdir: str, name: str, accesorios: list[dict]) -> bool:

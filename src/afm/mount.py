@@ -549,3 +549,21 @@ def tilt_from_vertical_deg(direction) -> float:
 def gravity_seat_cos(lazo: Lazo) -> float:
     """Coseno entre «hacia la punta» y «hacia abajo» (−Z): > 0 si la gravedad aprieta la guarda contra el puente; ≤ 0 si la saca."""
     return float(-(-handle_direction(lazo))[2])
+
+
+# ====================================================================== M12: informe
+def report_by_mount(val: dict) -> dict:
+    """`{nombre: {"problemas": [...], "avisos": [...]}}` con lo que `pipeline.validate` dijo de cada montura (los textos llegan
+    como «montura_N_…: mensaje»; acá se quita el prefijo). Vacío si la figura no tiene monturas."""
+    out = {n: {"problemas": [], "avisos": []} for n in (val.get("montura") or {})}
+    for key, field in (("problems", "problemas"), ("avisos", "avisos")):
+        for text in val.get(key) or []:
+            for n, rec in out.items():
+                if isinstance(text, str) and text.startswith(n + ": "):
+                    rec[field].append(text[len(n) + 2:])
+    return out
+
+
+def level_of(rec: dict) -> str:
+    """«no» si hay problemas, «aviso» si solo hay avisos, «ok» si no hay nada (misma escala que `compat.LEVELS`)."""
+    return "no" if rec.get("problemas") else "aviso" if rec.get("avisos") else "ok"
