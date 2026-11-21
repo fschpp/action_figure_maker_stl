@@ -186,7 +186,7 @@ class CatalogManagerWindow(Gtk.Window):
     def _build_detail(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, margin_top=8, margin_bottom=8, margin_start=8, margin_end=8)
         self.picture = Gtk.Picture(content_fit=Gtk.ContentFit.CONTAIN, can_shrink=True, hexpand=True, vexpand=True)
-        self.picture.set_size_request(360, 300)
+        self.picture.set_size_request(200, 300)                # ancho mínimo bajo: en una ventana angosta el panel de detalle no se recorta
         drag = Gtk.GestureDrag()
         drag.connect("drag-begin", self._on_drag_begin)
         drag.connect("drag-update", self._on_drag)

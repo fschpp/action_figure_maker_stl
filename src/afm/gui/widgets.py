@@ -5,25 +5,96 @@ from ..i18n import tr
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gtk  # noqa: E402
+from gi.repository import Gdk, Gtk  # noqa: E402
 
 
-class WrapRow(Gtk.FlowBox):
+class _WrapLayout(Gtk.LayoutManager):
+    """Acomoda los hijos de izquierda a derecha, cada uno con su ancho natural, y pasa a otra línea cuando no entran.
+
+    A diferencia de `Gtk.FlowBox` no alinea columnas entre líneas: cada línea es independiente (se ve como texto que se ajusta)."""
+
+    def __init__(self, spacing: int = 6, row_spacing: int = 4):
+        super().__init__()
+        self.spacing, self.row_spacing = spacing, row_spacing
+
+    @staticmethod
+    def _children(widget: Gtk.Widget):
+        c = widget.get_first_child()
+        while c is not None:
+            if c.should_layout():
+                yield c
+            c = c.get_next_sibling()
+
+    def _rows(self, widget: Gtk.Widget, width: int):
+        """Reparte los hijos en líneas para `width` píxeles: `[[(hijo, ancho, alto), …], …]`."""
+        rows, cur, used = [], [], 0
+        for c in self._children(widget):
+            nat_w = c.measure(Gtk.Orientation.HORIZONTAL, -1)[1]
+            min_w = c.measure(Gtk.Orientation.HORIZONTAL, -1)[0]
+            w = max(min_w, min(nat_w, width)) if width > 0 else nat_w
+            need = w + (self.spacing if cur else 0)
+            if cur and used + need > width > 0:
+                rows.append(cur)
+                cur, used, need = [], 0, w
+            h = c.measure(Gtk.Orientation.VERTICAL, w)[1]
+            cur.append((c, w, h))
+            used += need
+        if cur:
+            rows.append(cur)
+        return rows
+
+    def do_get_request_mode(self, widget):
+        return Gtk.SizeRequestMode.HEIGHT_FOR_WIDTH
+
+    def do_measure(self, widget, orientation, for_size):
+        kids = list(self._children(widget))
+        if orientation == Gtk.Orientation.HORIZONTAL:
+            mins = [c.measure(orientation, -1)[0] for c in kids]
+            nats = [c.measure(orientation, -1)[1] for c in kids]
+            gap = self.spacing * max(0, len(kids) - 1)
+            return (max(mins, default=0), sum(nats) + gap, -1, -1)
+        width = for_size if for_size >= 0 else sum(c.measure(Gtk.Orientation.HORIZONTAL, -1)[1] for c in kids) + self.spacing * max(0, len(kids) - 1)
+        rows = self._rows(widget, width)
+        h = sum(max(ch for _c, _w, ch in r) for r in rows) + self.row_spacing * max(0, len(rows) - 1)
+        return (h, h, -1, -1)
+
+    def do_allocate(self, widget, width, height, baseline):
+        y = 0
+        for row in self._rows(widget, width):
+            row_h = max(ch for _c, _w, ch in row)
+            extra = max(0, width - (sum(w for _c, w, _h in row) + self.spacing * (len(row) - 1)))
+            growers = [c for c, _w, _h in row if c.get_hexpand()]
+            x = 0
+            for c, w, ch in row:
+                if c in growers:                                 # los widgets con hexpand se reparten lo que sobra de la línea
+                    w += extra // len(growers)
+                rect = Gdk.Rectangle()
+                rect.x, rect.y, rect.width, rect.height = x, y, w, row_h
+                c.size_allocate(rect, -1)
+                x += w + self.spacing
+            y += row_h + self.row_spacing
+
+
+class WrapRow(Gtk.Widget):
     """Fila de widgets que pasa a una segunda línea cuando no entra en el ancho (en vez de recortarse o ensanchar la ventana).
 
     Se usa como un `Gtk.Box` horizontal: `row.append(widget)`."""
 
     def __init__(self, spacing: int = 6, **kw):
-        super().__init__(selection_mode=Gtk.SelectionMode.NONE, homogeneous=False, min_children_per_line=1, max_children_per_line=40,
-                         column_spacing=spacing, row_spacing=4, **kw)
-        self.set_activate_on_single_click(False)
+        super().__init__(**kw)
+        self.set_layout_manager(_WrapLayout(spacing))
+        self.set_hexpand(True)
 
     def append(self, child: Gtk.Widget) -> None:
-        super().append(child)
-        holder = child.get_parent()                      # el FlowBoxChild que lo envuelve: que no tome el foco del teclado
-        if holder is not None:
-            holder.set_focusable(False)
-            holder.set_halign(Gtk.Align.FILL if child.get_hexpand() else Gtk.Align.START)
+        child.set_parent(self)
+
+    def remove(self, child: Gtk.Widget) -> None:
+        if child.get_parent() is self:
+            child.unparent()
+
+    def do_dispose(self):
+        while (c := self.get_first_child()) is not None:
+            c.unparent()
 
 
 def collapsible(parent: Gtk.Box, title: str, expanded: bool = True, sub: bool = False) -> Gtk.Box:
