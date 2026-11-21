@@ -213,3 +213,12 @@ def test_retouch_release_while_busy_recalculates(win, line):
         if not win._rbusy:
             break
     assert ed.result_shown
+
+
+def test_detail_rows_wrap_when_window_is_narrow(win, line):
+    """Los botones del detalle pasan a otra línea en vez de recortarse o ensanchar la ventana (WrapRow)."""
+    from afm.gui.widgets import WrapRow
+    assert isinstance(win.btn_retouch.get_parent().get_parent(), WrapRow)
+    win.set_default_size(900, 700)
+    pump(20)
+    assert win.get_width() <= 900 or win.is_maximized()

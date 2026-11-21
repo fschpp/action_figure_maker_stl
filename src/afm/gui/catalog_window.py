@@ -25,7 +25,7 @@ from .progress_panel import ProgressPanel  # noqa: E402
 from .retouch_editor import RetouchEditor  # noqa: E402
 from .retouch_session import ERASE, FILL, PAINT  # noqa: E402
 from ..parts import STATES  # noqa: E402
-from .widgets import no_scroll_change as _no_scroll_change  # noqa: E402
+from .widgets import WrapRow, no_scroll_change as _no_scroll_change  # noqa: E402
 
 JOINT_DELAY_MS = 250        # espera tras el último cambio de un valor antes de recalcular el hueco (se mueve un spin varias veces seguidas)
 CLICK_MAX_PX = 4.0          # un arrastre más corto que esto es un clic (marca un punto); más largo gira la vista
@@ -213,7 +213,7 @@ class CatalogManagerWindow(Gtk.Window):
         legend.add_css_class("dim-label")
         box.append(legend)
 
-        bar = Gtk.Box(spacing=6)                                   # (los botones se recortan si la ventana es muy angosta; el texto largo se acorta)
+        bar = WrapRow(spacing=6)                                   # (si la ventana es angosta, los botones pasan a otra línea; el texto largo se acorta)
         reset = Gtk.Button(label=tr("common.vista_3_4"))
         reset.set_tooltip_text(tr("catalog_window.vuelve_a_la_vista_3_4"))
         reset.connect("clicked", self._on_reset_view)
@@ -277,7 +277,7 @@ class CatalogManagerWindow(Gtk.Window):
     # ------------------------------------------------------------ estado de las piezas elegidas
     def _build_state_row(self) -> Gtk.Widget:
         """«Estado: [borrador ▾] [Aplicar a las elegidas]»: cambia el estado de una o varias versiones a la vez."""
-        row = Gtk.Box(spacing=8)
+        row = WrapRow(spacing=8)
         row.append(Gtk.Label(label=tr("catalog_window.estado"), xalign=0))
         self.dd_state = Gtk.DropDown.new_from_strings(list(STATES))
         self.dd_state.set_tooltip_text(tr("catalog_window.borrador_validada_impresa_es_lo_unico"))
@@ -450,7 +450,7 @@ class CatalogManagerWindow(Gtk.Window):
 
     def _build_ops_row(self) -> Gtk.Widget:
         """Comandos de la pieza elegida: certificar, cobertura, explicar."""
-        row = Gtk.Box(spacing=6)
+        row = WrapRow(spacing=6)
         self.btn_certify = Gtk.Button(label=tr("catalog_window.certificar"))
         self.btn_certify.connect("clicked", lambda *_: self._op_certify(self._selected_refs()))
         self.chk_force = Gtk.CheckButton(label=tr("catalog_window.forzar"))
@@ -781,7 +781,7 @@ class CatalogManagerWindow(Gtk.Window):
         self.lbl_wrist = Gtk.Label(xalign=0, wrap=True)
         self.lbl_wrist.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
         self.wrist_panel.append(self.lbl_wrist)
-        row = Gtk.Box(spacing=6)
+        row = WrapRow(spacing=6)
         self.btn_wrist_undo = Gtk.Button(label=tr("catalog_window.deshacer_el_ultimo_punto"))
         self.btn_wrist_undo.connect("clicked", self._on_wrist_undo)
         self.btn_wrist_invert = Gtk.Button(label=tr("catalog_window.invertir_lado"))
@@ -792,7 +792,7 @@ class CatalogManagerWindow(Gtk.Window):
         for b in (self.btn_wrist_undo, self.btn_wrist_invert, self.btn_wrist_cancel):
             row.append(b)
         self.wrist_panel.append(row)
-        row2 = Gtk.Box(spacing=6)
+        row2 = WrapRow(spacing=6)
         row2.append(Gtk.Label(label=tr("catalog_window.id_de_la_mano")))
         self.ent_hand_id = Gtk.Entry(hexpand=True)
         self.ent_hand_id.set_tooltip_text(tr("catalog_window.pieza_mano_que_se_guarda_aparte"))
@@ -971,7 +971,7 @@ class CatalogManagerWindow(Gtk.Window):
             self._jspin[key] = sp
             grid.attach(sp, 1, i, 1, 1)
         self.joint_panel.append(grid)
-        row = Gtk.Box(spacing=6)
+        row = WrapRow(spacing=6)
         self.btn_joint_pick = Gtk.Button(label=tr("catalog_window.mover_el_eje_con_un_clic"))
         self.btn_joint_pick.set_tooltip_text(tr("catalog_window.muestra_la_pieza_entera_un_clic"))
         self.btn_joint_pick.connect("clicked", self._on_joint_pick)
@@ -984,7 +984,7 @@ class CatalogManagerWindow(Gtk.Window):
         for b in (self.btn_joint_pick, self.btn_joint_straight, self.btn_joint_reset):
             row.append(b)
         self.joint_panel.append(row)
-        row = Gtk.Box(spacing=6)
+        row = WrapRow(spacing=6)
         row.append(Gtk.Label(label=tr("catalog_window.se_guarda_como_version_nueva_borrador"), xalign=0, hexpand=True, wrap=True))
         self.btn_joint_cancel = Gtk.Button(label=tr("catalog_window.cancelar_esc"))
         self.btn_joint_cancel.connect("clicked", lambda *_: self._joint_cancel())
@@ -1233,7 +1233,7 @@ class CatalogManagerWindow(Gtk.Window):
         self.lbl_retouch = Gtk.Label(xalign=0, wrap=True)
         self.lbl_retouch.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
         self.retouch_panel.append(self.lbl_retouch)
-        row = Gtk.Box(spacing=6)
+        row = WrapRow(spacing=6)
         row.append(Gtk.Label(label=tr("catalog_window.retocar_rol")))
         self.dd_rrole = Gtk.DropDown.new_from_strings([tr("common.ninguna")])
         self.dd_rrole.set_tooltip_text(tr("catalog_window.retocar_rol_tip"))
@@ -1265,7 +1265,7 @@ class CatalogManagerWindow(Gtk.Window):
         _no_scroll_change(self.spin_rreach)
         row.append(self.spin_rreach)
         self.retouch_panel.append(row)
-        row = Gtk.Box(spacing=6)
+        row = WrapRow(spacing=6)
         self.btn_rexport = Gtk.Button(label=tr("catalog_window.retocar_exportar"))
         self.btn_rexport.set_tooltip_text(tr("catalog_window.retocar_exportar_tip"))
         self.btn_rexport.connect("clicked", self._on_retouch_export)
@@ -1283,7 +1283,7 @@ class CatalogManagerWindow(Gtk.Window):
         for w in (self.btn_rexport, self.btn_rimport, Gtk.Label(label=tr("catalog_window.retocar_traer")), self.dd_rsource, self.btn_rbring, self.chk_rmirror):
             row.append(w)
         self.retouch_panel.append(row)
-        row = Gtk.Box(spacing=6)
+        row = WrapRow(spacing=6)
         self.btn_rundo = Gtk.Button(label=tr("catalog_window.retocar_deshacer"))
         self.btn_rundo.connect("clicked", lambda *_: self._on_retouch_undo())
         self.btn_rredo = Gtk.Button(label=tr("catalog_window.retocar_rehacer"))
@@ -1297,7 +1297,7 @@ class CatalogManagerWindow(Gtk.Window):
         for b in (self.btn_rundo, self.btn_rredo, self.btn_rview, self.btn_rdiscard):
             row.append(b)
         self.retouch_panel.append(row)
-        row = Gtk.Box(spacing=6)
+        row = WrapRow(spacing=6)
         row.append(Gtk.Label(label=tr("catalog_window.retocar_ayuda"), xalign=0, hexpand=True, wrap=True))
         self.btn_rcancel = Gtk.Button(label=tr("catalog_window.cancelar_esc"))
         self.btn_rcancel.connect("clicked", lambda *_: self._retouch_cancel())

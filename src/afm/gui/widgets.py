@@ -8,6 +8,24 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk  # noqa: E402
 
 
+class WrapRow(Gtk.FlowBox):
+    """Fila de widgets que pasa a una segunda línea cuando no entra en el ancho (en vez de recortarse o ensanchar la ventana).
+
+    Se usa como un `Gtk.Box` horizontal: `row.append(widget)`."""
+
+    def __init__(self, spacing: int = 6, **kw):
+        super().__init__(selection_mode=Gtk.SelectionMode.NONE, homogeneous=False, min_children_per_line=1, max_children_per_line=40,
+                         column_spacing=spacing, row_spacing=4, **kw)
+        self.set_activate_on_single_click(False)
+
+    def append(self, child: Gtk.Widget) -> None:
+        super().append(child)
+        holder = child.get_parent()                      # el FlowBoxChild que lo envuelve: que no tome el foco del teclado
+        if holder is not None:
+            holder.set_focusable(False)
+            holder.set_halign(Gtk.Align.FILL if child.get_hexpand() else Gtk.Align.START)
+
+
 def collapsible(parent: Gtk.Box, title: str, expanded: bool = True, sub: bool = False) -> Gtk.Box:
     """Sección (o subsección, `sub=True`) plegable: agrega un `Gtk.Expander` a `parent` y devuelve su caja interior."""
     exp = Gtk.Expander(expanded=expanded)
