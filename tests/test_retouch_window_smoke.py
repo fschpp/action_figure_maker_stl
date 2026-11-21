@@ -256,3 +256,29 @@ def test_retouch_undo_and_redo_show_result_automatically(win, line):
     assert not ed.result_shown and win._rbusy == 1
     _wait_view(win, ed)
     assert win._color_shown is not None and win._color_shown[0] == REF
+
+
+GUIDE_PREFIXES = ("pasador", "plano", "eje", "puertos")
+
+
+def _guide_names(win):
+    return [n for n in win.preview._off.scene.items if n.startswith(GUIDE_PREFIXES)]
+
+
+def test_retouch_hides_pins_and_joint_plane(win, line):
+    """Al retocar el color no se dibujan los pasadores, los puertos ni el plano de la articulación; al salir vuelven."""
+    win._select_ref(REF)
+    pump(30)
+    assert _guide_names(win), "la vista normal de la pieza muestra pasadores / puertos / plano"
+    win._on_retouch_start()
+    pump(30)
+    assert win._reditor is not None and not _guide_names(win)
+    win._on_retouch_view()                                   # con el color real del retoque tampoco
+    for _ in range(100):
+        pump(5)
+        if not win._rbusy:
+            break
+    assert not _guide_names(win)
+    win._retouch_cancel()
+    pump(30)
+    assert _guide_names(win)

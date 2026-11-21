@@ -1814,7 +1814,7 @@ class CatalogManagerWindow(Gtk.Window):
                 re_ = self._reditor
                 cs = getattr(self, "_color_shown", None)
                 cparts = cs[1] if cs is not None and cs[0] == meta.ref else None
-                img = self.preview.render(mesh, meta, self._dyaw, self._dpitch, None, zoom=self._zoom, pan=self._pan, color_parts=cparts,
+                img = self.preview.render(mesh, meta, self._dyaw, self._dpitch, None, zoom=self._zoom, pan=self._pan, color_parts=cparts, guides=False,      # al retocar el color no se dibujan los pasadores ni el plano de la articulación
                                           overlay=re_.overlay(), dot_px=re_.dot_size_px(self._img_size, self._dyaw, self._dpitch, self._zoom, self._pan))
             elif c is not None and c.preview_parts() is not None:          # corte calculado: brazo sin mano en gris y la mano en verde
                 img = self.preview.render_parts(c.preview_parts(), self._dyaw, self._dpitch, c.marks(),

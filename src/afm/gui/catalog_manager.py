@@ -364,15 +364,16 @@ class PreviewRenderer:
         self._overlay_names = wanted
 
     def render(self, mesh, meta: PieceMeta | None = None, yaw_off: float = 0.0, pitch_off: float = 0.0, marks=None,
-               zoom: float = 1.0, pan=(0.0, 0.0), color_parts=None, overlay=None, dot_px: float = 14.0) -> np.ndarray:
+               zoom: float = 1.0, pan=(0.0, 0.0), color_parts=None, overlay=None, dot_px: float = 14.0, guides: bool = True) -> np.ndarray:
         """Imagen RGBA (alto × ancho × 4, uint8) de `mesh` en vista 3/4; `yaw_off` / `pitch_off` giran la vista (°).
         `marks`: puntos (Nx3) a marcar encima, p. ej. los de la muñeca. `color_parts` (`colorpreview.piece_color_parts`): la misma pieza
-        partida por color, `[(nombre, malla, rgba)]`; con ella la pieza se dibuja a color en lugar de gris (pasadores y ejes igual)."""
+        partida por color, `[(nombre, malla, rgba)]`; con ella la pieza se dibuja a color en lugar de gris (pasadores y ejes igual).
+        `guides=False` deja afuera los pasadores, los puertos y el plano de la articulación (p. ej. al retocar el color)."""
         off = self._ensure()
         if off is None:
             raise RuntimeError(self.error or tr("catalog_manager.sin_vista_previa"))
         with off.ctx:                        # vuelve a poner este contexto como el actual (GTK tiene el suyo)
-            key = (id(mesh), meta.ref if meta is not None else None, len(meta.articulaciones or []) if meta is not None else 0, id(color_parts))
+            key = (id(mesh), meta.ref if meta is not None else None, len(meta.articulaciones or []) if meta is not None else 0, id(color_parts), guides)
             if self._mesh is not mesh or self._key != key:
                 off.scene.clear()
                 if color_parts:
@@ -380,7 +381,7 @@ class PreviewRenderer:
                         off.scene.set_mesh(cname, cmesh, ccolor)
                 else:
                     off.scene.set_mesh("pieza", mesh, self.PIECE_COLOR)
-                if meta is not None:
+                if meta is not None and guides:
                     for name, pm, color in pin_meshes(meta, mesh):          # pasadores y ejes como sólidos: se ven aunque la pieza sea chica
                         off.scene.set_mesh(name, pm, color)
                     if meta.puertos:
