@@ -1127,7 +1127,18 @@
   "montura_nota": "Con la punta hacia abajo (−Z) la gravedad retiene el arma. El ancla va sobre el flanco de la pieza: «afm montura-mapa» muestra dónde hay lugar.",
   "montura_estado_ok": "Sin problemas ni avisos.",
   "montura_estado_aviso": "Con avisos:",
-  "montura_estado_no": "Con problemas:"
+  "montura_estado_no": "Con problemas:",
+  "montura_pick_ancla": "Ancla: clic en la figura",
+  "montura_pick_dir": "Dirección: arrastrar",
+  "montura_pick_ayuda_ancla": "Hacé clic sobre el flanco de la pieza donde va el enganche (arrastrando gira la vista).",
+  "montura_pick_ayuda_dir": "Arrastrá sobre la figura desde la empuñadura hacia donde apunta la punta del arma.",
+  "montura_pick_ancla_puesta": "Ancla en (%{x}, %{y}, %{z}), lado %{lado}.",
+  "montura_pick_dir_puesta": "Dirección (%{x}, %{y}, %{z}).",
+  "montura_pick_sin_vista": "Para elegir con el ratón hace falta la vista conjunta de las piezas (elegí un torso).",
+  "pick_sin_pieza": "La vista previa no tiene la pieza donde va la montura (%{lugar}).",
+  "pick_fuera_de_la_figura": "Ahí no hay figura: hacé clic sobre la pieza.",
+  "pick_tapado": "Ahí se ve «%{pieza}», no «%{host}»: girá la vista hasta ver el flanco libre.",
+  "pick_arrastre_corto": "Arrastrá un poco más para marcar la dirección."
  },
  "hero_wizard": {
   "el_heroe": "El héroe",

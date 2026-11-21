@@ -1127,7 +1127,18 @@
   "montura_nota": "Com a ponta para baixo (−Z) a gravidade segura a arma. A âncora vai no flanco da peça: «afm montura-mapa» mostra onde há espaço.",
   "montura_estado_ok": "Sem problemas nem avisos.",
   "montura_estado_aviso": "Com avisos:",
-  "montura_estado_no": "Com problemas:"
+  "montura_estado_no": "Com problemas:",
+  "montura_pick_ancla": "Âncora: clique na figura",
+  "montura_pick_dir": "Direção: arrastar",
+  "montura_pick_ayuda_ancla": "Clique no flanco da peça onde vai o engate (arrastar gira a vista).",
+  "montura_pick_ayuda_dir": "Arraste sobre a figura da empunhadura para onde aponta a ponta da arma.",
+  "montura_pick_ancla_puesta": "Âncora em (%{x}, %{y}, %{z}), lado %{lado}.",
+  "montura_pick_dir_puesta": "Direção (%{x}, %{y}, %{z}).",
+  "montura_pick_sin_vista": "Para escolher com o mouse é preciso a vista conjunta das peças (escolha um torso).",
+  "pick_sin_pieza": "A vista prévia não tem a peça onde vai a montura (%{lugar}).",
+  "pick_fuera_de_la_figura": "Ali não há figura: clique na peça.",
+  "pick_tapado": "Ali se vê «%{pieza}», não «%{host}»: gire a vista até ver o flanco livre.",
+  "pick_arrastre_corto": "Arraste um pouco mais para marcar a direção."
  },
  "hero_wizard": {
   "el_heroe": "O herói",

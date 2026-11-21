@@ -1127,7 +1127,18 @@
   "montura_nota": "With the tip pointing down (−Z) gravity holds the weapon. The anchor goes on the flank of the piece: «afm montura-mapa» shows where there is room.",
   "montura_estado_ok": "No problems or warnings.",
   "montura_estado_aviso": "With warnings:",
-  "montura_estado_no": "With problems:"
+  "montura_estado_no": "With problems:",
+  "montura_pick_ancla": "Anchor: click on the figure",
+  "montura_pick_dir": "Direction: drag",
+  "montura_pick_ayuda_ancla": "Click on the flank of the piece where the mount goes (dragging turns the view).",
+  "montura_pick_ayuda_dir": "Drag over the figure from the grip toward where the tip of the weapon points.",
+  "montura_pick_ancla_puesta": "Anchor at (%{x}, %{y}, %{z}), side %{lado}.",
+  "montura_pick_dir_puesta": "Direction (%{x}, %{y}, %{z}).",
+  "montura_pick_sin_vista": "Picking with the mouse needs the combined view of the pieces (choose a torso).",
+  "pick_sin_pieza": "The preview has no piece to carry the mount (%{lugar}).",
+  "pick_fuera_de_la_figura": "There is no figure there: click on the piece.",
+  "pick_tapado": "That spot shows «%{pieza}», not «%{host}»: turn the view until the flank is clear.",
+  "pick_arrastre_corto": "Drag a little further to mark the direction."
  },
  "hero_wizard": {
   "el_heroe": "The hero",

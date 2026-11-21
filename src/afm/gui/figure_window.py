@@ -19,6 +19,7 @@ from .catalog_manager import PreviewRenderer, view_bounds  # noqa: E402,F401  (v
 from ..recipe import SCALE_PLACES  # noqa: E402
 from .progress_panel import ProgressPanel  # noqa: E402
 from .figure_builder import NONE_LABEL, PLACE_LABELS, PLACE_ORDER, FigureBuilder, summary  # noqa: E402
+from . import mount_pick as MP  # noqa: E402
 
 YAW_MAX = 1.0e6      # GTK pide un tope numérico: este es técnico, el giro no tiene límite superior en la práctica
 HEX_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
@@ -56,6 +57,9 @@ class FigureBuilderWindow(Gtk.Window):
         self._color_w: dict[str, dict] = {}     # T48: rol -> {"btn", "ent", "reset"} del bloque «Colores»
         self._dyaw = self._dpitch = 0.0
         self._drag0 = (0.0, 0.0)
+        self._pick_group = None                 # M14: las piezas de la vista conjunta SIN partir por color (de ahí sale el clic)
+        self._pick_mode = None                  # M14: None | "ancla" | "dir" (qué hace el ratón sobre la vista previa)
+        self._pick_guard = False                # M14: los botones se cambian por código sin disparar sus avisos
         self._last_dir = remember_dir
 
         paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL, wide_handle=True)
@@ -251,6 +255,17 @@ class FigureBuilderWindow(Gtk.Window):
         self._m_dir = spins(-1.0, 1.0, 0.05, 2)
         row(tr("figure_window.montura_ancla_mm"), *self._m_anchor)
         row(tr("figure_window.montura_direccion"), *self._m_dir)
+        pick = Gtk.Box(spacing=6)
+        self.tgl_m_pick = Gtk.ToggleButton(label=tr("figure_window.montura_pick_ancla"))
+        self.tgl_m_dir = Gtk.ToggleButton(label=tr("figure_window.montura_pick_dir"))
+        self.tgl_m_pick.connect("toggled", self._on_pick_toggle, "ancla")
+        self.tgl_m_dir.connect("toggled", self._on_pick_toggle, "dir")
+        pick.append(self.tgl_m_pick)
+        pick.append(self.tgl_m_dir)
+        self.box_mount_form.append(pick)
+        self.lbl_mount_pick = Gtk.Label(xalign=0, wrap=True)
+        self.lbl_mount_pick.add_css_class("dim-label")
+        self.box_mount_form.append(self.lbl_mount_pick)
         (self.sp_m_gap,) = spins(0.0, 2.0, 0.05, 2, 1)
         (self.sp_m_wall,) = spins(0.0, 5.0, 0.1, 1, 1)
         row(tr("figure_window.montura_holgura_mm"), self.sp_m_gap)
@@ -322,7 +337,73 @@ class FigureBuilderWindow(Gtk.Window):
     def _mount_refill_idle(self, select) -> bool:
         self._mount_refill_pending = False
         self._refill_mounts(select)
+        if self.tgl_all.get_active():
+            self._redraw()              # las marcas de ancla y dirección siguen a la montura
         return False
+
+    # ------------------------------------------------------------ M14: ancla y dirección con el ratón
+    def _set_pick_mode(self, mode: str | None) -> None:
+        """Pone el modo del ratón y deja los dos botones como corresponde, sin que sus avisos vuelvan a entrar."""
+        self._pick_mode = mode
+        was, self._pick_guard = self._pick_guard, True
+        try:
+            self.tgl_m_pick.set_active(mode == "ancla")
+            self.tgl_m_dir.set_active(mode == "dir")
+        finally:
+            self._pick_guard = was
+        self.lbl_mount_pick.set_text({"ancla": tr("figure_window.montura_pick_ayuda_ancla"), "dir": tr("figure_window.montura_pick_ayuda_dir")}.get(mode, ""))
+
+    def _on_pick_toggle(self, btn: Gtk.ToggleButton, mode: str) -> None:
+        if self._pick_guard:
+            return
+        if not btn.get_active():
+            self._set_pick_mode(None if self._pick_mode == mode else self._pick_mode)
+            return
+        if self._mount_index() is None:
+            self._set_pick_mode(None)
+            return
+        if not self.tgl_all.get_active():
+            self.tgl_all.set_active(True)         # elegir con el ratón necesita la vista conjunta (lo apaga _refresh_group si no se puede)
+        if self._pick_group is None:
+            self._set_pick_mode(None)
+            self.lbl_mount_pick.set_text(tr("figure_window.montura_pick_sin_vista"))
+            return
+        self._set_pick_mode(mode)
+
+    def _image_size(self) -> tuple[int, int]:
+        return self.preview.width, self.preview.height
+
+    def _apply_pick_anchor(self, x: float, y: float) -> None:
+        i = self._mount_index()
+        if i is None or self._pick_group is None:
+            return
+        b = self.builder
+        try:
+            a = MP.pick_from_widget(x, y, (self.picture.get_width(), self.picture.get_height()), self._image_size(), self._pick_group,
+                                    b.mounts[i].lugar, self._dyaw, self._dpitch)
+            b.set_mount(i, ancla=a.ancla, lado=a.lado)
+        except ValueError as exc:                               # MountPickError es un ValueError
+            self.lbl_mount_pick.set_text(str(exc))
+            return
+        self.lbl_mount_pick.set_text(tr("figure_window.montura_pick_ancla_puesta", x=f"{a.ancla[0]:g}", y=f"{a.ancla[1]:g}", z=f"{a.ancla[2]:g}", lado=a.lado))
+        self._schedule_mount_refill(i)
+        self._sync()
+
+    def _apply_pick_direction(self, x0: float, y0: float, x1: float, y1: float) -> None:
+        i = self._mount_index()
+        if i is None or self._pick_group is None:
+            return
+        b = self.builder
+        try:
+            d = MP.direction_from_widget(x0, y0, x1, y1, (self.picture.get_width(), self.picture.get_height()), self._image_size(),
+                                         self._pick_group, b.mounts[i].ancla, self._dyaw, self._dpitch)
+            b.set_mount(i, direccion=d)
+        except ValueError as exc:
+            self.lbl_mount_pick.set_text(str(exc))
+            return
+        self.lbl_mount_pick.set_text(tr("figure_window.montura_pick_dir_puesta", x=f"{d[0]:g}", y=f"{d[1]:g}", z=f"{d[2]:g}"))
+        self._schedule_mount_refill(i)
+        self._sync()
 
     def _on_mount_pick(self, *_args) -> None:
         if self._updating or self._mount_index() is None:
@@ -610,8 +691,9 @@ class FigureBuilderWindow(Gtk.Window):
         self.picture = Gtk.Picture(content_fit=Gtk.ContentFit.CONTAIN, can_shrink=True, hexpand=True, vexpand=True)
         self.picture.set_size_request(340, 300)
         drag = Gtk.GestureDrag()
-        drag.connect("drag-begin", lambda *_: setattr(self, "_drag0", (self._dyaw, self._dpitch)))
+        drag.connect("drag-begin", self._on_drag_begin)
         drag.connect("drag-update", self._on_drag)
+        drag.connect("drag-end", self._on_drag_end)
         self.picture.add_controller(drag)
         frame = Gtk.Frame()
         frame.set_child(self.picture)
@@ -818,13 +900,18 @@ class FigureBuilderWindow(Gtk.Window):
     def _refresh_group(self) -> None:
         """Con «Ver todas las piezas juntas» activo, vuelve a colocar y dibujar el conjunto (instantáneo)."""
         if not self.tgl_all.get_active():
-            self._group = None
+            self._group = self._pick_group = None
+            if hasattr(self, "tgl_m_pick"):
+                self._set_pick_mode(None)           # sin vista conjunta no hay dónde elegir
             self._redraw()
             return
         try:
             self._group, notes = self.builder.preview()
+            self._pick_group = self._group           # el color parte las piezas por color: el clic usa estas, de una sola pieza por nombre
         except Exception as exc:                              # noqa: BLE001  (sin torso, pieza rota…): se dice y se vuelve a la pieza
-            self._group = None
+            self._group = self._pick_group = None
+            if hasattr(self, "tgl_m_pick"):
+                self._set_pick_mode(None)
             self.lbl_result.set_text(tr("figure_window.no_se_puede_ver_la_figura", exc=exc))
             self._redraw()
             return
@@ -906,7 +993,8 @@ class FigureBuilderWindow(Gtk.Window):
             return
         try:
             if group is not None:
-                img = self.preview.render_parts(group, self._dyaw, self._dpitch)
+                bounds = MP.parts_bounds(self._pick_group) if self._pick_group else None      # el mismo encuadre que usa el clic
+                img = self.preview.render_parts(group, self._dyaw, self._dpitch, marks=MP.mount_marks(self.builder.mounts), bounds=bounds)
             elif self._tex_parts is not None:
                 img = self.preview.render_textured(self._tex_parts, self.tgl_tex.get_active(), self._dyaw, self._dpitch)
             else:
@@ -922,7 +1010,21 @@ class FigureBuilderWindow(Gtk.Window):
         data = GLib.Bytes.new(img.tobytes())
         self.picture.set_paintable(Gdk.MemoryTexture.new(w, h, Gdk.MemoryFormat.R8G8B8A8, data, w * 4))
 
+    def _on_drag_begin(self, _g, x: float, y: float) -> None:
+        self._drag0 = (self._dyaw, self._dpitch)
+        self._drag_start = (x, y)
+
+    def _on_drag_end(self, _g, dx: float, dy: float) -> None:
+        """M14: con el modo «Ancla» un clic (sin arrastrar) elige el punto; con «Dirección» el arrastre es la dirección."""
+        x0, y0 = getattr(self, "_drag_start", (0.0, 0.0))
+        if self._pick_mode == "ancla" and MP.is_click(dx, dy):
+            self._apply_pick_anchor(x0, y0)
+        elif self._pick_mode == "dir":
+            self._apply_pick_direction(x0, y0, x0 + dx, y0 + dy)
+
     def _on_drag(self, _g, dx: float, dy: float) -> None:
+        if self._pick_mode == "dir":
+            return                  # el arrastre marca la dirección: no gira la vista
         y0, p0 = self._drag0
         self._dyaw, self._dpitch = y0 - dx * 0.4, p0 + dy * 0.4
         self._redraw()

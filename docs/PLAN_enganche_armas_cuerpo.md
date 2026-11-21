@@ -156,7 +156,7 @@ Esto convierte la pregunta 2 (de qué lado y con qué inclinación) en la primer
 En la ventana de armado por catálogo, un bloque plegable **«Armas en el cuerpo»**:
 
 1. Elegir el accesorio (de los de `Recipe.accesorios` con `agarre`), el lado y el tipo.
-2. **Clic sobre la figura** para el ancla. `Picker(mesh)` y `ray_first_hit` ya existen (`gui/picking.py`) y el controlador los usa. Falta confirmar si `figure_window` tiene vista 3D **[P]**; si no la tiene, la primera versión usa números (x, y, z) y vista previa.
+2. **Clic sobre la figura** para el ancla. `Picker(mesh)` y `ray_first_hit` ya existen (`gui/picking.py`) y el controlador los usa. `figure_window` **no** tiene visor 3D vivo: la vista previa es una imagen que dibuja `PreviewRenderer` con `preview_camera`; el clic se resuelve con esa misma cámara y `widget_to_image` (`gui/mount_pick.py`) **[V]**.
 3. Vista previa del arma y de la montura en otro color; **rojo** si no sale, choca o no imprime.
 4. **Mapa de zonas posibles** (M08): colorea el flanco según el hueco libre a miembros, para que se vea dónde cabe antes de elegir.
 5. Valores: holgura, pared, inclinación. Estado con los avisos de §6.4.
@@ -186,7 +186,7 @@ La lógica va en un módulo propio sin GTK, probado sin ventana (como `palette_e
 
 ### Fase 3 — Interfaz
 - **M13** Bloque «Armas en el cuerpo» en `figure_window`. **Hecha** (lógica en `FigureBuilder`, probada; el bloque de la ventana no se pudo ejecutar sin GTK).
-- **M14** Ancla por clic y orientación con el ratón (según §7, punto 2).
+- **M14** Ancla por clic y orientación con el ratón (según §7, punto 2). *Hecha:* `gui/mount_pick.py` + botones «Ancla» y «Dirección» en la ventana; la profundidad de la dirección sale en el plano de la vista.
 - **M15** Vista previa, mapa de zonas y estado con los avisos.
 
 ### Fase 4 — Más tipos y catálogo
