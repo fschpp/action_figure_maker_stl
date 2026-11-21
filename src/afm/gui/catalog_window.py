@@ -62,6 +62,7 @@ class CatalogManagerWindow(Gtk.Window):
         self._rpaint = False                         # hay un trazo del pincel en curso (arrastre con el botón izquierdo)
         self._rupdating = False
         self._rbusy = 0                              # «Ver resultado» en curso (hilo)
+        self._rview_pending = False                  # se soltó el pincel con un «Ver resultado» en curso: recalcular al terminar
         self._pending_select = ""                    # pieza recién importada que hay que dejar elegida
         self._task_label = ""                        # tarea larga de catálogo en curso (certificar, compatibilidad…); "" = ninguna
 
@@ -1369,6 +1370,7 @@ class CatalogManagerWindow(Gtk.Window):
         n = len(ed.session) if ed.dirty else 0
         self._reditor = None
         self._rpaint = False
+        self._rview_pending = False
         self.retouch_panel.set_visible(False)
         self._color_shown = None
         self._sync_wrist_button(self._selected_refs())
@@ -1525,7 +1527,10 @@ class CatalogManagerWindow(Gtk.Window):
     def _on_retouch_view(self, *_) -> None:
         """«Ver resultado»: calcula en un hilo la pieza con el color real del retoque (sin guardarlo) y la dibuja."""
         ed = self._reditor
-        if ed is None or self._rbusy:
+        if ed is None:
+            return
+        if self._rbusy:                                               # ya se está calculando: al terminar se recalcula con los trazos nuevos
+            self._rview_pending = True
             return
         ref, rt = ed.meta.ref, ed.session.retouch()
         self._rbusy += 1
@@ -1545,6 +1550,11 @@ class CatalogManagerWindow(Gtk.Window):
         self._rbusy = max(0, self._rbusy - 1)
         ed = self._reditor
         if ed is None or ed.meta.ref != ref:
+            self._rview_pending = False
+            return False
+        if self._rview_pending and not self._rbusy:                  # llegaron trazos mientras se calculaba: este resultado ya quedó viejo
+            self._rview_pending = False
+            self._on_retouch_view()
             return False
         if err is not None:
             self.lbl_status.set_text(tr("catalog_window.color_error", ref=ref, exc=err))
@@ -1836,10 +1846,10 @@ class CatalogManagerWindow(Gtk.Window):
         """Un arrastre casi sin movimiento es un clic: con el modo «Cortar la mano…» activo, marca un punto de la muñeca."""
         if self._rpaint and self._reditor is not None:
             self._rpaint = False
-            was_fill = self._reditor.session.mode == FILL
-            self._reditor.release()
+            n = self._reditor.release()
+            self._reditor.result_shown = False
             self._retouch_refresh()
-            if was_fill:                                             # el relleno no se ve en los centros del pincel: se muestra el color real
+            if n or self._reditor.session.mode == FILL:              # al soltar el botón se muestra el color real (como «Ver resultado»), sea pintar, borrar o rellenar
                 self._on_retouch_view()
             return
         ed = self._jeditor

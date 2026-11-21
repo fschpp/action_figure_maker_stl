@@ -165,3 +165,51 @@ def test_bring_from_another_piece_mirrored_is_one_undo_step(arm_with_retouch, wi
     win.chk_rmirror.set_active(False)
     win._on_retouch_bring()                                                # sin espejar se suma tal cual (a lo ya traído)
     assert len(ed.session) == 4 and ed.session.retouch().strokes[2].c[0] == pytest.approx(4.0)
+
+
+def _paint_stroke(win, ed):
+    cam = ed.camera(win._img_size, 0, 0, 1.0, (0, 0))
+    px, py = cam.project(np.asarray(cam.target, float), *win._img_size)[0, :2]
+    w, h = win._widget_size()
+    k = min(w / win._img_size[0], h / win._img_size[1])
+    x, y = (w - win._img_size[0] * k) / 2 + px * k, (h - win._img_size[1] * k) / 2 + py * k
+    win._on_drag_begin(FakeGesture(), x, y)
+    assert win._rpaint
+    win._on_drag(None, 15, 0)
+    win._on_drag_end(None, 15, 0)
+
+
+def test_retouch_release_shows_result_automatically(win, line):
+    """Al soltar el botón del pincel (pintar) se calcula solo «Ver resultado», sin apretar el botón."""
+    win._select_ref(REF)
+    pump(30)
+    win._on_retouch_start()
+    ed = win._reditor
+    win.dd_rrole.set_selected(len(ed.session.palette_ids) - 1)
+    _paint_stroke(win, ed)
+    assert win._rbusy == 1 or ed.result_shown          # arrancó solo el cálculo en el hilo
+    for _ in range(100):
+        pump(5)
+        if ed.result_shown and not win._rbusy:
+            break
+    assert ed.result_shown and win._color_shown is not None and win._color_shown[0] == REF
+
+
+def test_retouch_release_while_busy_recalculates(win, line):
+    """Si se suelta el pincel con un cálculo en curso, al terminar se recalcula con los trazos nuevos."""
+    win._select_ref(REF)
+    pump(30)
+    win._on_retouch_start()
+    ed = win._reditor
+    win.dd_rrole.set_selected(len(ed.session.palette_ids) - 1)
+    win._rbusy = 1                                      # simula un cálculo en curso
+    _paint_stroke(win, ed)
+    assert win._rview_pending and not ed.result_shown
+    win._rbusy = 0
+    win._retouch_view_done(ed.meta.ref, None, None)      # termina el cálculo viejo → lanza el nuevo
+    assert not win._rview_pending and win._rbusy == 1
+    for _ in range(100):
+        pump(5)
+        if not win._rbusy:
+            break
+    assert ed.result_shown
