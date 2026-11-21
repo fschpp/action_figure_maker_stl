@@ -1179,6 +1179,29 @@ def _mount_poses(res: BuildResult, p: Params, limbs, side: str, hip_step: float,
     return poses
 
 
+def mount_flank_map(res: BuildResult, p: Params, limbs, lugar: str = "pelvis", lado: str = "izq", need_mm: float | None = None,
+                    hip_step: float = 15.0, arm_step: float = 15.0, n_points: int | None = None, seed: int = 0):
+    """M08: mapa de espacio libre del flanco (`mount_map.FlankMap`) de la pieza que lleva `lugar`, contra los miembros del mismo lado
+    en las poses de `_mount_poses` y la cabeza. Usa la pieza sin montura (`host_bare`) si ya hay monturas. `need_mm` por defecto:
+    una hoja de 0,8 mm con el juego y la pared de siempre (`mount_map.needed_height`)."""
+    from . import mount_map as MM
+
+    name = PELVIS_NAME if lugar == "pelvis" and PELVIS_NAME in res.pieces else "torso"
+    if lugar not in ("pelvis", "torso") or name not in res.pieces:
+        raise ValueError(f"lugar «{lugar}»: el mapa se hace sobre la pelvis o el torso")
+    host = res.host_bare.get(name, res.pieces[name]) if getattr(res, "host_bare", None) else res.pieces[name]
+    side = "_izq" if lado == "izq" else "_der"
+    obstacles = []
+    for _label, _ang, pieces, _standing in _mount_poses(res, p, limbs, side, hip_step, arm_step):
+        obstacles += [S.to_trimesh(mf) for mf in pieces.values()]
+    if HEAD_NAME in res.pieces:
+        obstacles.append(S.to_trimesh(res.pieces[HEAD_NAME]))
+    if need_mm is None:
+        need_mm = MM.needed_height(0.8, wall=p.min_wall, member_clearance=p.clearance)
+    kw = {} if n_points is None else {"n_points": n_points}
+    return MM.flank_map(S.to_trimesh(host), obstacles, need_mm, host_name=name, lado=lado, seed=seed, **kw)
+
+
 def _validate_mount(res: BuildResult, p: Params, out: dict, limbs=(), hip_step: float = 15.0, arm_step: float = 15.0,
                     extract_step: float | None = None) -> dict:
     """Monturas de armas (plan §6.4). Para cada una:

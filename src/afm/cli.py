@@ -301,6 +301,37 @@ def run_armar(recipe_path: str, outdir: str, name: str | None = None, catalog_ro
     return info
 
 
+def run_montura_mapa(recipe_path: str, outdir: str, catalog_root: str | None = None, lugar: str = "pelvis", lado: str = "izq",
+                     arma: str | None = None, holgura: float = 0.25) -> dict:
+    """`afm montura-mapa`: arma la figura de la receta (sin monturas) y escribe el mapa de espacio libre del flanco: `mapa.ply` (puntos
+    verde/amarillo/rojo), `mapa.json` y `mapa.md`. Devuelve el resumen (`mount_map.summarize`) más `archivos`."""
+    import dataclasses as _dc
+
+    from . import mount_map as MM
+    from .mount import analyze_blade
+    from .recipe import Recipe, assemble
+
+    recipe = Recipe.load(recipe_path)
+    if recipe.ajustes.get("monturas"):                    # el mapa es del cuerpo libre: sin las monturas ya puestas
+        recipe = _dc.replace(recipe, ajustes={k: v for k, v in recipe.ajustes.items() if k != "monturas"})
+    asm = assemble(recipe, catalog_root)
+    thickness = 0.8
+    if arma:
+        from . import solids as _S
+        _meta, mesh = asm.catalog.load(arma)
+        thickness = analyze_blade(_S.to_manifold(mesh)).blade_thickness
+    need = MM.needed_height(thickness, holgura, asm.params.min_wall, asm.params.clearance)
+    fm = P.mount_flank_map(asm.res, asm.params, asm.limbs, lugar, lado, need)
+    summary = MM.summarize(fm)
+    os.makedirs(outdir, exist_ok=True)
+    MM.to_point_cloud(fm).export(os.path.join(outdir, "mapa.ply"))
+    with open(os.path.join(outdir, "mapa.json"), "w", encoding="utf-8") as fh:
+        json.dump(summary, fh, ensure_ascii=False, indent=2)
+    with open(os.path.join(outdir, "mapa.md"), "w", encoding="utf-8") as fh:
+        fh.write(MM.markdown(summary))
+    return {**summary, "archivos": ["mapa.ply", "mapa.json", "mapa.md"]}
+
+
 def run_extract_hand(stl_path: str, project: Project, points, out_dir: str, name: str = "mano",
                      invert: bool = False, progress=print) -> dict:
     """Corta la mano de la figura por el plano de muñeca (3 puntos en el marco de trabajo de la GUI) y la guarda
@@ -446,6 +477,14 @@ def main(argv=None) -> int:
     a.add_argument("--orient-auto", action="store_true", help="exportar en la orientación de menor voladizo")
     a.add_argument("--max-angle", type=float, default=45.0, help="ángulo de voladizo tolerado (grados desde la vertical)")
     a.add_argument("--color-cambio", action="append", default=[], metavar="ROL=#RRGGBB", help=tr("color.ayuda_cambio"))
+    mm = sub.add_parser("montura-mapa", help="mapa de espacio libre del flanco: dónde cabe el puente de una montura de arma (antes de elegir el ancla)")
+    mm.add_argument("catalogo", metavar="RUTA", help="catálogo de piezas de la línea de la receta")
+    mm.add_argument("receta", help="<personaje>.receta.json")
+    mm.add_argument("--lugar", default="pelvis", choices=("pelvis", "torso"))
+    mm.add_argument("--lado", default="izq", choices=("izq", "der"))
+    mm.add_argument("--arma", default=None, metavar="ID[@V]", help="accesorio cuya hoja da el espesor (por defecto una hoja de 0,8 mm)")
+    mm.add_argument("--holgura", type=float, default=0.25, metavar="MM", help="juego hoja–hueco del puente")
+    mm.add_argument("--out", default="out/mapa", help="carpeta de salida (mapa.ply, mapa.json y mapa.md)")
     dp = sub.add_parser("desde-patron", help="proyecto de un héroe nuevo a partir de una figura patrón que ya funciona (copia sus planos y vuelve a dibujar las siluetas)")
     dp.add_argument("patron", help="proyecto de la figura patrón (p. ej. Güemes)")
     dp.add_argument("stl", help="STL del héroe nuevo")
@@ -515,6 +554,19 @@ def main(argv=None) -> int:
     if args.cmd == "ajustar-cintura-muneca":
         return _run_ajustar_cm(args)
     os.makedirs(args.out, exist_ok=True)
+    if args.cmd == "montura-mapa":
+        from .catalog import CatalogError
+        from .recipe import RecipeError
+
+        try:
+            summary = run_montura_mapa(args.receta, args.out, args.catalogo, args.lugar, args.lado, args.arma, args.holgura)
+        except (RecipeError, CatalogError, OSError, ValueError) as exc:
+            print(f"ERROR (mapa): {exc}", file=sys.stderr)
+            return 2
+        print(f"Espacio libre en el flanco {args.lado} de «{summary['host']}»: el puente necesita {summary['necesita_mm']:g} mm")
+        print("Cabe en:", "ningún punto" if not summary["cabe"] else f"z {summary['cabe']['z']} y {summary['cabe']['y']} ({summary['cabe_pct']:g} % de los puntos)")
+        print("Archivos:", ", ".join(summary["archivos"]))
+        return 0
     if args.cmd == "armar":
         from .recipe import RecipeError
         from .palette import PaletteError, normalize_hex
