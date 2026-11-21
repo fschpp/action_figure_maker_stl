@@ -39,6 +39,7 @@ class Recipe:
     ajustes: dict = field(default_factory=dict)
     accesorios: list = field(default_factory=list)       # ["id@versión", …]: piezas «accesorio» que acompañan a la figura (no van en el puño)
     paleta_override: dict = field(default_factory=dict)  # T48: {rol: "#RRGGBB"} colores de la paleta de la línea que cambian SOLO en esta figura
+    cabalgadura: dict = field(default_factory=dict)      # E12: caballo y asiento (`ride.RideSpec.to_dict()`); vacío = sin caballo. Fuera de `ajustes`: nunca entra en `compat.recipe_key`
 
     # ------------------------------------------------------------------ formato
     def to_dict(self) -> dict:
@@ -49,6 +50,8 @@ class Recipe:
             d["accesorios"] = list(self.accesorios)
         if self.paleta_override:                             # T48: solo si hay (las recetas anteriores no cambian). No entra en `ajustes`: el color no cambia los STL ni el hash de compat.json
             d["paleta_override"] = dict(self.paleta_override)
+        if self.cabalgadura:                                 # E12: solo si hay (las recetas anteriores no cambian)
+            d["cabalgadura"] = dict(self.cabalgadura)
         return d
 
     @classmethod
@@ -64,12 +67,17 @@ class Recipe:
         ov = d.get("paleta_override") or {}
         if not isinstance(ov, dict):
             raise RecipeError("«paleta_override» tiene que ser un diccionario {rol: \"#RRGGBB\"}")
+        cab = d.get("cabalgadura") or {}
+        if not isinstance(cab, dict):
+            raise RecipeError("«cabalgadura» tiene que ser un diccionario")
         r = cls(d["personaje"], d["linea"], dict(d.get("lugares") or {}), dict(d.get("opciones") or {}), dict(d.get("ajustes") or {}),
-                list(acc), dict(ov))
+                list(acc), dict(ov), dict(cab))
         bad = [k for k in r.problems()]
         if bad:
             raise RecipeError("; ".join(bad))
         r.ajustes = r.key_ajustes()          # monturas completas y sin lista vacía: la misma montura da siempre la misma clave
+        if r.cabalgadura:
+            r.cabalgadura = r.ride_spec().to_dict()      # forma canónica (campos por defecto escritos)
         return r
 
     @classmethod
@@ -93,6 +101,24 @@ class Recipe:
                 out.append(str(exc))
         return out
 
+    def ride_spec(self):
+        """La cabalgadura (`ride.RideSpec`) o None si la receta no lleva caballo. Levanta `HorseError` si está mal formada."""
+        if not self.cabalgadura:
+            return None
+        from .ride import RideSpec
+
+        return RideSpec.from_dict(self.cabalgadura)
+
+    def ride_problems(self) -> list[str]:
+        """La cabalgadura bien formada (E12). Que el caballo esté en la biblioteca y tenga ese hash se mira al armar (`ride.resolve_horse`)."""
+        if not self.cabalgadura:
+            return []
+        try:
+            self.ride_spec()
+        except ValueError as exc:                 # HorseError y SaddleError son ValueError
+            return [f"cabalgadura: {exc}"]
+        return []
+
     def problems(self) -> list[str]:
         out = [f"lugar desconocido «{k}» (hay {', '.join(PLACES)})" for k in self.lugares if k not in PLACES]
         out += [f"opción desconocida «{k}» (hay {', '.join(OPTIONS)})" for k in self.opciones if k not in OPTIONS]
@@ -100,6 +126,7 @@ class Recipe:
         out += self.scale_problems()
         out += self.mount_problems()
         out += self.override_problems()
+        out += self.ride_problems()
         out += [f"ajuste de mano desconocido «{k}» (hay {', '.join(HAND_ADJUSTS)})" for k in (self.ajustes.get("mano") or {})
                 if k not in HAND_ADJUSTS]
         un = (self.ajustes.get("mano") or {}).get("union")

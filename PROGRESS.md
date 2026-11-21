@@ -1,3 +1,16 @@
+## Current Focus — Caballos compatibles: E12 `Recipe.cabalgadura` (2026-11-21, sobre main ac5dff0 = E11 mergeada)
+La receta puede llevar un campo opcional `cabalgadura` (caballo `id@versión` + SHA-256, punto y dirección del asiento, modo, silla, despeje, holgura, límites del tallado y hash de la geometría derivada). Va fuera de `ajustes`, solo si hay, y nunca entra en `compat.recipe_key`.
+
+### Todo List
+- [x] Done: E12 `RideSpec`, `riding_key`, `resolve_horse`, `geometry_hash`, `geometry_warnings` en `src/afm/ride.py`; `Recipe.cabalgadura`, `Recipe.ride_spec()`, `Recipe.ride_problems()` en `src/afm/recipe.py` + `tests/test_equestrian_recipe.py` (35 pruebas)
+- [ ] Todo: E00 `tools/ecuestre_fase0.py`; E13 CLI (importar/listar caballos, `afm armar` con `cabalgadura`: usar `ride.fit_kwargs()` + `RidingFitter` + `export_riding`); E14 `FigureBuilder`
+- [ ] Pendiente para E14: `gui/figure_builder.py:298` arma la `Recipe` sin `cabalgadura`, así que guardar desde la ventana HOY la perdería (no hay ventana ecuestre todavía; `dataclasses.replace` en `cli.py` sí la conserva)
+
+### Latest Blockers/Discoveries
+- Pruebas corridas (`PYTHONPATH=src`): `test_equestrian_recipe.py`, `test_recipe.py`, `test_recipe_mount.py`, `test_compat.py`, `test_figure_builder*.py`, `test_engine_portability.py`, `test_i18n.py` → 126 pasan. No corrí la suite completa.
+- Diseño (mío, fácil de cambiar): `Recipe.cabalgadura` es un diccionario como `paleta_override` (el constructor posicional de siempre sigue andando: el campo va al final) y se guarda en forma canónica (con `direccion`, `inclinacion` y `modo` escritos; sin claves vacías). La versión del caballo es obligatoria (`id@versión`): la receta fija un caballo exacto. `silla`/`relieve` solo con modo `silla`/`ambos`; `limites` solo con `tallado`/`ambos`, y `max_depth` no puede pasar de `SAFE_MAX_DEPTH`. `riding_key(clave_de_receta, ride)` es la clave del conjunto y no incluye `hash_geometria` (es un resultado). `resolve_horse` avisa («revalidar») si el SHA-256 de la ficha no es el de la receta; `geometry_hash` no depende del orden de vértices ni de caras y es del motor: una diferencia es aviso, no error.
+- No verificado: `afm armar` con `cabalgadura` (E13); la ventana (E14–E15); piernas y pelvis reales de Güemes/Belgrano; suite completa. En el test de punta a punta (caballo de referencia + muñeco) guardar, abrir y recalcular da el mismo hash de geometría.
+
 ## Current Focus — Caballos compatibles: E11 biblioteca `caballos/` (2026-11-21, sobre main 68914eb = E10 mergeada)
 `HorseLibrary` (`src/afm/horse_library.py`) agrega, lista, abre y verifica los caballos de la línea, separada del catálogo de piezas (no usa `PieceMeta` ni `Catalog.add_piece`; el catálogo no recorre `caballos/`).
 
