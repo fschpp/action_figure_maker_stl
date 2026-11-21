@@ -10,6 +10,7 @@ import sys
 import time
 
 from . import __version__, meshio, pipeline as P, solids as S
+from .horse_cli import CABALLO_ERRORS
 from .i18n import tr
 from .project import Project, demo_project
 from .testfigure import make_doll
@@ -225,8 +226,12 @@ def _placed_with_host_bodies(asm) -> dict:
 
 def run_armar(recipe_path: str, outdir: str, name: str | None = None, catalog_root: str | None = None, progress=print,
               orient: bool | str = False, max_angle: float = 45.0, flat: float | None = None, color_overrides: dict | None = None, fill_hip: bool = False,
-              keep: dict | None = None) -> dict:
+              keep: dict | None = None, fijar_geometria: bool = False) -> dict:
     """`afm armar`: arma la figura de una receta (`afm-receta-1`) solo con piezas de catálogo, valida y exporta.
+
+    E13: si la receta trae `cabalgadura` la figura se monta en el caballo de la biblioteca de la línea y se exporta el conjunto (`info[\"cabalgadura\"]`;
+    ver `horse_cli.armar_ecuestre`): sin color, sin `.proyecto` y sin `orient`/`flat`. `fijar_geometria` guarda en la copia de la receta el hash de la
+    geometría validada. Una receta sin `cabalgadura` sigue exactamente el camino de siempre.
 
     `color_overrides` (T48): `{rol: "#RRGGBB"}` cambios de la paleta de la línea solo para esta figura; se suman a los de la receta
     (`paleta_override`) y los de acá mandan. `keep`: si es un diccionario, se le deja `keep["colorizer"]` (el `Colorizer` ya escrito) para
@@ -235,6 +240,10 @@ def run_armar(recipe_path: str, outdir: str, name: str | None = None, catalog_ro
 
     recipe = Recipe.load(recipe_path)
     name = name or recipe.personaje
+    ride = recipe.ride_spec()                 # E13: None = sin caballo; HorseError si está mal formada
+    horse = None
+    if ride is not None:                      # se abre el caballo ANTES de armar: si falta, se avisa sin esperar el armado
+        horse = _open_ride_horse(recipe, ride, catalog_root, orient, flat, fill_hip)
     os.makedirs(outdir, exist_ok=True)
     t0 = time.time()
     asm = assemble(recipe, catalog_root, progress=progress)
@@ -254,6 +263,8 @@ def run_armar(recipe_path: str, outdir: str, name: str | None = None, catalog_ro
         from .recipe import load_accessories
 
         items = load_accessories(recipe, asm.catalog)
+    if ride is not None:
+        return _armar_con_caballo(recipe, ride, horse, asm, val, items, outdir, name, progress, fijar_geometria)
     colorize, color_info = None, None
     from .colorpiece import PaletteRolesError, catalog_color_sources
 
@@ -298,6 +309,54 @@ def run_armar(recipe_path: str, outdir: str, name: str | None = None, catalog_ro
 
     progress("Guardando el proyecto…")
     info["proyecto"] = catalog_project.save(asm, os.path.join(outdir, f"{name}.proyecto"))   # la ventana principal lo abre sin STL
+    return info
+
+
+def _open_ride_horse(recipe, ride, catalog_root: str | None, orient, flat, fill_hip) -> tuple:
+    """E13: lo que hay que mirar antes de armar una receta con caballo → (HorseModel, avisos). Levanta `HorseError`/`RecipeError`."""
+    from .catalog import Catalog, CatalogError, default_root
+    from .equestrian import HorseError
+    from .horse_cli import open_ride_horse
+    from .recipe import RecipeError
+
+    if orient or flat is not None or fill_hip:
+        raise HorseError("con caballo el conjunto se exporta apoyado en z = 0 sin girarlo ni aplanarlo: no se puede combinar con "
+                         "--orient, --orient-auto, --sin-soportes ni --rellenar-muslos")
+    root = catalog_root or default_root(recipe.linea)
+    try:
+        Catalog.open(root)
+    except CatalogError as exc:
+        raise RecipeError(str(exc)) from exc
+    _lib, model, warns = open_ride_horse(ride, root)
+    return model, warns
+
+
+def _armar_con_caballo(recipe, ride, horse, asm, val: dict, items: list, outdir: str, name: str, progress, fijar_geometria: bool) -> dict:
+    """E13: la parte de `run_armar` con caballo: montar, validar, exportar el conjunto y escribir el informe y la copia de la receta."""
+    from . import horse_cli as H
+
+    model, warns = horse
+    cab = H.armar_ecuestre(asm, ride, model, outdir, name, progress, items=items, warns=warns)
+    out_recipe = recipe
+    if cab["ok"]:
+        cab["avisos"].append("el conjunto con caballo sale sin color (fuera del MVP) y sin .proyecto: la ventana todavía no abre caballos")
+        from .accessories import finish_export
+
+        acc_info = finish_export(items, outdir, name, progress)
+        if fijar_geometria:
+            out_recipe = H.fixed_recipe(recipe, ride, cab)
+    else:
+        acc_info = []
+    info = {"receta": out_recipe.to_dict(), "construccion": asm.res.report, "validacion": val, "cabalgadura": cab,
+            "archivos": cab.get("archivos", {})}
+    if acc_info:
+        info["accesorios"] = acc_info
+        info["archivos"]["accesorios"] = [a["archivo"] for a in acc_info]
+    if cab["ok"] and asm.res.mounts:
+        info["monturas"] = P.mounts_report(asm.res, val)
+        P.attach_mounts_to_parts_list(outdir, name, info["monturas"])
+    H.write_report(info, os.path.join(outdir, f"{name}_informe.json"))
+    out_recipe.save(os.path.join(outdir, f"{name}.receta.json"))
     return info
 
 
@@ -477,6 +536,8 @@ def main(argv=None) -> int:
     a.add_argument("--orient-auto", action="store_true", help="exportar en la orientación de menor voladizo")
     a.add_argument("--max-angle", type=float, default=45.0, help="ángulo de voladizo tolerado (grados desde la vertical)")
     a.add_argument("--color-cambio", action="append", default=[], metavar="ROL=#RRGGBB", help=tr("color.ayuda_cambio"))
+    a.add_argument("--fijar-geometria", action="store_true",
+                   help="receta con caballo: guarda en la copia de la receta el hash de la geometría validada (caballo tallado / silla)")
     mm = sub.add_parser("montura-mapa", help="mapa de espacio libre del flanco: dónde cabe el puente de una montura de arma (antes de elegir el ancla)")
     mm.add_argument("catalogo", metavar="RUTA", help="catálogo de piezas de la línea de la receta")
     mm.add_argument("receta", help="<personaje>.receta.json")
@@ -539,8 +600,10 @@ def main(argv=None) -> int:
     ag.add_argument("--id-accesorio", default=None)
     ag.add_argument("--nueva-version", action="store_true", help="con --catalogo: si el id ya existe, guardar la versión siguiente")
     from .catalog_cli import add_guia_parser, add_parsers
+    from .horse_cli import add_parsers as add_horse_parsers
     add_parsers(sub)
     add_guia_parser(sub)
+    add_horse_parsers(sub)
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO)
     if args.cmd == "catalogo":
@@ -549,6 +612,9 @@ def main(argv=None) -> int:
     if args.cmd == "guia":
         from .catalog_cli import run_guia
         return run_guia(args)
+    if args.cmd == "caballo":
+        from .horse_cli import run_caballo
+        return run_caballo(args)
     if args.cmd == "desde-patron":
         return _run_desde_patron(args)
     if args.cmd == "ajustar-cintura-muneca":
@@ -582,9 +648,12 @@ def main(argv=None) -> int:
         try:
             info = run_armar(args.receta, args.out, args.name, args.catalogo, orient="auto" if args.orient_auto else args.orient,
                              max_angle=args.max_angle, flat=args.sin_soportes, color_overrides=cambios or None,
-                             fill_hip=args.rellenar_muslos)
+                             fill_hip=args.rellenar_muslos, fijar_geometria=args.fijar_geometria)
         except (RecipeError, OSError) as exc:
             print(f"ERROR (receta): {exc}", file=sys.stderr)
+            return 2
+        except CABALLO_ERRORS as exc:
+            print(f"ERROR (caballo): {exc}", file=sys.stderr)
             return 2
         except ValueError as exc:
             print(f"ERROR (armado): {exc}", file=sys.stderr)
@@ -598,6 +667,10 @@ def main(argv=None) -> int:
         for lugar, r in (val.get("piezas") or {}).items():
             print(f"Pieza de catálogo en {lugar}: {r['pieza']} — compatibilidad {r['nivel']}")
         print("Holguras mínimas (mm):", val["gaps"])
+        if "cabalgadura" in info:                     # E13: receta con caballo
+            from .horse_cli import print_summary
+            print_summary(info["cabalgadura"])
+            return 0 if val["ok"] and info["cabalgadura"]["ok"] else 1
         return 0 if val["ok"] else 1
 
     if args.cmd == "extraer-mano":

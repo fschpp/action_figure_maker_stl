@@ -1,3 +1,16 @@
+## Current Focus — Caballos compatibles: E13 CLI (2026-11-21, sobre main 7864dfc = E12 mergeada)
+`afm caballo agregar|listar|verificar` (biblioteca `caballos/` de la línea) y `afm armar` con una receta que trae `cabalgadura`: abre el caballo `id@versión`, ajusta el asiento con `RidingFitter`, valida y exporta el conjunto con `export_riding`.
+
+### Todo List
+- [x] Done: E13 `src/afm/horse_cli.py` (`add_parsers`, `run_caballo`, `open_ride_horse`, `armar_ecuestre`, `print_summary`), ramas en `cli.py` (`run_armar(..., fijar_geometria)`, `--fijar-geometria`, «ERROR (caballo)») + `tests/test_equestrian_cli.py` (11 pruebas)
+- [ ] Todo: E00 `tools/ecuestre_fase0.py`; E14 `FigureBuilder` (conservar `cabalgadura` al guardar desde la ventana); E15 ventana; E16–E18
+- [ ] Todo: correr la suite completa
+
+### Latest Blockers/Discoveries
+- Pruebas corridas (`PYTHONPATH=src`): `test_equestrian_cli.py` (11), más `test_engine_portability`, `test_i18n`, `test_equestrian_recipe`, `test_equestrian_library`, `test_recipe`, `test_recipe_mount`, `test_compat`, `test_parts_cli`, `test_color_cli`, `test_figure_builder_sin_soportes` → 123 pasan. No corrí la suite completa ni el resto de `test_figure_builder*`.
+- Diseño (mío, fácil de cambiar): los comandos de caballos usan `--catalogo RUTA` (o `$AFM_CATALOGO`) y exigen un catálogo con `linea.json` (un error de ruta no deja carpetas sueltas). Con caballo, `armar` abre y verifica el caballo ANTES de armar (falla rápido, con la pista `afm caballo agregar/verificar`) y rechaza `--orient`, `--orient-auto`, `--sin-soportes` y `--rellenar-muslos`. `holgura` de la receta reemplaza a `Params.clearance` solo en el ajuste (tallado, despeje, validación); el jinete se exporta con la holgura de la línea. Si el ajuste no pasa no se exporta ningún STL, pero sí `_informe.json` y la copia de la receta, y el código de salida es 1. El conjunto sale sin color y sin `.proyecto`. La receta de entrada no se toca; `--fijar-geometria` escribe el hash de la geometría validada solo en la copia de `--out`.
+- No verificado: piernas y pelvis reales de Güemes/Belgrano; modo `silla`/`ambos` desde la CLI (solo se probó `tallado`); la ventana; suite completa.
+
 ## Current Focus — Caballos compatibles: E12 `Recipe.cabalgadura` (2026-11-21, sobre main ac5dff0 = E11 mergeada)
 La receta puede llevar un campo opcional `cabalgadura` (caballo `id@versión` + SHA-256, punto y dirección del asiento, modo, silla, despeje, holgura, límites del tallado y hash de la geometría derivada). Va fuera de `ajustes`, solo si hay, y nunca entra en `compat.recipe_key`.
 
