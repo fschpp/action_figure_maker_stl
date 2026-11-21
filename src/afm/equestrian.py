@@ -10,9 +10,16 @@ se normaliza a `ref_height` (D2) y no hay escalado no uniforme.
 """
 from __future__ import annotations
 
+import hashlib
 import math
+import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+import numpy as np
+import trimesh
+
+from . import solids as S
 
 HORSE_FORMAT = "afm-caballo-1"
 ID_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -120,3 +127,91 @@ class HorseMeta:
                        spec=HorseSpec.from_dict({k: v for k, v in d.items() if k not in ("formato", "id", "version", "nombre")}))
         except KeyError as exc:
             raise HorseError(f"falta «{exc.args[0]}»") from None
+
+
+# ---------------------------------------------------------------------------------------------------------------- E02
+DECIMATE_ABOVE = 60_000       # triángulos: por encima se arma también la malla liviana para booleanas y vista previa
+LIGHT_TARGET = 30_000         # triángulos aproximados de esa malla liviana
+
+
+def sha256_file(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+@dataclass
+class HorseReport:
+    """Qué se encontró al cargar el STL del caballo (mm, ya con escala y guiño)."""
+
+    triangles: int = 0
+    components: int = 0
+    extents: tuple = (0.0, 0.0, 0.0)
+    volume: float = 0.0
+    was_watertight: bool = False
+    repaired: bool = False
+    warnings: list = field(default_factory=list)
+
+
+@dataclass
+class HorseModel:
+    """Caballo cargado: malla escalada y girada al marco canónico (D3), su `Manifold` y, si es pesada, una versión liviana."""
+
+    spec: HorseSpec
+    mesh: trimesh.Trimesh
+    manifold: object
+    light: object                  # Manifold decimado (o el mismo si no hizo falta)
+    report: HorseReport
+
+
+def load_horse_mesh(spec: HorseSpec, base_dir: str = ".", repair: bool = True, check_hash: bool = True) -> HorseModel:
+    """Carga el STL de `spec` (ruta relativa a `base_dir`), verifica el SHA-256, gira `yaw` grados sobre Z y escala por `escala`.
+
+    No normaliza a `ref_height` ni recentra (D2): el caballo conserva su posición, sólo girada y escalada respecto del origen.
+    Si la malla no es una variedad estanca y `repair` es True se intenta reparar (`meshio.repair`) y queda anotado en el
+    informe; si no se puede (o `repair` es False) levanta `HorseError` con el motivo.
+    """
+    path = spec.archivo if os.path.isabs(spec.archivo) else os.path.join(base_dir, spec.archivo)
+    if not os.path.isfile(path):
+        raise HorseError(f"no existe el archivo del caballo: {path}")
+    if check_hash and sha256_file(path) != spec.sha256:
+        raise HorseError("el SHA-256 del STL no coincide con el de la ficha: el archivo cambió; revalidar el caballo")
+    try:
+        mesh = trimesh.load(path, file_type="stl", process=False, force="mesh")
+    except Exception as exc:                                   # noqa: BLE001  (trimesh levanta tipos variados)
+        raise HorseError(f"no se pudo leer el STL: {exc}") from None
+    if not isinstance(mesh, trimesh.Trimesh) or len(mesh.faces) == 0:
+        raise HorseError("el STL no tiene triángulos")
+    rep = HorseReport()
+    mesh.merge_vertices()
+    rep.was_watertight = bool(mesh.is_watertight)
+    try:
+        mf = S.to_manifold(mesh)
+    except S.MeshNotManifold as exc:
+        if not repair:
+            raise HorseError(f"el caballo no es una malla estanca ({exc}); no se reparó") from None
+        from . import meshio
+
+        try:
+            mesh = meshio.repair(mesh)
+            mf = S.to_manifold(mesh)
+        except Exception as exc2:                              # noqa: BLE001
+            raise HorseError(f"el caballo no es una malla estanca y no se pudo reparar: {exc2}") from None
+        rep.repaired = True
+        rep.warnings.append("el STL del caballo no era estanco: se reparó")
+    mesh = mesh.copy()
+    mesh.apply_transform(trimesh.transformations.rotation_matrix(math.radians(spec.yaw), [0, 0, 1]))
+    mesh.apply_scale(spec.escala)
+    mf = S.to_manifold(mesh)
+    rep.triangles = int(len(mesh.faces))
+    rep.components = int(len(mesh.split(only_watertight=False)))
+    rep.extents = tuple(float(x) for x in mesh.extents)
+    rep.volume = float(abs(mf.volume()))
+    if rep.components > 1:
+        rep.warnings.append(f"el caballo tiene {rep.components} cáscaras")
+    light = mf
+    if rep.triangles > DECIMATE_ABOVE and S.can_decimate():
+        light = S.decimate(mf, reduction=1.0 - LIGHT_TARGET / rep.triangles)
+    return HorseModel(spec=spec, mesh=mesh, manifold=mf, light=light, report=rep)

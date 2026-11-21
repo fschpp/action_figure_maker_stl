@@ -1,3 +1,18 @@
+## Current Focus — Caballos compatibles: E02 `load_horse_mesh` (2026-11-20, sobre E01 / main 099f188)
+Carga del caballo con escala y guiño (`HorseModel`, `HorseReport`), probada con el STL real, que se sube a `examples/referencia/caballo/`.
+
+### Todo List
+- [x] Done: E01 `HorseSpec`/`HorseMeta` (patch 0001)
+- [x] Done: E02 `load_horse_mesh` en `src/afm/equestrian.py` + `tests/test_equestrian_load.py` (7 pruebas); `horse_baseless.stl` en `examples/referencia/caballo/`
+- [ ] Todo: E03 `RiderProfile`, E11 biblioteca `caballos/` (paralelas); E00 `tools/ecuestre_fase0.py` + puerta G0 antes de E05
+- [ ] Todo: copiar `PLAN_caballos_compatibles.md` a `docs/`
+
+### Latest Blockers/Discoveries
+- Pruebas corridas: `test_equestrian_load.py`, `test_equestrian_spec.py`, `test_engine_portability.py` → 34 pasan (`PYTHONPATH=src`).
+- Con `yaw=180` y escala 3× el caballo real mide ≈41,8 × 152,4 × 132,7 mm, 64 324 triángulos, una cáscara, sin reparar; la cabeza queda hacia +Y.
+- Decisión: el catálogo `proceres-127` (19 MB, 8,8 MB de `.papelera`) NO se sube al repo (los STL generados no se commitean); se usa local para E00. `load_horse_mesh` no recentra ni normaliza; reparar es opcional y queda anotado.
+- No verificado: suite completa; `test_i18n.py`; nada de E00 ni de la receta de Belgrano en esta sesión todavía.
+
 ## Current Focus — Caballos compatibles: E01 `HorseSpec`/`HorseMeta` (2026-11-20, sobre main 099f188)
 Primera tarea del `PLAN_caballos_compatibles.md` v0.3: modelos de datos del caballo, sin cargar mallas ni tocar el flujo existente.
 
