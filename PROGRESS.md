@@ -1,3 +1,18 @@
+## Current Focus — Caballos compatibles: E04 `RiderFrame` y matriz rígida (2026-11-20, sobre main 00b7928 = E01–E03 ya mergeados)
+`seat_frame` arma una única matriz rígida (giro sobre Z hacia la cabeza del caballo + inclinación opcional + traslado al asiento) y `place_rider` la aplica a todas las piezas del jinete.
+
+### Todo List
+- [x] Done: E01, E02, E03 (mergeados en main)
+- [x] Done: E04 `RiderFrame`, `seat_anchor`, `seat_frame`, `place_rider` en `src/afm/equestrian.py` + `tests/test_equestrian_frame.py` (14 pruebas)
+- [ ] Todo: E00 `tools/ecuestre_fase0.py` + puerta G0 (decide el usuario); E11 biblioteca `caballos/`; E12 `Recipe.cabalgadura`
+- [ ] Todo: E05 tallado (bloqueado por G0); copiar `PLAN_caballos_compatibles.md` a `docs/`
+
+### Latest Blockers/Discoveries
+- Pruebas corridas: `test_equestrian_{frame,rider,spec,load}.py` y `test_engine_portability.py` → pasan (25 pasan + 1 salteada sin `AFM_PROCERES_127` en la última corrida de frame/rider/portabilidad).
+- Decisión: el ancla del jinete es el punto bajo el centro de las caderas a la altura de la base de los muslos (`muslo_*`) o, sin muslos separados, de la base de la pelvis. `pitch_deg` (≤ 60°, positivo = inclina hacia adelante) es opcional y por defecto 0 (plan 5.2).
+- Comprobado: RᵀR = I, det = +1, distancias entre centros de masa y volúmenes invariantes, mover y deshacer devuelve vértices a < 1e-3 mm, y las piezas originales no cambian.
+- No verificado: «`pipeline.validate` no cambia» (plan E04) no se corrió (se comprobó solo la invariancia geométrica); suite completa; `test_i18n.py`; la prueba con Belgrano real no se repitió para E04.
+
 ## Current Focus — Caballos compatibles: E03 `RiderProfile` (2026-11-20, sobre E02)
 `rider_profile(asm)` lee de una figura armada (pose sentada) la pelvis, las piernas, las caderas y hacia dónde mira, sin modificarla.
 

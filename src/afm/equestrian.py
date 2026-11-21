@@ -318,3 +318,92 @@ def rider_profile(asm) -> RiderProfile:
                         lower_min=tuple(float(x) for x in b[:, :].min(axis=0)), lower_max=tuple(float(x) for x in b.max(axis=0)),
                         facing=facing, sit_angle=float(asm.params.sit_angle), knee_print_angle=float(asm.params.knee_print_angle),
                         other_pieces=others, warnings=warns)
+
+
+# ---------------------------------------------------------------------------------------------------------------- E04
+MAX_PITCH_DEG = 60.0
+
+
+@dataclass
+class RiderFrame:
+    """Marco de asiento (D4): una sola matriz rígida que lleva TODO el jinete al marco del caballo, sin deformarlo.
+
+    El ancla del jinete (`anchor`, marco del motor) es el punto de la base de la pelvis y los muslos bajo el centro de las
+    caderas; `seat_origin` es el punto elegido sobre el lomo (marco canónico del caballo, D3). El jinete gira sobre Z hasta
+    mirar hacia `direction` (hacia la cabeza del caballo) y, solo si se pide, se inclina `pitch_deg` en torno a su eje lateral
+    que pasa por el ancla (la normal del lomo no acuesta al jinete, 5.2). `+Z` queda arriba.
+    """
+
+    anchor: np.ndarray
+    seat_origin: np.ndarray
+    direction: np.ndarray          # unitario en XY (z = 0)
+    pitch_deg: float
+    matrix: np.ndarray             # 4×4 rígida: marco del motor → marco del caballo
+
+    def apply_points(self, pts) -> np.ndarray:
+        p = np.atleast_2d(np.asarray(pts, float))
+        return p @ self.matrix[:3, :3].T + self.matrix[:3, 3]
+
+    def apply_vectors(self, vecs) -> np.ndarray:
+        return np.atleast_2d(np.asarray(vecs, float)) @ self.matrix[:3, :3].T
+
+    def apply(self, mf):
+        """`Manifold` movido con la matriz (copia nueva; el original no se toca)."""
+        return mf.transform(self.matrix[:3, :])
+
+    def inverse(self) -> np.ndarray:
+        R, t = self.matrix[:3, :3], self.matrix[:3, 3]
+        M = np.eye(4)
+        M[:3, :3] = R.T
+        M[:3, 3] = -R.T @ t
+        return M
+
+    def check(self, tol: float = 1e-9) -> None:
+        """RᵀR = I y det(R) = +1 (sin escala, sin espejo). Levanta `RiderError` si no."""
+        R = self.matrix[:3, :3]
+        if not np.allclose(R.T @ R, np.eye(3), atol=tol) or abs(np.linalg.det(R) - 1.0) > tol:
+            raise RiderError("la matriz del jinete no es una rotación propia")
+
+
+def seat_anchor(rp: RiderProfile) -> np.ndarray:
+    """Ancla del jinete: bajo el centro de las caderas, a la altura de la base de los muslos (si la figura los tiene
+    separados) o de la pelvis."""
+    mid = (np.asarray(rp.hip_left.center, float) + np.asarray(rp.hip_right.center, float)) / 2.0
+    base = [k for k in rp.legs if k.startswith("muslo")]
+    zs = [_mf_bounds(rp.legs[k])[0][2] for k in base] or [_mf_bounds(rp.pelvis)[0][2]]
+    return np.array([mid[0], mid[1], float(min(zs))])
+
+
+def seat_frame(rp: RiderProfile, seat_origin, direction=(0.0, 1.0, 0.0), pitch_deg: float = 0.0) -> RiderFrame:
+    """Marco de asiento: `seat_origin` sobre el lomo y `direction` hacia la cabeza del caballo (solo cuenta su parte XY)."""
+    o = np.asarray(seat_origin, float)
+    d = np.asarray(direction, float)
+    if o.shape != (3,) or not np.all(np.isfinite(o)):
+        raise RiderError("«seat_origin» tiene que ser un punto [x, y, z] finito")
+    if d.shape != (3,) or not np.all(np.isfinite(d)) or np.linalg.norm(d[:2]) < 1e-6:
+        raise RiderError("«direction» tiene que tener una parte horizontal (XY) no nula")
+    if isinstance(pitch_deg, bool) or not isinstance(pitch_deg, (int, float)) or not abs(pitch_deg) <= MAX_PITCH_DEG:
+        raise RiderError(f"«pitch_deg» tiene que estar entre −{MAX_PITCH_DEG:g}° y {MAX_PITCH_DEG:g}°")
+    d = np.array([d[0], d[1], 0.0]) / np.linalg.norm(d[:2])
+    f = np.asarray(rp.facing, float)
+    yaw = math.atan2(d[1], d[0]) - math.atan2(f[1], f[0])
+    anchor = seat_anchor(rp)
+    c, s = math.cos(yaw), math.sin(yaw)
+    Rz = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1.0]])
+    R = Rz
+    if pitch_deg:
+        lat = Rz @ np.array([1.0, 0.0, 0.0])                    # eje lateral del jinete, ya girado
+        # inclinación positiva = el jinete se inclina hacia adelante (el frente baja): rotación en torno a «lat» que lleva +Y hacia −Z
+        R = trimesh.transformations.rotation_matrix(math.radians(-pitch_deg), lat)[:3, :3] @ Rz
+    M = np.eye(4)
+    M[:3, :3] = R
+    M[:3, 3] = o - R @ anchor
+    fr = RiderFrame(anchor=anchor, seat_origin=o, direction=d, pitch_deg=float(pitch_deg), matrix=M)
+    fr.check()
+    return fr
+
+
+def place_rider(asm, frame: RiderFrame) -> dict:
+    """Todas las piezas del jinete (`BuildResult.pieces`, incluidas las que traen monturas de armas) movidas con la MISMA matriz.
+    No recalcula pasadores ni holguras, no escala; los accesorios sueltos (`Recipe.accesorios`) no entran (D5)."""
+    return {k: frame.apply(v) for k, v in asm.res.pieces.items()}
