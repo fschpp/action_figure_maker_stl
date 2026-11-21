@@ -187,7 +187,7 @@ La lógica va en un módulo propio sin GTK, probado sin ventana (como `palette_e
 ### Fase 3 — Interfaz
 - **M13** Bloque «Armas en el cuerpo» en `figure_window`. **Hecha** (lógica en `FigureBuilder`, probada; el bloque de la ventana no se pudo ejecutar sin GTK).
 - **M14** Ancla por clic y orientación con el ratón (según §7, punto 2). *Hecha:* `gui/mount_pick.py` + botones «Ancla» y «Dirección» en la ventana; la profundidad de la dirección sale en el plano de la vista.
-- **M15** Vista previa, mapa de zonas y estado con los avisos.
+- **M15** Vista previa, mapa de zonas y estado con los avisos. *Hecha:* `gui/mount_preview.py` + «Ver arma y montura» y «Mapa de zonas» en la ventana; el mapa es con la figura de pie.
 
 ### Fase 4 — Más tipos y catálogo
 - **M16** Tipos `clip` y `cuna`.

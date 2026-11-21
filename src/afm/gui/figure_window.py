@@ -20,6 +20,7 @@ from ..recipe import SCALE_PLACES  # noqa: E402
 from .progress_panel import ProgressPanel  # noqa: E402
 from .figure_builder import NONE_LABEL, PLACE_LABELS, PLACE_ORDER, FigureBuilder, summary  # noqa: E402
 from . import mount_pick as MP  # noqa: E402
+from . import mount_preview as PV  # noqa: E402
 
 YAW_MAX = 1.0e6      # GTK pide un tope numérico: este es técnico, el giro no tiene límite superior en la práctica
 HEX_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
@@ -60,6 +61,10 @@ class FigureBuilderWindow(Gtk.Window):
         self._pick_group = None                 # M14: las piezas de la vista conjunta SIN partir por color (de ahí sale el clic)
         self._pick_mode = None                  # M14: None | "ancla" | "dir" (qué hace el ratón sobre la vista previa)
         self._pick_guard = False                # M14: los botones se cambian por código sin disparar sus avisos
+        self._mount_extra: list = []            # M15: arma y puente de la montura elegida, para sumar a la vista conjunta
+        self._mount_overlay = None              # M15: {nombre: (puntos, rgba)} del mapa de zonas
+        self._mount_token = 0                   # M15: un cálculo más nuevo invalida al anterior
+        self._combo = (None, None, [])          # M15: (id del grupo, id de lo extra, grupo + extra): se sube a la GPU solo si cambia
         self._last_dir = remember_dir
 
         paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL, wide_handle=True)
@@ -263,6 +268,16 @@ class FigureBuilderWindow(Gtk.Window):
         pick.append(self.tgl_m_pick)
         pick.append(self.tgl_m_dir)
         self.box_mount_form.append(pick)
+        view = Gtk.Box(spacing=6)
+        self.tgl_m_view = Gtk.ToggleButton(label=tr("figure_window.montura_ver"))
+        self.tgl_m_map = Gtk.ToggleButton(label=tr("figure_window.montura_mapa"))
+        self.tgl_m_view.connect("toggled", self._on_mount_view_toggle)
+        self.tgl_m_map.connect("toggled", self._on_mount_view_toggle)
+        view.append(self.tgl_m_view)
+        view.append(self.tgl_m_map)
+        self.box_mount_form.append(view)
+        self.lbl_mount_preview = Gtk.Label(xalign=0, wrap=True)
+        self.box_mount_form.append(self.lbl_mount_preview)
         self.lbl_mount_pick = Gtk.Label(xalign=0, wrap=True)
         self.lbl_mount_pick.add_css_class("dim-label")
         self.box_mount_form.append(self.lbl_mount_pick)
@@ -339,7 +354,87 @@ class FigureBuilderWindow(Gtk.Window):
         self._refill_mounts(select)
         if self.tgl_all.get_active():
             self._redraw()              # las marcas de ancla y dirección siguen a la montura
+            self._start_mount_preview()
         return False
+
+    # ------------------------------------------------------------ M15: arma y puente, mapa de zonas
+    def _on_mount_view_toggle(self, *_args) -> None:
+        if self._pick_guard:
+            return
+        if (self.tgl_m_view.get_active() or self.tgl_m_map.get_active()) and not self.tgl_all.get_active():
+            self.tgl_all.set_active(True)         # necesita la vista conjunta: al prenderla se vuelve a calcular
+        self._start_mount_preview()
+
+    def _set_view_toggles(self, on: bool) -> None:
+        """Prende o apaga «Ver arma y montura» y «Mapa de zonas» por código, sin que sus avisos vuelvan a entrar, y borra lo dibujado."""
+        was, self._pick_guard = self._pick_guard, True
+        try:
+            self.tgl_m_view.set_active(on)
+            self.tgl_m_map.set_active(on)
+        finally:
+            self._pick_guard = was
+        if not on:
+            self._mount_token += 1
+            self._mount_extra, self._mount_overlay = [], None
+            self.lbl_mount_preview.set_text("")
+            self.lbl_mount_preview.remove_css_class("error")
+
+    def _clear_mount_preview(self, text: str = "") -> None:
+        self._mount_extra, self._mount_overlay = [], None
+        self.lbl_mount_preview.set_text(text)
+        self.lbl_mount_preview.remove_css_class("error")
+        self._redraw()
+
+    def _start_mount_preview(self) -> None:
+        """Calcula en un hilo el arma, el puente y el mapa de zonas de la montura elegida (lo que esté prendido) y los dibuja al terminar."""
+        self._mount_token += 1
+        token = self._mount_token
+        i, group = self._mount_index(), self._pick_group
+        want_view, want_map = self.tgl_m_view.get_active(), self.tgl_m_map.get_active()
+        if i is None or group is None or not (want_view or want_map):
+            if self._mount_extra or self._mount_overlay or self.lbl_mount_preview.get_text():
+                self._clear_mount_preview()
+            return
+        b = self.builder
+
+        def work() -> None:
+            try:
+                pv = PV.mount_preview(b, i, group) if want_view else None
+                zm = PV.zone_map(b, i, group) if want_map else None
+                GLib.idle_add(self._mount_preview_done, token, pv, zm, None)
+            except Exception as exc:                              # noqa: BLE001  (se dice en la ventana; el resto sigue andando)
+                GLib.idle_add(self._mount_preview_done, token, None, None, exc)
+
+        threading.Thread(target=work, daemon=True, name="afm-vista-montura").start()
+
+    def _mount_preview_done(self, token: int, pv, zm, error) -> bool:
+        if token != self._mount_token:                            # mientras tanto cambió la montura
+            return False
+        lines, bad = [], False
+        self._mount_extra = pv.parts if pv is not None else []
+        self._mount_overlay = zm.overlay if zm is not None else None
+        if error is not None:
+            lines.append(str(error))
+            bad = True
+        if pv is not None:
+            lines.append(pv.text)
+            bad = bad or not pv.ok or bool(pv.avisos)
+        if zm is not None:
+            lines.append(zm.text)
+        self.lbl_mount_preview.set_text("\n".join(lines))
+        (self.lbl_mount_preview.add_css_class if bad else self.lbl_mount_preview.remove_css_class)("error")      # rojo: no sale o con avisos
+        self._redraw()
+        return False
+
+    def _draw_group(self):
+        """Lo que dibuja la vista conjunta: las piezas (con color si ya se calculó) y, encima, el arma y el puente. Misma lista mientras
+        nada cambie, para que girar la vista no vuelva a subir todo a la GPU."""
+        if not self._mount_extra:
+            return self._group
+        key = (id(self._group), id(self._mount_extra))
+        if self._combo[:2] != key:
+            self._combo = (*key, list(self._group) + list(self._mount_extra))
+        return self._combo[2]
 
     # ------------------------------------------------------------ M14: ancla y dirección con el ratón
     def _set_pick_mode(self, mode: str | None) -> None:
@@ -903,6 +998,7 @@ class FigureBuilderWindow(Gtk.Window):
             self._group = self._pick_group = None
             if hasattr(self, "tgl_m_pick"):
                 self._set_pick_mode(None)           # sin vista conjunta no hay dónde elegir
+                self._set_view_toggles(False)
             self._redraw()
             return
         try:
@@ -912,6 +1008,7 @@ class FigureBuilderWindow(Gtk.Window):
             self._group = self._pick_group = None
             if hasattr(self, "tgl_m_pick"):
                 self._set_pick_mode(None)
+                self._set_view_toggles(False)
             self.lbl_result.set_text(tr("figure_window.no_se_puede_ver_la_figura", exc=exc))
             self._redraw()
             return
@@ -919,6 +1016,8 @@ class FigureBuilderWindow(Gtk.Window):
             self.lbl_result.set_text((tr("figure_window.vista_conjunta_sin_pasadores_ni_holguras") + '\n') + "\n".join(f"• {n}" for n in notes))
         self._redraw()
         self._start_color_preview()
+        if hasattr(self, "tgl_m_view"):
+            self._start_mount_preview()             # las piezas cambiaron: el arma, el puente y el mapa se vuelven a calcular
 
     def _show_piece(self, ref: str) -> None:
         if self.tgl_all.get_active():
@@ -988,13 +1087,14 @@ class FigureBuilderWindow(Gtk.Window):
         self._start_color_preview()
 
     def _redraw(self) -> None:
-        group = self._group if self.tgl_all.get_active() else None
+        group = self._draw_group() if self.tgl_all.get_active() else None
         if group is None and self._shown is None and self._tex_parts is None:
             return
         try:
             if group is not None:
                 bounds = MP.parts_bounds(self._pick_group) if self._pick_group else None      # el mismo encuadre que usa el clic
-                img = self.preview.render_parts(group, self._dyaw, self._dpitch, marks=MP.mount_marks(self.builder.mounts), bounds=bounds)
+                img = self.preview.render_parts(group, self._dyaw, self._dpitch, marks=MP.mount_marks(self.builder.mounts), bounds=bounds,
+                                               overlay=self._mount_overlay)
             elif self._tex_parts is not None:
                 img = self.preview.render_textured(self._tex_parts, self.tgl_tex.get_active(), self._dyaw, self._dpitch)
             else:

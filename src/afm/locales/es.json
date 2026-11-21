@@ -1138,7 +1138,17 @@
   "pick_sin_pieza": "La vista previa no tiene la pieza donde va la montura (%{lugar}).",
   "pick_fuera_de_la_figura": "Ahí no hay figura: hacé clic sobre la pieza.",
   "pick_tapado": "Ahí se ve «%{pieza}», no «%{host}»: girá la vista hasta ver el flanco libre.",
-  "pick_arrastre_corto": "Arrastrá un poco más para marcar la dirección."
+  "pick_arrastre_corto": "Arrastrá un poco más para marcar la dirección.",
+  "montura_ver": "Ver arma y montura",
+  "montura_mapa": "Mapa de zonas",
+  "pv_sin_arma": "No se pudo leer el arma «%{arma}»: %{exc}",
+  "pv_no_cierra": "La pieza o el arma no son sólidos cerrados: %{exc}",
+  "pv_sale": "El puente sale: abertura %{w} × %{t} mm, sobresale %{alto} mm de la superficie.",
+  "pv_mapa_resumen": "El puente necesita %{need} mm libres sobre el flanco; cabe en el %{pct} % del flanco (verde cabe, amarillo justo, rojo no).",
+  "pv_ancla_cabe": "En el ancla hay %{free} mm libres (hacen falta %{need}): cabe.",
+  "pv_ancla_no_cabe": "En el ancla hay %{free} mm libres y hacen falta %{need}: no cabe, mové el ancla a una zona verde.",
+  "pv_ancla_fuera_del_flanco": "El ancla queda a %{dist} mm del flanco del lado elegido: el mapa no dice nada de ese punto.",
+  "pv_mapa_nota": "Mapa con la figura de pie: el armado mide además el giro de la cadera y de los brazos."
  },
  "hero_wizard": {
   "el_heroe": "El héroe",

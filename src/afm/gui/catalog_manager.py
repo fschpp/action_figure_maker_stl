@@ -396,7 +396,7 @@ class PreviewRenderer:
             return off.render(preview_camera(view_bounds(mesh, meta), off.width / off.height, yaw_off, pitch_off, zoom, pan))
 
     def render_parts(self, parts, yaw_off: float = 0.0, pitch_off: float = 0.0, marks=None, bounds=None,
-                     zoom: float = 1.0, pan=(0.0, 0.0)) -> np.ndarray:
+                     zoom: float = 1.0, pan=(0.0, 0.0), overlay=None, dot_px: float = 6.0) -> np.ndarray:
         """Imagen RGBA de varias piezas juntas, cada una con su color: `parts` = [(nombre, malla, color RGBA)]. `bounds` (2x3) fija el
         encuadre (por defecto, el de las piezas juntas). Si `parts` es el
         mismo objeto de la llamada anterior no se vuelve a subir a la GPU (arrastrar para girar solo mueve la cámara)."""
@@ -411,11 +411,13 @@ class PreviewRenderer:
                 for name, mesh, color in parts:
                     off.scene.set_mesh(name, mesh, color)
                 self._mesh = parts
+                self._overlay_names = set()                          # scene.clear() ya se llevó las capas
             if bounds is None:
                 lo = np.min([np.asarray(m.bounds, float)[0] for _n, m, _c in parts], axis=0)
                 hi = np.max([np.asarray(m.bounds, float)[1] for _n, m, _c in parts], axis=0)
                 bounds = np.array([lo, hi])
             self._marks(off, marks)
+            self._overlay(off, overlay, dot_px)
             return off.render(preview_camera(bounds, off.width / off.height, yaw_off, pitch_off, zoom, pan))
 
     def render_textured(self, parts, textures_on: bool = True, yaw_off: float = 0.0, pitch_off: float = 0.0, marks=None, bounds=None,

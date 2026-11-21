@@ -1138,7 +1138,17 @@
   "pick_sin_pieza": "The preview has no piece to carry the mount (%{lugar}).",
   "pick_fuera_de_la_figura": "There is no figure there: click on the piece.",
   "pick_tapado": "That spot shows «%{pieza}», not «%{host}»: turn the view until the flank is clear.",
-  "pick_arrastre_corto": "Drag a little further to mark the direction."
+  "pick_arrastre_corto": "Drag a little further to mark the direction.",
+  "montura_ver": "Show weapon and mount",
+  "montura_mapa": "Zone map",
+  "pv_sin_arma": "Could not read the weapon «%{arma}»: %{exc}",
+  "pv_no_cierra": "The piece or the weapon is not a closed solid: %{exc}",
+  "pv_sale": "The bridge works: opening %{w} × %{t} mm, %{alto} mm above the surface.",
+  "pv_mapa_resumen": "The bridge needs %{need} mm of free room above the flank; it fits on %{pct} % of the flank (green fits, yellow tight, red no).",
+  "pv_ancla_cabe": "At the anchor there are %{free} mm free (%{need} needed): it fits.",
+  "pv_ancla_no_cabe": "At the anchor there are %{free} mm free and %{need} are needed: it does not fit, move the anchor to a green zone.",
+  "pv_ancla_fuera_del_flanco": "The anchor is %{dist} mm from the flank of the chosen side: the map says nothing about that point.",
+  "pv_mapa_nota": "Map with the figure standing: building also measures the hip and arm swing."
  },
  "hero_wizard": {
   "el_heroe": "The hero",

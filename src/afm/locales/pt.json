@@ -1138,7 +1138,17 @@
   "pick_sin_pieza": "A vista prévia não tem a peça onde vai a montura (%{lugar}).",
   "pick_fuera_de_la_figura": "Ali não há figura: clique na peça.",
   "pick_tapado": "Ali se vê «%{pieza}», não «%{host}»: gire a vista até ver o flanco livre.",
-  "pick_arrastre_corto": "Arraste um pouco mais para marcar a direção."
+  "pick_arrastre_corto": "Arraste um pouco mais para marcar a direção.",
+  "montura_ver": "Ver arma e montura",
+  "montura_mapa": "Mapa de zonas",
+  "pv_sin_arma": "Não foi possível ler a arma «%{arma}»: %{exc}",
+  "pv_no_cierra": "A peça ou a arma não são sólidos fechados: %{exc}",
+  "pv_sale": "A ponte sai: abertura %{w} × %{t} mm, sobressai %{alto} mm da superfície.",
+  "pv_mapa_resumen": "A ponte precisa de %{need} mm livres sobre o flanco; cabe em %{pct} % do flanco (verde cabe, amarelo justo, vermelho não).",
+  "pv_ancla_cabe": "Na âncora há %{free} mm livres (são necessários %{need}): cabe.",
+  "pv_ancla_no_cabe": "Na âncora há %{free} mm livres e são necessários %{need}: não cabe, mova a âncora para uma zona verde.",
+  "pv_ancla_fuera_del_flanco": "A âncora está a %{dist} mm do flanco do lado escolhido: o mapa não diz nada desse ponto.",
+  "pv_mapa_nota": "Mapa com a figura em pé: a montagem também mede o giro do quadril e dos braços."
  },
  "hero_wizard": {
   "el_heroe": "O herói",
