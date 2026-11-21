@@ -227,7 +227,9 @@ class FigureBuilderWindow(Gtk.Window):
         self.btn_mount_add.connect("clicked", self._on_mount_add)
         self.btn_mount_del = Gtk.Button(label=tr("figure_window.montura_quitar"))
         self.btn_mount_del.connect("clicked", self._on_mount_del)
-        for w in (self.dd_mount, self.btn_mount_add, self.btn_mount_del):
+        self.btn_mount_bake = Gtk.Button(label=tr("figure_window.montura_guardar_pieza"))
+        self.btn_mount_bake.connect("clicked", self._on_mount_bake)
+        for w in (self.dd_mount, self.btn_mount_add, self.btn_mount_del, self.btn_mount_bake):
             top.append(w)
         box.append(top)
         self.box_mount_form = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -337,6 +339,7 @@ class FigureBuilderWindow(Gtk.Window):
         self.box_mount_form.set_visible(bool(b.mounts))
         self.btn_mount_add.set_sensitive(ok and bool(b.mount_weapons()))
         self.btn_mount_del.set_sensitive(ok and bool(b.mounts))
+        self.btn_mount_bake.set_sensitive(ok and bool(b.mounts))
         self.box_mount_form.set_sensitive(ok)
         self.exp_mount.set_sensitive(bool(b.accessories) or bool(b.mounts))
 
@@ -532,6 +535,22 @@ class FigureBuilderWindow(Gtk.Window):
             self.lbl_result.set_text(str(exc))
         self._schedule_mount_refill(max(0, i - 1))
         self._sync()
+
+    def _on_mount_bake(self, *_args) -> None:
+        """M17: guarda la montura elegida como pieza del catálogo y la figura pasa a usar esa pieza (ver `FigureBuilder.bake_mount`)."""
+        i = self._mount_index()
+        if i is None or self._busy:
+            return
+        try:
+            res = self.builder.bake_mount(i)
+        except ValueError as exc:
+            self.lbl_result.set_text(tr("figure_window.montura_guardar_error", exc=str(exc)))
+            return
+        self._refill()                          # la pieza nueva entra en las listas y la montura sale de la suya
+        self.lbl_result.set_text(tr("figure_window.montura_guardada", ref=res.ref) + "".join(f"\n{w}" for w in res.warnings))
+        shown = self.builder.choices.get("torso")
+        if shown:
+            self._show_piece(shown)
 
     def _on_mount_field(self, *_args) -> None:
         """Un campo del formulario cambió: va a la montura elegida. Si el valor no vale, se avisa y el formulario vuelve a lo que había."""

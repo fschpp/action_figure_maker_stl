@@ -199,6 +199,28 @@ class FigureBuilder:
         self._mount_at(index)
         del self.mounts[index]
 
+    def bake_mount(self, index: int, piece_id: str | None = None, new_version: bool = False):
+        """M17 «guardar como pieza»: hornea la montura `index` en la malla cruda de la pieza que la lleva (`mount_bake.bake_mount`) y la
+        guarda como pieza nueva del catálogo. La figura pasa a usar esa pieza en su lugar, la montura sale de la lista y «torso
+        espejado» se apaga (el puente es de un solo costado). Devuelve el `BakeResult`. Si algo falla no cambia nada: ni el catálogo ni
+        las elecciones."""
+        from .. import mount_bake as MB
+
+        spec = self._mount_at(index)
+        slot = MB.host_slot(spec, self.choices)
+        ref = self.choices.get(slot)
+        if not ref:
+            raise ValueError(tr("figure_builder.montura_sin_pieza_base", lugar=slot))
+        try:
+            res = MB.bake_mount(self.catalog(), ref, spec, piece_id=piece_id, new_version=new_version)
+        except (MountError, CatalogError) as exc:
+            raise ValueError(str(exc)) from exc
+        self.choices[slot] = res.ref
+        del self.mounts[index]
+        self.options["torso_mirror"] = False
+        self._mount_report = None
+        return res
+
     def _mount_at(self, index: int) -> MountSpec:
         if not isinstance(index, int) or not 0 <= index < len(self.mounts):
             raise ValueError(tr("figure_builder.no_hay_una_montura_numero", n=index))

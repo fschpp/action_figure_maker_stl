@@ -1038,7 +1038,8 @@
   "montura_lugar_no_disponible": "El lugar «%{lugar}» no sirve para una montura (hay %{hay}).",
   "montura_campo_desconocido": "Campo de montura desconocido: %{campo} (hay %{hay}).",
   "no_hay_una_montura_numero": "No hay una montura número %{n}.",
-  "montura_n_se_descarto": "La montura %{n} se descartó: %{exc}"
+  "montura_n_se_descarto": "La montura %{n} se descartó: %{exc}",
+  "montura_sin_pieza_base": "No hay una pieza elegida en «%{lugar}» donde guardar la montura."
  },
  "figure_window": {
   "sin_soportes_altura_del_corte": "Altura del corte sobre la cola (mm)",
@@ -1113,6 +1114,9 @@
   "armas_en_el_cuerpo": "Armas en el cuerpo (enganche)",
   "montura_agregar": "Agregar",
   "montura_quitar": "Quitar",
+  "montura_guardar_pieza": "Guardar como pieza",
+  "montura_guardada": "Guardada como %{ref}: la figura usa ahora esa pieza (con «torso espejado» apagado) y la montura sale de la lista.",
+  "montura_guardar_error": "No se pudo guardar la pieza: %{exc}",
   "montura_arma": "Arma",
   "montura_lugar": "Lugar",
   "montura_lado": "Lado",

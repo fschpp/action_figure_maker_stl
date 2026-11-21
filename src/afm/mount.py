@@ -461,6 +461,22 @@ def attach_lazo(host, lazo: Lazo):
     return out
 
 
+def transformed_lazo(lazo: Lazo, T) -> Lazo:
+    """El `Lazo` llevado por la transformación rígida `T` (4×4): se usa para pasar una montura del marco de su pieza de catálogo al
+    marco del huésped armado (M17)."""
+    import numpy as np
+
+    T = np.asarray(T, float)
+    if T.shape != (4, 4):
+        raise MountError("la transformación de la montura tiene que ser 4×4")
+    if np.allclose(T, np.eye(4)):
+        return lazo
+    move = lambda mf: None if mf is None else mf.transform(T[:3, :4])
+    return Lazo(matrix=T @ np.asarray(lazo.matrix, float), lift=lazo.lift, stations=lazo.stations, hole_w=lazo.hole_w,
+                hole_t=lazo.hole_t, outer=move(lazo.outer), tunnel=move(lazo.tunnel), weapon=move(lazo.weapon),
+                info=lazo.info, kind=lazo.kind, lips=move(lazo.lips))
+
+
 def mirrored_for_side(lazo: Lazo, spec: MountSpec) -> Lazo:
     """El `Lazo` en el marco real de la pieza: una montura `der` se construyó en +X y se espeja en X (plan §6.1)."""
     if spec.lado == "izq":
@@ -483,6 +499,7 @@ class MountBuild:
     host: str                                      # nombre de la pieza en `BuildResult.pieces`
     lazo: Lazo                                     # ya en el marco real (espejado si `lado == der`)
     info: dict
+    baked: bool = False                            # M17: la montura ya venía unida a la pieza del catálogo (no la sumó `apply_mounts`)
 
 
 def resolve_host(spec: MountSpec, pieces: dict) -> str:

@@ -144,6 +144,44 @@ def color_problems(color) -> list[str]:
     return out
 
 
+MOUNT_BLOCK_FORMAT = "afm-montura-pieza-1"
+MOUNT_HOST_TYPES = ("torso", "torso_sup", "pelvis")      # piezas que pueden llevar una montura horneada (M17)
+
+
+def mount_block_problems(block, tipo: str) -> list[str]:
+    """Problemas de formato del bloque `montura` de una pieza (M17; no abre la malla ni el arma). Una pieza lleva una lista de
+    monturas ya unidas a su malla: cada una con su `MountSpec` (`spec`), la normal con la que se construyó, la pared y la ficha del arma."""
+    if not block:
+        return []
+    if tipo not in MOUNT_HOST_TYPES:
+        return [f"montura: una pieza «{tipo}» no lleva monturas (solo {', '.join(MOUNT_HOST_TYPES)})"]
+    if not isinstance(block, dict) or block.get("formato") != MOUNT_BLOCK_FORMAT:
+        return [f"montura: el formato tiene que ser «{MOUNT_BLOCK_FORMAT}»"]
+    items = block.get("monturas")
+    if not isinstance(items, list) or not items:
+        return ["montura: «monturas» tiene que ser una lista no vacía"]
+    from .mount import MountError, MountSpec
+
+    out = []
+    for i, it in enumerate(items, start=1):
+        if not isinstance(it, dict):
+            out.append(f"montura {i}: tiene que ser un diccionario")
+            continue
+        try:
+            MountSpec.from_dict(it.get("spec"))
+        except MountError as exc:
+            out.append(f"montura {i}: {exc}")
+        n = it.get("normal_construccion")
+        if not (isinstance(n, list) and len(n) == 3 and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in n)):
+            out.append(f"montura {i}: «normal_construccion» tiene que ser [x, y, z]")
+        w = it.get("min_wall_mm")
+        if isinstance(w, bool) or not isinstance(w, (int, float)) or not w > 0:
+            out.append(f"montura {i}: «min_wall_mm» tiene que ser un número mayor que 0")
+        if not isinstance(it.get("arma_sha256"), str) or not it.get("arma_sha256"):
+            out.append(f"montura {i}: falta «arma_sha256»")
+    return out
+
+
 def color_block(mesh, fbx_path: str, **kw) -> dict:
     """Bloque `color` para una pieza con su FBX: alinea el FBX con la malla de la pieza (`colorpiece.align_fbx_to_piece`, que levanta
     `PieceColorError` si no calza) y devuelve `{fuente, sha256, similitud, texturas, estado, alineacion}`. `fuente` queda con el
@@ -195,6 +233,7 @@ class PieceMeta:
     etiquetas: list = field(default_factory=list)
     nombre: str = ""                    # nombre para mostrar (opcional, editable); el `id` y la `ref` no cambian nunca
     color: dict | None = None           # color propio (T35): {fuente, sha256, similitud 4×4 FBX→STL, texturas, estado}; None = sin color
+    montura: dict | None = None         # M17: monturas de armas ya incluidas en la malla (`mount_bake`); None = pieza cruda sin montura
 
     @property
     def display_name(self) -> str:
@@ -224,6 +263,7 @@ class PieceMeta:
             if t not in TAGS:
                 out.append(f"etiqueta desconocida «{t}» (hay {', '.join(TAGS)})")
         out += color_problems(self.color)
+        out += mount_block_problems(self.montura, self.tipo)
         spec = PORT_SPEC[self.tipo]
         for name, (rol, required) in spec.items():
             if required and name not in self.puertos:
@@ -251,6 +291,8 @@ class PieceMeta:
             d["nombre"] = self.nombre
         if self.color:                  # solo con color propio: las fichas sin color quedan idénticas
             d["color"] = self.color
+        if self.montura:                # solo con montura horneada (M17): las fichas sin montura quedan idénticas
+            d["montura"] = self.montura
         return d
 
     def _base_dict(self) -> dict:
@@ -274,7 +316,7 @@ class PieceMeta:
                    volumen_mm3=float(d.get("volumen_mm3", 0.0)), bbox=d.get("bbox", [[0.0] * 3, [0.0] * 3]),
                    articulaciones=d.get("articulaciones", []), mecanismo=d.get("mecanismo"),
                    estado=d.get("estado", "borrador"), etiquetas=list(d.get("etiquetas", [])),
-                   nombre=str(d.get("nombre") or ""), color=d.get("color") or None)
+                   nombre=str(d.get("nombre") or ""), color=d.get("color") or None, montura=d.get("montura") or None)
 
 
 def _as_trimesh(mesh):

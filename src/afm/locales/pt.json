@@ -1038,7 +1038,8 @@
   "montura_lugar_no_disponible": "O lugar «%{lugar}» não serve para um suporte (há %{hay}).",
   "montura_campo_desconocido": "Campo de suporte desconhecido: %{campo} (há %{hay}).",
   "no_hay_una_montura_numero": "Não há um suporte número %{n}.",
-  "montura_n_se_descarto": "O suporte %{n} foi descartado: %{exc}"
+  "montura_n_se_descarto": "O suporte %{n} foi descartado: %{exc}",
+  "montura_sin_pieza_base": "Não há uma peça escolhida em «%{lugar}» para guardar o suporte."
  },
  "figure_window": {
   "sin_soportes_altura_del_corte": "Altura do corte sobre a cauda (mm)",
@@ -1113,6 +1114,9 @@
   "armas_en_el_cuerpo": "Armas no corpo (suportes)",
   "montura_agregar": "Adicionar",
   "montura_quitar": "Remover",
+  "montura_guardar_pieza": "Salvar como peça",
+  "montura_guardada": "Salva como %{ref}: a figura agora usa essa peça (com «torso espelhado» desligado) e o suporte sai da lista.",
+  "montura_guardar_error": "Não foi possível salvar a peça: %{exc}",
   "montura_arma": "Arma",
   "montura_lugar": "Lugar",
   "montura_lado": "Lado",

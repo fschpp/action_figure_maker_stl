@@ -350,9 +350,15 @@ def assemble(recipe: Recipe, catalog_root: str | None = None, progress=None, sit
         if progress:
             progress("Armando el cuerpo base…")
         host = synthesize_host(choices, p)
+        baked = [ch.meta.ref for ch, _T in host.bodies.values() if ch.meta.montura]
+        if baked and p.torso_mirror:                      # M17: el puente horneado es de un solo costado y el torso se arma espejado
+            raise RecipeError(f"«{', '.join(baked)}» trae una montura de un solo costado: con «torso espejado» saldría en los dos; "
+                              "armá con torso_mirror = false")
         mounts = load_mounts(recipe, cat) or None
         res = P.build(host.body, host.limbs, p, None, sit, progress, None, host.head, None, host.waist, hand_spec(recipe),
                       host.parts, host_faces=host.faces, mounts=mounts)
+        if baked:
+            res = _with_baked_mounts(res, cat, host, baked)
     except AssemblyError as exc:
         raise RecipeError(str(exc)) from exc
     except ValueError as exc:                             # `build` rotula los errores de monturas con «montura: …»
@@ -360,3 +366,21 @@ def assemble(recipe: Recipe, catalog_root: str | None = None, progress=None, sit
             raise RecipeError(str(exc)) from exc
         raise
     return Assembled(res, p, host.limbs, res.joint_specs, recipe, cat, host)
+
+
+def _with_baked_mounts(res, cat: Catalog, host, baked: list):
+    """M17: anota en `res.mounts` las monturas que ya vienen horneadas en las piezas del torso, para que `validate` y el informe las
+    traten como a las de la receta. Si el armado espejó el torso igual (no encontró el otro lado), el puente quedó duplicado: error."""
+    from .mount import MountError
+    from .mount_bake import baked_builds
+
+    if (res.report.get("torso") or {}).get("espejado"):
+        raise RecipeError(f"«{', '.join(baked)}» trae una montura de un solo costado y el armado espejó el torso igual "
+                          f"({res.report['torso'].get('aviso', 'sin lado −X propio')}): el puente saldría en los dos costados")
+    try:
+        built = baked_builds(cat, host.bodies, res.pieces)
+    except MountError as exc:
+        raise RecipeError(f"montura: {exc}") from exc
+    res.mounts = {**res.mounts, **built}
+    res.report["monturas"] = {**res.report.get("monturas", {}), **{n: mb.info for n, mb in built.items()}}
+    return res

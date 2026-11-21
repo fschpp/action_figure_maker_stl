@@ -1038,7 +1038,8 @@
   "montura_lugar_no_disponible": "The place «%{lugar}» cannot hold a mount (options: %{hay}).",
   "montura_campo_desconocido": "Unknown mount field: %{campo} (options: %{hay}).",
   "no_hay_una_montura_numero": "There is no mount number %{n}.",
-  "montura_n_se_descarto": "Mount %{n} was dropped: %{exc}"
+  "montura_n_se_descarto": "Mount %{n} was dropped: %{exc}",
+  "montura_sin_pieza_base": "No piece is chosen in «%{lugar}» to save the mount into."
  },
  "figure_window": {
   "sin_soportes_altura_del_corte": "Cut height above the tail (mm)",
@@ -1113,6 +1114,9 @@
   "armas_en_el_cuerpo": "Weapons on the body (mounts)",
   "montura_agregar": "Add",
   "montura_quitar": "Remove",
+  "montura_guardar_pieza": "Save as piece",
+  "montura_guardada": "Saved as %{ref}: the figure now uses that piece (with «mirrored torso» off) and the mount leaves the list.",
+  "montura_guardar_error": "The piece could not be saved: %{exc}",
   "montura_arma": "Weapon",
   "montura_lugar": "Place",
   "montura_lado": "Side",

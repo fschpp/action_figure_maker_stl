@@ -16,7 +16,7 @@ from .recipe import RecipeError
 
 
 def add_parsers(sub) -> None:
-    c = sub.add_parser("catalogo", help="catálogo de piezas de una línea (crear, listar, verificar, importar-mano, agregar, agregar-stl, cortar-muneca, usos, eliminar, estado, compat, certificar, matriz, cobertura, contrato, capacidad, paleta, color, retoque)")
+    c = sub.add_parser("catalogo", help="catálogo de piezas de una línea (crear, listar, verificar, importar-mano, agregar, agregar-stl, guardar-montura, cortar-muneca, usos, eliminar, estado, compat, certificar, matriz, cobertura, contrato, capacidad, paleta, color, retoque)")
     cs = c.add_subparsers(dest="catcmd", required=True)
 
     def root(p):
@@ -87,6 +87,25 @@ def add_parsers(sub) -> None:
     a.add_argument("--largo-lengueta", type=float, default=8.0)
     a.add_argument("--dentado", type=float, default=2.9)
     a.add_argument("--juego", type=float, default=0.4, help="juego axial entre el hombro del dentado y la cara de salida (mm)")
+    a.add_argument("--descripcion", default="")
+    a.add_argument("--nueva-version", action="store_true")
+    a = cs.add_parser("guardar-montura", help="guardar una montura de arma como pieza: hornea el puente en la malla cruda de un torso, torso_sup o pelvis y lo guarda como pieza nueva (usarla pide torso_mirror = false)")
+    root(a)
+    a.add_argument("--receta", default=None, help="receta (.receta.json) con la montura; la pieza base sale de ella y se escribe la receta nueva (--receta-salida)")
+    a.add_argument("--montura", type=int, default=1, help="número de la montura de la receta, desde 1 (por defecto 1)")
+    a.add_argument("--receta-salida", default=None, help="dónde escribir la receta que usa la pieza nueva (por defecto <receta>.conmontura.json)")
+    a.add_argument("--base", metavar="ID", default=None, help="sin receta: pieza base «id@versión» (torso, torso_sup o pelvis)")
+    a.add_argument("--arma", default=None, help="sin receta: accesorio «id@versión» que se engancha")
+    a.add_argument("--lugar", default="pelvis", choices=("pelvis", "torso"))
+    a.add_argument("--lado", default="izq", choices=("izq", "der"))
+    a.add_argument("--tipo", default="lazo", choices=("lazo", "clip", "cuna"))
+    a.add_argument("--ancla", metavar="X,Y,Z", default=None, help="sin receta: punto sobre la superficie de la pieza (mm); con signo igual (--ancla=-23,0,38) si empieza con «-»")
+    a.add_argument("--direccion", metavar="X,Y,Z", default="0,0,-1", help="sin receta: eje del arma, empuñadura → punta (por defecto 0,0,-1: punta hacia abajo)")
+    a.add_argument("--holgura", type=float, default=0.25, help="sin receta: juego hoja–hueco (mm)")
+    a.add_argument("--pared", type=float, default=None, help="sin receta: espesor del puente (mm; por defecto la pared mínima de la línea)")
+    a.add_argument("--estaciones", type=int, default=1, choices=(1, 2))
+    a.add_argument("--id", default=None, help="id de la pieza nueva (por defecto <base>-con-<arma>; si la base ya trae montura, versión nueva de la misma)")
+    a.add_argument("--nombre", default="")
     a.add_argument("--descripcion", default="")
     a.add_argument("--nueva-version", action="store_true")
     a = cs.add_parser("agregar-stl", help="agregar una pieza suelta: STL cerrado + 3 puntos por puerto sobre su cara de unión")
@@ -534,6 +553,31 @@ def _run(args) -> int:
         res = OPS.import_accessory(cat, args.stl, args.largo_canal, bore_d=args.taladro, shaft_d=args.vastago, slit_w=args.ranura,
                                    finger_len=args.largo_lengueta, barb_d=args.dentado, play=args.juego, piece_id=args.id,
                                    description=args.descripcion, new_version=args.nueva_version)
+        return _print_import(res)
+    if cmd == "guardar-montura":
+        from . import mount_bake as MB
+        from .mount import MountError, MountSpec
+        from .recipe import Recipe, RecipeError
+
+        try:
+            if args.receta:
+                recipe = Recipe.load(args.receta)
+                res, new_recipe = MB.bake_from_recipe(cat, recipe, args.montura, piece_id=args.id, new_version=args.nueva_version,
+                                                      description=args.descripcion, name=args.nombre)
+                out = args.receta_salida or (args.receta[:-5] if args.receta.endswith(".json") else args.receta) + ".conmontura.json"
+                new_recipe.save(out)
+                res.lines.append(f"Receta nueva: {out} (usa {res.ref}, sin esa montura y con torso_mirror = false)")
+            else:
+                if not (args.base and args.arma and args.ancla):
+                    raise MountError("sin receta hacen falta --base, --arma y --ancla (o pasá --receta)")
+                vec = lambda t: tuple(float(x) for x in t.split(","))
+                spec = MountSpec(arma=args.arma, lugar=args.lugar, ancla=vec(args.ancla), direccion=vec(args.direccion), lado=args.lado,
+                                 tipo=args.tipo, holgura=args.holgura, pared=args.pared, estaciones=args.estaciones)
+                res = MB.bake_mount(cat, args.base, spec, piece_id=args.id, new_version=args.nueva_version,
+                                    description=args.descripcion, name=args.nombre)
+        except (MountError, RecipeError, ValueError) as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
         return _print_import(res)
     if cmd == "importar-mano":
         return _print_import(OPS.import_hand(cat, args.stl, args.id, args.nueva_version))

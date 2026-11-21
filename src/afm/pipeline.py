@@ -1651,6 +1651,8 @@ def flat_for_print(res: BuildResult, depth: float = 1.0, p: Params | None = None
     p = Params() if p is None else p
     depth = float(depth)
     mounts = dict(getattr(res, "mounts", None) or {})
+    baked = {n: mb for n, mb in mounts.items() if mb.baked}      # M17: ya son parte de la pieza; el plano las corta como al resto del cuerpo
+    mounts = {n: mb for n, mb in mounts.items() if not mb.baked}
     if mounts and res.host_bare:                      # M06: el plano, el relleno de cadera y los tallados se calculan sin las monturas
         res = dataclasses.replace(res, pieces={**res.pieces, **res.host_bare})   # (se vuelven a unir al final)
     else:
@@ -1697,6 +1699,11 @@ def flat_for_print(res: BuildResult, depth: float = 1.0, p: Params | None = None
         pieces = filled
     z_cut = body_base_z(pieces) + depth
     info["altura_corte_z"] = round(float(z_cut), 3)
+    for n, mb in baked.items():
+        low = float(mb.lazo.outer.bounding_box()[2])
+        if low < z_cut - 1e-6:
+            info["avisos"].append(f"{n}: la montura de la pieza queda cortada por el plano del corte ({z_cut - low:.2f} mm por debajo): "
+                                  "usá otra pieza con la montura más arriba o menos corte")
     # 1. aplanar piernas y cola (todo menos brazos y cabeza)
     above = S.Manifold.cube((1e4, 1e4, 1e4)).translate((-5e3, -5e3, z_cut))
     removed: dict = {}
