@@ -52,6 +52,7 @@ class BuildResult:
     right_limbs: list = field(default_factory=list)   # miembros del lado derecho llevados al marco espejado (los de `right`)
     placed: dict = field(default_factory=dict)   # nombre -> assembly.PlacedPart de las piezas de catálogo (con su `T`); lo usa el color (T36)
     mounts: dict = field(default_factory=dict)   # nombre -> mount.MountBuild: monturas de armas ya unidas a su pieza (M05)
+    host_bare: dict = field(default_factory=dict)   # pieza huésped -> la misma pieza SIN las monturas (M06: el plano de «sin soportes» se mide sin ellas)
 
 
 def align_to_symmetry(mesh: trimesh.Trimesh, sym: Plane | None) -> trimesh.Trimesh:
@@ -432,18 +433,22 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
         pieces["torso"], pieces[PELVIS_NAME] = waist_build.upper, waist_build.lower
         report["waist"] = _waist_report(waist_build, built, by_limb, head_build is not None)
     mounts_built: dict = {}
+    host_bare: dict = {}
     if mounts:
         say("Monturas de armas…")
         from .mount import MountError, apply_mounts
 
+        pre_mounts = pieces
         try:
             pieces, mounts_built = apply_mounts(pieces, mounts, p.min_wall)
         except MountError as exc:
             raise ValueError(f"montura: {exc}") from exc
+        host_bare = {mb.host: pre_mounts[mb.host] for mb in mounts_built.values()}
         report["monturas"] = {n: mb.info for n, mb in mounts_built.items()}
     return BuildResult(pieces=pieces, report=report, motion=res_motion, joints=res_joints, detent=detents, detent_ref=ref,
                        waist=waist_build, hand=hand_res, joint_specs=list(joints), torso_half=torso_half,
-                       right=right_res, right_limbs=right_limbs, placed=placed, mounts=mounts_built)
+                       right=right_res, right_limbs=right_limbs, placed=placed, mounts=mounts_built,
+                       host_bare=host_bare)
 
 
 def check_asymmetric(limbs: list[LimbSpec], limbs_right: list[LimbSpec]) -> None:
@@ -1555,6 +1560,50 @@ def _extend_thighs(res: BuildResult, pieces: dict, z_cut: float, p: Params) -> t
     return out, rep
 
 
+def _reattach_mounts(res: BuildResult, pieces: dict, mounts: dict, z_cut: float, arm_pieces: set, avisos: list) -> dict:
+    """M06: vuelve a unir las monturas a las piezas ya cortadas y talladas por `flat_for_print` (modifica `pieces`).
+
+    `res.pieces` trae los huéspedes sin montura. Lo que pasa por montura, en el informe:
+    - si el plano corta el puente (queda por debajo de `z_cut`), se lo corta con el plano y se avisa;
+    - si el relleno de cadera o el tallado del brazo le sacó material al pie, se avisa (cuánto);
+    - si ya no se puede unir (queda flotando o parte la pieza), se deja sin montura y se avisa;
+    - si el puente toca un brazo girado, se avisa."""
+    from .mount import MountError, attach_lazo
+
+    above = _box(z0=z_cut)
+    out: dict = {}
+    for name, mb in mounts.items():
+        lz, host = mb.lazo, mb.host
+        rec: dict = {"huesped": host, "unida": False}
+        outer, low = lz.outer, float(lz.outer.bounding_box()[2])
+        if low < z_cut - 1e-6:
+            outer = S.intersection(lz.outer, above)
+            rec["cortada_mm"] = round(z_cut - low, 3)
+            avisos.append(f"{name}: la montura queda cortada por el plano del corte ({z_cut - low:.2f} mm por debajo): "
+                          "subí el ancla o usá menos corte")
+        if outer.is_empty():
+            avisos.append(f"{name}: el plano del corte se llevó toda la montura; la figura sale sin ella")
+            out[name] = rec
+            continue
+        foot_before = float((outer ^ res.pieces[host]).volume())
+        foot_after = float((outer ^ pieces[host]).volume())
+        rec["pie_tallado_mm3"] = round(max(0.0, foot_before - foot_after), 3)
+        if foot_before - foot_after > HIP_FILL_MIN_MM3:
+            avisos.append(f"{name}: el relleno de cadera o el tallado del brazo le sacó {foot_before - foot_after:.2f} mm³ al pie de la montura")
+        try:
+            pieces[host] = attach_lazo(pieces[host], dataclasses.replace(lz, outer=outer))
+        except MountError as exc:
+            avisos.append(f"{name}: tras el corte no se pudo volver a unir la montura ({exc}); la figura sale sin ella")
+            out[name] = rec
+            continue
+        rec["unida"] = True
+        for an in sorted(arm_pieces):
+            if an in pieces and (outer ^ pieces[an]).volume() > 1e-3:
+                avisos.append(f"{name}: el puente toca {an} tras girar el brazo")
+        out[name] = rec
+    return out
+
+
 def flat_for_print(res: BuildResult, depth: float = 1.0, p: Params | None = None) -> tuple[dict, dict]:
     """Prepara la figura sentada para imprimirla sin soportes: devuelve (piezas nuevas, informe).
 
@@ -1574,6 +1623,11 @@ def flat_for_print(res: BuildResult, depth: float = 1.0, p: Params | None = None
     """
     p = Params() if p is None else p
     depth = float(depth)
+    mounts = dict(getattr(res, "mounts", None) or {})
+    if mounts and res.host_bare:                      # M06: el plano, el relleno de cadera y los tallados se calculan sin las monturas
+        res = dataclasses.replace(res, pieces={**res.pieces, **res.host_bare})   # (se vuelven a unir al final)
+    else:
+        mounts = {}
     pieces = dict(res.pieces)
     info: dict = {"corte_sobre_cola_mm": depth, "avisos": []}
     # 0. piernas estiradas: con rodilla, la pantorrilla pasa de la flexión de la pose impresa a 0° y queda en línea con el
@@ -1672,6 +1726,8 @@ def flat_for_print(res: BuildResult, depth: float = 1.0, p: Params | None = None
                 info["avisos"].append(f"{name} choca con {other} tras girar: usá menos corte")
             gaps[f"{name}~{other}"] = round(float(pieces[name].min_gap(mo, 5.0)), 3)
     info["holgura_brazos_mm"] = gaps
+    if mounts:
+        info["monturas"] = _reattach_mounts(res, pieces, mounts, z_cut, arm_pieces, info["avisos"])
     changed = [n for n in pieces if pieces[n] is not res.pieces.get(n)]
     bad = {n: _nonmanifold_edges(pieces[n]) for n in changed}
     info["bordes_no_variedad"] = {n: k for n, k in bad.items() if k}
