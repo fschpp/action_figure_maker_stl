@@ -899,10 +899,12 @@ def rider_lower(rp: RiderProfile, placed: dict) -> dict:
     return {n: placed[n] for n in names}
 
 
-def rider_pairs(solid, rider: dict, clearance: float, tol: float = RELIEF_GAP_TOL) -> tuple:
+def rider_pairs(solid, rider: dict, clearance: float, tol: float = RELIEF_GAP_TOL, overlap_tol: float = 1e-3,
+                label: str = "silla") -> tuple:
     """Pareja por pareja, contra las piezas ORIGINALES (sin decimar): `(overlaps, gaps, problems)` de `solid` con cada pieza.
 
-    Ninguna pieza puede quedar dentro y la distancia tiene que ser ≥ `clearance − tol`."""
+    Ninguna pieza puede quedar dentro (más de `overlap_tol` mm³) y la distancia tiene que ser ≥ `clearance − tol`. `label` nombra
+    el otro lado de la pareja en los mensajes («pierna_izq ↔ caballo»)."""
     reach = clearance + 1.0
     overlaps, gaps, problems = {}, {}, []
     for name, mf in rider.items():
@@ -911,10 +913,10 @@ def rider_pairs(solid, rider: dict, clearance: float, tol: float = RELIEF_GAP_TO
         win = S.intersection(solid, _box_mf(b[1] - b[0] + 2 * reach, (b[0] + b[1]) / 2.0))
         gap = float(mf.min_gap(win, reach)) if not win.is_empty() else float("inf")
         overlaps[name], gaps[name] = ov, gap
-        if ov > 1e-3:
-            problems.append(f"{name} ↔ silla: {ov:.2f} mm³ del jinete siguen dentro de la silla")
+        if ov > overlap_tol:
+            problems.append(f"{name} ↔ {label}: {ov:.2f} mm³ del jinete siguen dentro de la {label}")
         elif gap < clearance - tol:
-            problems.append(f"{name} ↔ silla: holgura {gap:.3f} mm < {clearance:g} mm previstos")
+            problems.append(f"{name} ↔ {label}: holgura {gap:.3f} mm < {clearance:g} mm previstos")
     return overlaps, gaps, problems
 
 
@@ -1007,3 +1009,164 @@ def relieve_saddle(horse: HorseModel, saddle: SaddleBuild, rider: dict, spec: Re
     if pr:
         res.ok, res.manifold = False, None
     return res
+
+
+# ---------------------------------------------------------------------------------------------------------------- E08
+RIDING_OVERLAP_TOL = 1e-6        # mm³: la misma tolerancia de interpenetración que `pipeline.validate`
+RIDING_GAP_REL_TOL = 0.1         # fracción de la holgura que puede faltar (igual que `pipeline.validate`)
+RIDING_FLOAT_MM = 1.0            # mm sobre la holgura prevista a partir de los cuales la pelvis «flota»
+
+
+@dataclass
+class RidingAssembly:
+    """El conjunto jinete + caballo (+ silla) ya calculado, listo para validar y exportar (D1).
+
+    `rider`: TODAS las piezas del jinete ya colocadas (`place_rider`); `lower` es la pelvis y las piernas completas (`rider_lower`).
+    `carve`: resultado de `carve_horse` (si hay tallado; `carve.carved` es el caballo tallado, o None si se rechazó). `saddle` y
+    `relief`: la silla base y su despeje (si hay silla). `limits`: los límites con que se talló (para revisar profundidad y zona).
+    """
+
+    horse: HorseModel
+    rider: dict
+    lower: dict
+    pelvis_name: str = "pelvis"
+    carve: CarveResult | None = None
+    saddle: SaddleBuild | None = None
+    relief: ReliefBuild | None = None
+    limits: CarveLimits | None = None
+
+    @property
+    def horse_mf(self):
+        """El caballo contra el que se valida: el tallado si existe y se aceptó; si no, el original."""
+        return self.carve.carved if self.carve is not None and self.carve.carved is not None else self.horse.manifold
+
+    @property
+    def saddle_mf(self):
+        """La silla final (con despeje y faldones) si se pudo hacer; si no, la base; None sin silla."""
+        if self.relief is not None and self.relief.manifold is not None:
+            return self.relief.manifold
+        return self.saddle.manifold if self.saddle is not None else None
+
+
+def _overlap(a, b) -> float:
+    ba, bb = np.asarray(a.bounding_box(), float).reshape(2, 3), np.asarray(b.bounding_box(), float).reshape(2, 3)
+    if np.any(ba[1] < bb[0]) or np.any(bb[1] < ba[0]):
+        return 0.0
+    return abs(float(S.intersection(a, b).volume()))
+
+
+def validate_riding(ra: RidingAssembly, params=None) -> dict:
+    """Validación ecuestre (plano 6): separada de `pipeline.validate`, que no se toca. Certifica la geometría de la pose, no la
+    durabilidad de las articulaciones. Cada problema nombra la pareja exacta (`pierna_izq ↔ caballo`, `pelvis ↔ silla`).
+
+    Devuelve `{"ok", "problems", "avisos", "info", "gaps"}`. Las uniones intencionales se declaran en `info["uniones"]`: una silla
+    con `encaje` > 0 se hunde en el caballo a propósito y no cuenta como choque.
+    """
+    clearance = float(getattr(params, "clearance", 0.5)) if params is not None else 0.5
+    min_wall = float(getattr(params, "min_wall", 1.2)) if params is not None else 1.2
+    out = {"ok": True, "problems": [], "avisos": [], "info": {}, "gaps": {}}
+    pr, av, info = out["problems"], out["avisos"], out["info"]
+    gtol = RIDING_GAP_REL_TOL * clearance + 1e-6
+    horse = ra.horse_mf
+    # 1. caballo convertible a Manifold
+    if ra.horse.manifold is None or ra.horse.manifold.status() != S.m3.Error.NoError:
+        pr.append("caballo: no es una variedad estanca (no sirve para booleanas)")
+        out["ok"] = False
+        return out
+    # 2. tallado: límites y mediciones propias del motor
+    c = ra.carve
+    if c is not None:
+        info["tallado"] = {"retirado_mm3": round(c.removed_volume, 3), "profundidad_mm": round(c.max_depth, 3),
+                           "pared_mm": None if c.wall_min is None else round(c.wall_min, 3), "fraccion": round(c.removed_frac, 5)}
+        if not c.ok:
+            pr.extend(f"caballo tallado: {x}" for x in c.problems)
+        lim = ra.limits
+        if lim is not None and c.ok:
+            if c.max_depth > lim.max_depth:
+                pr.append(f"caballo tallado: el rebaje entra {c.max_depth:.2f} mm (máximo {lim.max_depth:g})")
+            if c.removed_frac > lim.max_removed_frac:
+                pr.append(f"caballo tallado: se retira el {100 * c.removed_frac:.1f} % del caballo (máximo {100 * lim.max_removed_frac:g} %)")
+            if lim.zone is not None and c.cut_bounds is not None:
+                z, cb = np.asarray(lim.zone, float), np.asarray(c.cut_bounds, float)
+                if np.any(cb[0] < z[:3] - 1e-6) or np.any(cb[1] > z[3:] + 1e-6):
+                    pr.append("caballo tallado: el rebaje se sale de la zona permitida")
+        if c.ok and c.carved is not None and c.tool is not None and c.removed_volume > 0:
+            cb = np.asarray(c.carved.bounding_box(), float).reshape(2, 3)
+            wm = _wall_behind_cavity(c.carved, c.tool, cb[0] - 10.0, cb[1] + 10.0, min_wall)       # se vuelve a medir
+            info["tallado"]["pared_medida_mm"] = None if wm is None else round(wm, 3)
+            if wm is not None and wm < min_wall:
+                pr.append(f"caballo tallado: la pared detrás del rebaje mide {wm:.2f} mm (mínimo {min_wall:g})")
+    # 3. silla: una componente, sin cavidades, pared, apoyo sobre el caballo
+    sad = ra.saddle_mf
+    if ra.saddle is not None and sad is None:
+        pr.append("silla: no se pudo generar")
+    if ra.relief is not None and ra.relief.manifold is None:
+        pr.extend(f"silla: {x}" for x in ra.relief.problems)
+    if sad is not None:
+        st = shell_stats(sad)
+        if st["components"] != 1:
+            pr.append(f"silla: {st['components']} componentes (debería ser 1)")
+        if st["voids"]:
+            pr.append(f"silla: {st['voids']} cavidad(es) cerrada(s)")
+        if ra.relief is not None and ra.relief.manifold is not None and ra.relief.tool is not None:
+            sb = np.asarray(sad.bounding_box(), float).reshape(2, 3)
+            wm = _wall_behind_cavity(sad, ra.relief.tool, sb[0] - 10.0, sb[1] + 10.0, min_wall)
+            info["silla_pared_mm"] = None if wm is None else round(wm, 3)
+            if wm is not None and wm < min_wall:
+                pr.append(f"silla: la pared detrás del despeje mide {wm:.2f} mm (mínimo {min_wall:g})")
+        enc = float(ra.saddle.spec.encaje) if ra.saddle is not None else 0.0
+        ov = _overlap(sad, horse)
+        expected = max(0.0, -enc)
+        if enc > 0:
+            info["uniones"] = [f"silla ↔ caballo: encaje de {enc:g} mm (intencional, {ov:.1f} mm³)"]
+        elif ov > RIDING_OVERLAP_TOL:
+            pr.append(f"silla ↔ caballo: se interpenetran {ov:.3f} mm³ sin que el encaje lo pida")
+        else:
+            sbb = np.asarray(sad.bounding_box(), float).reshape(2, 3)
+            reach = expected + SADDLE_SEARCH
+            win = S.intersection(horse, _box_mf(sbb[1] - sbb[0] + 2 * reach, (sbb[0] + sbb[1]) / 2.0))
+            gap = float(sad.min_gap(win, reach)) if not win.is_empty() else float("inf")
+            out["gaps"]["silla ↔ caballo"] = None if math.isinf(gap) else round(gap, 4)
+            if gap > expected + SADDLE_TOUCH_TOL:
+                pr.append(f"silla ↔ caballo: la silla flota {gap:.2f} mm sobre el caballo (esperado {expected:.2f} mm)")
+    elif ra.saddle is None and ra.relief is None:
+        info["silla"] = "sin silla (solo tallado)"
+    # 4. piernas completas y pelvis contra silla y caballo tallado (si el despeje falló ya se informó: no se repite contra la base)
+    sad_pairs = None if (ra.relief is not None and ra.relief.manifold is None) else sad
+    for label, solid in (("caballo", horse), ("silla", sad_pairs)):
+        if solid is None:
+            continue
+        ov, gp, prob = rider_pairs(solid, ra.lower, clearance, tol=gtol, overlap_tol=RIDING_OVERLAP_TOL, label=label)
+        pr.extend(prob)
+        for n, g in gp.items():
+            out["gaps"][f"{n} ↔ {label}"] = None if math.isinf(g) else round(g, 4)
+    # 5. el resto del jinete (torso, brazos, cabeza, armas) no puede entrar en el caballo ni en la silla
+    for n, mf in ra.rider.items():
+        if n in ra.lower:
+            continue
+        for label, solid in (("caballo", horse), ("silla", sad_pairs)):
+            if solid is None:
+                continue
+            ov = _overlap(mf, solid)
+            if ov > RIDING_OVERLAP_TOL:
+                pr.append(f"{n} ↔ {label}: se interpenetran {ov:.3f} mm³")
+    # 6. pelvis flotando
+    pel = ra.lower.get(ra.pelvis_name)
+    if pel is not None:
+        other = "silla" if sad_pairs is not None else "caballo"
+        g = out["gaps"].get(f"{ra.pelvis_name} ↔ {other}")
+        if g is None or g > clearance + RIDING_FLOAT_MM:
+            av.append(f"{ra.pelvis_name} ↔ {other}: la pelvis no apoya "
+                      f"({'a más de ' + format(clearance + RIDING_FLOAT_MM, 'g') + ' mm' if g is None else format(g, '.2f') + ' mm'})")
+    # 7. informativo: altura del jinete y escala del caballo
+    rb = np.vstack([np.asarray(m.bounding_box(), float).reshape(2, 3) for m in ra.rider.values()])
+    hb = np.asarray(ra.horse.manifold.bounding_box(), float).reshape(2, 3)
+    info["altura_jinete_mm"] = round(float(rb[:, 2].max() - rb[:, 2].min()), 2)
+    info["caballo_mm"] = [round(float(v), 2) for v in (hb[1] - hb[0])]
+    info["escala_caballo"] = float(ra.horse.spec.escala)
+    if ra.relief is not None:
+        av.extend(f"silla: {w}" for w in ra.relief.warnings)
+    if c is not None:
+        av.extend(f"caballo tallado: {w}" for w in c.warnings)
+    out["ok"] = not pr
+    return out

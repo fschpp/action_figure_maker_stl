@@ -1,3 +1,16 @@
+## Current Focus — Caballos compatibles: E08 `validate_riding` (2026-11-21, sobre main dd7a926 = E07 mergeada)
+`validate_riding(RidingAssembly, params)` revisa el conjunto jinete + caballo (tallado y/o silla) con las comprobaciones del plano 6, separada de `pipeline.validate` (que no se tocó). Cada problema nombra la pareja (`pierna_izq ↔ caballo`, `pelvis ↔ silla`).
+
+### Todo List
+- [x] Done: E08 `RidingAssembly`, `validate_riding` y constantes `RIDING_*` en `src/afm/equestrian.py` + `tests/test_equestrian_validate.py` (11 pruebas); `rider_pairs` ganó `overlap_tol` y `label` (E07 sigue igual por defecto)
+- [ ] Todo: E00 `tools/ecuestre_fase0.py`; E09 ajuste iterativo; E10 exportación agrupada; E11 biblioteca `caballos/`; E12 `Recipe.cabalgadura`
+
+### Latest Blockers/Discoveries
+- Pruebas corridas (`PYTHONPATH=src`): `test_equestrian_{spec,load,rider,frame,saddle,carve,relief,validate}.py`, `test_engine_portability.py`, `test_i18n.py` → 110 pasan + 1 salteada antes de agregar la última prueba de E08; después corrí `validate`, `relief` y portabilidad (pasan). No corrí la suite completa.
+- Decisiones (mías, fáciles de cambiar): tolerancias leídas de `pipeline.validate`: interpenetración > 1e-6 mm³ y holgura < 90 % de la prevista (`RIDING_OVERLAP_TOL`, `RIDING_GAP_REL_TOL`). Piernas y pelvis se comprueban pareja por pareja contra caballo y silla; torso, brazos, cabeza y armas solo contra interpenetración. La pelvis que no apoya (> holgura + 1 mm) es aviso. Profundidad, fracción retirada y zona del tallado se leen del `CarveResult`; la pared del tallado y la de la silla se vuelven a medir. Una silla con `encaje` > 0 se declara unión intencional (`info["uniones"]`). Si el despeje falló no se repiten los choques contra la silla base.
+- Con `horse_baseless.stl` (3×, guiño 180°), muñeco de ejemplo y asiento y = −20 mm: validación en ≈3 s; tallado con `max_depth` 12 mm retira 789 mm³ (0,45 %), profundidad 4,5 mm, pared 3,0 mm, holgura piernas–caballo 0,477 mm; la silla sigue rechazada (lomo sobre la cara superior + despeje que la parte), igual que en E06/E07.
+- No verificado: piernas y pelvis reales de Güemes/Belgrano; «altura del jinete» es la caja de todas las piezas (no pies→coronilla); suite completa.
+
 ## Current Focus — Caballos compatibles: E07 relieve de pelvis y canales + faldones (2026-11-21, sobre main 5d84e0e = E05 mergeada)
 `relieve_saddle` resta de la silla (E06) la pelvis y las piernas completas del jinete dilatadas por la holgura y le suma dos faldones laterales que cubren los canales de las piernas. Mide pieza por pieza cuánto del jinete queda dentro de la silla y a qué distancia, y rechaza silla partida, cavidades cerradas, pared fina y faldones finos.
 
