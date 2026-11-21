@@ -685,6 +685,39 @@ def _surface_distance(points, verts, faces, seed: int = 0) -> np.ndarray:
     return cKDTree(np.vstack([pts, verts])).query(points)[0]
 
 
+def _wall_behind_cavity(solid, tool, lo, hi, rim: float):
+    """Pared mínima detrás de la cavidad que `tool` abrió en `solid` (rayos desde las caras de la cavidad hacia el material).
+
+    `tool` tiene que ser el sólido restado (con `as_original()`), para reconocer sus caras en `solid`. Se miden solo triángulos
+    dentro de la caja `lo`–`hi` y se ignora el borde de entrada (a menos de `rim` mm de donde la cavidad se une a la superficie
+    original). `None` si no hay cavidad medible."""
+    cv, cf, cmesh = _mesh_arrays(solid)
+    ids = list(cmesh.run_original_id)
+    ridx = np.asarray(cmesh.run_index, np.int64) // 3
+    tid = tool.original_id()
+    cav = np.concatenate([np.arange(ridx[i], ridx[i + 1]) for i, r in enumerate(ids) if r == tid] or [np.array([], np.int64)])
+    if not len(cav):
+        return None
+    tri = cv[cf]
+    nrm = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+    nrm = nrm / np.maximum(np.linalg.norm(nrm, axis=1, keepdims=True), 1e-12)
+    iscav = np.zeros(len(cf), bool)
+    iscav[cav] = True
+    rim_v = np.intersect1d(np.unique(cf[iscav]), np.unique(cf[~iscav]))          # vértices donde la cavidad se une a la superficie original
+    cen = tri.mean(axis=1)
+    pick = cav
+    if len(rim_v):
+        from scipy.spatial import cKDTree
+        pick = cav[cKDTree(cv[rim_v]).query(cen[cav])[0] > rim]
+    if not len(pick):
+        return None
+    pick = pick[np.linspace(0, len(pick) - 1, min(CARVE_MAX_RAYS, len(pick))).astype(int)]
+    near = ((tri.max(axis=1) >= lo).all(axis=1)) & ((tri.min(axis=1) <= hi).all(axis=1))
+    t = _first_hit_distances(cen[pick] - nrm[pick] * 1e-3, -nrm[pick], tri[near])
+    t = t[np.isfinite(t)] + 1e-3
+    return float(t.min()) if len(t) else None
+
+
 def verify_carved(carved, legs: dict, clearance: float, tol: float = CARVE_GAP_TOL) -> tuple:
     """Comprueba el tallado contra las piernas ORIGINALES (sin decimar): `(overlap, gap, problems)`.
 
@@ -749,7 +782,6 @@ def carve_horse(horse: HorseModel, legs: dict, clearance: float = 0.5, limits: C
     st = shell_stats(carved)
     res.components, res.voids = st["components"], st["voids"]
     res.genus_delta = int(carved.genus()) - base_genus
-    cv, cf, cmesh = _mesh_arrays(carved)
     # profundidad: distancia de los puntos del corte a la superficie ORIGINAL del caballo
     hv, hf, _ = _mesh_arrays(hmf)
     R = lim.max_depth * 1.5 + 3.0
@@ -761,30 +793,8 @@ def carve_horse(horse: HorseModel, legs: dict, clearance: float = 0.5, limits: C
     pts = np.vstack([ev, ev[ef].mean(axis=1)])
     res.max_depth = float(_surface_distance(pts, sub_v, sub_f).max())
     # pared residual: rayos desde las caras de la cavidad hacia el material
-    ids = list(cmesh.run_original_id)
-    ridx = np.asarray(cmesh.run_index, np.int64) // 3
-    tid = tool.original_id()
-    cav = np.concatenate([np.arange(ridx[i], ridx[i + 1]) for i, r in enumerate(ids) if r == tid] or [np.array([], np.int64)])
-    tri = cv[cf]
-    if len(cav):
-        nrm = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
-        nrm = nrm / np.maximum(np.linalg.norm(nrm, axis=1, keepdims=True), 1e-12)
-        iscav = np.zeros(len(cf), bool)
-        iscav[cav] = True
-        rim_v = np.intersect1d(np.unique(cf[iscav]), np.unique(cf[~iscav]))          # vértices donde la cavidad se une a la superficie original
-        cen = tri.mean(axis=1)
-        pick = cav
-        if len(rim_v):
-            from scipy.spatial import cKDTree
-            pick = cav[cKDTree(cv[rim_v]).query(cen[cav])[0] > rim]
-        if len(pick):
-            pick = pick[np.linspace(0, len(pick) - 1, min(CARVE_MAX_RAYS, len(pick))).astype(int)]
-            W = lim.max_depth * 2 + lim.min_wall + 10.0
-            wl, wh = cb[0] - W, cb[1] + W
-            near = ((tri.max(axis=1) >= wl).all(axis=1)) & ((tri.min(axis=1) <= wh).all(axis=1))
-            t = _first_hit_distances(cen[pick] - nrm[pick] * 1e-3, -nrm[pick], tri[near])
-            t = t[np.isfinite(t)] + 1e-3
-            res.wall_min = float(t.min()) if len(t) else None
+    W = lim.max_depth * 2 + lim.min_wall + 10.0
+    res.wall_min = _wall_behind_cavity(carved, tool, cb[0] - W, cb[1] + W, rim)
     _, res.gap, vprob = verify_carved(carved, legs, clearance)
     res.legs_overlap = abs(float(S.intersection(carved, S.union(*legs.values()) if len(legs) > 1 else next(iter(legs.values()))).volume()))
     pr = res.problems
@@ -811,4 +821,189 @@ def carve_horse(horse: HorseModel, legs: dict, clearance: float = 0.5, limits: C
         pr.append("este caballo no admite esta figura en la pose estándar con estos límites (no se recorta más)")
     else:
         res.carved = carved
+    return res
+
+
+# ---------------------------------------------------------------------------------------------------------------- E07
+SKIRT_OVERLAP = 2.0          # mm que el faldón se mete en la almohadilla para quedar unido a ella
+RELIEF_GAP_TOL = 0.05        # mm: lo que puede faltar a la holgura medida por la decimación de la herramienta
+
+
+@dataclass(frozen=True)
+class ReliefSpec:
+    """Despeje del jinete en la silla y faldones (plano 5.4, pasos 3 y 4). Medidas en mm.
+
+    `clearance` es la holgura jinete–silla. Los faldones son dos placas laterales de espesor `skirt_thick` en los costados de la
+    almohadilla que bajan `skirt_drop` mm por debajo de su borde inferior y cubren los canales de las piernas; `skirt_drop` = 0
+    los quita. El faldón no entra en el caballo ni en el despeje (se le resta el caballo y el jinete dilatado).
+    """
+
+    clearance: float = 0.5
+    skirt_drop: float = 8.0
+    skirt_thick: float = 1.6
+
+    def __post_init__(self):
+        if not _num(self.clearance, "clearance") >= 0:
+            raise SaddleError("«clearance» no puede ser negativa")
+        if not _num(self.skirt_drop, "skirt_drop") >= 0:
+            raise SaddleError("«skirt_drop» no puede ser negativo")
+        if not _num(self.skirt_thick, "skirt_thick") > 0:
+            raise SaddleError("«skirt_thick» tiene que ser mayor que 0")
+
+    def to_dict(self) -> dict:
+        return {k: float(getattr(self, k)) for k in ("clearance", "skirt_drop", "skirt_thick")}
+
+    @classmethod
+    def from_dict(cls, d) -> "ReliefSpec":
+        if not isinstance(d, dict):
+            raise SaddleError("el despeje tiene que ser un diccionario")
+        extra = set(d) - set(cls.__dataclass_fields__)
+        if extra:
+            raise SaddleError(f"campos desconocidos en el despeje: {', '.join(sorted(extra))}")
+        return cls(**d)
+
+
+@dataclass
+class ReliefBuild:
+    """Silla con el despeje del jinete y los faldones. `ok` False deja `manifold` en None (`attempt` guarda el intento)."""
+
+    ok: bool
+    manifold: object | None
+    attempt: object
+    tool: object
+    base: SaddleBuild
+    spec: ReliefSpec
+    removed_volume: float = 0.0            # volumen de la silla base que se llevó el despeje
+    skirt_volume: float = 0.0              # volumen que aportan los faldones (ya recortados)
+    volume: float = 0.0
+    components: int = 0
+    fragments: list = field(default_factory=list)
+    voids: int = 0
+    wall_min: float | None = None          # pared mínima detrás del despeje (rayos; None si no se pudo medir)
+    gaps: dict = field(default_factory=dict)         # pieza del jinete -> distancia a la silla
+    overlaps: dict = field(default_factory=dict)     # pieza del jinete -> volumen que sigue dentro de la silla
+    problems: list = field(default_factory=list)
+    warnings: list = field(default_factory=list)
+
+    @property
+    def gap(self) -> float | None:
+        return min(self.gaps.values()) if self.gaps else None
+
+
+def rider_lower(rp: RiderProfile, placed: dict) -> dict:
+    """Pelvis y piernas completas, ya colocadas (`place_rider`), que son lo que el asiento tiene que despejar."""
+    names = [rp.pelvis_name, *rp.legs]
+    missing = [n for n in names if n not in placed]
+    if missing:
+        raise RiderError(f"faltan piezas del jinete colocado: {', '.join(missing)}")
+    return {n: placed[n] for n in names}
+
+
+def rider_pairs(solid, rider: dict, clearance: float, tol: float = RELIEF_GAP_TOL) -> tuple:
+    """Pareja por pareja, contra las piezas ORIGINALES (sin decimar): `(overlaps, gaps, problems)` de `solid` con cada pieza.
+
+    Ninguna pieza puede quedar dentro y la distancia tiene que ser ≥ `clearance − tol`."""
+    reach = clearance + 1.0
+    overlaps, gaps, problems = {}, {}, []
+    for name, mf in rider.items():
+        ov = abs(float(S.intersection(solid, mf).volume()))
+        b = np.asarray(mf.bounding_box(), float).reshape(2, 3)
+        win = S.intersection(solid, _box_mf(b[1] - b[0] + 2 * reach, (b[0] + b[1]) / 2.0))
+        gap = float(mf.min_gap(win, reach)) if not win.is_empty() else float("inf")
+        overlaps[name], gaps[name] = ov, gap
+        if ov > 1e-3:
+            problems.append(f"{name} ↔ silla: {ov:.2f} mm³ del jinete siguen dentro de la silla")
+        elif gap < clearance - tol:
+            problems.append(f"{name} ↔ silla: holgura {gap:.3f} mm < {clearance:g} mm previstos")
+    return overlaps, gaps, problems
+
+
+def relieve_saddle(horse: HorseModel, saddle: SaddleBuild, rider: dict, spec: ReliefSpec | None = None,
+                   min_wall: float = 1.2, tool_max_tris: int = 20_000, rim_exclude: float | None = None) -> ReliefBuild:
+    """Despeje y faldones de la silla (plano 5.4, pasos 3 y 4): `(silla + faldones) − (pelvis y piernas dilatadas por la holgura)`.
+
+    `rider`: `{nombre: Manifold}` de la pelvis y las piernas completas YA colocadas (`rider_lower`). No modifica al jinete, a la
+    silla base ni al caballo. Mide volumen retirado y aportado, componentes, cavidades cerradas, pared detrás del despeje y, pieza
+    por pieza, cuánto del jinete sigue dentro de la silla y a qué distancia queda. Si algo no cumple, `ok` False y `manifold` None.
+    """
+    sp = spec or ReliefSpec(clearance=0.5)
+    if not rider:
+        raise SaddleError("faltan la pelvis y las piernas del jinete para despejar la silla")
+    if saddle.manifold is None or saddle.manifold.is_empty():
+        raise SaddleError("la silla base está vacía: no hay nada que despejar")
+    if isinstance(min_wall, bool) or not isinstance(min_wall, (int, float)) or not min_wall > 0:
+        raise SaddleError("«min_wall» tiene que ser mayor que 0")
+    rim = min_wall if rim_exclude is None else float(rim_exclude)
+    dil = []
+    for mf in rider.values():
+        n = int(mf.num_tri())
+        src = S.decimate(mf, reduction=1.0 - tool_max_tris / n) if n > tool_max_tris and S.can_decimate() else mf
+        dil.append(S.dilate(src, sp.clearance))
+    tool = S.union(*dil).as_original()
+    base = saddle.manifold
+    sb = np.asarray(base.bounding_box(), float).reshape(2, 3)
+    horse_shift = None
+    shape = base
+    skirt_vol = 0.0
+    warns = []
+    if sp.skirt_drop > 0:
+        ss = saddle.spec
+        d = saddle.direction
+        yaw = math.atan2(d[1], d[0]) - math.pi / 2.0
+        c_xy = saddle.seat_origin[:2] + ss.desplazamiento * d[:2]
+        zb = float(saddle.seat_origin[2] - ss.bajada)                    # borde inferior de la almohadilla
+        zlo, zhi = zb - sp.skirt_drop, zb + min(SKIRT_OVERLAP, ss.alto + ss.bajada)
+        plates = []
+        for sign in (1.0, -1.0):
+            m = trimesh.creation.box(extents=(sp.skirt_thick, ss.largo, zhi - zlo))
+            m.apply_translation((sign * (ss.ancho - sp.skirt_thick) / 2.0, 0.0, (zlo + zhi) / 2.0))
+            m.apply_transform(trimesh.transformations.rotation_matrix(yaw, [0, 0, 1]))
+            m.apply_translation((c_xy[0], c_xy[1], 0.0))
+            plates.append(S.to_manifold(m))
+        skirts = S.union(*plates)
+        reach = abs(ss.encaje) + SADDLE_PAD_MARGIN
+        sk = np.asarray(skirts.bounding_box(), float).reshape(2, 3)
+        lo, hi = sk[0] - reach, sk[1] + reach
+        hwin = S.intersection(horse.manifold, _box_mf(hi - lo, (lo + hi) / 2.0))
+        if not hwin.is_empty():
+            p = float(ss.encaje)
+            horse_shift = hwin.translate((0.0, 0.0, -p)) if p else hwin
+            skirts = S.difference(skirts, horse_shift)
+        skirts = S.difference(skirts, tool)
+        skirt_vol = abs(float(skirts.volume())) if not skirts.is_empty() else 0.0
+        shape = S.union(base, skirts) if not skirts.is_empty() else base
+    cut = S.intersection(base, tool)
+    removed = abs(float(cut.volume())) if not cut.is_empty() else 0.0
+    out = S.difference(shape, tool)
+    res = ReliefBuild(ok=True, manifold=out, attempt=out, tool=tool, base=saddle, spec=sp, removed_volume=removed, skirt_volume=skirt_vol)
+    pr = res.problems
+    pr.extend(f"silla base: {p}" for p in saddle.problems)
+    if out.is_empty():
+        res.ok, res.manifold = False, None
+        pr.append("la silla desapareció al despejarla")
+        return res
+    res.volume = abs(float(out.volume()))
+    st = shell_stats(out)
+    res.components, res.fragments, res.voids = st["components"], st["fragments"], st["voids"]
+    ob = np.asarray(out.bounding_box(), float).reshape(2, 3)
+    W = min_wall * 2 + 10.0
+    res.wall_min = _wall_behind_cavity(out, tool, ob[0] - W, ob[1] + W, rim)
+    res.overlaps, res.gaps, vprob = rider_pairs(out, rider, sp.clearance)
+    pr.extend(vprob)
+    if removed < 1e-6:
+        warns.append("el jinete no toca la silla: no hay nada que despejar (¿asiento demasiado alto?)")
+    if sp.skirt_drop > 0 and sp.skirt_thick < min_wall:
+        pr.append(f"los faldones miden {sp.skirt_thick:g} mm de espesor (mínimo {min_wall:g})")
+    if sp.skirt_drop > 0 and skirt_vol < 1e-6:
+        warns.append("los faldones quedaron vacíos (el caballo o el despeje los comen enteros)")
+    if res.components > 1:
+        vols = ", ".join(f"{v:.1f}" for v in res.fragments)
+        pr.append(f"la silla despejada tiene {res.components} componentes (fragmentos de {vols} mm³): el despeje la parte")
+    if res.voids:
+        pr.append(f"la silla despejada tiene {res.voids} cavidad(es) cerrada(s)")
+    if res.wall_min is not None and res.wall_min < min_wall:
+        pr.append(f"la pared que queda detrás del despeje mide {res.wall_min:.2f} mm (mínimo {min_wall:g})")
+    res.warnings.extend(warns)
+    if pr:
+        res.ok, res.manifold = False, None
     return res

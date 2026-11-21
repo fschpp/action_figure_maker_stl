@@ -1,3 +1,18 @@
+## Current Focus — Caballos compatibles: E07 relieve de pelvis y canales + faldones (2026-11-21, sobre main 5d84e0e = E05 mergeada)
+`relieve_saddle` resta de la silla (E06) la pelvis y las piernas completas del jinete dilatadas por la holgura y le suma dos faldones laterales que cubren los canales de las piernas. Mide pieza por pieza cuánto del jinete queda dentro de la silla y a qué distancia, y rechaza silla partida, cavidades cerradas, pared fina y faldones finos.
+
+### Todo List
+- [x] Done: E07 `ReliefSpec`, `ReliefBuild`, `relieve_saddle`, `rider_lower`, `rider_pairs` en `src/afm/equestrian.py` + `tests/test_equestrian_relief.py` (12 pruebas)
+- [x] Done: la medición de pared residual de `carve_horse` pasó a un ayudante común `_wall_behind_cavity` (sin cambiar su resultado: las 10 pruebas de E05 pasan igual)
+- [ ] Todo: E00 `tools/ecuestre_fase0.py` (tabla con Güemes + caballo definitivo); E08 `validate_riding` (usar `rider_pairs`/`ReliefBuild`); E09 ajuste iterativo; E10 exportación agrupada; E11 biblioteca `caballos/`; E12 `Recipe.cabalgadura`
+
+### Latest Blockers/Discoveries
+- Pruebas corridas (`PYTHONPATH=src`): `test_equestrian_{spec,load,rider,frame,saddle,carve,relief}.py`, `test_engine_portability.py`, `test_i18n.py` → 100 pasan, 1 salteada (sin `AFM_PROCERES_127`). No se corrió la suite completa.
+- Diseño (mío, fácil de cambiar): `silla_final = (silla + faldones) − dilatar(pelvis + piernas, holgura)`. Los faldones son dos placas de `skirt_thick` (1,6 mm) en los bordes laterales de la almohadilla que bajan `skirt_drop` (8 mm) bajo su borde inferior y se meten 2 mm en ella; se les resta el caballo y el despeje. `skirt_drop` = 0 los quita. La pelvis apoyada en la cara superior hace un asiento de `holgura` de profundidad.
+- La pared se mide con los mismos rayos que en E05 desde las caras del despeje. Detecta también cuñas finas entre dos despejes que se tocan (muslo y pantorrilla desfasados): es real, no un error de medición, y se avisa como pared fina.
+- Con `horse_baseless.stl` (3×, guiño 180°) y el muñeco de ejemplo (no Güemes) en y = −20, 0 y 20 mm: holgura medida 0,477 mm, ninguna pieza del jinete queda dentro, pero los tres se rechazan: la silla base ya no es válida (el lomo sobresale de la cara superior, igual que en E06) y la pared queda en 0,02–1,18 mm. Cada llamada tarda ≈29 s (domina la dilatación de pelvis y piernas del muñeco).
+- No verificado: piernas y pelvis reales de Güemes/Belgrano; faldones sobre un caballo real con un asiento válido; inclinación (`pitch`) con silla; impresión; suite completa. `validate_riding` (E08) no existe todavía: por ahora el informe es el propio `ReliefBuild`.
+
 ## Current Focus — Caballos compatibles: E05 tallado del caballo (2026-11-21, sobre main efe40b2 = E06 mergeada)
 `carve_horse` talla una copia del caballo con la herramienta «piernas completas dilatadas por la holgura» y mide el resultado contra los límites del plano 5.3. Se hizo a pedido directo del usuario, que con eso da por aceptada la puerta G0; **E00 (`tools/ecuestre_fase0.py`) sigue sin hacerse**.
 
