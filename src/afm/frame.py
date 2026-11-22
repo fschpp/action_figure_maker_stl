@@ -193,10 +193,13 @@ class FigureFrame:
             M, stats = _polish_trimmed(surf, M, Qi, keep)
             if best_stats is None or stats[0] < best_stats[0]:
                 best, best_stats = M, stats
-        mean, p95, mx, cover = _trimmed(surf, best, Q, keep, exact=True)
+        edge = _median_edge(Q0, QF)
+        tol = max(SIMILARITY_OK_MM, CUT_RES_FACTOR * edge)       # una pieza más gruesa que el FBX (o al revés) no puede calzar mejor que su malla
+        mean, p95, mx, cover = _trimmed(surf, best, Q, keep, exact=True, cover_mm=2 * tol)
         scale = float(np.cbrt(abs(np.linalg.det(best[:3, :3]))))
         rep = {"media_mm": mean, "p95_mm": p95, "max_mm": mx, "cubierta": cover, "iteraciones": CUT_ICP_ITER,
-               "ok": bool(mean <= SIMILARITY_OK_MM and cover >= CUT_MIN_COVER)}
+               "tolerancia_mm": tol, "arista_pieza_mm": edge,
+               "ok": bool(mean <= tol and cover >= CUT_MIN_COVER)}
         return cls(best, scale, rep)
 
 
@@ -307,7 +310,9 @@ def _icp_similarity(surf: _SourceSurface, M: np.ndarray, Q: np.ndarray, stats0):
 
 
 CUT_KEEP = 0.8                    # fracción de la superficie de la pieza que se compara (la que mejor calza): deja afuera tapa, hueco y agujeros
-CUT_MIN_COVER = 0.6              # fracción mínima de la pieza a menos de 2·SIMILARITY_OK_MM del FBX para dar la alineación por buena
+CUT_MIN_COVER = 0.6              # fracción mínima de la pieza a menos de 2·tolerancia del FBX para dar la alineación por buena
+CUT_RES_FACTOR = 0.75            # la tolerancia de la pieza recortada sube a esta fracción de su arista mediana: el STL de una cabeza «de más
+                                 # calidad» suele ser OTRA malla (otro diezmado) que la del FBX y se aparta ~media arista aunque sea la misma forma
 CUT_PIECE_SAMPLES = 4000          # muestras de la superficie de la pieza
 CUT_SOURCE_SAMPLES = 80_000       # muestras de la superficie del FBX
 CUT_COARSE_POINTS = 400          # muestras con las que se puntúa cada arranque
@@ -319,7 +324,16 @@ CUT_ICP_POINTS = 900             # muestras de la pieza que entran al ICP y al a
 CUT_ICP_ITER = 40
 
 
-def _trimmed(surf: _SourceSurface, M: np.ndarray, Q: np.ndarray, keep: float, exact: bool = False):
+def _median_edge(V: np.ndarray, F) -> float:
+    """Arista mediana (mm) de la malla `(V, F)`; 0 si no hay caras."""
+    if F is None or len(F) == 0:
+        return 0.0
+    T = np.asarray(V, float)[np.asarray(F, np.int64)]
+    e = np.concatenate([np.linalg.norm(T[:, i] - T[:, (i + 1) % 3], axis=1) for i in range(3)])
+    return float(np.median(e))
+
+
+def _trimmed(surf: _SourceSurface, M: np.ndarray, Q: np.ndarray, keep: float, exact: bool = False, cover_mm: float | None = None):
     """(media, p95, máx, cubierta) en el marco del destino de la fracción `keep` de `Q` que más se acerca a la superficie de la fuente (con `M`).
     `exact=False` mide contra la muestra más cercana (rápido, para puntuar arranques y vueltas de ICP); `exact=True`, contra el triángulo."""
     s = float(np.cbrt(abs(np.linalg.det(M[:3, :3]))))
@@ -327,7 +341,8 @@ def _trimmed(surf: _SourceSurface, M: np.ndarray, Q: np.ndarray, keep: float, ex
     d = np.sort((surf.distance(Qs) if exact else surf.tree.query(Qs)[0]) * s)
     n = max(1, int(np.ceil(keep * len(d))))
     best = d[:n]
-    return float(best.mean()), float(np.percentile(best, 95)), float(best.max()), float((d <= 2 * SIMILARITY_OK_MM).mean())
+    cover_mm = 2 * SIMILARITY_OK_MM if cover_mm is None else cover_mm
+    return float(best.mean()), float(np.percentile(best, 95)), float(best.max()), float((d <= cover_mm).mean())
 
 
 def _icp_trimmed(surf: _SourceSurface, M: np.ndarray, Q: np.ndarray, keep: float, iters: int = CUT_ICP_ITER):

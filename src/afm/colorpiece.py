@@ -72,7 +72,7 @@ def align_fbx_to_piece(tm: TexturedMesh, piece_stl, *, refine: bool | None = Non
     frame.report["ok"] = bool(frame.report["media_mm"] <= ok_mm)
     if not frame.report["ok"] and cut:
         alt = FigureFrame.from_cut_piece_similarity(tm.vertices, piece_stl, source_faces=tm.faces)
-        alt.report["ok"] = bool(alt.report["media_mm"] <= ok_mm and alt.report.get("cubierta", 0.0) >= CUT_MIN_COVER)
+        alt.report["ok"] = bool(alt.report["ok"] or (alt.report["media_mm"] <= ok_mm and alt.report.get("cubierta", 0.0) >= CUT_MIN_COVER))
         alt.report["recortada"] = True
         if alt.report["ok"]:
             return alt

@@ -187,9 +187,9 @@ def test_registration_finds_the_piece_in_a_scaled_rotated_fbx(res, params, meshe
 
 
 # ------------------------------------------------------------------ pieza recortada (cabeza cortada en la base, con tapa y hueca)
-def _bumpy_head():
+def _bumpy_head(subdivisions=4):
     """Cabeza sintética asimétrica (esfera con bultos distintos) como `TexturedMesh` con textura de color."""
-    sph = trimesh.creation.icosphere(subdivisions=4, radius=15.0)
+    sph = trimesh.creation.icosphere(subdivisions=subdivisions, radius=15.0)
     v = sph.vertices.copy()
     v[:, 0] *= 0.9
     v[:, 1] *= 1.05
@@ -224,3 +224,17 @@ def test_align_cut_fallback_still_rejects_other_shape():
     sphere = trimesh.creation.icosphere(subdivisions=3, radius=6.0)
     with pytest.raises(PieceColorError, match="no coincide"):
         align_fbx_to_piece(arm, sphere)
+
+
+def test_align_accepts_a_cut_head_with_a_coarser_mesh_than_the_fbx():
+    """La cabeza «de más calidad» del catálogo es otra malla (más gruesa) que la del FBX: misma forma, vértices en otros lugares. Con la
+    tolerancia fija de 0,1 mm no calzaba; la de la pieza recortada sigue la arista de la pieza."""
+    head = _bumpy_head(4)                                   # el FBX
+    coarse = _stl(_bumpy_head(2))                           # la pieza: la misma forma con otra malla, bastante más gruesa
+    piece = trimesh.intersections.slice_mesh_plane(coarse, [0, 0, 1], [0, 0, -6], cap=True)
+    G = _sim(Rotation.from_euler("xyz", [-15, 25, 70], degrees=True).as_matrix(), 0.7, (2, 3, -4))
+    piece.apply_transform(G)
+    fr = align_fbx_to_piece(head, piece)
+    assert fr.report["ok"] and fr.report["recortada"] is True
+    assert fr.report["tolerancia_mm"] > 0.1 and fr.report["media_mm"] <= fr.report["tolerancia_mm"]
+    assert np.abs(fr.apply(head.vertices[:300]) - trimesh.transform_points(head.vertices[:300], G)).max() < 1.0
