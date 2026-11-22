@@ -391,7 +391,8 @@ class Catalog:
         return P.read_piece(self._dir(m.tipo), m.id, m.version, check_hash)
 
     def add_piece(self, mesh, meta: P.PieceMeta, new_version: bool = False,
-                  color_fbx: str | None = None, color_roles=None, similarity=None) -> tuple[P.PieceMeta, list[str]]:
+                  color_fbx: str | None = None, color_roles=None, similarity=None, alignment=None,
+                  front_confirmed: bool = False) -> tuple[P.PieceMeta, list[str]]:
         """Guarda una pieza. Si el id ya existe hace falta `new_version=True` (crea la versión siguiente); nunca sobrescribe.
 
         Devuelve (meta ya completa con hash y volumen, avisos). Avisa si la altura de la figura de origen difiere de la
@@ -406,7 +407,11 @@ class Catalog:
         paleta de la línea: si falta alguno (o la línea no tiene paleta) es `CatalogError` y **no se escribe nada**. `similarity` (4×4 FBX → STL de
         la pieza) viene de quien llama: para una pieza recortada de una figura es la matriz FBX → figura entera (no la alineación por momentos, que no
         calza con un trozo: plan §5.7); sin ella se calcula con `colorpiece.align_fbx_to_piece`, que solo sirve para una pieza completa. `color_fbx` y
-        `color_roles` no se pueden dar juntos."""
+        `color_roles` no se pueden dar juntos.
+
+        `alignment` (O09): el `FigureFrame` que ya calculó quien llama (`colorpiece.align_roles_package`), para no alinear dos veces; se usa solo sin
+        `similarity`. `front_confirmed`: la persona vio que la cara del FBX quedó hacia atrás (o que no se pudo decidir) y pidió guardar igual; sin
+        esto una pieza `cabeza` con la cara al revés NO se guarda. La ficha anota `alineacion.frente_confirmado`."""
         existing = self.versions(meta.id)
         if existing and not new_version:
             raise CatalogError(f"«{meta.id}» ya existe (versiones {existing}): las piezas son inmutables; "
@@ -432,7 +437,7 @@ class Catalog:
             except (PieceColorError, FbxError, OSError) as exc:
                 raise CatalogError(f"el FBX de color de «{meta.id}» no sirve: {exc}") from exc
         elif color_roles is not None:
-            meta.color = self._roles_block(meta, mesh, color_roles, similarity)
+            meta.color = self._roles_block(meta, mesh, color_roles, similarity, alignment, front_confirmed)
             color_roles = self._fit_roles_package(meta, mesh, color_roles, warnings)
         elif meta.color:
             meta.color = None
@@ -441,9 +446,9 @@ class Catalog:
         self.write_index()
         return meta, warnings
 
-    def _roles_block(self, meta: P.PieceMeta, mesh, pkg, similarity) -> dict:
+    def _roles_block(self, meta: P.PieceMeta, mesh, pkg, similarity, alignment=None, front_confirmed: bool = False) -> dict:
         """Bloque `color` (modo `roles`) de una pieza con paquete de roles. No escribe nada: si algo no sirve levanta `CatalogError` antes."""
-        from .colorpiece import PieceColorError, align_fbx_to_piece
+        from .colorpiece import PieceColorError
         from .colorroles import RolesError
 
         pal = self.palette()
@@ -475,19 +480,35 @@ class Catalog:
             block["similitud"] = A.tolist()
             block["alineacion"] = {"origen": "figura"}      # la dio quien llama (matriz de la figura entera): no se midió contra esta pieza
         else:
+            from .colorpiece import PieceFrontError, align_roles_package, front_problem, _front_message
             try:
                 tmesh = P._as_trimesh(mesh)
-                front = None
-                if meta.tipo == "cabeza":                   # O05/O06: la cara del FBX tiene que quedar del lado del frente de la pieza
-                    from .colorpiece import front_hint
-                    front = front_hint(meta, tmesh, pkg)
-                frame = align_fbx_to_piece(pkg.to_textured(pal), tmesh, front=front)
+                try:
+                    if alignment is not None:               # O09: ya se calculó (y se mostró) antes de guardar; se valida igual que si se hubiera calculado acá
+                        frame = alignment
+                        if front_problem(frame.report):
+                            raise PieceFrontError(_front_message(frame.report), frame)
+                        if not frame.report.get("ok"):
+                            raise PieceColorError(f"el FBX no coincide con el STL de la pieza: distancia media {frame.report.get('media_mm', float('nan')):.3f} mm")
+                    else:
+                        frame = align_roles_package(meta, tmesh, pkg, pal)     # O05/O06: en una cabeza, la cara del FBX tiene que quedar del lado del frente
+                except PieceFrontError as exc:
+                    if not front_confirmed:
+                        raise
+                    frame = exc.frame                       # O09: la persona vio el aviso y confirmó guardar con la cara al revés
+                    frame.report["frente_confirmado"] = True
             except (PieceColorError, RolesError, PaletteError) as exc:
                 raise CatalogError(f"el paquete de roles de «{meta.id}» no coincide con la pieza: {exc}. Si la pieza es un trozo de una figura, "
                                    "pasá la similitud FBX → figura (`similarity=`)") from exc
             block["similitud"] = np.asarray(frame.matrix, float).tolist()
             block["alineacion"] = {k: (round(float(v), 4) if isinstance(v, float) else v) for k, v in frame.report.items()}
         return block
+
+    def fitted_roles(self, meta: P.PieceMeta, mesh, pkg) -> tuple:
+        """O09 · (paquete de roles tal como se guardaría, avisos) para una `meta` cuyo `color` ya trae `similitud` y `alineacion`. No escribe nada:
+        sirve para mostrar el color real de la pieza (con el ajuste no rígido y su compuerta) antes de guardarla."""
+        warnings: list[str] = []
+        return self._fit_roles_package(meta, mesh, pkg, warnings), warnings
 
     def _fit_roles_package(self, meta: P.PieceMeta, mesh, pkg, warnings: list[str]):
         """Paquete de roles listo para escribir. Si la alineación se midió contra esta pieza (no la dio quien llama) y el FBX no es la misma

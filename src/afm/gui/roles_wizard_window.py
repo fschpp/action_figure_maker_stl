@@ -21,7 +21,7 @@ from .catalog_manager import PreviewRenderer  # noqa: E402
 from .roles_wizard import RolesWizard, RolesWizardError  # noqa: E402
 
 DEFAULT_K = 10
-VIEWS = ("clusters", "roles")                      # vista previa: colores encontrados / roles elegidos
+VIEWS = ("clusters", "roles", "pieza")             # vista previa: colores encontrados / roles elegidos / la pieza con el color real (O09, tras «Probar en la pieza»)
 
 
 class RolesWizardWindow(Gtk.Window):
@@ -33,6 +33,7 @@ class RolesWizardWindow(Gtk.Window):
         self._on_saved = on_saved
         self._fbx = ""
         self._sim_path = ""
+        self._sim_cache: tuple | None = None    # (ruta, matriz) del JSON de similitud elegido: no se vuelve a leer en cada dibujo
         self._updating = False                  # se están poniendo valores en los widgets: no tomarlos como una decisión
         self._busy = False                      # analizando
         self._closed = False                    # la ventana ya se destruyó: ningún callback tardío (hilo, idle) debe tocarla
@@ -126,7 +127,7 @@ class RolesWizardWindow(Gtk.Window):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         row = Gtk.Box(spacing=6)
         row.append(Gtk.Label(label=tr("roles_wizard.vista_clusters") + " / " + tr("roles_wizard.vista_roles"), xalign=0.0, css_classes=["heading"]))
-        self.drop_view = Gtk.DropDown(model=Gtk.StringList.new([tr("roles_wizard.vista_clusters"), tr("roles_wizard.vista_roles")]))
+        self.drop_view = Gtk.DropDown(model=Gtk.StringList.new([tr("roles_wizard.vista_clusters"), tr("roles_wizard.vista_roles"), tr("roles_wizard.vista_pieza")]))
         self.drop_view.connect("notify::selected", lambda *_: self._render())
         row.append(self.drop_view)
         box.append(row)
@@ -145,6 +146,9 @@ class RolesWizardWindow(Gtk.Window):
         bar = Gtk.Box(spacing=8)
         self.lbl_status = Gtk.Label(xalign=0.0, hexpand=True, wrap=True)
         bar.append(self.lbl_status)
+        self.btn_try = Gtk.Button(label=tr("roles_wizard.probar"), tooltip_text=tr("roles_wizard.probar_ayuda"))
+        self.btn_try.connect("clicked", lambda *_: self._try_piece())
+        bar.append(self.btn_try)
         self.btn_save = Gtk.Button(label=tr("roles_wizard.guardar"), css_classes=["suggested-action"])
         self.btn_save.connect("clicked", lambda *_: self._save())
         bar.append(self.btn_save)
@@ -172,6 +176,8 @@ class RolesWizardWindow(Gtk.Window):
         self.btn_confirm.set_sensitive(ready and bool(self.wiz.unconfirmed()))
         ok_target = bool(self._refs) if to_piece else True
         self.btn_save.set_sensitive(ready and self.wiz.can_save and ok_target)
+        self.btn_try.set_visible(to_piece)
+        self.btn_try.set_sensitive(ready and self.wiz.can_save and bool(self._refs))
         if not self._busy:
             self._say(self.wiz.blockers() if self.wiz.loaded else tr("roles_wizard.sin_analisis"))
 
@@ -327,6 +333,7 @@ class RolesWizardWindow(Gtk.Window):
             except GLib.Error:
                 return
             self._sim_path = f.get_path()
+            self._sim_cache = None
             self.wiz.clear_similarity()                             # el JSON elegido reemplaza a la similitud calculada
             self.lbl_sim.set_text(os.path.basename(self._sim_path))
 
@@ -458,7 +465,11 @@ class RolesWizardWindow(Gtk.Window):
         if not self.wiz.loaded:
             self.picture.set_paintable(None)
             return
-        mode = VIEWS[min(self.drop_view.get_selected(), 1)] if self.drop_view.get_selected() != Gtk.INVALID_LIST_POSITION else VIEWS[0]
+        mode = VIEWS[min(self.drop_view.get_selected(), len(VIEWS) - 1)] if self.drop_view.get_selected() != Gtk.INVALID_LIST_POSITION else VIEWS[0]
+        if mode == "pieza":
+            self._render_piece()
+            return
+        self.lbl_preview.remove_css_class("error")
         key = (self._hl, mode, tuple((c, ch.kind, ch.role) for c, ch in sorted(self.wiz.choices.items())), id(self.wiz.proposal))
         try:
             if self._parts_cache is None or self._parts_cache[0] != key:
@@ -473,6 +484,29 @@ class RolesWizardWindow(Gtk.Window):
             self.lbl_preview.set_text(tr("palette_panel.sin_gl") + f" ({exc})")
             return
         self.lbl_preview.set_text("")
+        h, w = img.shape[:2]
+        self.picture.set_paintable(Gdk.MemoryTexture.new(w, h, Gdk.MemoryFormat.R8G8B8A8, GLib.Bytes.new(img.tobytes()), w * 4))
+
+    def _render_piece(self) -> None:
+        """O09 · La pieza con el color real tal como quedaría, con el aviso de hacia dónde quedó la cara. Solo vale mientras nada haya cambiado desde la prueba."""
+        chk = self.wiz.last_check
+        try:
+            fresh = chk is not None and chk.parts is not None and chk.ref == self._current_ref() and self.wiz.fresh_check(chk.ref, self._current_similarity()) is chk
+        except RolesWizardError:
+            fresh = False
+        if not fresh:
+            self.picture.set_paintable(None)
+            self.lbl_preview.remove_css_class("error")
+            self.lbl_preview.set_text(tr("roles_wizard.vista_desactualizada"))
+            return
+        try:
+            img = self.preview.render_parts(chk.parts, self._dyaw, self._dpitch)
+        except Exception as exc:                                     # noqa: BLE001  (sin EGL: el resto de la ventana sigue andando)
+            self.picture.set_paintable(None)
+            self.lbl_preview.set_text(tr("palette_panel.sin_gl") + f" ({exc})")
+            return
+        (self.lbl_preview.add_css_class if chk.needs_confirmation else self.lbl_preview.remove_css_class)("error")
+        self.lbl_preview.set_text("\n".join([chk.message] + list(chk.warnings or [])))
         h, w = img.shape[:2]
         self.picture.set_paintable(Gdk.MemoryTexture.new(w, h, Gdk.MemoryFormat.R8G8B8A8, GLib.Bytes.new(img.tobytes()), w * 4))
 
@@ -492,43 +526,153 @@ class RolesWizardWindow(Gtk.Window):
         except RolesWizardError as exc:
             self._error(exc)
 
-    def _save_piece(self) -> None:
+    def _current_ref(self) -> str | None:
         idx = self.drop_piece.get_selected()
-        if idx == Gtk.INVALID_LIST_POSITION or idx >= len(self._refs):
-            return
-        sim = self.wiz.similarity
-        if sim is None and self._sim_path:
+        return None if idx == Gtk.INVALID_LIST_POSITION or idx >= len(self._refs) else self._refs[idx]
+
+    def _current_similarity(self):
+        """La similitud FBX → figura calculada en la ventana o, si no hay, la del JSON elegido; `None` si no hay ninguna (se alinea con la pieza)."""
+        if self.wiz.similarity is not None:
+            return self.wiz.similarity
+        if not self._sim_path:
+            return None
+        if self._sim_cache is None or self._sim_cache[0] != self._sim_path:
             try:
                 with open(self._sim_path, encoding="utf-8") as fh:
                     sim = json.load(fh)
-                sim = sim.get("similitud", sim) if isinstance(sim, dict) else sim
             except (OSError, ValueError) as exc:
                 raise RolesWizardError(f"{self._sim_path}: {exc}") from exc
+            self._sim_cache = (self._sim_path, sim.get("similitud", sim) if isinstance(sim, dict) else sim)
+        return self._sim_cache[1]
+
+    def _try_piece(self) -> None:
+        """O09 · «Probar en la pieza»: alinea el FBX con la pieza y la muestra con el color real y el aviso del frente, sin guardar nada."""
+        ref = self._current_ref()
+        if ref is None or self._busy or not self.wiz.can_save:
+            return
+        try:
+            sim = self._current_similarity()
+        except RolesWizardError as exc:
+            self._error(exc)
+            return
+        self._busy = True
+        self.btn_try.set_sensitive(False)
+        self.btn_save.set_sensitive(False)
+        self._say(tr("roles_wizard.probando"))
+
+        def work():
+            try:
+                chk, err = self.wiz.check_piece(ref, sim, preview=True), None
+            except Exception as exc:                                 # noqa: BLE001  (se muestra en la ventana)
+                chk, err = None, exc
+            GLib.idle_add(self._tried, chk, err, sim is None)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _show_check(self, chk) -> None:
+        """Pone la vista previa en «Pieza con el color» y dibuja la prueba `chk`."""
+        if self.drop_view.get_selected() != VIEWS.index("pieza"):
+            self.drop_view.set_selected(VIEWS.index("pieza"))        # dispara `_render`
+        else:
+            self._render()
+        self._say(tr("roles_wizard.probada", ref=chk.ref, mensaje=chk.message))
+
+    def _tried(self, chk, err, no_sim: bool) -> bool:
+        self._busy = False
+        if self._closed:
+            return False
+        self._refresh()
+        if err is not None:
+            self._error(self._with_sim_hint(err, no_sim))
+            return False
+        self._show_check(chk)
+        return False
+
+    @staticmethod
+    def _with_sim_hint(err, no_sim: bool):
+        if no_sim and isinstance(err, RolesWizardError) and "similarity" in str(err):        # pieza recortada de una figura: el error pedía la similitud
+            return RolesWizardError(f"{err}\n\n{tr('roles_wizard.sim_pista')}")
+        return err
+
+    def _save_piece(self) -> None:
+        """O09 · Guardar en una pieza: primero se prueba (se alinea y se muestra el resultado) y solo se guarda si la cara quedó bien; si quedó hacia atrás
+        (o no se pudo decidir) se pide confirmación explícita."""
+        ref = self._current_ref()
+        if ref is None or self._busy:
+            return
+        sim = self._current_similarity()                              # puede levantar `RolesWizardError`: lo muestra `_save`
+        self._busy = True
+        self.btn_save.set_sensitive(False)
+        self.btn_try.set_sensitive(False)
+        self._say(tr("roles_wizard.probando"))
+
+        def work():
+            try:
+                chk, err = self.wiz.check_piece(ref, sim, preview=True), None
+            except Exception as exc:                                 # noqa: BLE001  (se muestra en la ventana)
+                chk, err = None, exc
+            GLib.idle_add(self._checked_for_save, chk, err, ref, sim)
+
+        threading.Thread(target=work, daemon=True).start()          # alinear el FBX con la pieza puede tardar: no se congela la ventana
+
+    def _checked_for_save(self, chk, err, ref: str, sim) -> bool:
+        self._busy = False
+        if self._closed:
+            return False
+        self._refresh()
+        if err is not None:
+            self._error(self._with_sim_hint(err, sim is None))
+            return False
+        self._show_check(chk)
+        if chk.needs_confirmation:
+            self._confirm_front(chk, ref, sim)
+        else:
+            self._start_save(ref, sim, False)
+        return False
+
+    def _confirm_front(self, chk, ref: str, sim) -> None:
+        """La cara quedó hacia atrás o no se pudo decidir: no se guarda sin que la persona lo confirme (por defecto, cancelar)."""
+        dlg = Gtk.AlertDialog(message=tr("roles_wizard.frente_confirmar", mensaje=chk.message),
+                              buttons=[tr("common.cancelar"), tr("roles_wizard.guardar_igual")], cancel_button=0, default_button=0)
+
+        def answered(d, res):
+            try:
+                i = d.choose_finish(res)
+            except GLib.Error:
+                i = 0
+            if self._closed:
+                return
+            if i == 1:
+                self._start_save(ref, sim, True)
+            else:
+                self._say(tr("roles_wizard.frente_no_guardado", mensaje=chk.message))
+
+        dlg.choose(self, None, answered)
+
+    def _start_save(self, ref: str, sim, confirm_front: bool) -> None:
         if self._busy:
             return
         self._busy = True
         self.btn_save.set_sensitive(False)
+        self.btn_try.set_sensitive(False)
         self._say(tr("roles_wizard.guardando_pieza"))
-        ref = self._refs[idx]
 
         def work():
             try:
-                new, err = self.wiz.save_piece(ref, sim), None
+                new, err = self.wiz.save_piece(ref, sim, confirm_front=confirm_front), None
             except Exception as exc:                                 # noqa: BLE001  (se muestra en la ventana)
                 new, err = None, exc
             GLib.idle_add(self._piece_saved, new, err, sim is None)
 
-        threading.Thread(target=work, daemon=True).start()          # alinear el FBX con la pieza puede tardar: no se congela la ventana
+        threading.Thread(target=work, daemon=True).start()
 
     def _piece_saved(self, new, err, no_sim: bool) -> bool:
         self._busy = False
         if self._closed:
             return False
         if err is not None:
-            if no_sim and isinstance(err, RolesWizardError) and "similarity" in str(err):    # pieza recortada de una figura: el error pedía la similitud
-                err = RolesWizardError(f"{err}\n\n{tr('roles_wizard.sim_pista')}")
             self._refresh()
-            self._error(err)
+            self._error(self._with_sim_hint(err, no_sim))
             return False
         self._refresh()
         self._after_saved(tr("roles_wizard.guardada_pieza", ref=new.ref, roles=", ".join(new.color.get("roles", []))))

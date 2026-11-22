@@ -9,7 +9,10 @@ Reglas (plan §11, R-1): nada se asigna solo. Los clusters que **proponen** un r
 hay que confirmarlos (`confirm`/`confirm_suggestions`) o cambiarlos; con clusters sin decidir o sin confirmar no se puede guardar. Al guardar
 se suman como **anclas** del rol los colores de los clusters asignados (hasta `MAX_ANCHORS`; las anclas que ya tenía no se tocan) y se crean los
 roles nuevos; la paleta se escribe antes que la pieza (la pieza exige que sus roles existan) y **se restituye si guardar la pieza falla**.
-`PIL`/`trimesh` no se importan al cargar el módulo (R3)."""
+`PIL`/`trimesh` no se importan al cargar el módulo (R3).
+
+O09 · Antes de guardar en una pieza, `check_piece(ref)` la alinea y muestra el resultado (`PieceCheck`: hacia dónde quedó la cara del FBX y la pieza con el
+color real). Si la cara de una cabeza quedó hacia atrás (o no se pudo decidir), `save_piece` **no guarda** salvo que se pase `confirm_front=True`."""
 from __future__ import annotations
 
 import os
@@ -27,6 +30,29 @@ DIM_TO = (215, 215, 215)
 
 class RolesWizardError(ValueError):
     """Lo pedido no se puede hacer (rol inexistente, clusters sin decidir, sin catálogo…). El mensaje está listo para mostrarse."""
+
+
+@dataclass
+class PieceCheck:
+    """O09 · Resultado de alinear el FBX con una pieza, antes de guardar. `matrix`: 4×4 FBX → pieza. `frente_ok`: `True` la cara quedó del lado del frente de la
+    pieza, `False` hacia atrás, `None` no se pudo comprobar (no es una cabeza, o el FBX no tiene rol de piel). `parts`: la pieza con el color real,
+    `[(nombre, malla, rgba)]` para `PreviewRenderer.render_parts` (solo con `preview=True`). `message`: texto listo para mostrar."""
+    ref: str
+    matrix: list
+    report: dict
+    frente_ok: bool | None
+    angulo_deg: float | None
+    ambigua: bool
+    message: str
+    frame: object = None                         # `FigureFrame` calculado acá (`None` si la similitud la dio quien llama)
+    parts: list | None = None
+    warnings: list | None = None
+    key: tuple = ()
+
+    @property
+    def needs_confirmation(self) -> bool:
+        """La cara quedó hacia atrás o no se pudo decidir: guardar así exige confirmación explícita."""
+        return self.frente_ok is False or self.ambigua
 
 
 @dataclass
@@ -52,6 +78,7 @@ class RolesWizard:
         self.warnings: list[str] = []
         self.similarity: list | None = None          # 4×4 FBX → figura calculada desde la GUI (`compute_similarity`); `save_piece` la usa si no se pasa otra
         self.similarity_info: dict = {}
+        self.last_check: PieceCheck | None = None    # O09: la última prueba en una pieza (se descarta si cambian las decisiones, el FBX o la similitud)
 
     # ------------------------------------------------------------------ catálogo y paleta
     def _cat(self):
@@ -103,6 +130,7 @@ class RolesWizard:
         self.origen = dict(origen or {})
         self.fbx_path = ""
         self.warnings = []
+        self.last_check = None
         self.choices = {c: Choice("role", s, confirmed=False) for c, s in enumerate(self.proposal.suggested) if s is not None}
 
     def _need_loaded(self) -> None:
@@ -299,10 +327,99 @@ class RolesWizard:
     def clear_similarity(self) -> None:
         self.similarity, self.similarity_info = None, {}
 
-    def save_piece(self, ref: str, similarity=None):
+    def _check_key(self, ref: str, similarity) -> tuple:
+        """Identifica lo que se probó: pieza, análisis, decisiones y similitud. Si algo cambia, la prueba anterior ya no vale."""
+        sim = None if similarity is None else tuple(np.round(np.asarray(similarity, float).ravel(), 9).tolist())
+        return (ref, id(self.proposal), tuple((c, ch.kind, ch.role) for c, ch in sorted(self.choices.items())), sim)
+
+    def fresh_check(self, ref: str, similarity=None) -> PieceCheck | None:
+        """La última prueba si sigue valiendo para `ref` con las decisiones y la similitud de ahora; si no, `None`."""
+        if similarity is None:
+            similarity = self.similarity
+        c = self.last_check
+        return c if c is not None and self.loaded and c.key == self._check_key(ref, similarity) else None
+
+    def check_piece(self, ref: str, similarity=None, preview: bool = False) -> PieceCheck:
+        """O09 · Alinea el FBX con la pieza `ref` y dice hacia dónde quedó la cara, SIN guardar nada (puede tardar ≈10 s: se llama desde un hilo).
+
+        Con `similarity` (4×4 FBX → figura entera, para piezas recortadas de una figura) no se alinea: se usa esa matriz y, en una cabeza, se mide hacia
+        dónde queda la cara con ella. Con `preview=True` además se arma la pieza con el color real (`parts`), con el mismo ajuste no rígido que se aplicaría
+        al guardar. Si el FBX no calza con la pieza levanta `RolesWizardError`. Reusa la prueba anterior si nada cambió."""
+        from .. import parts as P
+        from ..catalog import CatalogError
+        from ..colorpiece import PieceColorError, PieceFrontError, align_roles_package, front_hint
+        from ..colorroles import RolesError
+        from ..frame import FRONT_MAX_DEG
+
+        if not self.can_save:
+            raise RolesWizardError(self.blockers())
+        if similarity is None:
+            similarity = self.similarity
+        key = self._check_key(ref, similarity)
+        old = self.last_check
+        if old is not None and old.key == key and (old.parts is not None or not preview):
+            return old
+        cat = self._cat()
+        try:
+            meta, mesh = cat.load(ref)
+            pkg, pal = self.package(), self.final_palette()
+            tmesh = P._as_trimesh(mesh)
+            frame = None
+            if similarity is None:
+                try:
+                    frame = align_roles_package(meta, tmesh, pkg, pal)
+                except PieceFrontError as exc:             # calza, pero la cara quedó hacia atrás o no se pudo decidir: se muestra igual
+                    frame = exc.frame
+                matrix, report = np.asarray(frame.matrix, float), dict(frame.report)
+            else:
+                matrix, report = np.asarray(similarity, float), {}
+                if matrix.shape != (4, 4) or not np.all(np.isfinite(matrix)):
+                    raise RolesWizardError(tr("roles_wizard.sim_invalida"))
+                if meta.tipo == "cabeza":
+                    ang, vec = front_hint(meta, tmesh, pkg).angle(matrix)
+                    report = {"frente_ok": None if ang is None else bool(ang < FRONT_MAX_DEG), "frente": {"angulo_deg": None if ang is None else round(ang, 1)}}
+        except (CatalogError, P.PieceError, PieceColorError, RolesError, ValueError) as exc:
+            if isinstance(exc, RolesWizardError):
+                raise
+            raise RolesWizardError(tr("roles_wizard.no_calza_pieza", ref=ref, error=exc)) from exc
+        ok_front = report.get("frente_ok")
+        ang = (report.get("frente") or {}).get("angulo_deg")
+        ambigua = bool(report.get("ambigua"))
+        shown = "?" if ang is None else f"{ang:.0f}"
+        if ambigua:
+            msg = tr("roles_wizard.frente_ambigua")
+        elif ok_front is False:
+            msg = tr("roles_wizard.frente_mal", ang=shown)
+        elif ok_front is True:
+            msg = tr("roles_wizard.frente_bien", ang=shown)
+        elif meta.tipo == "cabeza":
+            msg = tr("roles_wizard.frente_sin_dato")
+        else:
+            msg = tr("roles_wizard.frente_no_aplica")
+        chk = PieceCheck(ref, matrix.tolist(), report, ok_front, ang, ambigua, msg, frame=frame, key=key)
+        if preview:
+            chk.parts, chk.warnings = self._real_color_parts(cat, meta, mesh, tmesh, pkg, pal, matrix, report)
+        self.last_check = chk
+        return chk
+
+    @staticmethod
+    def _real_color_parts(cat, meta, mesh, tmesh, pkg, pal, matrix, report) -> tuple[list, list]:
+        """(`[(nombre, malla, rgba)]`, avisos): la pieza con el color real, con el ajuste no rígido (y su compuerta) que se aplicaría al guardar."""
+        from .. import parts as P
+        from ..colorpreview import color_parts
+
+        probe = P.PieceMeta.from_dict(meta.to_dict())
+        probe.color = {"similitud": matrix.tolist(), "alineacion": dict(report)}
+        fitted, warns = cat.fitted_roles(probe, mesh, pkg)
+        return color_parts(fitted.to_textured(pal).transformed(matrix), tmesh), list(warns)
+
+    def save_piece(self, ref: str, similarity=None, confirm_front: bool = False):
         """Guarda una **versión nueva** de la pieza `ref` con este color por roles (como `afm catalogo color`). `similarity`: 4×4 FBX → figura
         entera para una pieza recortada de una figura; sin ella se alinea por momentos (solo sirve con una pieza completa, plan §5.7).
-        Devuelve la `PieceMeta` nueva. Si algo falla no queda nada escrito (ni la paleta)."""
+        Devuelve la `PieceMeta` nueva. Si algo falla no queda nada escrito (ni la paleta).
+
+        O09: si en una cabeza la cara del FBX quedó hacia atrás (o no se pudo decidir hacia dónde mira) NO se guarda, salvo que se pase
+        `confirm_front=True` (la persona vio el aviso y eligió guardar igual; la ficha anota `alineacion.frente_confirmado`)."""
         from .. import parts as P
         from ..catalog import CatalogError
 
@@ -310,6 +427,9 @@ class RolesWizard:
             raise RolesWizardError(self.blockers())
         if similarity is None:
             similarity = self.similarity
+        chk = self.check_piece(ref, similarity)
+        if chk.needs_confirmation and not confirm_front:
+            raise RolesWizardError(tr("roles_wizard.frente_no_guardado", mensaje=chk.message))
         cat = self._cat()
         try:
             meta, mesh = cat.load(ref)
@@ -318,13 +438,15 @@ class RolesWizard:
         pkg = self.package()
 
         def action():
-            return cat.add_piece(mesh, P.PieceMeta.from_dict(meta.to_dict()), new_version=True, color_roles=pkg, similarity=similarity)
+            return cat.add_piece(mesh, P.PieceMeta.from_dict(meta.to_dict()), new_version=True, color_roles=pkg, similarity=similarity,
+                                 alignment=chk.frame if similarity is None else None, front_confirmed=bool(confirm_front and chk.needs_confirmation))
 
         try:
             new, warns = self._with_palette(cat, action)
         except (CatalogError, P.PieceError) as exc:
             raise RolesWizardError(str(exc)) from exc
         self.warnings = list(warns)
+        self.last_check = None
         return new
 
     def save_figure(self, path: str) -> str:

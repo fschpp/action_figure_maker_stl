@@ -29,6 +29,15 @@ class PieceColorError(ValueError):
     """El FBX de la pieza no se puede usar como su fuente de color (no coincide con el STL, o no trae textura de color)."""
 
 
+class PieceFrontError(PieceColorError):
+    """O09 · El FBX calza con la pieza pero la cara quedó hacia atrás (o no se puede decidir hacia dónde mira). Lleva el `FigureFrame` calculado (`.frame`)
+    para poder mostrarlo antes de guardar y, si la persona lo confirma, guardarlo igual."""
+
+    def __init__(self, message: str, frame: FigureFrame):
+        super().__init__(message)
+        self.frame = frame
+
+
 class PaletteRolesError(PieceColorError):
     """La paleta de la línea no sirve para colorear por roles las piezas elegidas (no hay paleta, no se puede leer o le faltan roles).
 
@@ -168,13 +177,25 @@ def align_fbx_to_piece(tm: TexturedMesh, piece_stl, *, refine: bool | None = Non
         if alt.report["ok"]:
             return alt
         if require_ok and calza and (alt.report.get("frente_ok") is False or alt.report.get("ambigua")):
-            raise PieceColorError(_front_message(alt.report))
+            raise PieceFrontError(_front_message(alt.report), alt)
     if require_ok and frame.report.get("frente_ok") is False and frame.report["media_mm"] <= ok_mm:
-        raise PieceColorError(_front_message(frame.report))
+        raise PieceFrontError(_front_message(frame.report), frame)
     if require_ok and not frame.report["ok"]:
         raise PieceColorError(f"el FBX no coincide con el STL de la pieza: distancia media {frame.report['media_mm']:.3f} mm "
                               f"(máximo aceptado {ok_mm:g} mm)")
     return frame
+
+
+def front_problem(report: dict) -> bool:
+    """O09 · ¿El informe de una alineación dice que la cara quedó hacia atrás o que no se pudo decidir hacia dónde mira?"""
+    return report.get("frente_ok") is False or bool(report.get("ambigua"))
+
+
+def align_roles_package(meta, piece_stl, pkg, palette, *, require_ok: bool = True) -> FigureFrame:
+    """Alinea el paquete de roles `pkg` (con `palette`) con el STL de la pieza `piece_stl`. Para una pieza `cabeza` (`meta.tipo`) pasa la pista de frente
+    (O05): la cara del FBX tiene que quedar del lado del frente. Es lo que hace `Catalog` al guardar y lo que muestra el asistente de roles antes de guardar."""
+    front = front_hint(meta, piece_stl, pkg) if getattr(meta, "tipo", None) == "cabeza" else None
+    return align_fbx_to_piece(pkg.to_textured(palette), piece_stl, front=front, require_ok=require_ok)
 
 
 def _front_message(rep: dict) -> str:
