@@ -2165,7 +2165,10 @@
   "region_no": "No se pudo saber qué parte del FBX tiene la pieza «%{ref}»: los colores se agruparon sobre el FBX entero.",
   "analizando_pieza": "Alineando el FBX con la pieza y agrupando los colores de lo que la pieza tiene… puede tardar un rato",
   "analizado_pieza": "Colores agrupados sobre «%{ref}»: %{n} colores, %{pct}% del FBX es de la pieza.",
-  "roles_quitados": "No se guardan por cubrir menos del 0,5 % de la pieza: %{roles}"
+  "roles_quitados": "No se guardan por cubrir menos del 0,5 % de la pieza: %{roles}",
+  "frente_girada": "El calce solo prefería la cabeza con la cara hacia atrás (por %{margen} mm); se giró 180° para poner la cara del lado del frente de la pieza (ángulo %{ang}°). Mirá la vista previa antes de guardar.",
+  "frente_girada_confirmar": "%{mensaje}\n\n¿Guardar la pieza con la cara hacia adelante, como quedó girada?",
+  "guardar_asi": "Guardar así"
  },
  "ride_pick": {
   "fuera": "El clic cayó fuera del caballo: marcá un punto del lomo a la vista.",

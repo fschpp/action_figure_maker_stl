@@ -2165,7 +2165,10 @@
   "region_no": "Não foi possível saber qual parte do FBX a peça «%{ref}» tem: as cores foram agrupadas sobre o FBX inteiro.",
   "analizando_pieza": "Alinhando o FBX com a peça e agrupando as cores do que a peça tem… pode demorar um pouco",
   "analizado_pieza": "Cores agrupadas sobre «%{ref}»: %{n} cores, %{pct}% do FBX é da peça.",
-  "roles_quitados": "Não são salvos por cobrirem menos de 0,5 % da peça: %{roles}"
+  "roles_quitados": "Não são salvos por cobrirem menos de 0,5 % da peça: %{roles}",
+  "frente_girada": "O ajuste sozinho preferia a cabeça com o rosto para trás (por %{margen} mm); foi girada 180° para pôr o rosto do lado da frente da peça (ângulo %{ang}°). Veja a pré-visualização antes de salvar.",
+  "frente_girada_confirmar": "%{mensaje}\n\nSalvar a peça com o rosto para a frente, como foi girada?",
+  "guardar_asi": "Salvar assim"
  },
  "ride_pick": {
   "fuera": "O clique caiu fora do cavalo: marque um ponto do lombo à vista.",

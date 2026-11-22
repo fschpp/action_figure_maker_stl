@@ -20,6 +20,7 @@ from test_gui_roles_wizard import HEAD_ID, decide_by_color, head_mesh, line, mak
 REF = f"{HEAD_ID}@1"
 BACK = {"ok": False, "media_mm": 0.3, "frente_ok": False, "frente": {"fbx": [0, -1, 0], "pieza": [0, 1, 0], "angulo_deg": 163.0}, "ambigua": False}
 FORWARD = {"ok": True, "media_mm": 0.05, "frente_ok": True, "frente": {"fbx": [0, 1, 0], "pieza": [0, 1, 0], "angulo_deg": 5.0}, "ambigua": False}
+TURNED = {**FORWARD, "yaw180": {"media_alt_mm": 0.31, "margen_mm": 0.11, "girada": True}}      # la cara quedó bien, pero el motor tuvo que girar la pose 180° para lograrlo
 AMBIGUOUS = {"ok": False, "media_mm": 0.05, "frente_ok": None, "frente": {}, "ambigua": True, "yaw180": {"margen_mm": 0.02}}
 
 
@@ -174,3 +175,27 @@ def test_a_fbx_that_does_not_fit_the_piece_is_an_error_not_a_confirmation(wiz, m
 def test_front_problem_helper():
     assert colorpiece.front_problem({"frente_ok": False}) and colorpiece.front_problem({"ambigua": True})
     assert not colorpiece.front_problem({"frente_ok": True}) and not colorpiece.front_problem({"frente_ok": None}) and not colorpiece.front_problem({})
+
+
+def test_a_pose_the_program_had_to_turn_is_always_asked_about(wiz, line, fake_align):
+    """«Siempre preguntar»: si el calce prefería la cabeza con la cara atrás y el motor la giró 180° por su cuenta, no se guarda sin confirmación, aunque la cara
+    haya quedado de frente (`frente_ok`)."""
+    fake_align["report"] = TURNED
+    n = len(versions(line))
+    chk = wiz.check_piece(REF)
+    assert chk.frente_ok is True and chk.girada and chk.needs_confirmation and chk.margen_mm == pytest.approx(0.11)
+    assert "giró 180" in chk.message and "0.11" in chk.message.replace(",", ".") and "5" in chk.message
+    with pytest.raises(RW.RolesWizardError, match="No se guardó"):
+        wiz.save_piece(REF)
+    assert len(versions(line)) == n
+    new = wiz.save_piece(REF, confirm_front=True)
+    assert new.version == n + 1
+    meta, _ = Catalog.open(line).load(f"{HEAD_ID}@{new.version}")
+    assert meta.color["alineacion"].get("giro_confirmado") is True and meta.color["alineacion"]["yaw180"]["girada"] is True
+
+
+def test_a_pose_that_needed_no_turn_saves_without_asking(wiz, line, fake_align):
+    fake_align["report"] = {**FORWARD, "yaw180": {"media_alt_mm": 0.5, "margen_mm": 0.2, "girada": False}}
+    chk = wiz.check_piece(REF)
+    assert not chk.girada and not chk.needs_confirmation
+    assert wiz.save_piece(REF).version == len(versions(line))

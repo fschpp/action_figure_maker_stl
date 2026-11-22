@@ -53,11 +53,14 @@ class PieceCheck:
     parts: list | None = None
     warnings: list | None = None
     key: tuple = ()
+    girada: bool = False                          # el motor giró 180° la pose que mejor calzaba para poner la cara de frente (`alineacion.yaw180.girada`)
+    margen_mm: float | None = None                # cuánto mejor calzaba la pose sin girar (`alineacion.yaw180.margen_mm`)
 
     @property
     def needs_confirmation(self) -> bool:
-        """La cara quedó hacia atrás o no se pudo decidir: guardar así exige confirmación explícita."""
-        return self.frente_ok is False or self.ambigua
+        """Guardar exige confirmación explícita si la cara quedó hacia atrás, si no se pudo decidir hacia dónde mira, o si el programa tuvo que **girar** la pose
+        180° por su cuenta para ponerla de frente (siempre se pregunta: no se corrige solo)."""
+        return self.frente_ok is False or self.ambigua or self.girada
 
 
 @dataclass
@@ -435,7 +438,12 @@ class RolesWizard:
         ang = (report.get("frente") or {}).get("angulo_deg")
         ambigua = bool(report.get("ambigua"))
         shown = "?" if ang is None else f"{ang:.0f}"
-        if ambigua:
+        yaw = report.get("yaw180") or {}
+        girada = bool(yaw.get("girada")) and ok_front is True
+        margen = yaw.get("margen_mm")
+        if girada:
+            msg = tr("roles_wizard.frente_girada", ang=shown, margen=("?" if margen is None else f"{float(margen):.2f}"))
+        elif ambigua:
             msg = tr("roles_wizard.frente_ambigua")
         elif ok_front is False:
             msg = tr("roles_wizard.frente_mal", ang=shown)
@@ -445,7 +453,8 @@ class RolesWizard:
             msg = tr("roles_wizard.frente_sin_dato")
         else:
             msg = tr("roles_wizard.frente_no_aplica")
-        chk = PieceCheck(ref, matrix.tolist(), report, ok_front, ang, ambigua, msg, frame=frame, key=key)
+        chk = PieceCheck(ref, matrix.tolist(), report, ok_front, ang, ambigua, msg, frame=frame, key=key, girada=girada,
+                         margen_mm=None if margen is None else float(margen))
         if preview:
             chk.parts, chk.warnings = self._real_color_parts(cat, meta, mesh, tmesh, pkg, pal, matrix, report)
         self.last_check = chk
@@ -479,6 +488,8 @@ class RolesWizard:
         chk = self.check_piece(ref, similarity)
         if chk.needs_confirmation and not confirm_front:
             raise RolesWizardError(tr("roles_wizard.frente_no_guardado", mensaje=chk.message))
+        if chk.girada and confirm_front and chk.frame is not None:
+            chk.frame.report["giro_confirmado"] = True               # la persona vio que la pose se giró 180° y lo aceptó: queda anotado en la ficha
         cat = self._cat()
         try:
             meta, mesh = cat.load(ref)

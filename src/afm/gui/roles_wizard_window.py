@@ -468,6 +468,8 @@ class RolesWizardWindow(Gtk.Window):
         if err is not None:
             self._error(err)
         self._rebuild()
+        if err is None and self.wiz.region is None and self.wiz.warnings:        # O10: la pieza no es una cabeza (o no calzó): se agrupó sobre el FBX entero y se dice
+            self._say(" ".join(self.wiz.warnings))
         if err is None and self.wiz.region is not None:
             share = 100.0 * float(np.count_nonzero(self.wiz.region)) / max(1, self.wiz.region.size)
             self._say(tr("roles_wizard.analizado_pieza", ref=self.wiz.region_ref, n=self.wiz.proposal.k, pct=f"{share:.0f}"))
@@ -649,9 +651,11 @@ class RolesWizardWindow(Gtk.Window):
         return False
 
     def _confirm_front(self, chk, ref: str, sim) -> None:
-        """La cara quedó hacia atrás o no se pudo decidir: no se guarda sin que la persona lo confirme (por defecto, cancelar)."""
-        dlg = Gtk.AlertDialog(message=tr("roles_wizard.frente_confirmar", mensaje=chk.message),
-                              buttons=[tr("common.cancelar"), tr("roles_wizard.guardar_igual")], cancel_button=0, default_button=0)
+        """La cara quedó hacia atrás, no se pudo decidir o el programa tuvo que girar la pose 180°: no se guarda sin que la persona lo confirme (por defecto, cancelar)."""
+        turned = chk.girada and chk.frente_ok is True                # O10b: el programa giró la pose 180° por su cuenta: se pregunta igual
+        dlg = Gtk.AlertDialog(message=tr("roles_wizard.frente_girada_confirmar" if turned else "roles_wizard.frente_confirmar", mensaje=chk.message),
+                              buttons=[tr("common.cancelar"), tr("roles_wizard.guardar_asi" if turned else "roles_wizard.guardar_igual")],
+                              cancel_button=0, default_button=0)
 
         def answered(d, res):
             try:
