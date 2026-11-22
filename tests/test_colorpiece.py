@@ -184,3 +184,43 @@ def test_registration_finds_the_piece_in_a_scaled_rotated_fbx(res, params, meshe
     assert bk.atlas.shape == bk0.atlas.shape and np.array_equal(bk.mask, bk0.mask)
     assert np.abs(bk.atlas[bk.mask].astype(int) - bk0.atlas[bk0.mask].astype(int)).mean() < 1.0      # mismo color que con la fuente de la figura
     assert (np.abs(bk.atlas[bk.mask].astype(int) - np.array(REGIONS["brazo_izq"])).max(axis=1) <= 10).mean() > 0.5   # y es mayormente el rojo del brazo
+
+
+# ------------------------------------------------------------------ pieza recortada (cabeza cortada en la base, con tapa y hueca)
+def _bumpy_head():
+    """Cabeza sintética asimétrica (esfera con bultos distintos) como `TexturedMesh` con textura de color."""
+    sph = trimesh.creation.icosphere(subdivisions=4, radius=15.0)
+    v = sph.vertices.copy()
+    v[:, 0] *= 0.9
+    v[:, 1] *= 1.05
+    for c, r in [((15, 2, 2), 6), ((-14, -3, 4), 4), ((0, 14, 6), 5), ((5, -14, -4), 3), ((-6, 9, 12), 4), ((9, 9, -3), 2.5)]:
+        d = np.linalg.norm(v - np.array(c), axis=1)
+        v += (np.exp(-(d / r) ** 2)[:, None] * np.array(c, float) / np.linalg.norm(c)) * (2.5 + 0.7 * r)
+    base = doll_textured()
+    return TexturedMesh(v, sph.faces.astype(np.int32), np.zeros((len(sph.faces), 3, 2), np.float32), base.images, base.info)
+
+
+@pytest.mark.parametrize("hollow", [False, True])
+def test_align_accepts_a_capped_cut_head_even_if_hollow(hollow):
+    """La cabeza del catálogo es el FBX cortado en la base con su tapa (y quizá hueco por dentro): la alineación estricta no calza, la recortada sí."""
+    head = _bumpy_head()
+    full = _stl(head)
+    piece = trimesh.intersections.slice_mesh_plane(full, [0, 0, 1], [0, 0, -6], cap=True)
+    if hollow:
+        piece = trimesh.util.concatenate([piece, trimesh.Trimesh(piece.vertices * 0.8, piece.faces[:, ::-1], process=False)])
+    G = _sim(Rotation.from_euler("xyz", [20, 30, 40], degrees=True).as_matrix(), 0.9, (3, -4, 5))
+    piece.apply_transform(G)
+    strict = FigureFrame.from_piece_similarity(head.vertices, piece, source_faces=head.faces)
+    assert not strict.report["ok"]
+    fr = align_fbx_to_piece(head, piece)
+    assert fr.report["ok"] and fr.report["recortada"] is True and fr.report["cubierta"] >= 0.6
+    assert np.abs(fr.apply(head.vertices[:300]) - trimesh.transform_points(head.vertices[:300], G)).max() < 0.3
+    with pytest.raises(PieceColorError, match="no coincide"):
+        align_fbx_to_piece(head, piece, cut=False)
+
+
+def test_align_cut_fallback_still_rejects_other_shape():
+    arm = _region("brazo_izq")
+    sphere = trimesh.creation.icosphere(subdivisions=3, radius=6.0)
+    with pytest.raises(PieceColorError, match="no coincide"):
+        align_fbx_to_piece(arm, sphere)

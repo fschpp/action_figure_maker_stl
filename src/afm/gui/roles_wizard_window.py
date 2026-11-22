@@ -504,13 +504,35 @@ class RolesWizardWindow(Gtk.Window):
                 sim = sim.get("similitud", sim) if isinstance(sim, dict) else sim
             except (OSError, ValueError) as exc:
                 raise RolesWizardError(f"{self._sim_path}: {exc}") from exc
-        try:
-            new = self.wiz.save_piece(self._refs[idx], sim)
-        except RolesWizardError as exc:
-            if sim is None and "similarity" in str(exc):             # pieza recortada de una figura: el error pedía la similitud
-                raise RolesWizardError(f"{exc}\n\n{tr('roles_wizard.sim_pista')}") from exc
-            raise
+        if self._busy:
+            return
+        self._busy = True
+        self.btn_save.set_sensitive(False)
+        self._say(tr("roles_wizard.guardando_pieza"))
+        ref = self._refs[idx]
+
+        def work():
+            try:
+                new, err = self.wiz.save_piece(ref, sim), None
+            except Exception as exc:                                 # noqa: BLE001  (se muestra en la ventana)
+                new, err = None, exc
+            GLib.idle_add(self._piece_saved, new, err, sim is None)
+
+        threading.Thread(target=work, daemon=True).start()          # alinear el FBX con la pieza puede tardar: no se congela la ventana
+
+    def _piece_saved(self, new, err, no_sim: bool) -> bool:
+        self._busy = False
+        if self._closed:
+            return False
+        if err is not None:
+            if no_sim and isinstance(err, RolesWizardError) and "similarity" in str(err):    # pieza recortada de una figura: el error pedía la similitud
+                err = RolesWizardError(f"{err}\n\n{tr('roles_wizard.sim_pista')}")
+            self._refresh()
+            self._error(err)
+            return False
+        self._refresh()
         self._after_saved(tr("roles_wizard.guardada_pieza", ref=new.ref, roles=", ".join(new.color.get("roles", []))))
+        return False
 
     def _save_figure(self) -> None:
         dlg = Gtk.FileDialog(title=tr("roles_wizard.guardar_paquete"), initial_name="figura.color.npz")

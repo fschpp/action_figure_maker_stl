@@ -2125,6 +2125,7 @@
   "sim_elegir_stl": "Elegí el STL de la figura entera",
   "sim_elegir_proyecto": "Elegí el .proyecto de esa figura",
   "sim_calculando": "Calculando la similitud FBX → figura…",
+  "guardando_pieza": "Alineando el FBX con la pieza y guardando… (puede tardar unos segundos)",
   "sim_calculada": "calculada · %{media} mm · %{stl}",
   "sim_lista": "Similitud calculada (distancia media %{media} mm). Ya podés guardar.",
   "sim_no_calza": "El FBX no coincide con esa figura: distancia media %{media} mm (máximo aceptado %{max} mm). Revisá que el STL, el .proyecto y el FBX sean de la misma figura.",

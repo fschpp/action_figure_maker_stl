@@ -1,3 +1,23 @@
+## Current Focus — Color por roles en cabezas de reemplazo (pieza recortada) (2026-11-22)
+Al aplicar «Roles de color desde un FBX…» a una cabeza de reemplazo del catálogo (FBX solo de la cabeza, STL de la pieza cortado en la base del cuello, con tapa y quizá hueco), `align_fbx_to_piece` no calzaba y el asistente pedía «la similitud FBX → figura», que con una cabeza nueva tampoco sirve.
+- `FigureFrame.from_cut_piece_similarity` (frame.py): alineación de pieza recortada. Mide la fracción `CUT_KEEP` (80 %) de la superficie de la pieza que mejor calza (deja afuera tapa, agujero del pasador y la cáscara interior de una pieza hueca, descartada por su normal), con arranques múltiples (24 rotaciones × 3 escalas × 7 traslaciones), ICP recortado y afinado directo (Powell) de los 7 parámetros. `ok` exige media ≤ 0,1 mm y `cubierta` ≥ 0,6.
+- `align_fbx_to_piece(..., cut=True)`: prueba la estricta y, si no calza, la recortada; el informe lleva `recortada: True` y `cubierta`.
+- «Roles de color» guarda la pieza en un hilo (la alineación tarda ≈10–20 s) con el aviso «Alineando el FBX con la pieza y guardando…».
+
+### Todo List
+- [x] Done: alineación recortada + tests sintéticos (cabeza con bultos: tapa abierta, tapa cerrada, hueca; error de pose ≤ 0,07 mm); hilo en el asistente; texto en es/en/pt
+- [/] In Progress: probar con la cabeza real de Bolívar (FBX solo de la cabeza + ficha de la pieza del catálogo)
+- [ ] Todo: confirmar con el mensaje exacto que ve el usuario que la causa es esta y no otra (p. ej. FBX con otra orientación o escala distinta)
+
+### Latest Blockers/Discoveries
+- Reproducido en sintético: con tapa cerrada la alineación estricta da media 0,12 mm; con la pieza hueca, 1,3 mm (máximo aceptado 0,1 mm).
+- NO verificado con datos reales ni en la ventana GTK. El ICP punto a punto solo se quedaba deslizando sobre la superficie lisa (error de 1,5 a 3,8 mm); lo resuelve el afinado directo.
+- Costo: ≈10–20 s por pieza en sintético; el respaldo corre también cuando el FBX es de otra forma (≈20 s hasta rechazarlo).
+
+## Current Focus — Retocar color: sin manchas del pincel con el color real a la vista (2026-11-21)
+Los puntos del pincel (un blob por pincelada) ya no se dibujan cuando la vista muestra el color real del retoque; solo aparecen mientras se pinta y mientras se calcula el color real (`RetouchEditor.overlay` devuelve `{}` si `result_shown` y no hay trazo en curso; `press` marca `result_shown = False`).
+- NO verificado en ventana real (sin GTK/EGL). Si el cálculo del color real falla, los puntos guía se quedan a la vista.
+
 ## Current Focus — Retocar color: se eliminan de la vista las manchas (blobs) del pincel (2026-11-21)
 El modo «Retocar color…» ya no dibuja puntos de color encima de la pieza (ni al arrastrar ni al soltar): se quitó `RetouchEditor.overlay` / `dot_size_px` y la ventana no pasa `overlay=` a `PreviewRenderer.render`. La guía es el resaltado cian de aristas bajo el pincel, que ahora también sigue al mouse mientras se arrastra pintando.
 - Lo pintado se ve solo con el color real (tras soltar, «Ver resultado» o «Aplicar»); mientras se calcula, la pieza muestra el color anterior.

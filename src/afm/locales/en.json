@@ -2125,6 +2125,7 @@
   "sim_elegir_stl": "Choose the STL of the whole figure",
   "sim_elegir_proyecto": "Choose that figure's .proyecto",
   "sim_calculando": "Computing FBX → figure similarity…",
+  "guardando_pieza": "Aligning the FBX with the piece and saving… (this may take a few seconds)",
   "sim_calculada": "computed · %{media} mm · %{stl}",
   "sim_lista": "Similarity computed (mean distance %{media} mm). You can save now.",
   "sim_no_calza": "The FBX does not match that figure: mean distance %{media} mm (maximum accepted %{max} mm). Check that the STL, the .proyecto and the FBX belong to the same figure.",

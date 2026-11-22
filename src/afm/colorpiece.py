@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from .frame import SIMILARITY_OK_MM, FigureFrame
+from .frame import CUT_MIN_COVER, SIMILARITY_OK_MM, FigureFrame
 from .texmesh import TexturedMesh
 
 _MIRROR_X = np.diag([-1.0, 1.0, 1.0, 1.0])       # el lado derecho es `mirror_x` del izquierdo (`pipeline`, `colorreg`)
@@ -55,17 +55,27 @@ def _as_4x4(M, what: str) -> np.ndarray:
 
 
 def align_fbx_to_piece(tm: TexturedMesh, piece_stl, *, refine: bool | None = None, ok_mm: float = SIMILARITY_OK_MM,
-                       require_ok: bool = True) -> FigureFrame:
+                       require_ok: bool = True, cut: bool = True) -> FigureFrame:
     """Alinea el FBX `tm` con el STL de la pieza (`piece_stl`, cualquier objeto con `vertices` y `faces`): `FigureFrame` con la 4×4
     FBX → marco del STL y el informe (`media_mm`, `p95_mm`, `max_mm`, `ok`…).
 
     `ok` es «la media de las distancias de los vértices del STL a la superficie del FBX no pasa de `ok_mm`». Con `require_ok`
     (por defecto) un FBX que no calza levanta `PieceColorError` con las medidas; con `require_ok=False` se devuelve igual y el
-    llamador decide con `report["ok"]`."""
+    llamador decide con `report["ok"]`.
+
+    `cut` (por defecto): si la alineación estricta no calza, se prueba la de **pieza recortada** (`FigureFrame.from_cut_piece_similarity`):
+    una cabeza cortada en la base del cuello (con tapa, pasador, quizá hueca) es un trozo del FBX y sus partes nuevas inflaban la media. En
+    ese caso el informe lleva `recortada: True` y `media_mm` es la de la fracción de la pieza que calza (`cubierta` dice cuánta es)."""
     if "base_color" not in tm.images:
         raise PieceColorError("el FBX no trae textura de color")
     frame = FigureFrame.from_piece_similarity(tm.vertices, piece_stl, refine=refine, source_faces=tm.faces)
     frame.report["ok"] = bool(frame.report["media_mm"] <= ok_mm)
+    if not frame.report["ok"] and cut:
+        alt = FigureFrame.from_cut_piece_similarity(tm.vertices, piece_stl, source_faces=tm.faces)
+        alt.report["ok"] = bool(alt.report["media_mm"] <= ok_mm and alt.report.get("cubierta", 0.0) >= CUT_MIN_COVER)
+        alt.report["recortada"] = True
+        if alt.report["ok"]:
+            return alt
     if require_ok and not frame.report["ok"]:
         raise PieceColorError(f"el FBX no coincide con el STL de la pieza: distancia media {frame.report['media_mm']:.3f} mm "
                               f"(máximo aceptado {ok_mm:g} mm)")

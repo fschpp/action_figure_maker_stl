@@ -140,6 +140,66 @@ class FigureFrame:
         return cls(best, scale, rep)
 
 
+    @classmethod
+    def from_cut_piece_similarity(cls, source_vertices, piece_mesh, source_faces=None, keep: float | None = None) -> "FigureFrame":
+        """Como `from_piece_similarity`, pero para una pieza que es un **trozo recortado** de la fuente: una cabeza cortada en la base del
+        cuello, con su tapa plana, su pasador y quizá hueca por dentro. Esas partes no están en la superficie del FBX y inflaban la media
+        de la alineación estricta (que pedía ≤ 0,1 mm con TODOS los vértices), así que la pieza no calzaba aunque fuera la misma cabeza.
+
+        Mide la superficie de la pieza (muestras por área) contra la del FBX y se queda solo con la fracción `keep` que mejor calza
+        (distancia recortada): la tapa, el hueco y el agujero quedan afuera. Arranca de las 24 rotaciones de los ejes principales × varias escalas
+        y traslaciones (los momentos de un trozo no coinciden con los del todo), puntúa cada arranque con la distancia recortada y refina
+        con un ICP de similitud recortado los mejores. El informe es el de `from_piece_similarity` más `cubierta` (fracción de la pieza a
+        menos de `2 · SIMILARITY_OK_MM` del FBX); `media_mm` / `p95_mm` / `max_mm` son de la fracción que calza. `ok` pide además `cubierta` ≥
+        `CUT_MIN_COVER`, para que dos formas distintas no pasen por coincidir en un pedazo. Solo rotaciones propias (sin espejo)."""
+        keep = CUT_KEEP if keep is None else float(keep)
+        V = np.asarray(source_vertices.vertices if hasattr(source_vertices, "vertices") else source_vertices, float)
+        if source_faces is None and hasattr(source_vertices, "faces"):
+            source_faces = source_vertices.faces
+        Q0 = np.asarray(piece_mesh.vertices, float)
+        QF = getattr(piece_mesh, "faces", None)
+        surf = _SourceSurface(V, source_faces, samples=CUT_SOURCE_SAMPLES)
+        Qs_ = _SourceSurface(Q0, QF, samples=CUT_PIECE_SAMPLES)
+        Q = Qs_.xyz
+        if Qs_.face is not None:                                # cáscara interior de una pieza hueca: su normal apunta hacia el centro
+            tri = Qs_._tri[Qs_.face]
+            nrm = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+            outer = np.einsum("ij,ij->i", nrm, Q - Q.mean(0)) > 0
+            if outer.mean() > 0.3:
+                Q = Q[outer]
+        (cs, Cs), (ct, Ct) = _surface_moments(V, source_faces), _surface_moments(Q0, QF)
+        s0 = float(np.sqrt(np.trace(Ct) / np.trace(Cs)))
+        _, Es = np.linalg.eigh(Cs)
+        _, Et = np.linalg.eigh(Ct)
+        sub = Q[np.random.default_rng(0).choice(len(Q), min(len(Q), CUT_COARSE_POINTS), replace=False)]
+        step = 0.5 * float(np.sqrt(np.trace(Ct)))
+        offsets = [np.zeros(3)] + [sg * step * Et[:, i] for i in range(3) for sg in (1.0, -1.0)]
+        starts = []
+        for perm in itertools.permutations(range(3)):
+            for signs in itertools.product((1.0, -1.0), repeat=3):
+                R = Et @ (np.eye(3)[list(perm)] * np.array(signs)[:, None]) @ Es.T
+                if np.linalg.det(R) < 0:
+                    continue
+                for f in CUT_SCALES:
+                    for off in offsets:
+                        M = _similarity_matrix(f * s0 * R, ct + off - f * s0 * R @ cs)
+                        starts.append((_trimmed(surf, M, sub, keep)[0], M))
+        starts.sort(key=lambda c: c[0])
+        best, best_stats = None, None
+        Qi = Q[np.random.default_rng(1).choice(len(Q), min(len(Q), CUT_ICP_POINTS), replace=False)]
+        rough = sorted((_icp_trimmed(surf, M, Qi, keep, iters=8) for _, M in starts[:CUT_REFINE]), key=lambda c: c[1][0])
+        for M, _ in rough[:2]:
+            M, stats = _icp_trimmed(surf, M, Qi, keep)
+            M, stats = _polish_trimmed(surf, M, Qi, keep)
+            if best_stats is None or stats[0] < best_stats[0]:
+                best, best_stats = M, stats
+        mean, p95, mx, cover = _trimmed(surf, best, Q, keep, exact=True)
+        scale = float(np.cbrt(abs(np.linalg.det(best[:3, :3]))))
+        rep = {"media_mm": mean, "p95_mm": p95, "max_mm": mx, "cubierta": cover, "iteraciones": CUT_ICP_ITER,
+               "ok": bool(mean <= SIMILARITY_OK_MM and cover >= CUT_MIN_COVER)}
+        return cls(best, scale, rep)
+
+
 # Z arriba (marco del motor y de los STL) -> Y arriba (convención de OBJ y glTF): (x, y, z) -> (x, z, -y). Es la inversa de la 3×3 que
 # `meshio.orient_z_up` aplica a un archivo Y-arriba. Bambu Studio y Blender convierten a Z arriba al importar un OBJ y los visores de glTF
 # suponen Y arriba, así que un archivo de color escrito en Z arriba aparece acostado.
@@ -244,6 +304,79 @@ def _icp_similarity(surf: _SourceSurface, M: np.ndarray, Q: np.ndarray, stats0):
         if improved < ICP_STOP_DELTA:
             break
     return best, best_stats, it_done
+
+
+CUT_KEEP = 0.8                    # fracción de la superficie de la pieza que se compara (la que mejor calza): deja afuera tapa, hueco y agujeros
+CUT_MIN_COVER = 0.6              # fracción mínima de la pieza a menos de 2·SIMILARITY_OK_MM del FBX para dar la alineación por buena
+CUT_PIECE_SAMPLES = 4000          # muestras de la superficie de la pieza
+CUT_SOURCE_SAMPLES = 80_000       # muestras de la superficie del FBX
+CUT_COARSE_POINTS = 400          # muestras con las que se puntúa cada arranque
+CUT_SCALES = (0.85, 1.0, 1.18)
+CUT_REFINE = 16                   # arranques que se refinan un poco con ICP (los 3 mejores siguen hasta converger)
+CUT_PATIENCE = 4
+CUT_POLISH_EVALS = 450
+CUT_ICP_POINTS = 900             # muestras de la pieza que entran al ICP y al afinado           # evaluaciones del afinado directo de la similitud
+CUT_ICP_ITER = 40
+
+
+def _trimmed(surf: _SourceSurface, M: np.ndarray, Q: np.ndarray, keep: float, exact: bool = False):
+    """(media, p95, máx, cubierta) en el marco del destino de la fracción `keep` de `Q` que más se acerca a la superficie de la fuente (con `M`).
+    `exact=False` mide contra la muestra más cercana (rápido, para puntuar arranques y vueltas de ICP); `exact=True`, contra el triángulo."""
+    s = float(np.cbrt(abs(np.linalg.det(M[:3, :3]))))
+    Qs = (Q - M[:3, 3]) @ np.linalg.inv(M[:3, :3]).T
+    d = np.sort((surf.distance(Qs) if exact else surf.tree.query(Qs)[0]) * s)
+    n = max(1, int(np.ceil(keep * len(d))))
+    best = d[:n]
+    return float(best.mean()), float(np.percentile(best, 95)), float(best.max()), float((d <= 2 * SIMILARITY_OK_MM).mean())
+
+
+def _icp_trimmed(surf: _SourceSurface, M: np.ndarray, Q: np.ndarray, keep: float, iters: int = CUT_ICP_ITER):
+    """ICP de similitud recortado: en cada vuelta solo entran en el ajuste los `keep` de `Q` más cercanos. Aguanta `CUT_PATIENCE` vueltas sin
+    mejorar antes de parar (el recorte hace que la media no baje siempre). Devuelve (matriz, stats de `_trimmed`)."""
+    cur, best, best_stats = M, M, _trimmed(surf, M, Q, keep)
+    idle = 0
+    for _ in range(iters):
+        Qs = (Q - cur[:3, 3]) @ np.linalg.inv(cur[:3, :3]).T
+        near = surf.nearest(Qs)
+        d = np.linalg.norm(near - Qs, axis=1)
+        sel = np.argsort(d)[: max(8, int(np.ceil(keep * len(d))))]
+        try:
+            cur = _umeyama(near[sel], Q[sel])
+        except np.linalg.LinAlgError:
+            break
+        stats = _trimmed(surf, cur, Q, keep)
+        if stats[0] < best_stats[0] - ICP_STOP_DELTA:
+            best, best_stats, idle = cur, stats, 0
+        else:
+            idle += 1
+            if stats[0] < best_stats[0]:
+                best, best_stats = cur, stats
+            if idle >= CUT_PATIENCE:
+                break
+    return best, best_stats
+
+
+def _polish_trimmed(surf: _SourceSurface, M: np.ndarray, Q: np.ndarray, keep: float):
+    """Afina `M` buscando directamente los 7 parámetros de la similitud (rotación, log-escala, traslado) que minimizan la media recortada
+    (Powell). Sirve donde el ICP se queda deslizando sobre una superficie lisa. Devuelve (matriz, stats de `_trimmed`)."""
+    from scipy.optimize import minimize
+    from scipy.spatial.transform import Rotation
+
+    s0 = float(np.cbrt(abs(np.linalg.det(M[:3, :3]))))
+    R0 = M[:3, :3] / s0
+    size = float(np.ptp(Q, axis=0).max())
+
+    def build(x):
+        R = Rotation.from_rotvec(x[:3]).as_matrix() @ R0
+        return _similarity_matrix(s0 * np.exp(x[3]) * R, M[:3, 3] + x[4:] * size)
+
+    res = minimize(lambda x: _trimmed(surf, build(x), Q, keep)[0], np.zeros(7), method="Powell",
+                   options={"xtol": 1e-4, "ftol": 1e-6, "maxfev": CUT_POLISH_EVALS},
+                   bounds=[(-0.5, 0.5)] * 3 + [(-0.3, 0.3)] + [(-0.3, 0.3)] * 3)
+    M2 = build(res.x)
+    st2 = _trimmed(surf, M2, Q, keep)
+    st0 = _trimmed(surf, M, Q, keep)
+    return (M2, st2) if st2[0] < st0[0] else (M, st0)
 
 
 def _symmetry_matrix(symmetry) -> np.ndarray:
