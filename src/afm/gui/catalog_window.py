@@ -1820,8 +1820,7 @@ class CatalogManagerWindow(Gtk.Window):
                 cs = getattr(self, "_color_shown", None)
                 cparts = cs[1] if cs is not None and cs[0] == meta.ref else None
                 img = self.preview.render(mesh, meta, self._dyaw, self._dpitch, None, zoom=self._zoom, pan=self._pan, color_parts=cparts, guides=False,      # al retocar el color no se dibujan los pasadores ni el plano de la articulación
-                                          hover=re_.hover_segments(),            # y se iluminan las aristas que el pincel pintaría bajo el mouse
-                                          overlay=re_.overlay(), dot_px=re_.dot_size_px(self._img_size, self._dyaw, self._dpitch, self._zoom, self._pan))
+                                          hover=re_.hover_segments())            # solo se iluminan las aristas que el pincel pintaría bajo el mouse (sin manchas de color)
             elif c is not None and c.preview_parts() is not None:          # corte calculado: brazo sin mano en gris y la mano en verde
                 img = self.preview.render_parts(c.preview_parts(), self._dyaw, self._dpitch, c.marks(),
                                                 zoom=self._zoom, pan=self._pan,
@@ -1912,8 +1911,9 @@ class CatalogManagerWindow(Gtk.Window):
 
     def _on_drag(self, _g, dx: float, dy: float) -> None:
         if self._rpaint and self._reditor is not None:                # pintando: el arrastre no gira la vista
-            self._reditor.move(self._press[0] + dx, self._press[1] + dy, self._widget_size(), self._img_size,
-                               self._dyaw, self._dpitch, self._zoom, self._pan)
+            x, y = self._press[0] + dx, self._press[1] + dy
+            self._reditor.move(x, y, self._widget_size(), self._img_size, self._dyaw, self._dpitch, self._zoom, self._pan)
+            self._reditor.hover(x, y, self._widget_size(), self._img_size, self._dyaw, self._dpitch, self._zoom, self._pan)   # el resaltado sigue al pincel
             self._redraw()
             return
         y0, p0 = self._drag0

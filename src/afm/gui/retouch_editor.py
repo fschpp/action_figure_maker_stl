@@ -16,8 +16,6 @@ from .catalog_manager import preview_camera, view_bounds, widget_to_image
 from .picking import Picker
 from .retouch_session import ERASE, FILL, PAINT, RetouchSession
 
-OVERLAY_MAX_POINTS = 3000          # puntos que se dibujan encima de la pieza (los más recientes): dibujar 20 000 en cada movimiento sobra
-ERASER_COLOR = (1.0, 1.0, 1.0, 1.0)
 HOVER_MAX_EDGES = 6000             # aristas que se resaltan como máximo (con el pincel grande sobre una malla densa)
 
 
@@ -97,7 +95,7 @@ class RetouchEditor:
         if p is None:
             return False
         self.session.begin_stroke(*p)
-        self.result_shown = False                  # el color real queda viejo: mientras se pinta vuelven los puntos guía
+        self.result_shown = False                  # el color real queda viejo
         return True
 
     def move(self, *pick_args, **pick_kw) -> int:
@@ -138,32 +136,6 @@ class RetouchEditor:
         return self._hover
 
     # ------------------------------------------------------------------ dibujo
-    def overlay(self) -> dict:
-        """Lo que se dibuja encima de la pieza: `{nombre: (puntos Nx3, rgba)}`, un grupo por rol (el borrador, en blanco). Son los centros de las
-        pinceladas, no el color real (ese lo da «Ver resultado» o «Aplicar»). Solo son la guía mientras se pinta y mientras se calcula el color
-        real: cuando la vista ya muestra el color real (`result_shown`) no se dibujan, para no tapar la pieza con manchas."""
-        if self.result_shown and not self.session.stroking:
-            return {}
-        strokes = self.session.retouch().strokes[-OVERLAY_MAX_POINTS:]
-        groups: dict = {}
-        for s in strokes:
-            groups.setdefault(s.rol, []).append(s.c)
-        out = {}
-        for rol, pts in groups.items():
-            color = ERASER_COLOR if rol is None else _rgba(self.palette.hex_of(rol) if self.palette is not None and rol in self.palette.ids() else None)
-            out["retoque_" + (rol or "borrador")] = (np.asarray(pts, float), color)
-        return out
-
-    def dot_size_px(self, image_size, yaw_off, pitch_off, zoom, pan) -> float:
-        """Diámetro en píxeles de un punto del pincel con el radio actual (para que el pincel dibujado tenga el tamaño del pincel real)."""
-        iw, ih = image_size
-        cam = self.camera(image_size, yaw_off, pitch_off, zoom, pan)
-        c = np.asarray(cam.target, float)
-        a = cam.project(c, iw, ih)[0, :2]
-        v = cam.view()
-        b = cam.project(c + v[0, :3], iw, ih)[0, :2]          # 1 mm hacia la derecha de la pantalla
-        return float(np.clip(2.0 * self.session.radius * float(np.linalg.norm(b - a)), 4.0, 96.0))
-
     # ------------------------------------------------------------------ estado
     @property
     def dirty(self) -> bool:
@@ -176,4 +148,4 @@ class RetouchEditor:
         return meta
 
 
-__all__ = ["RetouchEditor", "PAINT", "ERASE", "FILL", "OVERLAY_MAX_POINTS", "HOVER_MAX_EDGES", "brush_faces", "face_edges"]
+__all__ = ["RetouchEditor", "PAINT", "ERASE", "FILL", "HOVER_MAX_EDGES", "brush_faces", "face_edges"]

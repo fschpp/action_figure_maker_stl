@@ -73,6 +73,11 @@ class RetouchSession:
     def stroking(self) -> bool:
         return self._open is not None
 
+    @property
+    def open_strokes(self) -> list:
+        """Las pinceladas del trazo en curso (vacío si no se está pintando)."""
+        return list(self._open or [])
+
     def begin_stroke(self, c, n=None) -> int:
         """Empieza un trazo con una primera pincelada en `c` (marco del STL; `n` = normal de la superficie o `None`). Devuelve las pinceladas agregadas."""
         if self._open is not None:

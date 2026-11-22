@@ -1,6 +1,7 @@
-## Current Focus — Retocar color: sin manchas del pincel con el color real a la vista (2026-11-21)
-Los puntos del pincel (un blob por pincelada) ya no se dibujan cuando la vista muestra el color real del retoque; solo aparecen mientras se pinta y mientras se calcula el color real (`RetouchEditor.overlay` devuelve `{}` si `result_shown` y no hay trazo en curso; `press` marca `result_shown = False`).
-- NO verificado en ventana real (sin GTK/EGL). Si el cálculo del color real falla, los puntos guía se quedan a la vista.
+## Current Focus — Retocar color: se eliminan de la vista las manchas (blobs) del pincel (2026-11-21)
+El modo «Retocar color…» ya no dibuja puntos de color encima de la pieza (ni al arrastrar ni al soltar): se quitó `RetouchEditor.overlay` / `dot_size_px` y la ventana no pasa `overlay=` a `PreviewRenderer.render`. La guía es el resaltado cian de aristas bajo el pincel, que ahora también sigue al mouse mientras se arrastra pintando.
+- Lo pintado se ve solo con el color real (tras soltar, «Ver resultado» o «Aplicar»); mientras se calcula, la pieza muestra el color anterior.
+- NO verificado en ventana real (sin GTK/EGL).
 
 ## Current Focus — Retocar color: resaltar bajo el mouse lo que el pincel pintaría (2026-11-21)
 En modo «Retocar color…», al pasar el mouse sobre la pieza se iluminan (cian) las aristas de las caras que un clic pintaría: las que están a menos del radio del pincel con normal compatible (`MIN_DOT`); en «Rellenar», solo la cara donde empezaría el relleno.

@@ -4,7 +4,7 @@ import pytest
 
 from afm.catalog import Catalog
 from afm.gui.catalog_manager import widget_to_image
-from afm.gui.retouch_editor import OVERLAY_MAX_POINTS, RetouchEditor
+from afm.gui.retouch_editor import RetouchEditor
 from test_catalog_retouch import REF, base_line, line  # noqa: F401  (fixtures)
 
 IMG = (320, 320)
@@ -58,39 +58,6 @@ def test_press_move_release_paints_a_stroke_and_undo(ed):
 def test_press_off_piece_returns_false(ed):
     _cat, e = ed
     assert e.press(0.5, 0.5, WIDGET, IMG) is False and not e.session.stroking
-
-
-def test_overlay_groups_by_role_and_eraser_is_white(ed):
-    _cat, e = ed
-    x, y = center_click(e)
-    e.press(x, y, WIDGET, IMG); e.release()
-    e.session.set_mode("borrar")
-    e.press(x, y, WIDGET, IMG); e.release()
-    ov = e.overlay()
-    assert "retoque_borrador" in ov and ov["retoque_borrador"][1] == (1.0, 1.0, 1.0, 1.0)
-    rol = e.session.palette_ids[0]
-    pts, rgba = ov["retoque_" + rol]
-    assert pts.shape[1] == 3 and len(rgba) == 4
-
-
-def test_overlay_is_capped(ed):
-    _cat, e = ed
-    x, y = center_click(e)
-    e.press(x, y, WIDGET, IMG)
-    p = np.asarray(e.session.retouch().strokes[0].c)
-    e.session.radius = 0.05
-    for i in range(1, OVERLAY_MAX_POINTS + 50):
-        e.session.add_point(tuple(p + (i * 0.1, 0, 0)))
-    e.release()
-    total = sum(len(v[0]) for v in e.overlay().values())
-    assert total <= OVERLAY_MAX_POINTS
-
-
-def test_dot_size_follows_radius_and_is_clamped(ed):
-    _cat, e = ed
-    e.session.set_radius(0.1); small = e.dot_size_px(IMG, 0, 0, 1.0, (0, 0))
-    e.session.set_radius(10.0); big = e.dot_size_px(IMG, 0, 0, 1.0, (0, 0))
-    assert 4.0 <= small <= big <= 96.0
 
 
 def test_apply_writes_catalog_and_clears_dirty(ed):
@@ -201,15 +168,11 @@ def test_preview_hover_adds_and_removes_layer():
     assert "hover_pincel" not in off.scene.items
 
 
-def test_overlay_hidden_once_real_color_is_shown(ed):
-    """Con el color real a la vista no se dibujan las manchas del pincel; al empezar un trazo nuevo vuelven."""
+def test_editor_draws_no_color_blobs(ed):
+    """El modo «Retocar» no dibuja manchas de color sobre la pieza: la única guía es el resaltado de aristas."""
     _cat, e = ed
+    assert not hasattr(e, "overlay")
     x, y = center_click(e)
     assert e.press(x, y, WIDGET, IMG) is True
     e.release()
-    assert e.overlay()                                        # recién pintado, sin color real todavía: puntos guía
-    e.result_shown = True
-    assert e.overlay() == {}                                  # color real calculado: sin manchas
-    assert e.press(x, y, WIDGET, IMG) is True                 # trazo nuevo: el color real queda viejo
-    assert e.result_shown is False and e.overlay()
-    e.release()
+    assert e.hover(x, y, WIDGET, IMG) is True and len(e.hover_segments()) > 0
