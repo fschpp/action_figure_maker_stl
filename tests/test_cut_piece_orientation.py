@@ -12,6 +12,8 @@ import numpy as np
 import pytest
 import trimesh
 
+from afm.colorpiece import _check_front, _front_message, front_hint, head_region, piece_front
+from afm.colorroles import RolesPackage, face_direction
 from afm.frame import FigureFrame
 
 DATA = Path(__file__).parent / "data"
@@ -77,10 +79,72 @@ def test_the_wrong_pose_fits_as_well_as_the_right_one(bust, piece):
     assert mean <= 0.5188 and cover >= 0.6
 
 
-@pytest.mark.xfail(strict=True, reason="O05: la alineación de pieza recortada es ciega al sentido adelante/atrás")
-def test_cut_alignment_puts_the_face_toward_the_front_of_the_piece(bust, piece):
-    """O01(a): la alineación de la cabeza de Bolívar con su pieza deja la cara del FBX del lado del frente (+Y), no del de la nuca."""
-    V, F, face = bust
-    fr = FigureFrame.from_cut_piece_similarity(V, piece, source_faces=F)
-    f = _face_in_piece(fr.matrix, face)
-    assert _angle(np.array([f[0], f[1], 0.0]), FRONT) < 60, f"la cara quedó hacia {f.round(1)}"
+NECK = {"puertos": {"cuello": {"centro": [0.0, -3.172554, 107.810184], "eje": [0.0, -0.379463, -0.925207], "ref": [0.0, 0.925207, -0.379463]}}}
+
+
+@pytest.fixture(scope="module")
+def pkg():
+    return RolesPackage.load(DATA / "bolivar_cabeza_roles.npz")
+
+
+@pytest.fixture(scope="module")
+def aligned(pkg, piece):
+    """La alineación de pieza recortada con la pista de frente (una sola vez: son ≈9 s)."""
+    return FigureFrame.from_cut_piece_similarity(pkg.vertices.astype(float), piece, source_faces=pkg.faces, front_hint=front_hint(NECK, piece, pkg))
+
+
+def test_piece_front_of_the_real_head(piece):
+    """O02: el frente de la pieza es +Y (tomado en el plano perpendicular al eje del cuello, que se inclina ≈ 22°) y coincide con la referencia del puerto."""
+    pf = piece_front(NECK, piece)
+    assert _angle(pf["front"], FRONT) < 25 and pf["ref_dev_deg"] < 5
+    assert abs(pf["front"] @ pf["up"]) < 1e-9 and _angle(pf["up"], [0, 0, 1]) < 25
+    no_port = piece_front(None, piece)                       # sin puerto: +Y y arriba = +Z
+    assert np.allclose(no_port["front"], FRONT) and no_port["ref_dev_deg"] is None
+
+
+def test_face_direction_of_the_fbx_points_at_plus_z(pkg):
+    """O03: sobre la cabeza del busto (por encima de y = 30) la cara mira a +Z del FBX; sin rol de piel no hay dirección."""
+    h = pkg.vertices[pkg.faces].mean(1)[:, 1] > HEAD_MIN_Y
+    vec, conf = face_direction(pkg, region=h)
+    assert _angle(vec, [0, 0, 1]) < 40 and vec[2] > 10 and conf > 0.3     # la cabeza está cabeceada: la piel queda un poco por debajo del centro
+    assert face_direction(pkg, skin_roles=("no_existe",)) == (None, 0.0)
+
+
+def test_head_region_leaves_out_the_shoulders(pkg, piece, aligned):
+    """O04: con la pose alineada, la región por encima del plano del cuello es la cabeza (≈ 41 % del área del busto), no el busto entero."""
+    pf = piece_front(NECK)
+    V = aligned.apply(pkg.vertices.astype(float))
+    m = head_region(V, pkg.faces, pf, piece.vertices)
+    tri = V[pkg.faces]
+    area = 0.5 * np.linalg.norm(np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0]), axis=1)
+    assert 0.35 < area[m].sum() / area.sum() < 0.5          # la cabeza del busto es el 41 % del área
+
+
+def test_the_saved_pose_is_flagged_as_facing_backwards(pkg, piece):
+    """O06: la similitud guardada (cara hacia atrás) baja `ok` y el mensaje propone girar 180°."""
+    fr = FigureFrame(SAVED.copy(), 0.4065, {"ok": True, "media_mm": 0.3})
+    _check_front(fr, front_hint(NECK, piece, pkg))
+    assert fr.report["frente_ok"] is False and fr.report["ok"] is False and fr.report["frente"]["angulo_deg"] > 150
+    assert "180" in _front_message(fr.report)
+
+
+def test_cut_alignment_puts_the_face_toward_the_front_of_the_piece(pkg, aligned):
+    """O01(a)/O05: la alineación de la cabeza de Bolívar deja la cara del FBX del lado del frente de la pieza (antes: 163° = en la nuca)."""
+    rep = aligned.report
+    assert rep["frente_ok"] is True and rep["frente"]["angulo_deg"] < 30 and rep["yaw180"]["girada"] is True
+    assert rep["ok"] and not rep["ambigua"]
+    assert _angle(front_hint(NECK, None, pkg).angle(aligned.matrix)[1], FRONT) < 30
+
+
+def test_nose_ends_up_on_the_front_side(pkg, aligned):
+    """§7 del plan: la punta de la nariz del FBX (mayor z de la cabeza) queda hacia +Y de la pieza, no a −Y (antes: y = −10,8 mm)."""
+    V = pkg.vertices.astype(float)
+    head = V[V[:, 1] > HEAD_MIN_Y]
+    nose = head[np.argmax(head[:, 2])]
+    assert aligned.apply(nose)[0, 1] > aligned.apply(head.mean(0))[0, 1]
+
+
+def test_without_skin_role_a_flat_decision_is_reported(pkg, piece):
+    """Sin pista de cara (sin rol de piel) se decide por el calce y se informa el margen de la pose opuesta."""
+    fr = FigureFrame.from_cut_piece_similarity(pkg.vertices.astype(float), piece, source_faces=pkg.faces, front_hint=front_hint(NECK, piece, None))
+    assert fr.report["frente_ok"] is None and "margen_mm" in fr.report["yaw180"] and isinstance(fr.report["ambigua"], bool)

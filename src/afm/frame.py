@@ -141,7 +141,8 @@ class FigureFrame:
 
 
     @classmethod
-    def from_cut_piece_similarity(cls, source_vertices, piece_mesh, source_faces=None, keep: float | None = None) -> "FigureFrame":
+    def from_cut_piece_similarity(cls, source_vertices, piece_mesh, source_faces=None, keep: float | None = None,
+                                  front_hint: "FrontHint | None" = None) -> "FigureFrame":
         """Como `from_piece_similarity`, pero para una pieza que es un **trozo recortado** de la fuente: una cabeza cortada en la base del
         cuello, con su tapa plana, su pasador y quizá hueca por dentro. Esas partes no están en la superficie del FBX y inflaban la media
         de la alineación estricta (que pedía ≤ 0,1 mm con TODOS los vértices), así que la pieza no calzaba aunque fuera la misma cabeza.
@@ -151,7 +152,13 @@ class FigureFrame:
         y traslaciones (los momentos de un trozo no coinciden con los del todo), puntúa cada arranque con la distancia recortada y refina
         con un ICP de similitud recortado los mejores. El informe es el de `from_piece_similarity` más `cubierta` (fracción de la pieza a
         menos de `2 · SIMILARITY_OK_MM` del FBX); `media_mm` / `p95_mm` / `max_mm` son de la fracción que calza. `ok` pide además `cubierta` ≥
-        `CUT_MIN_COVER`, para que dos formas distintas no pasen por coincidir en un pedazo. Solo rotaciones propias (sin espejo)."""
+        `CUT_MIN_COVER`, para que dos formas distintas no pasen por coincidir en un pedazo. Solo rotaciones propias (sin espejo).
+
+        El calce es **ciego al sentido adelante/atrás**: una cabeza con mucho pelo es casi igual de redonda por delante que por detrás y la
+        distancia recortada tira justo lo que las distingue. Con `front_hint` (O05) se decide ese giro de 180° sobre el eje del cuello: se
+        prueba también la pose opuesta (re-afinada) y se queda la que deja la cara del FBX del lado del frente de la pieza; sin dirección de
+        cara, la que mejor calza, y si la diferencia es menor que `FRONT_AMBIGUOUS_MM` el resultado queda `ambigua` y `ok = False`. El informe suma
+        `frente` (`fbx`: hacia dónde mira la cara, `pieza`: el frente, `angulo_deg`), `frente_ok`, `ambigua` y `yaw180` (`media_alt_mm`, `margen_mm`, `girada`)."""
         keep = CUT_KEEP if keep is None else float(keep)
         V = np.asarray(source_vertices.vertices if hasattr(source_vertices, "vertices") else source_vertices, float)
         if source_faces is None and hasattr(source_vertices, "faces"):
@@ -195,12 +202,102 @@ class FigureFrame:
                 best, best_stats = M, stats
         edge = _median_edge(Q0, QF)
         tol = max(SIMILARITY_OK_MM, CUT_RES_FACTOR * edge)       # una pieza más gruesa que el FBX (o al revés) no puede calzar mejor que su malla
+        front_rep = {}
+        if front_hint is not None:
+            best, best_stats, front_rep = _resolve_front(surf, best, best_stats, Qi, keep, front_hint)
         mean, p95, mx, cover = _trimmed(surf, best, Q, keep, exact=True, cover_mm=2 * tol)
         scale = float(np.cbrt(abs(np.linalg.det(best[:3, :3]))))
         rep = {"media_mm": mean, "p95_mm": p95, "max_mm": mx, "cubierta": cover, "iteraciones": CUT_ICP_ITER,
                "tolerancia_mm": tol, "arista_pieza_mm": edge,
-               "ok": bool(mean <= tol and cover >= CUT_MIN_COVER)}
+               "ok": bool(mean <= tol and cover >= CUT_MIN_COVER and front_rep.get("frente_ok") is not False and not front_rep.get("ambigua"))}
+        rep.update(front_rep)
         return cls(best, scale, rep)
+
+
+FRONT_AMBIGUOUS_MM = 0.15        # O05: si la pose y su giro de 180° calzan con menos diferencia que esto y no hay dirección de cara, no se decide
+FRONT_MAX_DEG = 90.0             # la cara del FBX tiene que mirar hacia el lado del frente de la pieza (ángulo < 90°)
+
+
+@dataclass
+class FrontHint:
+    """Lo que desempata adelante/atrás en la alineación de una pieza recortada, todo en el marco de la PIEZA (O05).
+
+    `front`: hacia dónde mira la pieza (el +Y del marco de la figura). `up` y `center`: el eje de la pieza (el del cuello, hacia la cabeza) y un
+    punto de él, alrededor del cual se gira 180°. `face_dir(M)`: dada la 4×4 FBX → pieza, hacia dónde mira la cara del FBX (vector en el marco de
+    la pieza) o `None` si no se puede saber (el FBX no tiene rol de piel)."""
+    front: np.ndarray
+    up: np.ndarray
+    center: np.ndarray
+    face_dir: object = None
+
+    def __post_init__(self):
+        self.up = _unit(self.up)
+        self.front = _unit(_perp(self.front, self.up))
+        self.center = np.asarray(self.center, float)
+
+    def angle(self, M) -> tuple[float | None, np.ndarray | None]:
+        """(ángulo en grados entre la cara y el frente, medido en el plano horizontal de la pieza; vector de la cara)."""
+        v = None if self.face_dir is None else self.face_dir(M)
+        if v is None:
+            return None, None
+        h = _perp(np.asarray(v, float), self.up)
+        if np.linalg.norm(h) < 1e-9:
+            return None, None
+        return _angle_deg(h, self.front), h
+
+
+def _unit(v) -> np.ndarray:
+    v = np.asarray(v, float)
+    n = np.linalg.norm(v)
+    if n < 1e-12:
+        raise ValueError("vector nulo")
+    return v / n
+
+
+def _perp(v, up) -> np.ndarray:
+    """Componente de `v` perpendicular a `up` (unitario)."""
+    v = np.asarray(v, float)
+    return v - (v @ up) * up
+
+
+def _angle_deg(a, b) -> float:
+    a, b = np.asarray(a, float), np.asarray(b, float)
+    return float(np.degrees(np.arccos(np.clip(a @ b / (np.linalg.norm(a) * np.linalg.norm(b)), -1.0, 1.0))))
+
+
+def yaw_matrix(center, axis, deg: float = 180.0) -> np.ndarray:
+    """4×4 rígida: giro de `deg` grados alrededor del eje `axis` que pasa por `center` (la pieza se gira sobre su cuello)."""
+    from scipy.spatial.transform import Rotation
+
+    R = Rotation.from_rotvec(_unit(axis) * np.radians(deg)).as_matrix()
+    c = np.asarray(center, float)
+    return _similarity_matrix(R, c - R @ c)
+
+
+def _resolve_front(surf, M, stats, Qi, keep, hint: FrontHint):
+    """Decide entre la pose `M` y su giro de 180° sobre el eje del cuello. Devuelve (matriz, stats, informe parcial).
+
+    Con dirección de cara se queda la pose que la deja mejor orientada; sin ella, la que mejor calza, y si la diferencia es `< FRONT_AMBIGUOUS_MM`
+    el informe lleva `ambigua`. La opuesta se re-afina (ICP + afinado) desde el giro exacto, así su media es comparable con la de la elegida."""
+    alt, st_alt = _icp_trimmed(surf, yaw_matrix(hint.center, hint.up) @ M, Qi, keep)
+    alt, st_alt = _polish_trimmed(surf, alt, Qi, keep)
+    ang, vec = hint.angle(M)
+    ang_alt, vec_alt = hint.angle(alt)
+    margin = abs(st_alt[0] - stats[0])
+    if ang is not None and ang_alt is not None:
+        flip = ang_alt < ang
+        ambiguous = False
+    else:
+        flip = st_alt[0] < stats[0]
+        ambiguous = margin < FRONT_AMBIGUOUS_MM
+    (M2, st2, a2, v2) = (alt, st_alt, ang_alt, vec_alt) if flip else (M, stats, ang, vec)
+    rep = {"yaw180": {"media_alt_mm": round(float(stats[0] if flip else st_alt[0]), 4), "margen_mm": round(float(margin), 4), "girada": bool(flip)},
+           "ambigua": bool(ambiguous),
+           "frente_ok": None if a2 is None else bool(a2 < FRONT_MAX_DEG),
+           "frente": {"fbx": None if v2 is None else [round(float(x), 3) for x in _unit(v2)],
+                      "pieza": [round(float(x), 3) for x in hint.front],
+                      "angulo_deg": None if a2 is None else round(a2, 1)}}
+    return M2, st2, rep
 
 
 # Z arriba (marco del motor y de los STL) -> Y arriba (convención de OBJ y glTF): (x, y, z) -> (x, z, -y). Es la inversa de la 3×3 que

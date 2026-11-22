@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from .frame import CUT_MIN_COVER, SIMILARITY_OK_MM, FigureFrame
+from .frame import CUT_MIN_COVER, FRONT_MAX_DEG, SIMILARITY_OK_MM, FigureFrame, FrontHint
 from .texmesh import TexturedMesh
 
 _MIRROR_X = np.diag([-1.0, 1.0, 1.0, 1.0])       # el lado derecho es `mirror_x` del izquierdo (`pipeline`, `colorreg`)
@@ -54,8 +54,93 @@ def _as_4x4(M, what: str) -> np.ndarray:
     return M
 
 
+REGION_BOX_PAD = 0.15            # y esta fracción de cada lado de la caja de la pieza
+NECK_MARGIN_MM = 0.5             # O04: la región «cabeza» del FBX llega hasta este tanto por debajo del plano del cuello de la pieza
+
+
+def _port_parts(meta, name: str):
+    """(centro, eje, ref) del puerto `name` de una ficha (`PieceMeta` o su dict `afm-pieza-1`), o `None` si no lo trae."""
+    ports = meta.get("puertos") if isinstance(meta, dict) else getattr(meta, "puertos", None)
+    p = (ports or {}).get(name)
+    if p is None:
+        return None
+    if isinstance(p, dict):
+        return tuple(np.asarray(p[k], float) for k in ("centro", "eje", "ref"))
+    return p.frame.center, p.frame.axis, p.frame.ref
+
+
+def piece_front(meta=None, mesh=None) -> dict:
+    """O02 · El frente de una pieza `cabeza` en su marco: `{front, up, center, ref_dev_deg}`.
+
+    El marco del motor deja siempre el frente de la figura en +Y (`frame.py`: giro de 180° sobre Z si `front == "-Y"`), así que `front` es +Y
+    tomado en el plano perpendicular a `up`. `up` es el eje del cuello hacia la cabeza (opuesto al eje del puerto `cuello`, que sale de la pieza;
+    sin puerto, +Z) y `center` un punto de ese eje (centro del puerto, o el centro de la caja de `mesh`). `ref_dev_deg` es el ángulo entre ese
+    frente y la referencia de giro del puerto (`None` sin puerto): si es grande, la pieza no sigue la convención y hay que mirarla."""
+    parts = None if meta is None else _port_parts(meta, "cuello")
+    if parts is not None:
+        center, axis, ref = parts
+        up = -np.asarray(axis, float) / np.linalg.norm(axis)
+    else:
+        up = np.array([0.0, 0.0, 1.0])
+        center = np.asarray(mesh.bounds, float).mean(0) if mesh is not None else np.zeros(3)
+        ref = None
+    front = np.array([0.0, 1.0, 0.0])
+    front = front - (front @ up) * up
+    front /= np.linalg.norm(front)
+    dev = None
+    if ref is not None and np.linalg.norm(ref - (ref @ up) * up) > 1e-9:
+        r = ref - (ref @ up) * up
+        dev = round(float(np.degrees(np.arccos(np.clip(front @ r / np.linalg.norm(r), -1, 1)))), 1)
+    return {"front": front, "up": up, "center": np.asarray(center, float), "ref_dev_deg": dev}
+
+
+def head_region(V_piece, F, front: dict, piece_vertices=None) -> np.ndarray:
+    """O04 · Máscara de triángulos del FBX (vértices `V_piece`, ya en el marco de la pieza) que corresponden a lo que la pieza tiene: lo que está por
+    encima del plano del cuello (`front["center"]`, `front["up"]`, con `NECK_MARGIN_MM` de holgura) y, si se pasa `piece_vertices`, dentro de la caja
+    de la pieza agrandada `REGION_BOX_PAD` (el plano está inclinado y por delante de él quedan el pecho y los hombros). Deja afuera hombros y uniforme."""
+    cen = np.asarray(V_piece, float)[np.asarray(F, np.int64)].mean(1)
+    keep = (cen - front["center"]) @ front["up"] >= -NECK_MARGIN_MM
+    if piece_vertices is not None:
+        lo, hi = np.min(piece_vertices, axis=0), np.max(piece_vertices, axis=0)
+        pad = REGION_BOX_PAD * (hi - lo)
+        keep &= np.all((cen >= lo - pad) & (cen <= hi + pad), axis=1)
+    return keep
+
+
+def front_hint(meta, mesh, pkg=None, skin_roles=None) -> FrontHint:
+    """`FrontHint` de una cabeza para `align_fbx_to_piece(front=)`. Con el paquete de roles `pkg`, la dirección de la cara del FBX sale de los
+    triángulos de piel de la región de la cabeza (`head_region`); sin él, solo se decide por el calce (y puede quedar `ambigua`)."""
+    from . import colorroles
+
+    pf = piece_front(meta, mesh)
+    pv = None if mesh is None else np.asarray(mesh.vertices, float)
+    face_dir = None
+    if pkg is not None:
+        sk = colorroles.SKIN_ROLES if skin_roles is None else skin_roles
+
+        def face_dir(M):
+            M = np.asarray(M, float)
+            V = np.asarray(pkg.vertices, float) @ M[:3, :3].T + M[:3, 3]
+            vec, conf = colorroles.face_direction(pkg, sk, region=head_region(V, pkg.faces, pf, pv), vertices=V)
+            return vec
+
+    return FrontHint(pf["front"], pf["up"], pf["center"], face_dir)
+
+
+def _check_front(frame: FigureFrame, front: FrontHint | None) -> None:
+    """O06 · Rellena `frente`/`frente_ok` en el informe si falta (alineación estricta) y baja `ok` si la cara quedó hacia atrás."""
+    if front is None or "frente_ok" in frame.report:
+        return
+    ang, vec = front.angle(frame.matrix)
+    frame.report["frente_ok"] = None if ang is None else bool(ang < FRONT_MAX_DEG)
+    frame.report["frente"] = {"fbx": None if vec is None else [round(float(x), 3) for x in vec / np.linalg.norm(vec)],
+                              "pieza": [round(float(x), 3) for x in front.front], "angulo_deg": None if ang is None else round(ang, 1)}
+    if frame.report["frente_ok"] is False:
+        frame.report["ok"] = False
+
+
 def align_fbx_to_piece(tm: TexturedMesh, piece_stl, *, refine: bool | None = None, ok_mm: float = SIMILARITY_OK_MM,
-                       require_ok: bool = True, cut: bool = True) -> FigureFrame:
+                       require_ok: bool = True, cut: bool = True, front: FrontHint | None = None) -> FigureFrame:
     """Alinea el FBX `tm` con el STL de la pieza (`piece_stl`, cualquier objeto con `vertices` y `faces`): `FigureFrame` con la 4×4
     FBX → marco del STL y el informe (`media_mm`, `p95_mm`, `max_mm`, `ok`…).
 
@@ -65,21 +150,40 @@ def align_fbx_to_piece(tm: TexturedMesh, piece_stl, *, refine: bool | None = Non
 
     `cut` (por defecto): si la alineación estricta no calza, se prueba la de **pieza recortada** (`FigureFrame.from_cut_piece_similarity`):
     una cabeza cortada en la base del cuello (con tapa, pasador, quizá hueca) es un trozo del FBX y sus partes nuevas inflaban la media. En
-    ese caso el informe lleva `recortada: True` y `media_mm` es la de la fracción de la pieza que calza (`cubierta` dice cuánta es)."""
+    ese caso el informe lleva `recortada: True` y `media_mm` es la de la fracción de la pieza que calza (`cubierta` dice cuánta es).
+
+    `front` (`front_hint`, O05/O06): hacia dónde mira la pieza. Con él el calce deja la cara del FBX del lado del frente y se valida el resultado: si
+    la cara queda hacia atrás (ángulo ≥ 90°) o no se puede decidir (`ambigua`), `ok` es falso y, con `require_ok`, se levanta `PieceColorError`
+    que propone «Girar 180°». El informe lleva `frente`, `frente_ok` y `ambigua`."""
     if "base_color" not in tm.images:
         raise PieceColorError("el FBX no trae textura de color")
     frame = FigureFrame.from_piece_similarity(tm.vertices, piece_stl, refine=refine, source_faces=tm.faces)
     frame.report["ok"] = bool(frame.report["media_mm"] <= ok_mm)
+    _check_front(frame, front)
     if not frame.report["ok"] and cut:
-        alt = FigureFrame.from_cut_piece_similarity(tm.vertices, piece_stl, source_faces=tm.faces)
-        alt.report["ok"] = bool(alt.report["ok"] or (alt.report["media_mm"] <= ok_mm and alt.report.get("cubierta", 0.0) >= CUT_MIN_COVER))
+        alt = FigureFrame.from_cut_piece_similarity(tm.vertices, piece_stl, source_faces=tm.faces, front_hint=front)
+        calza = alt.report["ok"] or (alt.report["media_mm"] <= ok_mm and alt.report.get("cubierta", 0.0) >= CUT_MIN_COVER)
+        alt.report["ok"] = bool(calza and alt.report.get("frente_ok") is not False and not alt.report.get("ambigua"))
         alt.report["recortada"] = True
         if alt.report["ok"]:
             return alt
+        if require_ok and calza and (alt.report.get("frente_ok") is False or alt.report.get("ambigua")):
+            raise PieceColorError(_front_message(alt.report))
+    if require_ok and frame.report.get("frente_ok") is False and frame.report["media_mm"] <= ok_mm:
+        raise PieceColorError(_front_message(frame.report))
     if require_ok and not frame.report["ok"]:
         raise PieceColorError(f"el FBX no coincide con el STL de la pieza: distancia media {frame.report['media_mm']:.3f} mm "
                               f"(máximo aceptado {ok_mm:g} mm)")
     return frame
+
+
+def _front_message(rep: dict) -> str:
+    fr = rep.get("frente") or {}
+    if rep.get("ambigua"):
+        return ("no se puede decidir hacia dónde mira la cara del FBX: la pose y su giro de 180° calzan igual de bien "
+                f"(diferencia {rep.get('yaw180', {}).get('margen_mm', 0):.2f} mm) y el FBX no tiene rol de piel. Girá el FBX 180° si hace falta")
+    return (f"la cara del FBX quedó mirando hacia atrás (ángulo {fr.get('angulo_deg')}° con el frente de la pieza): "
+            "el calce es el de la pieza girada 180° sobre el cuello. Probá «Girar 180°»")
 
 
 def fbx_in_host_frame(tm: TexturedMesh, similarity, to_host=None) -> TexturedMesh:

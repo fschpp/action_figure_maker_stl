@@ -1,15 +1,20 @@
-## Current Focus — Cabeza de reemplazo con la cara al revés: O01–O10 (2026-11-22, sobre main 581793d)
-La textura de «bolivar-cabeza» sale con la cara en la nuca: la similitud guardada es la correcta girada 180° sobre el eje del cuello. Plan en `docs/PLAN_orientacion_color_cabeza.md`. Esta entrega cubre **O01** (prueba de regresión con datos reales).
+## Current Focus — Cabeza de reemplazo con la cara al revés: O01–O10 (2026-11-22, sobre main 756e789)
+La textura de «bolivar-cabeza» sale con la cara en la nuca: la similitud guardada es la correcta girada 180° sobre el eje del cuello. Plan en `docs/PLAN_orientacion_color_cabeza.md`. Hecho: O01–O06 (excepto lo indicado). Sigue O07.
 
 ### Todo List
-- [x] Done: O01 `tests/test_cut_piece_orientation.py` + fixtures `tests/data/bolivar_cabeza_roles.npz` (el `.color.npz` guardado) y `bolivar_cabeza_pieza.npz` (STL del catálogo, vértices unidos). 2 pruebas pasan (la pose guardada tiene la cara hacia −Y; el calce no la delata: media ≤ 0,52 mm) y 1 `xfail(strict=True)` que falla hoy: `from_cut_piece_similarity` deja la cara hacia −Y
-- [ ] Todo: O02 `piece_front` · O03 `face_direction` · O04 recorte por puerto · O05 desempate adelante/atrás (quita el `xfail`) · O06 validar `frente_ok`
+- [x] Done: O01 prueba de regresión con datos reales (`tests/test_cut_piece_orientation.py`, fixtures en `tests/data/`)
+- [x] Done: O02 `colorpiece.piece_front` (+Y del marco en el plano perpendicular al eje del cuello; `ref_dev_deg` contra `puertos.cuello.ref`) · O03 `colorroles.face_direction` / `face_roles` (rol «piel») · O04 `colorpiece.head_region` (por encima del plano del cuello y dentro de la caja de la pieza)
+- [x] Done: O05 `frame.FrontHint` + `from_cut_piece_similarity(front_hint=)`: prueba también el giro de 180° sobre el cuello (re-afinado) y se queda con el que deja la cara del lado del frente; sin cara, por calce y `ambigua` si la diferencia < 0,15 mm. Informe: `frente`, `frente_ok`, `ambigua`, `yaw180`
+- [x] Done: O06 `align_fbx_to_piece(front=)` valida (`_check_front`), `ok` exige `frente_ok` y no `ambigua`; con `require_ok` levanta `PieceColorError` que propone «Girar 180°». `catalog._roles_block` lo usa para piezas `cabeza`
 - [ ] Todo: O07 compuerta del ajuste no rígido · O08 «Girar 180°» + `afm catalogo color-girar` · O09 mostrar antes de guardar · O10 clusters sobre la pieza
+- [ ] Todo (parte de O04): pesar la alineación solo con el FBX recortado (hoy el recorte solo se usa para medir hacia dónde mira la cara; los arranques siguen usando los momentos del busto entero)
 
 ### Latest Blockers/Discoveries
-- Ya se tiene el STL real de la pieza (§8.1 del plan): con el `.color.npz` guardado (vértices ya deformados por el ajuste no rígido) la alineación vigente da media 0,125 mm, cubierta 0,98, `ok = True` y la cara del FBX (+Z) en `(0,03; −0,95; −0,31)` de la pieza: hacia atrás, igual que la ficha.
-- El `.color.npz` NO es el FBX original (50 MB, no disponible): sus vértices están deformados, así que la prueba del desempate (O05) se hace contra ese busto, no contra el FBX crudo.
-- Corre en ≈7 s en total (las dos alineaciones del fixture).
+- Con el `.color.npz` guardado y el STL real: ángulo cara–frente 163° → 5°; `yaw180.margen_mm` 0,34; media 0,48 mm, cubierta 0,73, `ok`. La media sube respecto de la pose al revés (0,125) porque ese `.npz` ya trae vértices deformados A ESA pose por el ajuste no rígido: no es el FBX crudo. Con el FBX original hay que repetirlo.
+- Sin rol de piel el desempate por calce NO alcanzaría en este caso: la pose al revés calza mejor (margen 0,34 > 0,15) y la elegiría. Por eso la dirección de la cara es la pista principal.
+- `tests/test_color_catalog_head.py::test_an_fbx_that_does_not_fit_the_piece_writes_nothing` falla también en main 756e789 (no es de este cambio).
+- Costo: ≈ +2 s por la pose opuesta (alineación total ≈ 9 s). Suites de color/roles/catálogo: pasan salvo el fallo previo.
+- NO verificado: la ventana GTK (sin GTK/EGL en este entorno).
 
 ## Current Focus — Color por roles en cabezas de reemplazo (pieza recortada) (2026-11-22)
 Al aplicar «Roles de color desde un FBX…» a una cabeza de reemplazo del catálogo (FBX solo de la cabeza, STL de la pieza cortado en la base del cuello, con tapa y quizá hueco), `align_fbx_to_piece` no calzaba y el asistente pedía «la similitud FBX → figura», que con una cabeza nueva tampoco sirve.

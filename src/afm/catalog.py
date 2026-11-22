@@ -476,7 +476,12 @@ class Catalog:
             block["alineacion"] = {"origen": "figura"}      # la dio quien llama (matriz de la figura entera): no se midió contra esta pieza
         else:
             try:
-                frame = align_fbx_to_piece(pkg.to_textured(pal), P._as_trimesh(mesh))
+                tmesh = P._as_trimesh(mesh)
+                front = None
+                if meta.tipo == "cabeza":                   # O05/O06: la cara del FBX tiene que quedar del lado del frente de la pieza
+                    from .colorpiece import front_hint
+                    front = front_hint(meta, tmesh, pkg)
+                frame = align_fbx_to_piece(pkg.to_textured(pal), tmesh, front=front)
             except (PieceColorError, RolesError, PaletteError) as exc:
                 raise CatalogError(f"el paquete de roles de «{meta.id}» no coincide con la pieza: {exc}. Si la pieza es un trozo de una figura, "
                                    "pasá la similitud FBX → figura (`similarity=`)") from exc

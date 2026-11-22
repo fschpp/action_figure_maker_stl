@@ -165,6 +165,38 @@ class RolesPackage:
 
 
 # ------------------------------------------------------------------ color
+SKIN_ROLES = ("piel",)           # ids de rol que cuentan como «piel» para saber hacia dónde mira la cara
+
+
+def face_roles(pkg) -> np.ndarray:
+    """(F,) índice de rol (255 = sin rol) de cada triángulo del paquete: la etiqueta del atlas en el centro de su UV."""
+    uv = np.asarray(pkg.corner_uv, float).mean(1)
+    h, w = pkg.labels.shape
+    return pkg.labels[np.clip(((1 - uv[:, 1]) * h).astype(int), 0, h - 1), np.clip((uv[:, 0] * w).astype(int), 0, w - 1)]
+
+
+def face_direction(pkg, skin_roles=SKIN_ROLES, region=None, vertices=None):
+    """`(vector, confianza)`: hacia dónde mira la cara del FBX, en el marco de `vertices` (por defecto los del paquete).
+
+    Es el vector del centro de la región al centroide, ponderado por área, de los triángulos con rol de piel (la nuca es pelo; la cara, orejas y
+    cuello son piel, pero el cuello queda detrás del centro de una cabeza cortada y no pesa si `region` ya lo dejó afuera). `region`: máscara
+    de triángulos (por defecto todos). La confianza es el largo del vector sobre el radio de la región (0–1). Sin piel, `(None, 0.0)`."""
+    V = np.asarray(pkg.vertices if vertices is None else vertices, float)
+    F = np.asarray(pkg.faces, np.int64)
+    tri = V[F]
+    area = 0.5 * np.linalg.norm(np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0]), axis=1)
+    cen = tri.mean(1)
+    reg = np.ones(len(F), bool) if region is None else np.asarray(region, bool)
+    skin_ids = [i for i, r in enumerate(pkg.roles) if any(str(r).startswith(sr) for sr in skin_roles)]
+    skin = np.isin(face_roles(pkg), skin_ids) & reg
+    if not skin_ids or area[skin].sum() <= 0 or area[reg].sum() <= 0:
+        return None, 0.0
+    c_reg = (cen[reg] * area[reg, None]).sum(0) / area[reg].sum()
+    vec = (cen[skin] * area[skin, None]).sum(0) / area[skin].sum() - c_reg
+    radius = float(np.sqrt((area[reg] * ((cen[reg] - c_reg) ** 2).sum(1)).sum() / area[reg].sum()))
+    return vec, float(min(1.0, np.linalg.norm(vec) / max(radius, 1e-9)))
+
+
 def _lab(rgb: np.ndarray) -> np.ndarray:
     """sRGB (…, 3) 0–255 → Lab (…, 3) float32."""
     from skimage.color import rgb2lab
