@@ -113,6 +113,18 @@ def can_retouch(meta: PieceMeta | None) -> tuple[bool, str]:
     return True, ""
 
 
+def can_turn_color(meta: PieceMeta | None) -> tuple[bool, str]:
+    """O08 · ¿Se puede girar el color de la pieza (`Girar color 180°…`)? Solo una cabeza (o pieza con puerto «cuello») con color por roles. `(ok, motivo)`."""
+    if meta is None:
+        return False, tr("catalog_window.girar_color_elegi_una_pieza")
+    color = getattr(meta, "color", None)
+    if not color or color_mode(color) != "roles":
+        return False, tr("catalog_window.girar_color_solo_cabeza")
+    if meta.tipo != "cabeza" and "cuello" not in (getattr(meta, "puertos", None) or {}):
+        return False, tr("catalog_window.girar_color_solo_cabeza")
+    return True, ""
+
+
 JOINT_OF_TYPE = {"brazo": "codo", "pierna": "rodilla"}                     # miembros que pueden traer la articulación propia
 SOCKET_OF_TYPE = {"antebrazo": "codo", "pantorrilla": "rodilla", "bota": "rodilla"}   # piezas distales: llevan la toma del otro lado
 

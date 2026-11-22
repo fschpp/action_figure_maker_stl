@@ -27,9 +27,10 @@ def _ports(*names) -> str:
 
 # ---------------------------------------------------------------------------------------------------- validación (sin catálogo)
 def test_every_import_command_has_a_form():
-    imports = {k: f for k, f in CI.FORMS.items() if k != "agarre"}               # «agarre» taladra una mano del catálogo: tiene su botón, no va en «Importar ▾»
+    own_button = ("agarre", "girar_color")                                       # «agarre» taladra una mano y «girar_color» gira una cabeza del catálogo: tienen su botón, no van en «Importar ▾»
+    imports = {k: f for k, f in CI.FORMS.items() if k not in own_button}
     assert {f["comando"] for f in imports.values()} == {c for c in OPS.COMMANDS if c.startswith("importar-") or c == "agregar-stl"}
-    assert set(CI.LABELS) == set(imports) and CI.FORMS["agarre"]["comando"] in OPS.COMMANDS
+    assert set(CI.LABELS) == set(imports) and all(CI.FORMS[k]["comando"] in OPS.COMMANDS for k in own_button)
 
 
 @pytest.mark.parametrize("kind, values, msg", [

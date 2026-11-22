@@ -177,6 +177,40 @@ def align_fbx_to_piece(tm: TexturedMesh, piece_stl, *, refine: bool | None = Non
     return frame
 
 
+def package_from_fbx(saved, tm):
+    """O08 · El paquete de roles `saved` con los vértices ORIGINALES del FBX `tm` (el `.color.npz` guardado trae los vértices ya deformados por el
+    ajuste no rígido, así que no sirve para volver a alinear). Los roles, el atlas y los UV son los guardados: no se vuelve a agrupar ni a asignar
+    colores. El FBX tiene que ser la misma malla (mismos vértices, caras y UV), si no `PieceColorError`."""
+    from .colorroles import RolesPackage
+
+    V = np.asarray(tm.vertices)
+    if V.shape != np.asarray(saved.vertices).shape or not np.array_equal(np.asarray(tm.faces), np.asarray(saved.faces)):
+        raise PieceColorError(f"el FBX no es el de origen del paquete: tiene {len(V)} vértices y {len(tm.faces)} caras, el paquete {len(saved.vertices)} y "
+                              f"{len(saved.faces)}")
+    if not np.allclose(np.asarray(tm.corner_uv, float), np.asarray(saved.corner_uv, float), atol=1e-4):
+        raise PieceColorError("el FBX no es el de origen del paquete: los UV no coinciden")
+    return RolesPackage(V.astype(np.float32), np.asarray(saved.faces), np.asarray(saved.corner_uv), np.asarray(saved.labels, np.uint8),
+                        list(saved.roles), dict(saved.origen or {}))
+
+
+def turn_roles_package(saved, tm, similarity, meta, mesh, degrees: float = 180.0):
+    """O08 · «Girar»: `(paquete con los vértices originales del FBX, FigureFrame)` con la pose guardada (`similarity`, 4×4 FBX → pieza) girada
+    `degrees` grados (180° por defecto) alrededor del eje del cuello de la pieza y re-afinada (`FigureFrame.from_cut_piece_pose`). Los roles y el atlas
+    no cambian. El informe lleva `giro_grados`, `frente`, `frente_ok` y el calce; `ok` es falso si el calce no alcanza o si la cara sigue hacia
+    atrás (en ese caso el giro no corrigió nada: el que llama decide si guarda)."""
+    from .frame import yaw_matrix
+
+    pkg = package_from_fbx(saved, tm)
+    A = _as_4x4(similarity, "similitud FBX → STL")
+    pf = piece_front(meta, mesh)
+    hint = front_hint(meta, mesh, pkg)
+    start = yaw_matrix(pf["center"], pf["up"], degrees) @ A
+    frame = FigureFrame.from_cut_piece_pose(pkg.vertices.astype(float), mesh, start, source_faces=pkg.faces, front_hint=hint)
+    frame.report["recortada"] = True
+    frame.report["giro_grados"] = float(degrees)
+    return pkg, frame
+
+
 def _front_message(rep: dict) -> str:
     fr = rep.get("frente") or {}
     if rep.get("ambigua"):

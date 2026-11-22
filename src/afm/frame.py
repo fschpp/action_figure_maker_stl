@@ -166,14 +166,7 @@ class FigureFrame:
         Q0 = np.asarray(piece_mesh.vertices, float)
         QF = getattr(piece_mesh, "faces", None)
         surf = _SourceSurface(V, source_faces, samples=CUT_SOURCE_SAMPLES)
-        Qs_ = _SourceSurface(Q0, QF, samples=CUT_PIECE_SAMPLES)
-        Q = Qs_.xyz
-        if Qs_.face is not None:                                # cáscara interior de una pieza hueca: su normal apunta hacia el centro
-            tri = Qs_._tri[Qs_.face]
-            nrm = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
-            outer = np.einsum("ij,ij->i", nrm, Q - Q.mean(0)) > 0
-            if outer.mean() > 0.3:
-                Q = Q[outer]
+        Q = _cut_piece_points(Q0, QF)
         (cs, Cs), (ct, Ct) = _surface_moments(V, source_faces), _surface_moments(Q0, QF)
         s0 = float(np.sqrt(np.trace(Ct) / np.trace(Cs)))
         _, Es = np.linalg.eigh(Cs)
@@ -200,18 +193,62 @@ class FigureFrame:
             M, stats = _polish_trimmed(surf, M, Qi, keep)
             if best_stats is None or stats[0] < best_stats[0]:
                 best, best_stats = M, stats
-        edge = _median_edge(Q0, QF)
-        tol = max(SIMILARITY_OK_MM, CUT_RES_FACTOR * edge)       # una pieza más gruesa que el FBX (o al revés) no puede calzar mejor que su malla
         front_rep = {}
         if front_hint is not None:
             best, best_stats, front_rep = _resolve_front(surf, best, best_stats, Qi, keep, front_hint)
-        mean, p95, mx, cover = _trimmed(surf, best, Q, keep, exact=True, cover_mm=2 * tol)
-        scale = float(np.cbrt(abs(np.linalg.det(best[:3, :3]))))
-        rep = {"media_mm": mean, "p95_mm": p95, "max_mm": mx, "cubierta": cover, "iteraciones": CUT_ICP_ITER,
-               "tolerancia_mm": tol, "arista_pieza_mm": edge,
-               "ok": bool(mean <= tol and cover >= CUT_MIN_COVER and front_rep.get("frente_ok") is not False and not front_rep.get("ambigua"))}
-        rep.update(front_rep)
-        return cls(best, scale, rep)
+        return cls(*_cut_result(surf, best, Q, Q0, QF, keep, front_rep))
+
+    @classmethod
+    def from_cut_piece_pose(cls, source_vertices, piece_mesh, start, source_faces=None, keep: float | None = None,
+                            front_hint: "FrontHint | None" = None) -> "FigureFrame":
+        """O08 · Re-afina una pose DADA (`start`, 4×4 FBX → pieza) para una pieza recortada, sin buscar entre los 24 arranques: el ICP recortado y el
+        afinado directo parten de `start`. Sirve para «Girar 180°»: la persona (o `yaw_matrix`) ya decidió hacia dónde mira la cara y solo falta
+        que calce. El informe es el de `from_cut_piece_similarity` con `frente` / `frente_ok` si hay `front_hint`; la decisión de adelante/atrás ya
+        está tomada, así que `ambigua` es siempre falso (si la cara quedó hacia atrás lo dice `frente_ok`, no la ambigüedad)."""
+        keep = CUT_KEEP if keep is None else float(keep)
+        V = np.asarray(source_vertices.vertices if hasattr(source_vertices, "vertices") else source_vertices, float)
+        if source_faces is None and hasattr(source_vertices, "faces"):
+            source_faces = source_vertices.faces
+        Q0 = np.asarray(piece_mesh.vertices, float)
+        QF = getattr(piece_mesh, "faces", None)
+        surf = _SourceSurface(V, source_faces, samples=CUT_SOURCE_SAMPLES)
+        Q = _cut_piece_points(Q0, QF)
+        Qi = Q[np.random.default_rng(1).choice(len(Q), min(len(Q), CUT_ICP_POINTS), replace=False)]
+        M, stats = _icp_trimmed(surf, np.asarray(start, float), Qi, keep)
+        M, stats = _polish_trimmed(surf, M, Qi, keep)
+        front_rep = {}
+        if front_hint is not None:
+            ang, vec = front_hint.angle(M)
+            front_rep = {"ambigua": False, "frente_ok": None if ang is None else bool(ang < FRONT_MAX_DEG),
+                         "frente": {"fbx": None if vec is None else [round(float(x), 3) for x in _unit(vec)],
+                                    "pieza": [round(float(x), 3) for x in front_hint.front], "angulo_deg": None if ang is None else round(ang, 1)}}
+        return cls(*_cut_result(surf, M, Q, Q0, QF, keep, front_rep))
+
+
+def _cut_piece_points(Q0: np.ndarray, QF) -> np.ndarray:
+    """Muestras (por área) de la superficie EXTERIOR de la pieza recortada: la cáscara interior de una pieza hueca (su normal apunta al centro) se descarta."""
+    Qs_ = _SourceSurface(Q0, QF, samples=CUT_PIECE_SAMPLES)
+    Q = Qs_.xyz
+    if Qs_.face is not None:
+        tri = Qs_._tri[Qs_.face]
+        nrm = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+        outer = np.einsum("ij,ij->i", nrm, Q - Q.mean(0)) > 0
+        if outer.mean() > 0.3:
+            Q = Q[outer]
+    return Q
+
+
+def _cut_result(surf, best, Q, Q0, QF, keep: float, front_rep: dict):
+    """`(matriz, escala, informe)` de una alineación recortada ya resuelta: las medidas de `Q` contra `surf` y `ok`."""
+    edge = _median_edge(Q0, QF)
+    tol = max(SIMILARITY_OK_MM, CUT_RES_FACTOR * edge)           # una pieza más gruesa que el FBX (o al revés) no puede calzar mejor que su malla
+    mean, p95, mx, cover = _trimmed(surf, best, Q, keep, exact=True, cover_mm=2 * tol)
+    scale = float(np.cbrt(abs(np.linalg.det(best[:3, :3]))))
+    rep = {"media_mm": mean, "p95_mm": p95, "max_mm": mx, "cubierta": cover, "iteraciones": CUT_ICP_ITER,
+           "tolerancia_mm": tol, "arista_pieza_mm": edge,
+           "ok": bool(mean <= tol and cover >= CUT_MIN_COVER and front_rep.get("frente_ok") is not False and not front_rep.get("ambigua"))}
+    rep.update(front_rep)
+    return best, scale, rep
 
 
 FRONT_AMBIGUOUS_MM = 0.15        # O05: si la pose y su giro de 180° calzan con menos diferencia que esto y no hay dirección de cara, no se decide

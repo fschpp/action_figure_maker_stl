@@ -82,7 +82,15 @@
   "taladrar_agarre_titulo": "Drill a grip in a hand",
   "taladrar_agarre_ayuda": "Finds the channel left by the fingers and the palm of a hand already in the catalog, drills it to the requested Ø and saves it as a new version of the same piece (the old one stays; the new one does not inherit the color). With Güemes's hand, 2.4 mm is almost the maximum.",
   "mano_del_catalogo": "Catalog hand",
-  "vacio_la_mas_reciente": "Empty: the most recent one."
+  "vacio_la_mas_reciente": "Empty: the most recent one.",
+  "girar_color_titulo": "Turn a head's color",
+  "girar_color_ayuda": "Turns the head's FBX around its neck (180° by default) and saves it as a new version of the same piece, with the same color roles. Use it when the face came out on the nape. The original FBX is needed: the saved color package already holds warped vertices.",
+  "girar_color_ref": "Catalog head",
+  "girar_color_fbx": "Original color FBX",
+  "girar_color_fbx_ayuda": "Empty: the name the piece record gives is searched in the current folder and in the catalog.",
+  "girar_color_grados": "Turn around the neck (degrees)",
+  "girar_color_grados_ayuda": "180 flips the face; another value fixes a partial turn.",
+  "girar_color_grados_cero": "The turn must not be 0° (a 360° turn leaves the head as it was)."
  },
  "common": {
   "largo_de_la_lengueta_mm": "Tab length (mm)",
@@ -421,7 +429,11 @@
   "retocar_no_entra": "Could not add the retouch: %{exc}",
   "taladrar_agarre": "Drill grip…",
   "taladrar_agarre_ayuda": "Drills the weapon grip in the selected hand and saves it as a new version (afm catalogo taladrar-mano)",
-  "elegi_una_sola_mano": "Choose a single hand from the list."
+  "elegi_una_sola_mano": "Choose a single hand from the list.",
+  "girar_color": "Turn color 180°…",
+  "girar_color_tip": "Turns the selected head's color 180° around the neck (the face came out on the nape) and saves it as a new version (afm catalogo color-girar)",
+  "girar_color_elegi_una_pieza": "Pick a single head with role color",
+  "girar_color_solo_cabeza": "«Turn color» is for heads (or pieces with a neck) that have role color"
  },
  "controller": {
   "arista_de_la_caja_mm": "Box edge (mm)",
@@ -2014,7 +2026,11 @@
   "sin_paleta": "Line “%{line}” has no palette: create roles with `afm catalogo paleta agregar` before saving role colour",
   "json_malo": "Could not read the assignment or the similarity: %{error}",
   "no_sirve": "Could not build the roles package: %{error}",
-  "listo": "“%{ref}” saved with role colour (%{roles}); %{kb} KB package. “%{antes}” did not change."
+  "listo": "“%{ref}” saved with role colour (%{roles}); %{kb} KB package. “%{antes}” did not change.",
+  "girar_ayuda": "turn a head whose texture came out backwards (face on the nape) by 180° (or the given degrees) around the neck and save it as a new version; roles are not redone",
+  "girar_ayuda_ref": "head with role color (id@n or id): its next version is saved, the previous one does not change",
+  "girar_ayuda_fbx": "ORIGINAL color FBX (the saved `.color.npz` already holds warped vertices and cannot be turned); without it the name the piece record gives is searched next to the catalog and in the current folder",
+  "girar_ayuda_grados": "degrees to turn around the neck axis (default 180)"
  },
  "retoque_cli": {
   "ayuda": "show, export, import or delete the manual colour retouch of a piece (strokes are painted in the Catalogue window)",

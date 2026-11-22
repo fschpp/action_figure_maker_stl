@@ -16,7 +16,7 @@ from .recipe import RecipeError
 
 
 def add_parsers(sub) -> None:
-    c = sub.add_parser("catalogo", help="catálogo de piezas de una línea (crear, listar, verificar, importar-mano, taladrar-mano, agregar, agregar-stl, guardar-montura, cortar-muneca, usos, eliminar, estado, compat, certificar, matriz, cobertura, contrato, capacidad, paleta, color, retoque)")
+    c = sub.add_parser("catalogo", help="catálogo de piezas de una línea (crear, listar, verificar, importar-mano, taladrar-mano, agregar, agregar-stl, guardar-montura, cortar-muneca, usos, eliminar, estado, compat, certificar, matriz, cobertura, contrato, capacidad, paleta, color, color-girar, retoque)")
     cs = c.add_subparsers(dest="catcmd", required=True)
 
     def root(p):
@@ -216,6 +216,11 @@ def add_parsers(sub) -> None:
     a.add_argument("--roles", required=True, metavar="ASIGNACION.json", help=tr("color_cli.ayuda_roles"))
     a.add_argument("--k", type=int, default=10, help=tr("color_cli.ayuda_k"))
     a.add_argument("--similitud", default=None, metavar="SIMILITUD.json", help=tr("color_cli.ayuda_similitud"))
+    a = cs.add_parser("color-girar", help=tr("color_cli.girar_ayuda"))
+    root(a)
+    a.add_argument("ref", metavar="REF", help=tr("color_cli.girar_ayuda_ref"))
+    a.add_argument("--fbx", default=None, metavar="ARCHIVO.fbx", help=tr("color_cli.girar_ayuda_fbx"))
+    a.add_argument("--grados", type=float, default=180.0, metavar="GRADOS", help=tr("color_cli.girar_ayuda_grados"))
     a = cs.add_parser("retoque", help=tr("retoque_cli.ayuda"))
     root(a)
     a.add_argument("ref", metavar="REF", help=tr("retoque_cli.ayuda_ref"))
@@ -464,6 +469,8 @@ def _run(args) -> int:
         return _run_palette(cat, args)
     if cmd == "color":
         return _run_color(cat, args)
+    if cmd == "color-girar":
+        return _print_import(OPS.turn_color(cat, args.ref, args.fbx, degrees=args.grados))
     if cmd == "retoque":
         return _run_retouch(cat, args)
     if cmd == "explicar":

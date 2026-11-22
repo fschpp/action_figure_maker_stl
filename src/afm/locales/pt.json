@@ -82,7 +82,15 @@
   "taladrar_agarre_titulo": "Furar encaixe em uma mão",
   "taladrar_agarre_ayuda": "Procura o canal que os dedos deixam com a palma de uma mão que já está no catálogo, fura-o no Ø pedido e a guarda como versão nova da mesma peça (a anterior permanece; a nova não herda a cor). Com a mão do Güemes, 2,4 mm é quase o máximo.",
   "mano_del_catalogo": "Mão do catálogo",
-  "vacio_la_mas_reciente": "Vazio: a mais recente."
+  "vacio_la_mas_reciente": "Vazio: a mais recente.",
+  "girar_color_titulo": "Girar a cor de uma cabeça",
+  "girar_color_ayuda": "Gira o FBX da cabeça em torno do pescoço (180° por padrão) e a guarda como versão nova da mesma peça, com os mesmos papéis de cor. Serve quando o rosto saiu na nuca. É preciso o FBX original: o pacote de cor guardado já traz os vértices deformados.",
+  "girar_color_ref": "Cabeça do catálogo",
+  "girar_color_fbx": "FBX original da cor",
+  "girar_color_fbx_ayuda": "Vazio: procura-se o nome da ficha na pasta atual e no catálogo.",
+  "girar_color_grados": "Giro no pescoço (graus)",
+  "girar_color_grados_ayuda": "180 vira o rosto; outro valor corrige um giro parcial.",
+  "girar_color_grados_cero": "O giro tem de ser diferente de 0° (um giro de 360° deixa a cabeça igual)."
  },
  "common": {
   "largo_de_la_lengueta_mm": "Comprimento da lingueta (mm)",
@@ -421,7 +429,11 @@
   "retocar_no_entra": "Não foi possível somar o retoque: %{exc}",
   "taladrar_agarre": "Furar encaixe…",
   "taladrar_agarre_ayuda": "Fura o encaixe de armas na mão escolhida e a guarda como versão nova (afm catalogo taladrar-mano)",
-  "elegi_una_sola_mano": "Escolha uma única mão da lista."
+  "elegi_una_sola_mano": "Escolha uma única mão da lista.",
+  "girar_color": "Girar cor 180°…",
+  "girar_color_tip": "Gira a cor da cabeça escolhida 180° em torno do pescoço (o rosto saiu na nuca) e a guarda como versão nova (afm catalogo color-girar)",
+  "girar_color_elegi_una_pieza": "Escolha uma só cabeça com cor por papéis",
+  "girar_color_solo_cabeza": "«Girar cor» é para cabeças (ou peças com pescoço) com cor por papéis"
  },
  "controller": {
   "arista_de_la_caja_mm": "Aresta da caixa (mm)",
@@ -2014,7 +2026,11 @@
   "sin_paleta": "A linha «%{line}» não tem paleta: crie os papéis com `afm catalogo paleta agregar` antes de guardar cor por papéis",
   "json_malo": "Não foi possível ler a atribuição ou a similaridade: %{error}",
   "no_sirve": "Não foi possível montar o pacote de papéis: %{error}",
-  "listo": "«%{ref}» guardada com cor por papéis (%{roles}); pacote de %{kb} KB. «%{antes}» não mudou."
+  "listo": "«%{ref}» guardada com cor por papéis (%{roles}); pacote de %{kb} KB. «%{antes}» não mudou.",
+  "girar_ayuda": "girar 180° (ou os graus pedidos) em torno do pescoço a cor de uma cabeça cuja textura saiu ao contrário (rosto na nuca) e guardá-la como versão nova; os papéis não são refeitos",
+  "girar_ayuda_ref": "cabeça com cor por papéis (id@n ou id): guarda-se a versão seguinte, a anterior não muda",
+  "girar_ayuda_fbx": "FBX ORIGINAL da cor (o `.color.npz` guardado já traz os vértices deformados e não serve para girar); sem ele procura-se o nome da ficha junto ao catálogo e na pasta atual",
+  "girar_ayuda_grados": "graus de giro em torno do eixo do pescoço (padrão 180)"
  },
  "retoque_cli": {
   "ayuda": "ver, exportar, importar ou apagar o retoque manual de cor de uma peça (as pinceladas fazem-se na janela do Catálogo)",
