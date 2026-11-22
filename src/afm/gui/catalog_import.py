@@ -59,6 +59,14 @@ FORMS: dict[str, dict] = {
             Field("ranura", lz("catalog_import.ancho_de_la_ranura_mm"), FLOAT, 0.5),
             Field("largo_lengueta", lz("common.largo_de_la_lengueta_mm"), FLOAT, 8.0)],
     },
+    "girar_color": {                                 # tampoco importa un STL: gira el color de una cabeza que ya está en el catálogo (botón «Girar color 180°…», O08)
+        "titulo": lz("catalog_import.girar_color_titulo"), "comando": "color-girar",
+        "ayuda": lz("catalog_import.girar_color_ayuda"),
+        "campos": [
+            Field("ref", lz("catalog_import.girar_color_ref"), TEXT, "", True),
+            Field("fbx", lz("catalog_import.girar_color_fbx"), FILE, "", False, (), lz("catalog_import.girar_color_fbx_ayuda")),
+            Field("grados", lz("catalog_import.girar_color_grados"), FLOAT, 180.0, False, (), lz("catalog_import.girar_color_grados_ayuda"))],
+    },
     "arma": {
         "titulo": lz("catalog_import.importar_un_arma"), "comando": "importar-arma",
         "ayuda": lz("catalog_import.cualquier_stl_se_escala_se_le"),
@@ -145,6 +153,12 @@ def parse(kind: str, values: dict) -> dict:
                     raise ValueError(tr("catalog_import.label_tiene_que_ser_mayor_que", label=label))
                 kw[name] = v
         return {"stl": "", "args": (str(values.get("mano", "")).strip() or None,), "kwargs": kw}
+    if kind == "girar_color":
+        deg = _num(values.get("grados"), tr("catalog_import.girar_color_grados"))
+        deg = 180.0 if deg is None else deg
+        if deg % 360 == 0:
+            raise ValueError(tr("catalog_import.girar_color_grados_cero"))
+        return {"stl": "", "args": (str(values.get("ref", "")).strip(), str(values.get("fbx", "")).strip() or None), "kwargs": {"degrees": deg}}
     if kind == "mano":
         return {"stl": stl, "args": (), "kwargs": {"piece_id": pid, "new_version": new}}
     if kind == "accesorio":
@@ -194,6 +208,8 @@ def run(kind: str, root: str, parsed: dict) -> OPS.ImportResult:
     cat = Catalog.open(root)
     if kind == "agarre":
         return OPS.drill_hand(cat, *parsed["args"], **parsed["kwargs"])
+    if kind == "girar_color":
+        return OPS.turn_color(cat, *parsed["args"], **parsed["kwargs"])
     fn = {"mano": OPS.import_hand, "accesorio": OPS.import_accessory, "arma": OPS.import_weapon, "pieza": OPS.add_loose_piece}[kind]
     return fn(cat, parsed["stl"], *parsed["args"], **parsed["kwargs"])
 

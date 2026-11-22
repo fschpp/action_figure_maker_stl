@@ -84,6 +84,8 @@ Orden: primero la prueba que falla (O01), después la orientación (O02–O06), 
 
 **O08 · Botón «Girar 180°» y reparar piezas ya guardadas.** En el asistente «Roles de color» y en «Retocar color…»: vista previa con una flecha del frente de la pieza y otra de la cara del FBX, y el botón «Girar 180°» (compone `Rz(180°)` sobre el eje del cuello con la similitud y recalcula). Para piezas ya guardadas, `afm catalogo color-girar <ref> --grados 180`: **vuelve a leer el FBX original** (el `.color.npz` guarda los vértices ya deformados por el ajuste no rígido, por eso no se puede girar desde el paquete) y guarda una versión nueva (`@3`). *Criterio:* `cabeza-simon-bolivar-cuerpo-fixed-01@3` sale con la cara hacia +Y.
 
+  *Estado:* hecha la parte de catálogo — `afm catalogo color-girar REF [--fbx F] [--grados 180]` y el botón «Girar color 180°…» de «Administrar catálogo»; vuelve a leer el FBX original (`color.origen.sha256`), reusa los roles y el atlas guardados, y no guarda si la cara sigue hacia atrás. Con los archivos reales: cara a 2,6° del frente, misma pose que la alineación automática. Pendiente (con O09): el botón y las flechas de la vista previa dentro del asistente «Roles de color» y de «Retocar color…».
+
 **O09 · Mostrar el resultado antes de guardar.** El asistente muestra la cabeza con el color real y el aviso «la cara quedó hacia adelante/atrás» y **no deja guardar** con `frente_ok = False` sin confirmación explícita.
   *Hecho (2026-11-22):* `RolesWizard.check_piece` + `save_piece(confirm_front=)`, botón «Probar en la pieza», vista «Pieza con el color» y diálogo «Guardar igual»; ver `PROGRESS.md`. Falta probar la ventana a mano.
 

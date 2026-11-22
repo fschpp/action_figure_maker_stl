@@ -24,6 +24,7 @@ COMMANDS: dict[str, tuple[str, bool, bool]] = {
     "usos": (GUI, False, False),               # «Se usa en» de la ficha
     "eliminar": (GUI, False, True),            # va a la papelera
     "restaurar": (GUI, False, True),           # «Recuperar lo eliminado» (el último grupo; `--lote ID` queda en consola)
+    "color-girar": (GUI, True, True),          # O08: botón «Girar color 180°…» de la ventana (formulario «girar_color»: FBX original + grados)
     "taladrar-mano": (GUI, True, True),        # botón «Taladrar agarre…» de la ventana (busca el canal: tarda)
     "importar-mano": (GUI, False, True),       # «Importar ▾ → Mano estándar…» (archivo + id)
     "importar-arma": (GUI, False, True),       # «Importar ▾ → Arma…» (archivo + largo + los 3 puntos del corte, escritos X,Y,Z)
@@ -415,6 +416,37 @@ def drill_hand(cat: Catalog, ref: str | None = None, *, bore_d: float | None = N
              f"largo {f.length:.1f} mm · pared mín. del anillo {f.wall_min:.2f} mm · apoyo del dentado ≈ {f.support_deg:.0f}°"]
     if f.support_deg < 270:
         warns.append("el hombro apoya solo en parte del contorno del taladro: la orientación de la espada importa y el agarre es más flojo que con un tubo completo")
+    return ImportResult(meta, lines, warns)
+
+
+def find_origin_fbx(cat: Catalog, ref: str, fbx: str | None = None) -> str:
+    """Ruta del FBX original del color de `ref` (O08). Con `fbx` se usa ese; sin él se busca `color.origen.nombre` de la ficha en la carpeta actual,
+    en la raíz del catálogo y junto a la pieza. `CatalogError` con el nombre que se buscaba si no aparece (hay que pasarlo a mano)."""
+    import os
+
+    if fbx:
+        return fbx
+    meta = cat.meta(ref)
+    name = ((meta.color or {}).get("origen") or {}).get("nombre")
+    if not name:
+        raise CatalogError(f"{meta.ref}: la ficha no dice de qué FBX salió el color; indicá el FBX original")
+    for folder in (os.getcwd(), cat.root, cat._dir(meta.tipo)):
+        path = os.path.join(folder, name)
+        if os.path.isfile(path):
+            return path
+    raise CatalogError(f"{meta.ref}: no encuentro el FBX original «{name}» (carpeta actual, raíz del catálogo, carpeta de la pieza); indicá su ruta")
+
+
+def turn_color(cat: Catalog, ref: str, fbx: str | None = None, *, degrees: float = 180.0) -> ImportResult:
+    """`afm catalogo color-girar`: versión nueva de la cabeza `ref` con el color girado `degrees`° sobre el cuello (O08). Ver `Catalog.turn_color`."""
+    path = find_origin_fbx(cat, ref, fbx)
+    before = cat.meta(ref).ref                       # `ref` puede ser el id pelado: después de guardar apuntaría a la versión nueva
+    meta, warns = cat.turn_color(ref, path, degrees)
+    al = meta.color.get("alineacion") or {}
+    fr = al.get("frente") or {}
+    lines = [f"Color girado {degrees:g}° sobre el cuello: {meta.ref}, a partir de {before} (FBX {path})",
+             f"  calce: media {al.get('media_mm', 0):.3f} mm · cubierta {al.get('cubierta', 0) * 100:.0f} %"
+             + (f" · la cara mira a {fr['angulo_deg']}° del frente" if fr.get("angulo_deg") is not None else "")]
     return ImportResult(meta, lines, warns)
 
 

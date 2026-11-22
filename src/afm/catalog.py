@@ -392,7 +392,7 @@ class Catalog:
 
     def add_piece(self, mesh, meta: P.PieceMeta, new_version: bool = False,
                   color_fbx: str | None = None, color_roles=None, similarity=None, alignment=None,
-                  front_confirmed: bool = False) -> tuple[P.PieceMeta, list[str]]:
+                  front_confirmed: bool = False, color_frame=None) -> tuple[P.PieceMeta, list[str]]:
         """Guarda una pieza. Si el id ya existe hace falta `new_version=True` (crea la versión siguiente); nunca sobrescribe.
 
         Devuelve (meta ya completa con hash y volumen, avisos). Avisa si la altura de la figura de origen difiere de la
@@ -411,7 +411,10 @@ class Catalog:
 
         `alignment` (O09): el `FigureFrame` que ya calculó quien llama (`colorpiece.align_roles_package`), para no alinear dos veces; se usa solo sin
         `similarity`. `front_confirmed`: la persona vio que la cara del FBX quedó hacia atrás (o que no se pudo decidir) y pidió guardar igual; sin
-        esto una pieza `cabeza` con la cara al revés NO se guarda. La ficha anota `alineacion.frente_confirmado`."""
+        esto una pieza `cabeza` con la cara al revés NO se guarda. La ficha anota `alineacion.frente_confirmado`.
+
+        `color_frame` (O08): el `FigureFrame` ya calculado (FBX → pieza) con que se guarda el paquete, en lugar de alinearlo de nuevo (lo usa
+        `turn_color`: la pose es la girada a mano, no la que elegiría la alineación). Solo con `color_roles`, y no con `similarity`."""
         existing = self.versions(meta.id)
         if existing and not new_version:
             raise CatalogError(f"«{meta.id}» ya existe (versiones {existing}): las piezas son inmutables; "
@@ -428,6 +431,8 @@ class Catalog:
                             "las piezas no se reescalan")
         if color_fbx and color_roles is not None:
             raise CatalogError(f"«{meta.id}»: el color es o un FBX entero o un paquete de roles, no los dos")
+        if color_frame is not None and color_roles is None:
+            raise CatalogError(f"«{meta.id}»: la pose ya calculada (color_frame) solo vale con un paquete de roles")
         if color_fbx:
             from .colorpiece import PieceColorError
             from .fbxio import FbxError
@@ -437,7 +442,7 @@ class Catalog:
             except (PieceColorError, FbxError, OSError) as exc:
                 raise CatalogError(f"el FBX de color de «{meta.id}» no sirve: {exc}") from exc
         elif color_roles is not None:
-            meta.color = self._roles_block(meta, mesh, color_roles, similarity, alignment, front_confirmed)
+            meta.color = self._roles_block(meta, mesh, color_roles, similarity, alignment, front_confirmed, color_frame)
             color_roles = self._fit_roles_package(meta, mesh, color_roles, warnings)
         elif meta.color:
             meta.color = None
@@ -446,7 +451,7 @@ class Catalog:
         self.write_index()
         return meta, warnings
 
-    def _roles_block(self, meta: P.PieceMeta, mesh, pkg, similarity, alignment=None, front_confirmed: bool = False) -> dict:
+    def _roles_block(self, meta: P.PieceMeta, mesh, pkg, similarity, alignment=None, front_confirmed: bool = False, frame=None) -> dict:
         """Bloque `color` (modo `roles`) de una pieza con paquete de roles. No escribe nada: si algo no sirve levanta `CatalogError` antes."""
         from .colorpiece import PieceColorError
         from .colorroles import RolesError
@@ -470,7 +475,12 @@ class Catalog:
         block = {"modo": "roles", "fuente": "", "sha256": "", "roles": used, "estado": "alineada",
                  "origen": {k: v for k, v in dict(pkg.origen or {}).items() if isinstance(v, (str, int, float, bool))},
                  "texturas": {"atlas": f"{pkg.labels.shape[1]}x{pkg.labels.shape[0]}"}}
-        if similarity is not None:
+        if frame is not None and similarity is not None:
+            raise CatalogError(f"«{meta.id}»: la pose es o la similitud dada o la ya calculada, no las dos")
+        if frame is not None:                              # O08: pose ya calculada (girada a mano); no se vuelve a elegir
+            block["similitud"] = np.asarray(frame.matrix, float).tolist()
+            block["alineacion"] = {k: (round(float(v), 4) if isinstance(v, float) else v) for k, v in frame.report.items()}
+        elif similarity is not None:
             try:
                 A = np.asarray(similarity, float)
             except (TypeError, ValueError):
@@ -544,6 +554,52 @@ class Catalog:
             warnings.append(f"«{meta.id}»: el FBX difiere de la pieza (media {media:.2f} mm) y el ajuste no mejoró la cobertura "
                             f"({a * 100:.0f} % → {b * 100:.0f} %); se guarda con el calce rígido")
         return fitted
+
+    def turn_color(self, ref: str, fbx_path: str, degrees: float = 180.0) -> tuple[P.PieceMeta, list[str]]:
+        """O08 · «Girar 180°»: guarda una **versión nueva** de la cabeza `ref` con el mismo color por roles pero el FBX girado `degrees` grados (180° por
+        defecto) alrededor del eje del cuello, para la cabeza cuya textura salió al revés (cara en la nuca). No rehace los roles: reusa las etiquetas del
+        `.color.npz` guardado.
+
+        Hace falta el **FBX original** (`fbx_path`): el paquete guardado trae los vértices ya deformados por el ajuste no rígido y no se puede girar
+        desde él. Se comprueba que es ese FBX (hash de `color.origen.sha256` si la ficha lo trae, y que tenga la misma malla y los mismos UV). El
+        calce se re-afina desde la pose girada y se vuelve a aplicar el ajuste no rígido como al catalogar. Si el calce no alcanza o la cara sigue
+        hacia atrás, `CatalogError` y no se escribe nada. La geometría y los puertos no cambian; el retoque manual **no** se copia (se pintó sobre el
+        color anterior: `afm catalogo retoque --copiar-de` lo trae si sirve). Devuelve `(meta nueva, avisos)`."""
+        from .colorpiece import PieceColorError, turn_roles_package
+        from .colorroles import RolesError, RolesPackage
+        from .fbxio import FbxError, load_textured
+
+        meta, mesh = self.load(ref)
+        block = meta.color or {}
+        if not block or P.color_mode(block) != "roles":
+            raise CatalogError(f"{meta.ref} no lleva color por roles: no hay nada que girar")
+        has_neck = isinstance(meta.puertos, dict) and "cuello" in meta.puertos
+        if meta.tipo != "cabeza" and not has_neck:
+            raise CatalogError(f"{meta.ref} es de tipo «{meta.tipo}» y no tiene puerto «cuello»: «Girar» gira sobre el eje del cuello de una cabeza")
+        want = (block.get("origen") or {}).get("sha256")
+        if not os.path.isfile(fbx_path):
+            raise CatalogError(f"no existe el FBX original «{fbx_path}»")
+        if want and P.sha256_file(fbx_path) != want:
+            raise CatalogError(f"«{os.path.basename(fbx_path)}» no es el FBX de origen de {meta.ref} (hash distinto del guardado en la ficha, "
+                               f"«{(block.get('origen') or {}).get('nombre', '?')}»)")
+        try:
+            saved = RolesPackage.load(self.color_file(meta.ref))
+            tm = load_textured(fbx_path)
+            pkg, frame = turn_roles_package(saved, tm, block["similitud"], meta, P._as_trimesh(mesh), degrees)
+        except (PieceColorError, RolesError, FbxError, OSError, KeyError, ValueError) as exc:
+            raise CatalogError(f"{meta.ref}: no se pudo girar el color: {exc}") from exc
+        rep = frame.report
+        if rep.get("frente_ok") is False:
+            raise CatalogError(f"{meta.ref}: con el giro de {degrees:g}° la cara sigue mirando hacia atrás (ángulo {rep['frente']['angulo_deg']}° con el "
+                               "frente de la pieza); no se guardó nada")
+        if not rep["ok"]:
+            raise CatalogError(f"{meta.ref}: con el giro de {degrees:g}° el FBX no calza con la pieza (distancia media {rep['media_mm']:.3f} mm, "
+                               f"tolerancia {rep['tolerancia_mm']:.3f} mm, cubierta {rep['cubierta'] * 100:.0f} %); no se guardó nada")
+        new, warns = self.add_piece(mesh, P.PieceMeta.from_dict(meta.to_dict()), new_version=True, color_roles=pkg, color_frame=frame)
+        if block.get("retoque"):
+            warns.append(f"{meta.ref} tenía retoque de color y no se copió a {new.ref} (se pintó sobre el color anterior): "
+                         f"`afm catalogo retoque {new.ref} --copiar-de {meta.ref}` lo trae si sirve")
+        return new, warns
 
     def color_file(self, ref: str) -> str | None:
         """Ruta del archivo de color de la pieza `ref` (`id` o `id@n`): el FBX entero (modo `rgb`, T35) o el paquete `.color.npz` (modo `roles`, T42);

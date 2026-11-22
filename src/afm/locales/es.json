@@ -82,7 +82,15 @@
   "taladrar_agarre_titulo": "Taladrar agarre en una mano",
   "taladrar_agarre_ayuda": "Busca el canal que dejan los dedos con la palma de una mano que ya está en el catálogo, lo taladra al Ø pedido y la guarda como versión nueva de la misma pieza (la anterior queda; la nueva no hereda el color). Con la mano de Güemes, 2,4 mm es casi el máximo.",
   "mano_del_catalogo": "Mano del catálogo",
-  "vacio_la_mas_reciente": "Vacío: la más reciente."
+  "vacio_la_mas_reciente": "Vacío: la más reciente.",
+  "girar_color_titulo": "Girar el color de una cabeza",
+  "girar_color_ayuda": "Gira el FBX de la cabeza sobre su cuello (180° por defecto) y la guarda como versión nueva de la misma pieza, con los mismos roles de color. Sirve cuando la cara salió en la nuca. Hace falta el FBX original: el paquete de color guardado ya trae los vértices deformados.",
+  "girar_color_ref": "Cabeza del catálogo",
+  "girar_color_fbx": "FBX original del color",
+  "girar_color_fbx_ayuda": "Vacío: se busca el nombre que dice la ficha en la carpeta actual y en el catálogo.",
+  "girar_color_grados": "Giro sobre el cuello (grados)",
+  "girar_color_grados_ayuda": "180 da vuelta la cara; otro valor corrige un giro parcial.",
+  "girar_color_grados_cero": "El giro tiene que ser distinto de 0° (un giro de 360° deja la cabeza igual)."
  },
  "common": {
   "largo_de_la_lengueta_mm": "Largo de la lengüeta (mm)",
@@ -421,7 +429,11 @@
   "retocar_no_entra": "No se pudo sumar el retoque: %{exc}",
   "taladrar_agarre": "Taladrar agarre…",
   "taladrar_agarre_ayuda": "Taladra el agarre de armas en la mano elegida y la guarda como versión nueva (afm catalogo taladrar-mano)",
-  "elegi_una_sola_mano": "Elegí una sola mano de la lista."
+  "elegi_una_sola_mano": "Elegí una sola mano de la lista.",
+  "girar_color": "Girar color 180°…",
+  "girar_color_tip": "Gira el color de la cabeza elegida 180° sobre el cuello (la cara salió en la nuca) y la guarda como versión nueva (afm catalogo color-girar)",
+  "girar_color_elegi_una_pieza": "Elegí una sola cabeza con color por roles",
+  "girar_color_solo_cabeza": "«Girar color» es para cabezas (o piezas con cuello) con color por roles"
  },
  "controller": {
   "arista_de_la_caja_mm": "Arista de la caja (mm)",
@@ -2014,7 +2026,11 @@
   "sin_paleta": "La línea «%{line}» no tiene paleta: creá los roles con `afm catalogo paleta agregar` antes de guardar color con roles",
   "json_malo": "No se pudo leer la asignación o la similitud: %{error}",
   "no_sirve": "No se pudo armar el paquete de roles: %{error}",
-  "listo": "«%{ref}» guardada con color por roles (%{roles}); paquete de %{kb} KB. «%{antes}» no cambió."
+  "listo": "«%{ref}» guardada con color por roles (%{roles}); paquete de %{kb} KB. «%{antes}» no cambió.",
+  "girar_ayuda": "girar 180° (o los grados que se pidan) sobre el cuello el color de una cabeza cuya textura salió al revés (cara en la nuca) y guardarla como versión nueva; no rehace los roles",
+  "girar_ayuda_ref": "cabeza con color por roles (id@n o id): se guarda su versión siguiente, la anterior no cambia",
+  "girar_ayuda_fbx": "FBX ORIGINAL del color (el `.color.npz` guardado trae los vértices ya deformados y no sirve para girar); sin él se busca el nombre que dice la ficha junto al catálogo y en la carpeta actual",
+  "girar_ayuda_grados": "grados de giro sobre el eje del cuello (por defecto 180)"
  },
  "retoque_cli": {
   "ayuda": "ver, exportar, importar o borrar el retoque manual de color de una pieza (las pinceladas se hacen en la ventana de Catálogo)",

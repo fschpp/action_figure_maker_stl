@@ -17,7 +17,7 @@ from gi.repository import Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 
 from .. import catalog_ops as OPS  # noqa: E402
 from .catalog_manager import (ALL_STATES, ALL_TAGS, ALL_TYPES, COLUMNS, PIN_LEGEND, CatalogManager, JointEditor, PreviewRenderer,  # noqa: E402
-                              WristCutter, can_cut_wrist, can_retouch, can_retune_joint, detail_text, matches, next_row, row_cells, sort_pieces)
+                              WristCutter, can_cut_wrist, can_retouch, can_retune_joint, can_turn_color, detail_text, matches, next_row, row_cells, sort_pieces)
 from . import catalog_import as CI  # noqa: E402
 from .catalog_manager import ZOOM_STEP, zoom_about  # noqa: E402
 from .catalog_manager import view_bounds as CM_view_bounds  # noqa: E402
@@ -243,6 +243,10 @@ class CatalogManagerWindow(Gtk.Window):
         self.btn_retouch.set_sensitive(False)
         self.btn_retouch.connect("clicked", self._on_retouch_start)
         bar.append(self.btn_retouch)
+        self.btn_turn = Gtk.Button(label=tr("catalog_window.girar_color"))
+        self.btn_turn.set_sensitive(False)
+        self.btn_turn.connect("clicked", self._on_turn_start)
+        bar.append(self.btn_turn)
         self.btn_rename = Gtk.Button(label=tr("catalog_window.renombrar_f2"))
         self.btn_rename.set_sensitive(False)
         self.btn_rename.set_tooltip_text(tr("catalog_window.cambia_el_nombre_con_que_se"))
@@ -827,6 +831,7 @@ class CatalogManagerWindow(Gtk.Window):
             ok, why = False, tr("catalog_window.no_hay_vista_previa_de_la")
         self.btn_wrist.set_sensitive(ok and self._cutter is None and self._jeditor is None and self._reditor is None)
         self._sync_grip_button(refs)
+        self._sync_turn_button(refs)
         self._sync_rename_button(refs)
         self.btn_wrist.set_tooltip_text(tr("catalog_window.le_corta_la_mano_al_brazo") if ok else why)
 
@@ -840,6 +845,20 @@ class CatalogManagerWindow(Gtk.Window):
             ok, why = False, tr("common.espera_a_que_termine_la_tarea")
         self.btn_grip.set_sensitive(ok and self._cutter is None and self._jeditor is None and self._reditor is None)
         self.btn_grip.set_tooltip_text(tr("catalog_window.taladrar_agarre_ayuda") if ok else why)
+
+    def _sync_turn_button(self, refs: list[str]) -> None:
+        """O08 · «Girar color 180°…» se puede usar con UNA cabeza con color por roles y sin otra tarea en curso."""
+        meta = next((m for _row, m in self._rows if m.ref == refs[0]), None) if len(refs) == 1 else None
+        ok, why = can_turn_color(meta)
+        if ok and self.ctrl.busy:
+            ok, why = False, tr("common.espera_a_que_termine_la_tarea")
+        self.btn_turn.set_sensitive(ok and self._cutter is None and self._jeditor is None and self._reditor is None)
+        self.btn_turn.set_tooltip_text(tr("catalog_window.girar_color_tip") if ok else why)
+
+    def _on_turn_start(self, *_) -> None:
+        refs = self._selected_refs()
+        if len(refs) == 1 and self._ops_free():
+            ImportDialog(self, "girar_color", self._start_import, initial={"ref": refs[0]}).present()
 
     def _on_grip_start(self, *_) -> None:
         refs = self._selected_refs()
@@ -1365,7 +1384,7 @@ class CatalogManagerWindow(Gtk.Window):
         finally:
             self._rupdating = False
         self.retouch_panel.set_visible(True)
-        for b in (self.btn_retouch, self.btn_wrist, self.btn_joint, self.btn_delete):
+        for b in (self.btn_retouch, self.btn_turn, self.btn_wrist, self.btn_joint, self.btn_delete):
             b.set_sensitive(False)
         self._sync_ops_buttons()
         self._retouch_refresh()
