@@ -148,3 +148,13 @@ def test_without_skin_role_a_flat_decision_is_reported(pkg, piece):
     """Sin pista de cara (sin rol de piel) se decide por el calce y se informa el margen de la pose opuesta."""
     fr = FigureFrame.from_cut_piece_similarity(pkg.vertices.astype(float), piece, source_faces=pkg.faces, front_hint=front_hint(NECK, piece, None))
     assert fr.report["frente_ok"] is None and "margen_mm" in fr.report["yaw180"] and isinstance(fr.report["ambigua"], bool)
+
+
+def test_o07_gate_refuses_to_warp_the_saved_pose_of_the_real_head(pkg, piece):
+    """O07: con la pose guardada (cara hacia atrás) y el frente sin verificar, el ajuste no rígido se frena: pide mover el FBX 0,9 mm de media
+    (> media arista, 0,35 mm) y hasta 4,55 mm en una cabeza de 20 mm. Con el frente verificado (`front_ok=True`) el ajuste se aplica."""
+    from afm import colorwarp as cw
+
+    out, rep = cw.warp_package(pkg, SAVED, piece)
+    assert out is pkg and rep["aplicada"] is False and rep["pose_sospechosa"] is True
+    assert rep["desplazamiento_medio_mm"] > 0.5 * 0.70 and rep["desplazamiento_max_mm"] > 4.0

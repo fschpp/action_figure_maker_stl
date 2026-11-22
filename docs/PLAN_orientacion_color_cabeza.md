@@ -122,3 +122,8 @@ print("cara en la pieza      :", (R @ face).round(1), " <- el frente de la pieza
 ```
 
 Resultado con los archivos recibidos: cara FBX `(−0,5; −6,9; 14,3)` → pieza `(0; −11,2; −11,2)`: la proyección horizontal apunta a **−Y** (atrás).
+
+
+## 10. Resultado de O07 con el FBX original (2026-11-22)
+
+Con `examples/bolivar_cabeza_lq.fbx` y la pieza real, `align_fbx_to_piece(front=)` deja la cara a 2,6° del frente (`frente_ok`, `yaw180.margen_mm` 0,11). El ajuste no rígido pide, **también con la pose correcta**, 2,11 mm de desplazamiento medio y parte de 32 % de cobertura (la girada: 2,18 mm y 33 %): la cabeza v2 es otro modelado. La suposición de la §3.5 («una pose correcta necesita décimas de mm») no vale para este par. O07 queda así: los umbrales frenan solo si el frente no está verificado; con el frente verificado se aplica y se avisa (`desplazamiento_alto`). Cobertura tras el ajuste: 32 % → 64 %. Abierto para O10: 64 % es poco; la causa es el modelado, no la pose.

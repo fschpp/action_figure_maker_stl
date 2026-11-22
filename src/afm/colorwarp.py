@@ -16,6 +16,15 @@ lámina y no se arruga. Los UV no se tocan: la textura (y el atlas de roles) via
 similitud `A`): la ficha de la pieza, `similitud` y todo lo que ya lee el paquete (vista previa, armado, retoques) siguen igual, sin formato nuevo.
 
 Solo se aplica si mejora la cobertura medida (fracción del área de la pieza con origen a `COVER_EPS_MM`); si no, se devuelve el paquete tal cual.
+
+**Compuerta (O07).** El ajuste NO rígido no puede disimular una pose mala: una pose correcta de la misma cabeza necesita décimas de mm de corrección,
+no milímetros. Un FBX puesto al revés (cara en la nuca) calza por forma casi igual de bien y el ajuste lo «arreglaba» moviendo los vértices
+2–4 mm en una cabeza de 20 mm, con lo que la ficha quedaba «alineada». Por eso `warp_package` no aplica (y marca `pose_sospechosa: True`, con el
+`motivo`) si la cobertura previa es < `GATE_MIN_COVER`, si el desplazamiento medio pasa de `GATE_MEAN_EDGE` aristas de la pieza o si el máximo pasa de
+`GATE_MAX_DIAG` de su diagonal. **Salvo que el frente esté verificado** (`front_ok=True`: O05/O06 midieron que la cara del FBX mira del lado del frente
+de la pieza): con la cabeza real de Bolívar la pose CORRECTA también necesita 2,1 mm de desplazamiento medio y tiene 32 % de cobertura previa (la
+v2 es otro modelado, no solo otra malla), así que los umbrales no distinguen la pose buena de la girada; lo que las distingue es el frente. En ese caso el
+ajuste se aplica igual y el informe lleva `desplazamiento_alto: True` con el `motivo` como aviso.
 `trimesh` se importa dentro de las funciones (D10).
 """
 from __future__ import annotations
@@ -33,6 +42,9 @@ ITERATIONS = 8
 STEP = 0.8                    # fracción del desplazamiento que se aplica por vuelta
 K_NEIGHBORS = 24
 SURFACE_SAMPLES = 300_000
+GATE_MIN_COVER = 0.5          # O07: con menos cobertura previa (a `COVER_EPS_MM`) la pose es sospechosa y el ajuste no se aplica
+GATE_MEAN_EDGE = 0.5          # O07: el desplazamiento medio no puede pasar de esta fracción de la arista mediana de la pieza…
+GATE_MAX_DIAG = 0.15          # O07: …ni el máximo de esta fracción de su diagonal
 
 
 class _Surface:
@@ -138,23 +150,53 @@ def warp_fbx_to_piece(fbx_V, fbx_F, piece_V, piece_F, *, iterations: int = ITERA
                "desplazamiento_max_mm": round(float(mv.max()), 4)}
 
 
-def warp_package(pkg, similarity, piece_mesh, *, min_gain: float = MIN_GAIN):
+def _gate_reasons(before: float, rep: dict, edge: float, diag: float) -> list[str]:
+    """Motivos (texto) por los que la pose se considera sospechosa y el ajuste no rígido no se aplica; vacío si pasa la compuerta (O07)."""
+    why = []
+    if before < GATE_MIN_COVER:
+        why.append(f"cobertura previa {before * 100:.0f} % < {GATE_MIN_COVER * 100:.0f} %")
+    if rep and edge > 0 and rep["desplazamiento_medio_mm"] > GATE_MEAN_EDGE * edge:
+        why.append(f"desplazamiento medio {rep['desplazamiento_medio_mm']:.2f} mm > {GATE_MEAN_EDGE * edge:.2f} mm ({GATE_MEAN_EDGE:g} aristas)")
+    if rep and rep["desplazamiento_max_mm"] > GATE_MAX_DIAG * diag:
+        why.append(f"desplazamiento máximo {rep['desplazamiento_max_mm']:.2f} mm > {GATE_MAX_DIAG * diag:.2f} mm ({GATE_MAX_DIAG * 100:.0f} % de la diagonal)")
+    return why
+
+
+def warp_package(pkg, similarity, piece_mesh, *, min_gain: float = MIN_GAIN, gate: bool = True, front_ok: bool | None = None):
     """`(RolesPackage, informe)`: el paquete con los vértices del FBX ajustados a la pieza (o `pkg` tal cual si el ajuste no mejora).
 
     `similarity`: 4×4 FBX → marco de la pieza (la de `align_fbx_to_piece`). Los vértices nuevos se guardan en el marco del FBX
     (`A⁻¹ · V'`), así `similitud` sigue valiendo. El informe lleva `aplicada`, `cobertura_antes`/`cobertura_despues` (a `COVER_EPS_MM`) y las
-    medidas del desplazamiento."""
+    medidas del desplazamiento.
+
+    Compuerta (O07, `gate=True`): si la pose es sospechosa (cobertura previa baja o desplazamiento grande, ver el docstring del módulo) el ajuste
+    no se aplica; el informe lleva `pose_sospechosa: True` y `motivo`. Con la cobertura previa baja ni siquiera se calcula el ajuste.
+    `front_ok=True` (el frente ya se verificó): los motivos no frenan el ajuste, quedan como aviso (`desplazamiento_alto`, `motivo`)."""
     from .colorroles import RolesPackage
+    from .frame import _median_edge
 
     A = np.asarray(similarity, float)
     Ainv = np.linalg.inv(A)
     V_fbx = np.asarray(pkg.vertices, float)
     V_piece = V_fbx @ A[:3, :3].T + A[:3, 3]
     pV, pF = np.asarray(piece_mesh.vertices, float), np.asarray(piece_mesh.faces, np.int64)
+    edge, diag = _median_edge(pV, pF), float(np.linalg.norm(np.ptp(pV, axis=0)))
     before = coverage(pV, pF, V_piece, pkg.faces)
-    V_new, rep = warp_fbx_to_piece(V_piece, pkg.faces, pV, pF)
+    rep = {"cobertura_eps_mm": COVER_EPS_MM, "cobertura_antes": round(before, 4)}
+    verified = front_ok is True
+    if gate and not verified and before < GATE_MIN_COVER:
+        rep.update({"aplicada": False, "pose_sospechosa": True, "motivo": "; ".join(_gate_reasons(before, {}, edge, diag))})
+        return pkg, rep
+    V_new, warp_rep = warp_fbx_to_piece(V_piece, pkg.faces, pV, pF)
+    rep.update(warp_rep)
+    why = _gate_reasons(before, warp_rep, edge, diag) if gate else []
+    if why and not verified:
+        rep.update({"aplicada": False, "pose_sospechosa": True, "motivo": "; ".join(why)})
+        return pkg, rep
+    if why:                                                  # frente verificado: el ajuste grande es del modelado, no de la pose
+        rep.update({"desplazamiento_alto": True, "motivo": "; ".join(why)})
     after = coverage(pV, pF, V_new, pkg.faces)
-    rep.update({"cobertura_eps_mm": COVER_EPS_MM, "cobertura_antes": round(before, 4), "cobertura_despues": round(after, 4)})
+    rep["cobertura_despues"] = round(after, 4)
     if after < before + min_gain:
         rep["aplicada"] = False
         return pkg, rep

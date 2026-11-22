@@ -126,3 +126,104 @@ def test_catalog_reports_when_the_fit_does_not_help(head):
     out = cat._fit_roles_package(meta, head, pkg, warns)
     assert out is pkg and meta.color["alineacion"]["no_rigida"]["aplicada"] is False
     assert len(warns) == 1 and "no mejoró" in warns[0]
+
+
+# --- O07: compuerta del ajuste no rígido (una pose mala no se «arregla» deformando el FBX) ---
+
+@pytest.fixture(scope="module")
+def egg():
+    """Cabeza sintética SIN simetría de revolución (frente largo hacia +Y, nuca corta): la de ejemplo del catálogo es de revolución y girarla
+    180° no cambia nada, así que no sirve para probar una pose al revés."""
+    import trimesh
+
+    m = trimesh.creation.icosphere(subdivisions=4, radius=10.0)
+    V = np.asarray(m.vertices, float).copy()
+    V[:, 1] *= np.where(V[:, 1] > 0, 1.5, 0.8)
+    V[:, 2] *= 1.2
+    return trimesh.Trimesh(V, m.faces, process=False)
+
+
+def _flipped(A, mesh):
+    """`A` con un giro de 180° sobre el eje vertical que pasa por el centro de `mesh` (la cara del FBX queda hacia atrás)."""
+    c = np.asarray(mesh.vertices, float).mean(axis=0)
+    Rz = np.eye(4)
+    Rz[:3, :3] = Rotation.from_euler("z", 180, degrees=True).as_matrix()
+    Rz[:3, 3] = c - Rz[:3, :3] @ c
+    return Rz @ A
+
+
+def test_gate_refuses_to_warp_a_pose_that_is_turned_around(egg):
+    pkg, A = package_for(egg, 0.3)
+    out, rep = cw.warp_package(pkg, A, egg)
+    assert rep["aplicada"] is not None and "pose_sospechosa" not in rep           # la pose buena pasa la compuerta
+    out, rep = cw.warp_package(pkg, _flipped(A, egg), egg)
+    assert out is pkg and rep["aplicada"] is False and rep["pose_sospechosa"] is True and rep["motivo"]
+    assert rep["cobertura_antes"] < cw.GATE_MIN_COVER
+
+
+def test_gate_reasons_cover_each_threshold():
+    ok = {"desplazamiento_medio_mm": 0.1, "desplazamiento_max_mm": 0.5}
+    assert cw._gate_reasons(0.9, ok, edge=1.0, diag=40.0) == []
+    assert "cobertura previa" in cw._gate_reasons(0.3, {}, 1.0, 40.0)[0]
+    assert "medio" in cw._gate_reasons(0.9, {**ok, "desplazamiento_medio_mm": 0.6}, 1.0, 40.0)[0]
+    assert "máximo" in cw._gate_reasons(0.9, {**ok, "desplazamiento_max_mm": 6.5}, 1.0, 40.0)[0]
+    assert len(cw._gate_reasons(0.3, {"desplazamiento_medio_mm": 2.0, "desplazamiento_max_mm": 9.0}, 1.0, 40.0)) == 3
+
+
+def test_gate_refuses_a_displacement_larger_than_half_an_edge(egg, monkeypatch):
+    """Cobertura previa alta pero un ajuste que tendría que mover > media arista (0,42 mm aquí): no se aplica."""
+    pkg, A = package_for(egg, 0.0)
+    real = cw.warp_fbx_to_piece
+
+    def big(V, F, pV, pF, **kw):
+        V2, rep = real(V, F, pV, pF, **kw)
+        return V2, {**rep, "desplazamiento_medio_mm": 1.0, "desplazamiento_max_mm": 2.0}
+
+    monkeypatch.setattr(cw, "warp_fbx_to_piece", big)
+    out, rep = cw.warp_package(pkg, A, egg)
+    assert out is pkg and rep["aplicada"] is False and rep["pose_sospechosa"] is True and "desplazamiento medio" in rep["motivo"]
+    assert rep["cobertura_antes"] > cw.GATE_MIN_COVER and "cobertura_despues" not in rep
+
+
+def test_gate_off_keeps_the_old_behavior(egg):
+    pkg, A = package_for(egg, 0.3)
+    _, rep = cw.warp_package(pkg, _flipped(A, egg), egg, gate=False)
+    assert "pose_sospechosa" not in rep and "cobertura_despues" in rep
+
+
+def test_a_good_pose_passes_the_gate(head):
+    pkg, A = package_for(head, WAVE_MM)
+    out, rep = cw.warp_package(pkg, A, head)
+    assert rep["aplicada"] is True and "pose_sospechosa" not in rep and out is not pkg
+
+
+def test_catalog_warns_and_keeps_the_package_when_the_pose_is_suspicious(egg):
+    cat = Catalog.open(ROOT)
+    pkg, A = package_for(egg, 0.3)
+    meta, warns = _meta_with({"media_mm": 0.3, "ok": True, "recortada": True}, _flipped(A, egg)), []
+    out = cat._fit_roles_package(meta, egg, pkg, warns)
+    nr = meta.color["alineacion"]["no_rigida"]
+    assert out is pkg and nr["pose_sospechosa"] is True and nr["aplicada"] is False
+    assert len(warns) == 1 and "sospechosa" in warns[0] and "Girar 180°" in warns[0]
+
+
+def test_a_verified_front_lets_a_large_warp_through(egg):
+    """O07: con el frente verificado (`front_ok=True`) los umbrales no frenan; quedan como aviso. Con la pose girada (cobertura baja) pasa lo mismo:
+    quien verifica el frente es O05/O06, no la compuerta."""
+    pkg, A = package_for(egg, 0.3)
+    out, rep = cw.warp_package(pkg, _flipped(A, egg), egg, front_ok=True)
+    assert "pose_sospechosa" not in rep and "cobertura_despues" in rep
+    assert rep.get("desplazamiento_alto") is True and rep["motivo"]
+    out, rep = cw.warp_package(pkg, _flipped(A, egg), egg, front_ok=False)           # frente mal o sin medir: la compuerta frena
+    assert out is pkg and rep["pose_sospechosa"] is True
+
+
+def test_catalog_passes_the_verified_front_to_the_warp(egg):
+    cat = Catalog.open(ROOT)
+    pkg, A = package_for(egg, 0.3)
+    A180 = _flipped(A, egg)
+    meta, warns = _meta_with({"media_mm": 0.3, "ok": True, "recortada": True, "frente_ok": True}, A180), []
+    out = cat._fit_roles_package(meta, egg, pkg, warns)
+    nr = meta.color["alineacion"]["no_rigida"]
+    assert out is not pkg and nr["aplicada"] is True and "pose_sospechosa" not in nr
+    assert any("se ajustó a la pieza" in w for w in warns) and any("más de lo habitual" in w for w in warns)

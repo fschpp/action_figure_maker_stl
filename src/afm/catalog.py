@@ -493,7 +493,7 @@ class Catalog:
         """Paquete de roles listo para escribir. Si la alineación se midió contra esta pieza (no la dio quien llama) y el FBX no es la misma
         malla (distancia media > `colorwarp.WARP_MIN_MEAN_MM`: cabeza de reemplazo, versión re-mallada…), los vértices del FBX se ajustan a la pieza
         (`colorwarp.warp_package`, el calce rígido solo no alcanza) y el informe queda en `color.alineacion.no_rigida`. Si el ajuste no mejora la
-        cobertura, o falla, el paquete se guarda tal cual. Nunca cambia la geometría de la pieza ni `similitud`."""
+        cobertura, falla, o la pose es sospechosa (compuerta O07: cobertura previa baja o desplazamiento grande), el paquete se guarda tal cual. Nunca cambia la geometría de la pieza ni `similitud`."""
         from . import colorwarp
 
         block = meta.color or {}
@@ -502,16 +502,23 @@ class Catalog:
         if not isinstance(media, (int, float)) or media <= colorwarp.WARP_MIN_MEAN_MM:
             return pkg
         try:
-            fitted, rep = colorwarp.warp_package(pkg, block["similitud"], P._as_trimesh(mesh))
+            fitted, rep = colorwarp.warp_package(pkg, block["similitud"], P._as_trimesh(mesh), front_ok=align.get("frente_ok") is True)
         except (ValueError, np.linalg.LinAlgError) as exc:
             warnings.append(f"«{meta.id}»: no se pudo ajustar el FBX a la pieza ({exc}); se guarda con el calce rígido")
             return pkg
         align["no_rigida"] = {k: v for k, v in rep.items() if isinstance(v, (str, int, float, bool))}
         block["alineacion"] = align
+        if rep.get("pose_sospechosa"):                    # O07: la pose no se corrige con un ajuste; podría estar girada (cara hacia atrás)
+            warnings.append(f"«{meta.id}»: la pose del FBX es sospechosa ({rep['motivo']}); no se aplicó el ajuste no rígido. "
+                            "Revisá hacia dónde mira la cara (¿hace falta «Girar 180°»?)")
+            return pkg
         a, b = rep["cobertura_antes"], rep["cobertura_despues"]
         if rep["aplicada"]:
             warnings.append(f"«{meta.id}»: el FBX no es la misma malla que la pieza (diferencia media {media:.2f} mm): se ajustó a la pieza "
                             f"(zona con color de origen {a * 100:.0f} % → {b * 100:.0f} %)")
+            if rep.get("desplazamiento_alto"):             # O07: frente verificado, pero el modelado difiere bastante
+                warnings.append(f"«{meta.id}»: el ajuste movió el FBX más de lo habitual ({rep['motivo']}); la cara mira hacia adelante, "
+                                "así que se aplicó: revisá el color en la vista previa")
         else:
             warnings.append(f"«{meta.id}»: el FBX difiere de la pieza (media {media:.2f} mm) y el ajuste no mejoró la cobertura "
                             f"({a * 100:.0f} % → {b * 100:.0f} %); se guarda con el calce rígido")

@@ -1,15 +1,19 @@
-## Current Focus — Cabeza de reemplazo con la cara al revés: O01–O10 (2026-11-22, sobre main 756e789)
-La textura de «bolivar-cabeza» sale con la cara en la nuca: la similitud guardada es la correcta girada 180° sobre el eje del cuello. Plan en `docs/PLAN_orientacion_color_cabeza.md`. Hecho: O01–O06 (excepto lo indicado). Sigue O07.
+## Current Focus — Cabeza de reemplazo con la cara al revés: O01–O10 (2026-11-22, sobre main 6f6c3bf)
+La textura de «bolivar-cabeza» sale con la cara en la nuca: la similitud guardada es la correcta girada 180° sobre el eje del cuello. Plan en `docs/PLAN_orientacion_color_cabeza.md`. Hecho: O01–O07 (excepto lo indicado). Sigue O08.
 
 ### Todo List
 - [x] Done: O01 prueba de regresión con datos reales (`tests/test_cut_piece_orientation.py`, fixtures en `tests/data/`)
 - [x] Done: O02 `colorpiece.piece_front` (+Y del marco en el plano perpendicular al eje del cuello; `ref_dev_deg` contra `puertos.cuello.ref`) · O03 `colorroles.face_direction` / `face_roles` (rol «piel») · O04 `colorpiece.head_region` (por encima del plano del cuello y dentro de la caja de la pieza)
 - [x] Done: O05 `frame.FrontHint` + `from_cut_piece_similarity(front_hint=)`: prueba también el giro de 180° sobre el cuello (re-afinado) y se queda con el que deja la cara del lado del frente; sin cara, por calce y `ambigua` si la diferencia < 0,15 mm. Informe: `frente`, `frente_ok`, `ambigua`, `yaw180`
 - [x] Done: O06 `align_fbx_to_piece(front=)` valida (`_check_front`), `ok` exige `frente_ok` y no `ambigua`; con `require_ok` levanta `PieceColorError` que propone «Girar 180°». `catalog._roles_block` lo usa para piezas `cabeza`
-- [ ] Todo: O07 compuerta del ajuste no rígido · O08 «Girar 180°» + `afm catalogo color-girar` · O09 mostrar antes de guardar · O10 clusters sobre la pieza
+- [x] Done: O07 compuerta del ajuste no rígido (`colorwarp.warp_package(gate=, front_ok=)`, `GATE_*`): no se aplica y marca `pose_sospechosa` + `motivo` si la cobertura previa < 0,5, el desplazamiento medio > 0,5 aristas o el máximo > 15 % de la diagonal; `catalog._fit_roles_package` avisa «¿hace falta Girar 180°?». **Con el frente verificado (`alineacion.frente_ok`) los umbrales no frenan, quedan como aviso (`desplazamiento_alto`)**, ver Discoveries
+- [ ] Todo: O08 «Girar 180°» + `afm catalogo color-girar` · O09 mostrar antes de guardar · O10 clusters sobre la pieza
 - [ ] Todo (parte de O04): pesar la alineación solo con el FBX recortado (hoy el recorte solo se usa para medir hacia dónde mira la cara; los arranques siguen usando los momentos del busto entero)
 
 ### Latest Blockers/Discoveries
+- **O07 contradice una suposición del plan.** Con el FBX original (`examples/bolivar_cabeza_lq.fbx`) y la pieza real, la pose CORRECTA (cara a +Y, 2,6°) también tiene cobertura previa 32 % y pide 2,11 mm de desplazamiento medio (máx. 4,55 = tope 1,5·alcance); la girada, 33 % y 2,18 mm. El plan suponía «décimas de mm» para una pose buena: la cabeza v2 es otro modelado, no solo otra malla. Los umbrales solos no distinguen las poses (frenarían también la buena y la piel quedaría a parches, cobertura 32 %); la que distingue es la dirección de la cara (O05/O06). Por eso la compuerta solo frena si el frente NO está verificado. Con el frente verificado el ajuste sube la cobertura 32 % → 64 %.
+- `yaw180.margen_mm` con el FBX original: 0,11 (< 0,15): sin la pista de la cara quedaría `ambigua`.
+- El STL subido `simon_bolivar_cabeza_v2_fixed.stl` (no está en el repo) NO sirve como pieza (mide 0,93 × 0,52 × 0,75 unidades, sin escala en mm ni el corte del cuello; la alineación de pieza recortada divide por cero y falla con NaN). La pieza del catálogo es `tests/data/bolivar_cabeza_pieza.npz` (15,4 × 19,8 × 22,5 mm). Pendiente: que `from_cut_piece_similarity` rechace con un mensaje claro una pieza de escala absurda en vez de fallar con NaN.
 - Con el `.color.npz` guardado y el STL real: ángulo cara–frente 163° → 5°; `yaw180.margen_mm` 0,34; media 0,48 mm, cubierta 0,73, `ok`. La media sube respecto de la pose al revés (0,125) porque ese `.npz` ya trae vértices deformados A ESA pose por el ajuste no rígido: no es el FBX crudo. Con el FBX original hay que repetirlo.
 - Sin rol de piel el desempate por calce NO alcanzaría en este caso: la pose al revés calza mejor (margen 0,34 > 0,15) y la elegiría. Por eso la dirección de la cara es la pista principal.
 - `tests/test_color_catalog_head.py::test_an_fbx_that_does_not_fit_the_piece_writes_nothing` falla también en main 756e789 (no es de este cambio).
