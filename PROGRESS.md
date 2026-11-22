@@ -1,3 +1,16 @@
+## Current Focus — Cabeza de reemplazo con la cara al revés: O01–O10 (2026-11-22, sobre main 581793d)
+La textura de «bolivar-cabeza» sale con la cara en la nuca: la similitud guardada es la correcta girada 180° sobre el eje del cuello. Plan en `docs/PLAN_orientacion_color_cabeza.md`. Esta entrega cubre **O01** (prueba de regresión con datos reales).
+
+### Todo List
+- [x] Done: O01 `tests/test_cut_piece_orientation.py` + fixtures `tests/data/bolivar_cabeza_roles.npz` (el `.color.npz` guardado) y `bolivar_cabeza_pieza.npz` (STL del catálogo, vértices unidos). 2 pruebas pasan (la pose guardada tiene la cara hacia −Y; el calce no la delata: media ≤ 0,52 mm) y 1 `xfail(strict=True)` que falla hoy: `from_cut_piece_similarity` deja la cara hacia −Y
+- [ ] Todo: O02 `piece_front` · O03 `face_direction` · O04 recorte por puerto · O05 desempate adelante/atrás (quita el `xfail`) · O06 validar `frente_ok`
+- [ ] Todo: O07 compuerta del ajuste no rígido · O08 «Girar 180°» + `afm catalogo color-girar` · O09 mostrar antes de guardar · O10 clusters sobre la pieza
+
+### Latest Blockers/Discoveries
+- Ya se tiene el STL real de la pieza (§8.1 del plan): con el `.color.npz` guardado (vértices ya deformados por el ajuste no rígido) la alineación vigente da media 0,125 mm, cubierta 0,98, `ok = True` y la cara del FBX (+Z) en `(0,03; −0,95; −0,31)` de la pieza: hacia atrás, igual que la ficha.
+- El `.color.npz` NO es el FBX original (50 MB, no disponible): sus vértices están deformados, así que la prueba del desempate (O05) se hace contra ese busto, no contra el FBX crudo.
+- Corre en ≈7 s en total (las dos alineaciones del fixture).
+
 ## Current Focus — Color por roles en cabezas de reemplazo (pieza recortada) (2026-11-22)
 Al aplicar «Roles de color desde un FBX…» a una cabeza de reemplazo del catálogo (FBX solo de la cabeza, STL de la pieza cortado en la base del cuello, con tapa y quizá hueco), `align_fbx_to_piece` no calzaba y el asistente pedía «la similitud FBX → figura», que con una cabeza nueva tampoco sirve.
 - `FigureFrame.from_cut_piece_similarity` (frame.py): alineación de pieza recortada. Mide la fracción `CUT_KEEP` (80 %) de la superficie de la pieza que mejor calza (deja afuera tapa, agujero del pasador y la cáscara interior de una pieza hueca, descartada por su normal), con arranques múltiples (24 rotaciones × 3 escalas × 7 traslaciones), ICP recortado y afinado directo (Powell) de los 7 parámetros. `ok` exige media ≤ 0,1 mm y `cubierta` ≥ 0,6.
