@@ -64,6 +64,7 @@ def _as_4x4(M, what: str) -> np.ndarray:
 
 
 REGION_BOX_PAD = 0.15            # y esta fracción de cada lado de la caja de la pieza
+REGION_MAX_DIST_MM = 3.0         # O10: para agrupar colores, la región también queda a esta distancia de la superficie de la pieza (la v2 es otro modelado: ≈ 2 mm de media)
 NECK_MARGIN_MM = 0.5             # O04: la región «cabeza» del FBX llega hasta este tanto por debajo del plano del cuello de la pieza
 
 
@@ -113,6 +114,25 @@ def head_region(V_piece, F, front: dict, piece_vertices=None) -> np.ndarray:
         lo, hi = np.min(piece_vertices, axis=0), np.max(piece_vertices, axis=0)
         pad = REGION_BOX_PAD * (hi - lo)
         keep &= np.all((cen >= lo - pad) & (cen <= hi + pad), axis=1)
+    return keep
+
+
+def piece_region(V_piece, F, front: dict, mesh, max_dist_mm: float = REGION_MAX_DIST_MM) -> np.ndarray:
+    """O10 · Máscara de triángulos del FBX (vértices `V_piece` en el marco de la pieza) para **agrupar colores**: `head_region` y además a no más de
+    `max_dist_mm` de la superficie de la pieza `mesh`. El plano del cuello está inclinado y por delante de él quedan el cuello y el cuello del uniforme (rojo,
+    dorado) dentro de la caja: con solo `head_region` entraban 13 % del área del busto que la pieza no tiene. Determinista (muestreo con semilla fija)."""
+    import trimesh
+    from scipy.spatial import cKDTree
+
+    V = np.asarray(V_piece, float)
+    keep = head_region(V, F, front, np.asarray(mesh.vertices, float))
+    idx = np.flatnonzero(keep)
+    if idx.size == 0:
+        return keep
+    pts = np.asarray(trimesh.sample.sample_surface(mesh, 30_000, seed=0)[0], float)
+    cen = V[np.asarray(F, np.int64)[idx]].mean(1)
+    near = cKDTree(pts).query(cen)[0] <= float(max_dist_mm)
+    keep[idx[~near]] = False
     return keep
 
 

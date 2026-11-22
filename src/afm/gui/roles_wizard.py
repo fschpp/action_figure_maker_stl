@@ -12,7 +12,11 @@ roles nuevos; la paleta se escribe antes que la pieza (la pieza exige que sus ro
 `PIL`/`trimesh` no se importan al cargar el módulo (R3).
 
 O09 · Antes de guardar en una pieza, `check_piece(ref)` la alinea y muestra el resultado (`PieceCheck`: hacia dónde quedó la cara del FBX y la pieza con el
-color real). Si la cara de una cabeza quedó hacia atrás (o no se pudo decidir), `save_piece` **no guarda** salvo que se pase `confirm_front=True`."""
+color real). Si la cara de una cabeza quedó hacia atrás (o no se pudo decidir), `save_piece` **no guarda** salvo que se pase `confirm_front=True`.
+
+O10 · Con `load(fbx, piece_ref=ref)` el análisis **alinea primero y agrupa después**: los clusters salen solo de la parte del FBX que la pieza tiene (`colorpiece.piece_region`),
+no del busto entero; los clusters de menos del 1 % de esa parte se funden con otro, el filtro de mayoría es de 7 px y los roles que cubren menos del 0,5 % de la
+pieza no se guardan."""
 from __future__ import annotations
 
 import os
@@ -20,6 +24,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from ..colorroles import FIGURE_K, FILTER_PX, MERGE_MIN_PCT, PIECE_FILTER_PX, REGION_K, ROLE_MIN_PCT
 from ..i18n import tr
 from ..palette import DEFAULT_FLAT, MAX_ANCHORS, Palette, PaletteError, Role, hex_to_rgb
 
@@ -79,6 +84,9 @@ class RolesWizard:
         self.similarity: list | None = None          # 4×4 FBX → figura calculada desde la GUI (`compute_similarity`); `save_piece` la usa si no se pasa otra
         self.similarity_info: dict = {}
         self.last_check: PieceCheck | None = None    # O09: la última prueba en una pieza (se descarta si cambian las decisiones, el FBX o la similitud)
+        self.region: np.ndarray | None = None        # O10: triángulos del FBX que la pieza tiene (los clusters salen de ahí); None = el FBX entero
+        self.region_ref: str = ""                    # O10: pieza con que se calculó la región
+        self.dropped_roles: list[str] = []           # O10: roles que `package()` dejó afuera por cubrir < 0,5 % de la pieza
 
     # ------------------------------------------------------------------ catálogo y paleta
     def _cat(self):
@@ -106,8 +114,11 @@ class RolesWizard:
     def loaded(self) -> bool:
         return self.proposal is not None
 
-    def load(self, fbx_path: str, k: int = 10) -> None:
-        """Lee el FBX y propone `k` clusters (puede tardar: se llama desde un hilo). Descarta lo decidido antes."""
+    def load(self, fbx_path: str, k: int | None = None, piece_ref: str | None = None) -> None:
+        """Lee el FBX y propone `k` clusters (puede tardar: se llama desde un hilo). Descarta lo decidido antes.
+
+        O10 · Con `piece_ref` (una pieza del catálogo) se alinea el FBX con la pieza **antes** de agrupar y los clusters salen solo de lo que la pieza
+        tiene (`load_textured`). `k` por defecto: `REGION_K` (8) con pieza y `FIGURE_K` (10) sin ella."""
         from .. import parts as P
         from ..colorroles import RolesError
         from ..fbxio import FbxError, load_textured
@@ -115,23 +126,55 @@ class RolesWizard:
         try:
             tm = load_textured(fbx_path)
             origen = {"nombre": os.path.basename(fbx_path), "sha256": P.sha256_file(fbx_path)}
-            self.load_textured(tm, origen, k)
+            self.load_textured(tm, origen, k, piece_ref)
         except (FbxError, RolesError, OSError) as exc:
             raise RolesWizardError(tr("roles_wizard.error_fbx", error=exc)) from exc
         self.fbx_path = fbx_path
 
-    def load_textured(self, tm, origen: dict | None = None, k: int = 10) -> None:
+    def load_textured(self, tm, origen: dict | None = None, k: int | None = None, piece_ref: str | None = None) -> None:
         """Igual que `load` pero con un `TexturedMesh` ya leído."""
         from ..colorroles import propose
 
         pal = self.line_palette()
-        self.proposal = propose(tm, pal if pal.roles else None, k=k)
+        region = self._piece_region(tm, piece_ref) if piece_ref else None
+        if k is None:
+            k = REGION_K if region is not None else FIGURE_K
+        self.proposal = propose(tm, pal if pal.roles else None, k=k, region=region, min_share=MERGE_MIN_PCT if region is not None else 0.0)
         self.tm = tm
         self.origen = dict(origen or {})
         self.fbx_path = ""
         self.warnings = []
         self.last_check = None
+        self.region, self.region_ref = region, (piece_ref or "") if region is not None else ""
         self.choices = {c: Choice("role", s, confirmed=False) for c, s in enumerate(self.proposal.suggested) if s is not None}
+        if piece_ref and region is None:
+            self.warnings.append(tr("roles_wizard.region_no", ref=piece_ref))
+
+    def _piece_region(self, tm, ref: str):
+        """O10 · Máscara de triángulos de `tm` que corresponden a la pieza `ref` (lo que está por encima del plano del cuello y dentro de su caja), o `None` si no se
+        puede saber (no es una cabeza, la pieza no tiene el puerto `cuello`, el FBX no calza): entonces se agrupa sobre el FBX entero y se avisa.
+
+        Se alinea el FBX **sin** pista de la cara: la región casi no cambia con el giro de 180° sobre el eje del cuello (la caja de la pieza es simétrica en el
+        plano horizontal), así que alcanza con un calce geométrico; el sentido de la cara se decide después, con los roles (O05/O06)."""
+        from .. import parts as P
+        from ..catalog import CatalogError
+        from ..colorpiece import PieceColorError, align_fbx_to_piece, piece_region, piece_front
+
+        cat = self._cat()
+        try:
+            meta, mesh = cat.load(ref)
+            if meta.tipo != "cabeza":
+                return None
+            tmesh = P._as_trimesh(mesh)
+            pf = piece_front(meta, tmesh)
+            frame = align_fbx_to_piece(tm, tmesh, require_ok=False)
+            M = np.asarray(frame.matrix, float)
+            V = np.asarray(tm.vertices, float) @ M[:3, :3].T + M[:3, 3]
+            region = piece_region(V, tm.faces, pf, tmesh)
+        except (CatalogError, P.PieceError, PieceColorError, ValueError, KeyError) as exc:
+            self.warnings.append(str(exc))
+            return None
+        return region if int(np.count_nonzero(region)) > 0 else None
 
     def _need_loaded(self) -> None:
         if not self.loaded:
@@ -280,11 +323,17 @@ class RolesWizard:
             raise RolesWizardError(str(exc)) from exc
 
     def package(self):
-        """`RolesPackage` con lo decidido (`colorroles.build_package`)."""
-        from ..colorroles import RolesError, build_package
+        """`RolesPackage` con lo decidido (`colorroles.build_package`). O10: con clusters de una pieza el filtro de mayoría es de `PIECE_FILTER_PX` y los roles
+        que cubren menos de `ROLE_MIN_PCT` % de la pieza no se incluyen (`dropped_roles` los lista)."""
+        from ..colorroles import RolesError, build_package, prune_small_roles
 
         try:
-            return build_package(self.tm, self.proposal, self.assignment(), origen=self.origen)
+            pkg = build_package(self.tm, self.proposal, self.assignment(), origen=self.origen,
+                                filter_px=PIECE_FILTER_PX if self.region is not None else FILTER_PX)
+            self.dropped_roles = []
+            if self.region is not None:
+                pkg, self.dropped_roles = prune_small_roles(pkg, self.region, ROLE_MIN_PCT)
+            return pkg
         except RolesError as exc:
             raise RolesWizardError(str(exc)) from exc
 

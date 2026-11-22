@@ -2161,7 +2161,11 @@
   "frente_confirmar": "%{mensaje}\n\nSave the piece anyway, with the face like this?",
   "guardar_igual": "Save anyway",
   "no_calza_pieza": "The roles package does not match the piece “%{ref}”: %{error}. If the piece is a part of a figure, pass the FBX → figure similarity (`similarity=`)",
-  "sim_invalida": "The FBX → piece similarity must be a valid 4×4 matrix."
+  "sim_invalida": "The FBX → piece similarity must be a valid 4×4 matrix.",
+  "region_no": "Could not tell which part of the FBX piece “%{ref}” has: the colors were grouped over the whole FBX.",
+  "analizando_pieza": "Aligning the FBX with the piece and grouping the colors of what the piece has… this may take a while",
+  "analizado_pieza": "Colors grouped over “%{ref}”: %{n} colors, %{pct}% of the FBX belongs to the piece.",
+  "roles_quitados": "Not saved because they cover less than 0.5 % of the piece: %{roles}"
  },
  "ride_pick": {
   "fuera": "The click landed outside the horse: mark a point on its back in view.",

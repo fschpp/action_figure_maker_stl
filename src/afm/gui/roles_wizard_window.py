@@ -11,6 +11,8 @@ import json
 import os
 import threading
 
+import numpy as np
+
 import gi
 
 gi.require_version("Gtk", "4.0")
@@ -431,21 +433,31 @@ class RolesWizardWindow(Gtk.Window):
     def _analyze(self) -> None:
         if not self._fbx or self._busy:
             return
+        # O10: con una pieza de destino se alinea primero y se agrupa después, solo sobre lo que la pieza tiene (K por defecto 8 en vez de 10)
+        ref = self._current_ref() if self.rb_piece.get_active() and self._current_similarity_is_none() else None
         self._busy = True
         self.btn_analyze.set_sensitive(False)
         self.btn_save.set_sensitive(False)
-        self._say(tr("roles_wizard.analizando"))
-        k, path = int(self.spin_k.get_value()), self._fbx
+        self._say(tr("roles_wizard.analizando_pieza" if ref else "roles_wizard.analizando"))
+        value = int(self.spin_k.get_value())
+        k, path = (None if value == DEFAULT_K else value), self._fbx
 
         def work():
             try:
-                self.wiz.load(path, k)
+                self.wiz.load(path, k, ref)
                 err = None
             except Exception as exc:                                 # noqa: BLE001  (se muestra en la ventana)
                 err = exc
             GLib.idle_add(self._analysis_done, err)
 
         threading.Thread(target=work, daemon=True).start()
+
+    def _current_similarity_is_none(self) -> bool:
+        """Sin similitud FBX → figura (ni calculada ni de un JSON) el FBX se alinea con la pieza: solo entonces hay región de la pieza para agrupar."""
+        try:
+            return self._current_similarity() is None
+        except RolesWizardError:
+            return False
 
     def _analysis_done(self, err) -> bool:
         self._busy = False
@@ -456,6 +468,9 @@ class RolesWizardWindow(Gtk.Window):
         if err is not None:
             self._error(err)
         self._rebuild()
+        if err is None and self.wiz.region is not None:
+            share = 100.0 * float(np.count_nonzero(self.wiz.region)) / max(1, self.wiz.region.size)
+            self._say(tr("roles_wizard.analizado_pieza", ref=self.wiz.region_ref, n=self.wiz.proposal.k, pct=f"{share:.0f}"))
         return False                                                  # una sola vez (idle_add)
 
     # ------------------------------------------------------------ vista previa
@@ -575,7 +590,10 @@ class RolesWizardWindow(Gtk.Window):
             self.drop_view.set_selected(VIEWS.index("pieza"))        # dispara `_render`
         else:
             self._render()
-        self._say(tr("roles_wizard.probada", ref=chk.ref, mensaje=chk.message))
+        text = tr("roles_wizard.probada", ref=chk.ref, mensaje=chk.message)
+        if self.wiz.dropped_roles:                                   # O10: roles que no llegan a la pieza (< 0,5 % de su superficie)
+            text += "\n" + tr("roles_wizard.roles_quitados", roles=", ".join(self.wiz.dropped_roles))
+        self._say(text)
 
     def _tried(self, chk, err, no_sim: bool) -> bool:
         self._busy = False

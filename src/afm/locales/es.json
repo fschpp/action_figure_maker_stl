@@ -2161,7 +2161,11 @@
   "frente_confirmar": "%{mensaje}\n\n¿Guardar la pieza igual, con la cara así?",
   "guardar_igual": "Guardar igual",
   "no_calza_pieza": "El paquete de roles no coincide con la pieza «%{ref}»: %{error}. Si la pieza es un trozo de una figura, pasá la similitud FBX → figura (`similarity=`)",
-  "sim_invalida": "La similitud FBX → pieza tiene que ser una matriz 4×4 válida."
+  "sim_invalida": "La similitud FBX → pieza tiene que ser una matriz 4×4 válida.",
+  "region_no": "No se pudo saber qué parte del FBX tiene la pieza «%{ref}»: los colores se agruparon sobre el FBX entero.",
+  "analizando_pieza": "Alineando el FBX con la pieza y agrupando los colores de lo que la pieza tiene… puede tardar un rato",
+  "analizado_pieza": "Colores agrupados sobre «%{ref}»: %{n} colores, %{pct}% del FBX es de la pieza.",
+  "roles_quitados": "No se guardan por cubrir menos del 0,5 % de la pieza: %{roles}"
  },
  "ride_pick": {
   "fuera": "El clic cayó fuera del caballo: marcá un punto del lomo a la vista.",

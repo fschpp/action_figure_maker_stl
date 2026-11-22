@@ -2161,7 +2161,11 @@
   "frente_confirmar": "%{mensaje}\n\nSalvar a peça mesmo assim, com o rosto assim?",
   "guardar_igual": "Salvar mesmo assim",
   "no_calza_pieza": "O pacote de papéis não coincide com a peça «%{ref}»: %{error}. Se a peça é um pedaço de uma figura, passe a similaridade FBX → figura (`similarity=`)",
-  "sim_invalida": "A similaridade FBX → peça deve ser uma matriz 4×4 válida."
+  "sim_invalida": "A similaridade FBX → peça deve ser uma matriz 4×4 válida.",
+  "region_no": "Não foi possível saber qual parte do FBX a peça «%{ref}» tem: as cores foram agrupadas sobre o FBX inteiro.",
+  "analizando_pieza": "Alinhando o FBX com a peça e agrupando as cores do que a peça tem… pode demorar um pouco",
+  "analizado_pieza": "Cores agrupadas sobre «%{ref}»: %{n} cores, %{pct}% do FBX é da peça.",
+  "roles_quitados": "Não são salvos por cobrirem menos de 0,5 % da peça: %{roles}"
  },
  "ride_pick": {
   "fuera": "O clique caiu fora do cavalo: marque um ponto do lombo à vista.",

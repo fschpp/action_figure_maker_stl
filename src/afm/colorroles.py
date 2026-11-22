@@ -27,6 +27,11 @@ from .palette import NO_ROLE, Palette, PaletteError, Role
 FORMAT = "afm-color-roles-1"
 MAX_ATLAS = 2048                 # lado máximo del atlas de etiquetas (§5.2)
 FILTER_PX = 5                    # lado de la ventana del filtro de mayoría
+PIECE_FILTER_PX = 7              # O10: ventana del filtro de mayoría sobre una pieza (las franjas de transición piel→pelo de 3–5 px no sobreviven)
+FIGURE_K = 10                    # O10: clusters por defecto de una figura entera
+REGION_K = 8                     # O10: clusters por defecto de una pieza recortada (el FBX es un busto; la pieza es una parte)
+MERGE_MIN_PCT = 1.0              # O10: un cluster con menos de este % de la región se funde con el más parecido (no gasta un rol)
+ROLE_MIN_PCT = 0.5               # O10: un rol con menos de este % de la región no se guarda en la pieza
 SUGGEST_MAX_DELTA_E = 18.0       # más lejos que esto de toda ancla → sin sugerencia (§4: es solo una sugerencia, no un control de calidad)
 _CHUNK_PX = 400_000              # píxeles por bloque al clasificar (acota la memoria)
 
@@ -42,6 +47,8 @@ class Proposal:
     labels_atlas: np.ndarray                # (h, w) uint8: cluster de cada píxel, ya filtrado por mayoría (≤ MAX_ATLAS por lado)
     suggested: list                         # k × (id de rol | None): rol de la ancla más cercana, solo como sugerencia
     raw_atlas: np.ndarray | None = field(default=None, repr=False)     # el mismo atlas sin filtrar (lo usa `build_package`)
+    region: np.ndarray | None = field(default=None, repr=False)        # O10: máscara de triángulos con que se calcularon los clusters (None = toda la malla)
+    merged: int = 0                                                    # O10: cuántos clusters chicos se fundieron con otro (`MERGE_MIN_PCT`)
 
     @property
     def k(self) -> int:
@@ -205,14 +212,21 @@ def _lab(rgb: np.ndarray) -> np.ndarray:
     return rgb2lab(a).reshape(np.shape(rgb)).astype(np.float32)
 
 
-def _surface_samples(tm, n: int, rng) -> np.ndarray:
-    """`n` colores (n, 3) uint8 de puntos de la superficie, uniformes en área (cara por área, punto uniforme dentro de la cara)."""
+def _surface_samples(tm, n: int, rng, region=None) -> np.ndarray:
+    """`n` colores (n, 3) uint8 de puntos de la superficie, uniformes en área (cara por área, punto uniforme dentro de la cara). `region` (O10): máscara
+    de triángulos; si se pasa, solo se muestrean esos."""
     V = np.asarray(tm.vertices, float)
     F = np.asarray(tm.faces, np.int64)
     t = V[F]
     area = 0.5 * np.linalg.norm(np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0]), axis=1)
+    if region is not None:
+        region = np.asarray(region, bool)
+        if region.shape != (len(F),):
+            raise RolesError(f"la región tiene {region.size} valores y la malla {len(F)} triángulos")
+        area = np.where(region, area, 0.0)
     if not np.isfinite(area).all() or area.sum() <= 0:
-        raise RolesError("la malla no tiene superficie: no hay de dónde sacar colores")
+        raise RolesError("la malla no tiene superficie: no hay de dónde sacar colores" if region is None
+                         else "la región de la pieza no tiene superficie en el FBX: no hay de dónde sacar colores")
     face = rng.choice(len(F), size=n, p=area / area.sum())
     r1, r2 = rng.random(n), rng.random(n)
     s = np.sqrt(r1)
@@ -273,20 +287,24 @@ def mode_filter(labels: np.ndarray, n_classes: int, size: int = FILTER_PX, block
 
 
 # ------------------------------------------------------------------ propuesta
-def propose(tm, palette: Palette | None, k: int = 10, seed: int = 0, n_samples: int = 300_000,
-            max_delta_e: float = SUGGEST_MAX_DELTA_E) -> Proposal:
+def propose(tm, palette: Palette | None, k: int = FIGURE_K, seed: int = 0, n_samples: int = 300_000,
+            max_delta_e: float = SUGGEST_MAX_DELTA_E, region=None, min_share: float = 0.0) -> Proposal:
     """Clusters de color de la textura de `tm` y su atlas de etiquetas. Determinista (semilla fija).
 
     1. `n_samples` puntos de la superficie, uniformes en área, con su color. 2. K-means en Lab (`scipy.cluster.vq.kmeans2`, `++`).
     3. `centers_rgb` y `share` (% del área), ordenados del más grande al más chico; los clusters vacíos se descartan (con pocos colores
     distintos salen menos de `k`). 4. `suggested`: rol de la ancla más cercana de `palette` (o `None`). 5. Atlas de etiquetas ≤ 2048² y
-    su versión filtrada por mayoría 5×5."""
+    su versión filtrada por mayoría 5×5.
+
+    O10 · `region`: máscara de triángulos (p. ej. `colorpiece.head_region`). Los colores se muestrean **solo** ahí, así los clusters no se gastan en lo
+    que la pieza no tiene (en un busto, el uniforme) y `share` es el % de la región. `min_share` (% de la región): un cluster que cubre menos se funde con
+    el más parecido en Lab (el color medio se recalcula con los dos); con la región entera y `min_share = 0` no cambia nada."""
     from scipy.cluster.vq import kmeans2
 
     if k < 1:
         raise RolesError("k tiene que ser al menos 1")
     rng = np.random.default_rng(seed)
-    rgb = _surface_samples(tm, int(n_samples), rng)
+    rgb = _surface_samples(tm, int(n_samples), rng, region)
     lab = _lab(rgb).astype(np.float64)
     n_unique = len(np.unique(rgb, axis=0))
     k = min(int(k), n_unique)
@@ -295,6 +313,9 @@ def propose(tm, palette: Palette | None, k: int = 10, seed: int = 0, n_samples: 
         centers, _ = kmeans2(lab, k, iter=25, minit="++", seed=rng, missing="warn")
     centers = np.nan_to_num(centers)
     lab_of = ((lab[:, None, :] - centers[None, :, :]) ** 2).sum(axis=2).argmin(axis=1)
+    merged = 0
+    if min_share > 0:
+        lab_of, merged = _merge_small(lab, lab_of, k, float(min_share))
     counts = np.bincount(lab_of, minlength=k)
     order = [c for c in np.argsort(-counts, kind="stable") if counts[c] > 0]
     centers_rgb = np.array([np.rint(rgb[lab_of == c].mean(axis=0)) for c in order]).astype(np.uint8)
@@ -304,7 +325,28 @@ def propose(tm, palette: Palette | None, k: int = 10, seed: int = 0, n_samples: 
         near = palette.nearest(tuple(int(x) for x in c), max_delta_e) if palette is not None and palette.roles else None
         suggested.append(near[0] if near else None)
     raw = _classify_atlas(tm.image("base_color"), _lab(centers_rgb).astype(np.float32), MAX_ATLAS)
-    return Proposal(centers_rgb, share, mode_filter(raw, len(centers_rgb), FILTER_PX), suggested, raw)
+    return Proposal(centers_rgb, share, mode_filter(raw, len(centers_rgb), FILTER_PX), suggested, raw,
+                    None if region is None else np.asarray(region, bool), merged)
+
+
+def _merge_small(lab: np.ndarray, lab_of: np.ndarray, k: int, min_pct: float) -> tuple[np.ndarray, int]:
+    """O10 · Funde los clusters que cubren menos de `min_pct` % de las muestras con el cluster más cercano (en Lab, por su color medio), del más chico al
+    más grande y recalculando los centros; siempre queda al menos un cluster. Devuelve `(lab_of nuevo, cuántos se fundieron)`."""
+    lab_of = lab_of.copy()
+    n = len(lab_of)
+    merged = 0
+    while True:
+        counts = np.bincount(lab_of, minlength=k)
+        alive = [c for c in range(k) if counts[c] > 0]
+        small = [c for c in alive if counts[c] * 100.0 / n < min_pct]
+        if not small or len(alive) <= 1:
+            return lab_of, merged
+        c = min(small, key=lambda x: counts[x])                  # el más chico primero
+        mean = {a: lab[lab_of == a].mean(axis=0) for a in alive}
+        others = [a for a in alive if a != c]
+        dest = min(others, key=lambda a: float(((mean[a] - mean[c]) ** 2).sum()))
+        lab_of[lab_of == c] = dest
+        merged += 1
 
 
 # ------------------------------------------------------------------ paquete
@@ -348,3 +390,35 @@ def build_package(tm, proposal: Proposal, assign: dict, *, filter_px: int = FILT
         lab = np.ascontiguousarray(lab[::f, ::f])
     return RolesPackage(np.asarray(tm.vertices, np.float32), np.asarray(tm.faces, np.int32), np.asarray(tm.corner_uv, np.float32),
                         lab, roles, dict(origen or {}))
+
+
+# ------------------------------------------------------------------ roles que sirven a la pieza (O10)
+def role_shares(pkg, region=None) -> dict:
+    """O10 · `{rol: % del área}` que cada rol cubre en los triángulos de `region` (máscara; por defecto todos). Los triángulos «sin rol» no suman a ningún
+    rol, pero cuentan en el total."""
+    F = np.asarray(pkg.faces, np.int64)
+    tri = np.asarray(pkg.vertices, float)[F]
+    area = 0.5 * np.linalg.norm(np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0]), axis=1)
+    reg = np.ones(len(F), bool) if region is None else np.asarray(region, bool)
+    total = float(area[reg].sum())
+    if total <= 0:
+        return {}
+    fr = face_roles(pkg)
+    return {r: float(area[reg & (fr == i)].sum()) * 100.0 / total for i, r in enumerate(pkg.roles)}
+
+
+def prune_small_roles(pkg, region, min_pct: float = ROLE_MIN_PCT) -> tuple:
+    """O10 · `(paquete, [roles quitados])`: los roles que cubren menos de `min_pct` % de la región de la pieza no se guardan; sus píxeles del atlas quedan
+    «sin rol» (255) y `roles` se renumera. Sin nada que quitar devuelve el mismo paquete. Los roles que no usa ninguna parte de la región (los del uniforme
+    de un busto) también salen de la ficha: no son de la pieza."""
+    shares = role_shares(pkg, region)
+    drop = [r for r in pkg.roles if shares.get(r, 0.0) < min_pct]
+    if not drop or len(drop) == len(pkg.roles):                 # nada que quitar; o quitaría todo (no se deja una pieza sin ningún rol)
+        return pkg, []
+    keep = [r for r in pkg.roles if r not in drop]
+    remap = np.full(256, NO_ROLE, np.uint8)
+    for i, r in enumerate(pkg.roles):
+        if r in keep:
+            remap[i] = keep.index(r)
+    labels = remap[np.asarray(pkg.labels)]
+    return RolesPackage(pkg.vertices, pkg.faces, pkg.corner_uv, labels, keep, dict(pkg.origen or {})), drop
