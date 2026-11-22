@@ -187,8 +187,14 @@ class FigureFrame:
         starts.sort(key=lambda c: c[0])
         best, best_stats = None, None
         Qi = Q[np.random.default_rng(1).choice(len(Q), min(len(Q), CUT_ICP_POINTS), replace=False)]
-        rough = sorted((_icp_trimmed(surf, M, Qi, keep, iters=8) for _, M in starts[:CUT_REFINE]), key=lambda c: c[1][0])
-        for M, _ in rough[:2]:
+        rough = [_icp_trimmed(surf, M, Qi, keep, iters=8) for _, M in starts[:CUT_REFINE]]
+        # O11: arranques con la vertical conocida. La puntuación gruesa no los distingue (un arranque a 10° del bueno puntúa peor que uno malo con la
+        # traslación mejor puesta), así que cada uno pasa por un ICP barato y solo los mejores siguen.
+        Qp = Q[np.random.default_rng(2).choice(len(Q), min(len(Q), CUT_PRIOR_ICP_POINTS), replace=False)]
+        cheap = sorted((_icp_trimmed(surf, M, Qp, keep, iters=CUT_PRIOR_ICP_ITER) for M in _prior_starts(V, Q0, ct, s0)), key=lambda c: c[1][0])
+        rough += [_icp_trimmed(surf, M, Qi, keep, iters=8) for M, _ in cheap[:CUT_PRIOR_TOP]]
+        rough.sort(key=lambda c: c[1][0])
+        for M, _ in rough[:CUT_FINAL]:
             M, stats = _icp_trimmed(surf, M, Qi, keep)
             M, stats = _polish_trimmed(surf, M, Qi, keep)
             if best_stats is None or stats[0] < best_stats[0]:
@@ -223,6 +229,35 @@ class FigureFrame:
                          "frente": {"fbx": None if vec is None else [round(float(x), 3) for x in _unit(vec)],
                                     "pieza": [round(float(x), 3) for x in front_hint.front], "angulo_deg": None if ang is None else round(ang, 1)}}
         return cls(*_cut_result(surf, M, Q, Q0, QF, keep, front_rep))
+
+
+def _prior_starts(V: np.ndarray, Q0: np.ndarray, ct: np.ndarray, s0: float) -> list[np.ndarray]:
+    """O11 · Arranques para `from_cut_piece_similarity` que usan lo único que se sabe sin mirar la forma: la pieza está en un marco **Z arriba** (el del motor)
+    y el FBX tiene **Y arriba** (OBJ, glTF, FBX de Blender) o Z arriba. Para cada vertical posible del FBX se prueban giros sobre la vertical (`CUT_PRIOR_YAWS`),
+    cabeceos y alabeos (`CUT_PRIOR_PITCH`, `CUT_PRIOR_ROLL`) y escalas (`CUT_PRIOR_SCALES` × `s0`); el FBX se apoya con la franja alta de su vertical (del
+    alto de la pieza, o la mitad del FBX si es menor) sobre el centro de la pieza, porque una cabeza es lo más alto del busto o de la figura.
+
+    Los arranques por ejes principales (los momentos del busto entero no son los de la cabeza) dejaban la pose a 39° de cabeceo de la buena con un FBX de
+    busto: la distancia recortada de un solo lado (pieza → FBX) la acepta, el FBX tiene pelo, cuello y hombros donde caer. Devuelve una lista de 4×4."""
+    from scipy.spatial.transform import Rotation
+
+    height = float(np.ptp(Q0[:, 2]))
+    out = []
+    for Rup in (Rotation.from_euler("x", 90.0, degrees=True).as_matrix(), np.eye(3)):
+        for yaw in CUT_PRIOR_YAWS:
+            for pitch in CUT_PRIOR_PITCH:
+                for roll in CUT_PRIOR_ROLL:
+                    if roll and yaw % 180.0:
+                        continue
+                    R = Rotation.from_euler("zxy", [yaw, pitch, roll], degrees=True).as_matrix() @ Rup
+                    Vr = V @ R.T
+                    z = Vr[:, 2]
+                    for f in CUT_PRIOR_SCALES:
+                        s = f * s0
+                        band = min(height / s, 0.5 * float(np.ptp(z)))
+                        top = z >= z.max() - band
+                        out.append(_similarity_matrix(s * R, ct - s * Vr[top].mean(axis=0)))
+    return out
 
 
 def _cut_piece_points(Q0: np.ndarray, QF) -> np.ndarray:
@@ -456,6 +491,15 @@ CUT_PATIENCE = 4
 CUT_POLISH_EVALS = 450
 CUT_ICP_POINTS = 900             # muestras de la pieza que entran al ICP y al afinado           # evaluaciones del afinado directo de la similitud
 CUT_ICP_ITER = 40
+# O11 · arranques con la vertical conocida (ver `_prior_starts`)
+CUT_PRIOR_YAWS = (0.0, 90.0, 180.0, 270.0)       # giro sobre la vertical
+CUT_PRIOR_PITCH = (-45.0, -30.0, -15.0, 0.0, 15.0, 30.0, 45.0)   # cabeceo: una cabeza modelada inclinada no es un caso raro (Bolívar: 39° de error con arranques por ejes)
+CUT_PRIOR_ROLL = (-15.0, 0.0, 15.0)              # alabeo (solo con la cara hacia adelante o atrás)
+CUT_PRIOR_SCALES = (1.0, 1.5, 2.25)              # × la escala de momentos del FBX entero, que SUBestima si el FBX es un busto o una figura (Bolívar: ×1,5)
+CUT_PRIOR_ICP_POINTS = 400                       # el ICP barato de cada arranque usa menos muestras…
+CUT_PRIOR_ICP_ITER = 6                           # …y menos vueltas
+CUT_PRIOR_TOP = 12                               # los que siguen con el ICP normal
+CUT_FINAL = 3                                    # los que llegan al ICP completo y al afinado directo
 
 
 def _median_edge(V: np.ndarray, F) -> float:
