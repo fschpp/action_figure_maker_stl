@@ -433,6 +433,7 @@ class Catalog:
                 raise CatalogError(f"el FBX de color de «{meta.id}» no sirve: {exc}") from exc
         elif color_roles is not None:
             meta.color = self._roles_block(meta, mesh, color_roles, similarity)
+            color_roles = self._fit_roles_package(meta, mesh, color_roles, warnings)
         elif meta.color:
             meta.color = None
             warnings.append(f"«{meta.id}» no lleva color en la versión {meta.version}: el color no se hereda entre versiones")
@@ -482,6 +483,34 @@ class Catalog:
             block["similitud"] = np.asarray(frame.matrix, float).tolist()
             block["alineacion"] = {k: (round(float(v), 4) if isinstance(v, float) else v) for k, v in frame.report.items()}
         return block
+
+    def _fit_roles_package(self, meta: P.PieceMeta, mesh, pkg, warnings: list[str]):
+        """Paquete de roles listo para escribir. Si la alineación se midió contra esta pieza (no la dio quien llama) y el FBX no es la misma
+        malla (distancia media > `colorwarp.WARP_MIN_MEAN_MM`: cabeza de reemplazo, versión re-mallada…), los vértices del FBX se ajustan a la pieza
+        (`colorwarp.warp_package`, el calce rígido solo no alcanza) y el informe queda en `color.alineacion.no_rigida`. Si el ajuste no mejora la
+        cobertura, o falla, el paquete se guarda tal cual. Nunca cambia la geometría de la pieza ni `similitud`."""
+        from . import colorwarp
+
+        block = meta.color or {}
+        align = block.get("alineacion") or {}
+        media = align.get("media_mm")
+        if not isinstance(media, (int, float)) or media <= colorwarp.WARP_MIN_MEAN_MM:
+            return pkg
+        try:
+            fitted, rep = colorwarp.warp_package(pkg, block["similitud"], P._as_trimesh(mesh))
+        except (ValueError, np.linalg.LinAlgError) as exc:
+            warnings.append(f"«{meta.id}»: no se pudo ajustar el FBX a la pieza ({exc}); se guarda con el calce rígido")
+            return pkg
+        align["no_rigida"] = {k: v for k, v in rep.items() if isinstance(v, (str, int, float, bool))}
+        block["alineacion"] = align
+        a, b = rep["cobertura_antes"], rep["cobertura_despues"]
+        if rep["aplicada"]:
+            warnings.append(f"«{meta.id}»: el FBX no es la misma malla que la pieza (diferencia media {media:.2f} mm): se ajustó a la pieza "
+                            f"(zona con color de origen {a * 100:.0f} % → {b * 100:.0f} %)")
+        else:
+            warnings.append(f"«{meta.id}»: el FBX difiere de la pieza (media {media:.2f} mm) y el ajuste no mejoró la cobertura "
+                            f"({a * 100:.0f} % → {b * 100:.0f} %); se guarda con el calce rígido")
+        return fitted
 
     def color_file(self, ref: str) -> str | None:
         """Ruta del archivo de color de la pieza `ref` (`id` o `id@n`): el FBX entero (modo `rgb`, T35) o el paquete `.color.npz` (modo `roles`, T42);
