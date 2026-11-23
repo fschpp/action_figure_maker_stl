@@ -24,6 +24,7 @@ from .catalog_manager import view_bounds as CM_view_bounds  # noqa: E402
 from .progress_panel import ProgressPanel  # noqa: E402
 from .retouch_editor import RetouchEditor  # noqa: E402
 from .retouch_session import ERASE, FILL, ORPHAN, PAINT  # noqa: E402
+from .retouch_toolbox import RetouchToolbox  # noqa: E402
 from ..parts import STATES  # noqa: E402
 from .widgets import WrapRow, no_scroll_change as _no_scroll_change  # noqa: E402
 
@@ -1255,93 +1256,48 @@ class CatalogManagerWindow(Gtk.Window):
 
     # ------------------------------------------------------------ modo «Retocar color…» (R07)
     def _build_retouch_panel(self) -> Gtk.Widget:
-        """Panel del modo «Retocar color…» (oculto hasta que se activa): rol, radio, pintar / borrar, deshacer, ver resultado, aplicar."""
-        self.retouch_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, visible=False)
+        """Franja del modo «Retocar color…» (oculta hasta que se activa): estado y ayuda. Las herramientas viven en la ventana flotante
+        `RetouchToolbox` (estilo Paintbrush); los widgets se publican con los mismos nombres de siempre."""
+        tb = self._rtoolbox = RetouchToolbox(self)
+        self.dd_rrole, self.spin_rradius, self.spin_rreach = tb.dd_role, tb.spin_radius, tb.spin_reach
+        self.tgl_rpaint, self.tgl_rerase, self.tgl_rfill, self.chk_rpoly = tb.tgl_paint, tb.tgl_erase, tb.tgl_fill, tb.tgl_poly
+        self.btn_rundo, self.btn_rredo, self.btn_rview, self.btn_rdiscard = tb.btn_undo, tb.btn_redo, tb.btn_view, tb.btn_discard
+        self.btn_rexport, self.btn_rimport, self.btn_rbring = tb.btn_export, tb.btn_import, tb.btn_bring
+        self.dd_rsource, self.chk_rmirror = tb.dd_source, tb.chk_mirror
+        self.btn_rcancel, self.btn_rapply = tb.btn_cancel, tb.btn_apply
+        self._rsources: list[str] = []
+        self.dd_rrole.connect("notify::selected", self._on_retouch_role)
+        self.spin_rradius.connect("value-changed", self._on_retouch_radius)
+        self.spin_rreach.connect("value-changed", self._on_retouch_reach)
+        for t in (self.tgl_rpaint, self.tgl_rerase, self.tgl_rfill):
+            t.connect("toggled", self._on_retouch_mode)
+        self.chk_rpoly.connect("toggled", self._on_retouch_polygon)
+        self.btn_rundo.connect("clicked", lambda *_: self._on_retouch_undo())
+        self.btn_rredo.connect("clicked", lambda *_: self._on_retouch_redo())
+        self.btn_rview.connect("clicked", self._on_retouch_view)
+        self.btn_rdiscard.connect("clicked", self._on_retouch_discard)
+        self.btn_rexport.connect("clicked", self._on_retouch_export)
+        self.btn_rimport.connect("clicked", self._on_retouch_import)
+        self.btn_rbring.connect("clicked", self._on_retouch_bring)
+        self.btn_rcancel.connect("clicked", lambda *_: self._retouch_cancel())
+        self.btn_rapply.connect("clicked", self._on_retouch_apply)
+        keys = Gtk.EventControllerKey()                              # Esc y Ctrl+Z también con el foco en la ventana de herramientas
+        keys.connect("key-pressed", self._on_window_key)
+        tb.add_controller(keys)
+
+        self.retouch_panel = Gtk.Box(spacing=8, visible=False)
+        text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, hexpand=True)
         self.lbl_retouch = Gtk.Label(xalign=0, wrap=True)
         self.lbl_retouch.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
-        self.retouch_panel.append(self.lbl_retouch)
-        row = WrapRow(spacing=6)
-        row.append(Gtk.Label(label=tr("catalog_window.retocar_rol")))
-        self.dd_rrole = Gtk.DropDown.new_from_strings([tr("common.ninguna")])
-        self.dd_rrole.set_tooltip_text(tr("catalog_window.retocar_rol_tip"))
-        self.dd_rrole.connect("notify::selected", self._on_retouch_role)
-        row.append(self.dd_rrole)
-        row.append(Gtk.Label(label=tr("catalog_window.retocar_radio")))
-        self.spin_rradius = Gtk.SpinButton.new_with_range(0.05, 15.0, 0.25)
-        self.spin_rradius.set_digits(2)
-        self.spin_rradius.set_tooltip_text(tr("catalog_window.retocar_radio_tip"))
-        self.spin_rradius.connect("value-changed", self._on_retouch_radius)
-        _no_scroll_change(self.spin_rradius)
-        row.append(self.spin_rradius)
-        self.chk_rpoly = Gtk.CheckButton(label=tr("catalog_window.retocar_poligono"))
-        self.chk_rpoly.set_tooltip_text(tr("catalog_window.retocar_poligono_tip"))
-        self.chk_rpoly.connect("toggled", self._on_retouch_polygon)
-        row.append(self.chk_rpoly)
-        self.tgl_rpaint = Gtk.ToggleButton(label=tr("catalog_window.retocar_pintar"))
-        self.tgl_rerase = Gtk.ToggleButton(label=tr("catalog_window.retocar_borrar"), group=self.tgl_rpaint)
-        self.tgl_rerase.set_tooltip_text(tr("catalog_window.retocar_borrar_tip"))
-        self.tgl_rfill = Gtk.ToggleButton(label=tr("catalog_window.retocar_rellenar"), group=self.tgl_rpaint)
-        self.tgl_rfill.set_tooltip_text(tr("catalog_window.retocar_rellenar_tip"))
-        self.tgl_rorphan = Gtk.ToggleButton(label=tr("catalog_window.retocar_sin_origen"), group=self.tgl_rpaint)
-        self.tgl_rorphan.set_tooltip_text(tr("catalog_window.retocar_sin_origen_tip"))
-        self.tgl_rpaint.connect("toggled", self._on_retouch_mode)
-        self.tgl_rerase.connect("toggled", self._on_retouch_mode)
-        self.tgl_rfill.connect("toggled", self._on_retouch_mode)
-        self.tgl_rorphan.connect("toggled", self._on_retouch_mode)
-        row.append(self.tgl_rpaint)
-        row.append(self.tgl_rerase)
-        row.append(self.tgl_rfill)
-        # «Sin origen» ya no es un botón: «Pintar» también pinta lo que el color del FBX no cubre (el usuario no distingue una cosa de la otra)
-        row.append(Gtk.Label(label=tr("catalog_window.retocar_alcance")))
-        self.spin_rreach = Gtk.SpinButton.new_with_range(0.05, 15.0, 0.5)
-        self.spin_rreach.set_digits(1)
-        self.spin_rreach.set_tooltip_text(tr("catalog_window.retocar_alcance_tip"))
-        self.spin_rreach.connect("value-changed", self._on_retouch_reach)
-        _no_scroll_change(self.spin_rreach)
-        row.append(self.spin_rreach)
-        self.retouch_panel.append(row)
-        row = WrapRow(spacing=6)
-        self.btn_rexport = Gtk.Button(label=tr("catalog_window.retocar_exportar"))
-        self.btn_rexport.set_tooltip_text(tr("catalog_window.retocar_exportar_tip"))
-        self.btn_rexport.connect("clicked", self._on_retouch_export)
-        self.btn_rimport = Gtk.Button(label=tr("catalog_window.retocar_importar"))
-        self.btn_rimport.set_tooltip_text(tr("catalog_window.retocar_importar_tip"))
-        self.btn_rimport.connect("clicked", self._on_retouch_import)
-        self.chk_rmirror = Gtk.CheckButton(label=tr("catalog_window.retocar_espejar"))
-        self.chk_rmirror.set_tooltip_text(tr("catalog_window.retocar_espejar_tip"))
-        self.dd_rsource = Gtk.DropDown.new_from_strings([tr("common.ninguna")])
-        self.dd_rsource.set_tooltip_text(tr("catalog_window.retocar_traer_tip"))
-        self.btn_rbring = Gtk.Button(label=tr("catalog_window.retocar_traer_boton"))
-        self.btn_rbring.set_tooltip_text(tr("catalog_window.retocar_traer_tip"))
-        self.btn_rbring.connect("clicked", self._on_retouch_bring)
-        self._rsources: list[str] = []
-        for w in (self.btn_rexport, self.btn_rimport, Gtk.Label(label=tr("catalog_window.retocar_traer")), self.dd_rsource, self.btn_rbring, self.chk_rmirror):
-            row.append(w)
-        self.retouch_panel.append(row)
-        row = WrapRow(spacing=6)
-        self.btn_rundo = Gtk.Button(label=tr("catalog_window.retocar_deshacer"))
-        self.btn_rundo.connect("clicked", lambda *_: self._on_retouch_undo())
-        self.btn_rredo = Gtk.Button(label=tr("catalog_window.retocar_rehacer"))
-        self.btn_rredo.connect("clicked", lambda *_: self._on_retouch_redo())
-        self.btn_rview = Gtk.Button(label=tr("catalog_window.retocar_ver_resultado"))
-        self.btn_rview.set_tooltip_text(tr("catalog_window.retocar_ver_resultado_tip"))
-        self.btn_rview.connect("clicked", self._on_retouch_view)
-        self.btn_rdiscard = Gtk.Button(label=tr("catalog_window.retocar_descartar"))
-        self.btn_rdiscard.set_tooltip_text(tr("catalog_window.retocar_descartar_tip"))
-        self.btn_rdiscard.connect("clicked", self._on_retouch_discard)
-        for b in (self.btn_rundo, self.btn_rredo, self.btn_rview, self.btn_rdiscard):
-            row.append(b)
-        self.retouch_panel.append(row)
-        row = WrapRow(spacing=6)
-        row.append(Gtk.Label(label=tr("catalog_window.retocar_ayuda"), xalign=0, hexpand=True, wrap=True))
-        self.btn_rcancel = Gtk.Button(label=tr("catalog_window.cancelar_esc"))
-        self.btn_rcancel.connect("clicked", lambda *_: self._retouch_cancel())
-        self.btn_rapply = Gtk.Button(label=tr("catalog_window.retocar_aplicar"))
-        self.btn_rapply.add_css_class("suggested-action")
-        self.btn_rapply.connect("clicked", self._on_retouch_apply)
-        row.append(self.btn_rcancel)
-        row.append(self.btn_rapply)
-        self.retouch_panel.append(row)
+        help_ = Gtk.Label(label=tr("catalog_window.retocar_ayuda"), xalign=0, wrap=True)
+        help_.add_css_class("dim-label")
+        text.append(self.lbl_retouch)
+        text.append(help_)
+        self.btn_rtools = Gtk.Button(label=tr("catalog_window.retocar_herramientas"), valign=Gtk.Align.START)
+        self.btn_rtools.set_tooltip_text(tr("catalog_window.retocar_herramientas_tip"))
+        self.btn_rtools.connect("clicked", lambda *_: self._rtoolbox.present())
+        self.retouch_panel.append(text)
+        self.retouch_panel.append(self.btn_rtools)
         return self.retouch_panel
 
     def _sync_retouch_button(self, refs: list[str]) -> None:
@@ -1383,20 +1339,20 @@ class CatalogManagerWindow(Gtk.Window):
         self._zoom, self._pan = 1.0, (0.0, 0.0)
         self._rupdating = True
         try:
-            self.dd_rrole.set_model(Gtk.StringList.new(ed.session.palette_ids))
-            self.dd_rrole.set_selected(0)
+            self._rtoolbox.set_palette([(r.id, r.nombre, r.hex) for r in ed.palette.roles if r.id in ed.session.palette_ids])
             self.spin_rradius.set_value(ed.session.radius)
+            self._rtoolbox.sync_size_presets()
             self.spin_rreach.set_value(ed.session.reach)
             self.tgl_rpaint.set_active(True)
             self.chk_rmirror.set_active(False)
             self.chk_rpoly.set_active(ed.session.polygon)
-            self.spin_rradius.set_sensitive(not ed.session.polygon)
             self._rsources = [m.ref for m in self.mgr.pieces() if m.ref != meta.ref and (getattr(m, "color", None) or {}).get("retoque")]
             self.dd_rsource.set_model(Gtk.StringList.new(self._rsources or [tr("common.ninguna")]))
             self.btn_rbring.set_sensitive(bool(self._rsources))
         finally:
             self._rupdating = False
         self.retouch_panel.set_visible(True)
+        self._rtoolbox.present()
         for b in (self.btn_retouch, self.btn_turn, self.btn_wrist, self.btn_joint, self.btn_delete):
             b.set_sensitive(False)
         self._sync_ops_buttons()
@@ -1414,6 +1370,7 @@ class CatalogManagerWindow(Gtk.Window):
             GLib.source_remove(self._hover_idle)
             self._hover_idle = 0
         self.retouch_panel.set_visible(False)
+        self._rtoolbox.set_visible(False)
         self._color_shown = None
         self._sync_wrist_button(self._selected_refs())
         self._sync_joint_button(self._selected_refs())
@@ -1434,6 +1391,7 @@ class CatalogManagerWindow(Gtk.Window):
             return
         s = ed.session
         self.lbl_retouch.set_text(tr("catalog_window.retocar_estado", n=len(s), roles=", ".join(s.roles_used()) or "—") + ("  " + ed.message if ed.message else ""))
+        self._rtoolbox.lbl_count.set_text(tr("catalog_window.retocar_estado", n=len(s), roles=", ".join(s.roles_used()) or "—"))
         self.btn_rundo.set_sensitive(s.can_undo)
         self.btn_rredo.set_sensitive(s.can_redo)
         self.btn_rdiscard.set_sensitive(ed.dirty)
@@ -1463,12 +1421,11 @@ class CatalogManagerWindow(Gtk.Window):
 
     def _on_retouch_mode(self, *_) -> None:
         if self._reditor is not None and not self._rupdating:
-            self._reditor.session.set_mode(FILL if self.tgl_rfill.get_active() else ORPHAN if self.tgl_rorphan.get_active() else PAINT if self.tgl_rpaint.get_active() else ERASE)
+            self._reditor.session.set_mode(FILL if self.tgl_rfill.get_active() else PAINT if self.tgl_rpaint.get_active() else ERASE)
 
     def _on_retouch_polygon(self, *_) -> None:
         if self._reditor is not None and not self._rupdating:
             self._reditor.session.set_polygon(self.chk_rpoly.get_active())
-            self.spin_rradius.set_sensitive(not self.chk_rpoly.get_active())          # con el polígono entero el radio no cuenta
             self._reditor.clear_hover()
             self._redraw()
 

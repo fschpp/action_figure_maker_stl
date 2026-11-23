@@ -16,6 +16,7 @@ except (ValueError, ImportError, RuntimeError):          # RuntimeError: GTK no 
 pytest.importorskip("moderngl")
 
 from afm.catalog import Catalog  # noqa: E402
+from afm.gui.retouch_session import FILL  # noqa: E402
 from test_catalog_retouch import REF, base_line, line  # noqa: E402,F401
 
 
@@ -282,3 +283,38 @@ def test_retouch_hides_pins_and_joint_plane(win, line):
     win._retouch_cancel()
     pump(30)
     assert _guide_names(win)
+
+
+def test_toolbox_opens_with_the_palette_and_follows_the_role(win):
+    """Ventana flotante tipo Paintbrush: aparece al retocar, una muestra por rol, elegir muestra = elegir rol, y se oculta al salir."""
+    win._select_ref(REF)
+    pump(30)
+    win._on_retouch_start()
+    ed, tb = win._reditor, win._rtoolbox
+    ids = ed.session.palette_ids
+    assert tb.get_visible() and len(tb._swatches) == len(ids)
+    tb._swatches[-1].emit("clicked")
+    assert ed.session.role == ids[-1] and "rt-selected" in tb._swatches[-1].get_css_classes() and "rt-selected" not in tb._swatches[0].get_css_classes()
+    win.dd_rrole.set_selected(0)                                       # el camino de siempre mueve también las muestras
+    assert ed.session.role == ids[0] and "rt-selected" in tb._swatches[0].get_css_classes()
+    win._retouch_cancel()
+    assert not tb.get_visible() and not win.retouch_panel.get_visible()
+
+
+def test_toolbox_defaults_and_size_presets(win):
+    win._select_ref(REF)
+    pump(30)
+    win._on_retouch_start()
+    ed, tb = win._reditor, win._rtoolbox
+    assert ed.session.polygon and tb.tgl_poly.get_active() and not tb.size_box.get_sensitive()      # polígono entero por defecto: el grosor no cuenta
+    tb.tgl_poly.set_active(False)
+    assert tb.size_box.get_sensitive() and not ed.session.polygon
+    tb.tgl_sizes[3].set_active(True)                                    # 4.º grosor = 3 mm
+    assert ed.session.radius == pytest.approx(3.0)
+    tb.spin_radius.set_value(2.0)                                       # un valor intermedio no deja ningún grosor marcado
+    assert not any(b.get_active() for b in tb.tgl_sizes)
+    tb.tgl_fill.set_active(True)
+    assert tb.reach_box.get_visible() and ed.session.mode == FILL
+    tb.tgl_paint.set_active(True)
+    assert not tb.reach_box.get_visible()
+    win._retouch_cancel()

@@ -1,3 +1,19 @@
+## Current Focus — Retocar color: ventana de herramientas estilo Paintbrush (2026-11-23)
+El panel de retoque tenía demasiados botones en filas y el rol se elegía con un desplegable. Ahora las herramientas viven en una ventana flotante (no modal) `RetouchToolbox` (`src/afm/gui/retouch_toolbox.py`) y la ventana de Catálogo deja solo una franja con el estado, la ayuda y el botón «Herramientas» (la reabre si se cierra).
+- Izquierda: Pintar / Borrar / Rellenar / Polígono entero (toggles con ícono + texto) y Deshacer / Rehacer. Al lado: 5 grosores dibujados como líneas de espesor creciente (0,25 · 0,75 · 1,5 · 3 · 6 mm de radio), el radio exacto y, solo con «Rellenar», el alcance. Con «Polígono entero» el grosor se apaga.
+- Abajo: color actual grande + grilla de muestras de la paleta de la línea (8 por fila; tooltip = nombre del rol). Cancelar (Esc) y Aplicar siempre visibles; el menú «Más» junta Ver resultado, Descartar, Exportar, Importar, Traer de otra pieza y Espejar.
+- Los widgets conservan los nombres de siempre (`dd_rrole`, `tgl_rpaint`, `spin_rradius`, `btn_rapply`…): `dd_rrole` ya no se muestra pero guarda el rol (muestra ⇄ dropdown se sincronizan), así la lógica y las pruebas previas no cambian. Esc y Ctrl+Z funcionan también con el foco en la ventana de herramientas. Textos es/en/pt nuevos (`retocar_herramientas*`, `retocar_pintar_tip`, `retocar_deshacer_tip`, `retocar_rehacer_tip`, `retocar_grosor_tip`, `retocar_mas`).
+- Pruebas: 2 nuevas en `tests/test_retouch_window_smoke.py` (muestras ⇄ rol, valores por defecto, grosores, alcance).
+
+### Todo List
+- [x] Done: ventana + cableado + textos + pruebas GTK (xvfb, GL por software; 12 pasan en el humo del retoque)
+- [ ] Todo: probar a mano en el escritorio real (posición de la ventana flotante, íconos del tema; si falta un ícono el botón queda solo con texto)
+- [ ] Todo (si hace falta): recordar posición/tamaño de la ventana de herramientas, atajos P/B/R por herramienta, gotero para tomar un color de la pieza
+
+### Latest Blockers/Discoveries
+- Sin pycairo en este entorno: los grosores se dibujan con cajas CSS (`currentColor`), no con `Gtk.DrawingArea`.
+- GTK4.14 marca como deprecados `CssProvider.load_from_data` y `StyleContext.add_provider` (solo avisos).
+
 ## Current Focus — Retocar color: «Pintar» incluye «Sin origen», polígono entero y última versión por defecto (2026-11-23)
 Al retocar una pieza del catálogo al usuario no le importa si lo que pinta tiene origen en el FBX o no: solo quiere que se pinte. Ahora «Pintar» pinta las dos cosas a la vez, «Polígono entero» arranca activado y el gestor del catálogo arranca con «solo la última versión» tildado.
 - `RetouchSession.paint_orphan` / `set_paint_orphan` (por defecto `False`: la API de la sesión no cambia): en modo «pintar» cada punto del mouse suma una pincelada normal **y** una «sin origen» (mismo centro, radio, rol y triángulo). Un trazo sigue siendo un paso de deshacer; el par nunca se parte en el tope `MAX_STROKES` (cada punto cuenta por 2 pinceladas). «Borrar» y «Rellenar» no cambian; el modo `ORPHAN` sigue existiendo en la sesión.
