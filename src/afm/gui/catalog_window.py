@@ -1453,7 +1453,17 @@ class CatalogManagerWindow(Gtk.Window):
     def _on_retouch_radius(self, *_) -> None:
         if self._reditor is not None and not self._rupdating:
             self._reditor.session.set_radius(self.spin_rradius.get_value())
+            self._refresh_brush_preview()
             self._redraw()
+
+    def _refresh_brush_preview(self) -> None:
+        """Recalcula el área del pincel con el radio nuevo en la última posición del cursor. Al elegir un grosor en la caja de herramientas el
+        mouse ya salió de la vista (y el resaltado se borró), así que sin esto el cambio de tamaño no se veía hasta volver a mover el mouse."""
+        re_ = self._reditor
+        if re_ is None or self._shown is None or getattr(self, "_cursor", None) is None:
+            return
+        x, y = self._cursor
+        re_.hover(x, y, self._widget_size(), self._img_size, self._dyaw, self._dpitch, self._zoom, self._pan)
 
     def _on_retouch_mode(self, *_) -> None:
         if self._reditor is not None and not self._rupdating:

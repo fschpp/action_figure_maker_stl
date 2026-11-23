@@ -333,3 +333,26 @@ def test_toolbox_defaults_and_size_presets(win):
     tb.tgl_paint.set_active(True)
     assert not tb.reach_box.get_visible()
     win._retouch_cancel()
+
+
+def test_changing_the_brush_size_updates_the_highlighted_area_without_moving_the_mouse(win):
+    """Al elegir un grosor en la caja de herramientas el mouse ya salió de la vista: el área del pincel debe seguir viéndose y cambiar."""
+    win._select_ref(REF)
+    pump(30)
+    win._on_retouch_start()
+    ed, tb = win._reditor, win._rtoolbox
+    tb.tgl_poly.set_active(False)
+    cam = ed.camera(win._img_size, 0, 0, 1.0, (0, 0))
+    px, py = cam.project(np.asarray(cam.target, float), *win._img_size)[0, :2]
+    w, h = win._widget_size()
+    k = min(w / win._img_size[0], h / win._img_size[1])
+    x, y = (w - win._img_size[0] * k) / 2 + px * k, (h - win._img_size[1] * k) / 2 + py * k
+    win._on_picture_motion(None, x, y)
+    win._on_picture_leave()                                             # el mouse va a la caja de herramientas
+    tb.tgl_sizes[0].set_active(True)
+    small = ed.hover_segments()
+    assert small is not None and len(small) > 0
+    tb.tgl_sizes[4].set_active(True)
+    big = ed.hover_segments()
+    assert big is not None and len(big) > len(small)
+    win._retouch_cancel()
