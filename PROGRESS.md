@@ -1,3 +1,17 @@
+## Current Focus — «Sin soportes» con clic en los hombros: el brazo ahora gira hasta apoyar (2026-11-23)
+Con «Clic en los hombros» el brazo estaba protegido en `flat_for_print` (girarlo después fundiría la punta del clic con el disco), así que en «Impresión sin soportes» no giraba: solo salía un aviso con el ángulo de apoyo. Ahora `afm armar` / «Armar figura desde catálogo» lo resuelven solos: si el brazo con clic cuelga bajo el plano del corte y existe un giro hacia adelante que lo apoya, se **vuelve a armar** con `DetentSpec.print_angle` = ese ángulo (el brazo sale girado y los clics siguen cayendo en la pose impresa). Vale con y sin codo / rodilla (la cadena entera gira).
+- `cli._rest_click_arms_on_plane(recipe, asm, catalog_root, flat, progress, fill_hip)`: usa `pipeline.flat_click_advice`, rearma con `recipe.assemble(..., print_angle=)` (nuevo, solo pisa ese armado; el catálogo y la receta no cambian) y conserva `flat_fill_hip`. Se llama en `run_armar` antes de validar. Si el brazo no puede apoyar (`angulo_apoyo` None) se deja como estaba y sigue el aviso de siempre.
+- Pruebas: `tests/test_flat_click_arm_rearm.py` (4, con mocks) + 74 de detent / flat / mount_flat / compat / figure_builder en verde.
+
+### Todo List
+- [x] Done: rearmado automático + `assemble(print_angle=)` + pruebas
+- [ ] Todo: probar con la figura real de Güemes (brazo con clic, sin codo ni rodilla, «sin soportes») y mirar en la ventana que el brazo salga girado; el catálogo de ejemplo no sirve (su brazo da `no_sube`)
+- [ ] Todo (opcional): avisar en la vista previa de «Armar figura desde catálogo» cuánto se va a girar el brazo antes de armar
+
+### Latest Blockers/Discoveries
+- Rama `feat/sin-soportes-brazos-con-clic`. El ángulo de impresión es un parámetro global (un solo brazo con clic): si hubiera dos con ángulos distintos se usa el mayor, igual que `Controller.apply_flat_click_angle`.
+- El brazo del muñeco de ejemplo con corte de 12 mm da `no_sube` (ya estaba pasado del punto más bajo): no se rearma, comportamiento previo.
+
 ## Current Focus — «Armar desde catálogo»: brazos y piernas con o sin articulación de codo / rodilla (2026-11-23)
 Juguete simple (6 puntos: cabeza, cintura, hombros, caderas) o completo (10: suma codos y rodillas). Cada brazo / pierna elegido puede armarse con la articulación que trae su pieza de catálogo o rígido, de una sola pieza.
 - Receta: opciones `codo` y `rodilla` (`recipe.JOINT_OPTIONS`, defecto `true`). `Recipe.options()` solo las escribe cuando valen `false`: las recetas existentes y su clave de compatibilidad (`compat.recipe_key`) no cambian. Valor no booleano = error de receta.

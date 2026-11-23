@@ -414,10 +414,14 @@ def load_mounts(recipe: Recipe, cat: Catalog) -> list:
     return out
 
 
-def assemble(recipe: Recipe, catalog_root: str | None = None, progress=None, sit: bool = True) -> Assembled:
-    """Arma la figura de la receta solo con piezas del catálogo de su línea."""
+def assemble(recipe: Recipe, catalog_root: str | None = None, progress=None, sit: bool = True,
+             print_angle: float | None = None) -> Assembled:
+    """Arma la figura de la receta solo con piezas del catálogo de su línea. `print_angle` (opcional) pisa
+    `DetentSpec.print_angle` (ángulo del brazo con clic en la pose impresa = fase de los clics) solo para este armado."""
     cat, choices = load_choices(recipe, catalog_root)
     p = recipe_params(recipe, cat)
+    if print_angle is not None:
+        p = dataclasses.replace(p, detent=dataclasses.replace(p.detent, print_angle=float(print_angle)))
     try:
         if progress:
             progress("Armando el cuerpo base…")

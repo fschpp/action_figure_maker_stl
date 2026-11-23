@@ -224,6 +224,28 @@ def _placed_with_host_bodies(asm) -> dict:
     return placed
 
 
+def _rest_click_arms_on_plane(recipe, asm, catalog_root: str | None, flat: float, progress, fill_hip: bool):
+    """«Imprimir sin soportes» con clic en los hombros: el brazo con clic no se gira al aplanar (se fundiría la punta con el
+    disco), así que cuelga bajo el plano del corte. En vez de dejarlo así y avisar, se vuelve a armar con
+    `DetentSpec.print_angle` = el ángulo en que el brazo apoya justo en el plano: el brazo sale girado hacia adelante y los
+    clics siguen cayendo en la pose impresa. Funciona con y sin codo (gira la cadena entera). Devuelve el armado a usar."""
+    from .recipe import assemble
+
+    adv = {n: a for n, a in P.flat_click_advice(asm.res, flat).items() if a["angulo_apoyo"] is not None}
+    if not adv:
+        return asm
+    angle = max(a["angulo_apoyo"] for a in adv.values())      # el ángulo de impresión es un parámetro global de la línea
+    progress(f"Sin soportes: el brazo con clic cuelga bajo el plano; se rearma con el brazo girado a {angle:g}° "
+             f"(antes {asm.params.detent.print_angle:g}°)…")
+    new = assemble(recipe, catalog_root, progress=progress, print_angle=angle)
+    if fill_hip:
+        new.params = dataclasses.replace(new.params, flat_fill_hip=True)
+    left = P.flat_click_advice(new.res, flat)
+    for n, a in left.items():
+        progress(f"AVISO: {n}: tras girar el brazo a {angle:g}° todavía cuelga {a['cuelga_mm']:.1f} mm bajo el plano")
+    return new
+
+
 def run_armar(recipe_path: str, outdir: str, name: str | None = None, catalog_root: str | None = None, progress=print,
               orient: bool | str = False, max_angle: float = 45.0, flat: float | None = None, color_overrides: dict | None = None, fill_hip: bool = False,
               keep: dict | None = None, fijar_geometria: bool = False) -> dict:
@@ -251,6 +273,8 @@ def run_armar(recipe_path: str, outdir: str, name: str | None = None, catalog_ro
         asm.params = dataclasses.replace(asm.params, flat_fill_hip=True)
     if flat is not None and flat < 0:
         flat = asm.params.flat_depth
+    if flat is not None:
+        asm = _rest_click_arms_on_plane(recipe, asm, catalog_root, flat, progress, fill_hip)
     progress("Validando la figura…")
     val = P.validate(asm.res, asm.params, asm.limbs, joints=asm.joints)
     try:                          # compat.json: la figura ya está armada y validada, guardar el resultado no cuesta nada
