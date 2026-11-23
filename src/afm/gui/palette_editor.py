@@ -231,7 +231,12 @@ class PaletteEditor:
     def preview_atlas(self, ref: str) -> np.ndarray:
         """Atlas (H, W, 3) uint8 de la pieza pintado con el borrador (`lut[etiquetas]`: no hornea nada, ~45 ms a 2048²)."""
         pkg, _sim = self._package(ref)
-        return np.ascontiguousarray(self.preview_lut(ref)[np.asarray(pkg.labels, np.uint8)])
+        atlas = self.preview_lut(ref)[np.asarray(pkg.labels, np.uint8)]
+        if pkg.shade is not None:                                    # con sombreado: el color del rol × el brillo de cada píxel (la luz del FBX no cambia con la paleta)
+            from ..texmesh import apply_shade, shade_factor
+
+            atlas = apply_shade(atlas.reshape(-1, 3), shade_factor(pkg.shade).reshape(-1)).reshape(atlas.shape)
+        return np.ascontiguousarray(atlas)
 
     def preview_parts(self, ref: str) -> list:
         """`[TexturedPart]` de la pieza para `PreviewRenderer.render_textured`, en el marco del STL de la pieza (`similitud` FBX → STL) y

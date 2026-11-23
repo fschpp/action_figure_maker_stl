@@ -474,7 +474,7 @@ class Catalog:
             raise CatalogError(f"«{meta.id}» usa roles que la paleta de la línea no tiene: {', '.join(missing)}")
         block = {"modo": "roles", "fuente": "", "sha256": "", "roles": used, "estado": "alineada",
                  "origen": {k: v for k, v in dict(pkg.origen or {}).items() if isinstance(v, (str, int, float, bool))},
-                 "texturas": {"atlas": f"{pkg.labels.shape[1]}x{pkg.labels.shape[0]}"}}
+                 "texturas": {"atlas": f"{pkg.labels.shape[1]}x{pkg.labels.shape[0]}", **({"sombreado": True} if pkg.shade is not None else {})}}
         if frame is not None and similarity is not None:
             raise CatalogError(f"«{meta.id}»: la pose es o la similitud dada o la ya calculada, no las dos")
         if frame is not None:                              # O08: pose ya calculada (girada a mano); no se vuelve a elegir

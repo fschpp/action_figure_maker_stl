@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .texmesh import TexturedMesh
+from .texmesh import TexturedMesh, apply_shade
 
 FILL_LINK_FACTOR = 3.0           # «rellenar región»: dos muestras se unen si están a ≤ 3 × espaciado (las muestras son aleatorias, no una grilla)
 NORMAL_CANDIDATES = 16           # R12: con normales, un punto sin origen busca una muestra compatible entre las K más cercanas (no solo la más cercana)
@@ -28,6 +28,8 @@ class ColorQuery:
     # R11: puntos que una pincelada «sin origen» (`Stroke.huerfana`) pintó. Nunca coincide con `has_origin` (esas pinceladas solo tocan puntos
     # sin origen). `None` = la fuente no tiene pinceladas de ese tipo (o una consulta armada sin el campo): equivale a «ninguno».
     assigned: np.ndarray | None = None   # (n,) bool
+    # Sombreado: factor de brillo de la muestra (solo fuentes con atlas de sombreado); `None` = sin sombreado. Lo usa el horneado para poder recolorear después.
+    shade: np.ndarray | None = None      # (n,) float32
 
 
 class ColorSource:
@@ -63,6 +65,7 @@ class ColorSource:
         self.sample_label = tm.sample_labels(face, bary) if tm.labels is not None else None
         # T45: ids de rol de las etiquetas (índice = etiqueta), para recolorear lo ya horneado con otra paleta
         self.label_roles = list(tm.info.get("roles", [])) if tm.labels is not None else None
+        self.sample_shade = tm.sample_shade(face, bary) if tm.labels is not None else None      # factor de brillo de cada muestra (None = sin sombreado)
         self.sample_rgb = tm.sample(face, bary, "base_color")
         self._lut = None if tm.labels is None or tm.lut is None else np.asarray(tm.lut)       # R02: para `paint`
         self._base_label = None                                 # etiquetas del paquete, antes de pintar (las crea `paint`)
@@ -79,8 +82,14 @@ class ColorSource:
         lut = np.asarray(lut)
         if lut.shape != (256, 3) or lut.dtype != np.uint8:
             raise ValueError("la tabla de colores debe ser (256, 3) uint8")
-        self.sample_rgb = lut[self.sample_label]
         self._lut = lut                                         # R11: las pinceladas «sin origen» toman el color de esta misma tabla
+        self.sample_rgb = self._compose(self.sample_label)
+
+    def _compose(self, label: np.ndarray) -> np.ndarray:
+        """Color de las muestras con etiquetas `label`: `lut[etiqueta]`, y con sombreado × el factor de brillo de cada muestra (el mismo que `TexturedMesh.sample`).
+        Una muestra repintada con otro rol conserva su factor: la luz del FBX es del lugar, no del rol."""
+        rgb = self._lut[label]
+        return rgb if self.sample_shade is None else apply_shade(rgb, self.sample_shade)
 
     def paint(self, strokes) -> dict:
         """Aplica pinceladas de retoque (`retouch.Stroke`, **ya en el marco de esta fuente**, ver `retouch.transform_strokes`) a las muestras.
@@ -134,7 +143,7 @@ class ColorSource:
                 if idx.size == 0:
                     continue
             self.sample_label[idx] = self._base_label[idx] if s.rol is None else np.uint8(index[s.rol])
-        self.sample_rgb = self._lut[self.sample_label]
+        self.sample_rgb = self._compose(self.sample_label)
         report = {"pinceladas": total, "muestras": int((self.sample_label != before).sum())}
         if orphans:
             report["sin_origen"] = len(orphans)
@@ -203,10 +212,13 @@ class ColorSource:
                 idx, face, dist, ok = self._retry_by_normal(P, nrm, idx, face, dist, ok, eps, min_dot, workers, int(candidates))
         label = None if self.sample_label is None else self.sample_label[idx]
         rgb = self.sample_rgb[idx]
+        shade = None if self.sample_shade is None else self.sample_shade[idx]
         assigned = None
         if self._orphans:
             rgb, label, assigned = self._apply_orphans(P, normals, rgb, label, ok)
-        return ColorQuery(rgb, dist.astype(np.float32), ok, face.astype(np.int32), label, assigned)
+            if shade is not None:
+                shade = np.where(assigned, np.float32(1.0), shade)       # un punto sin origen pintado a mano no tiene luz de la textura: color plano del rol
+        return ColorQuery(rgb, dist.astype(np.float32), ok, face.astype(np.int32), label, assigned, shade)
 
     def _apply_orphans(self, P, normals, rgb, label, ok):
         """R11: aplica las pinceladas «sin origen» a los puntos de `P` que no tienen origen (`~ok`): los que caen a ≤ `r` de su centro (y, con normal

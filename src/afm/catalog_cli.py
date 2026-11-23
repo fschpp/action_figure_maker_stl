@@ -215,6 +215,7 @@ def add_parsers(sub) -> None:
     a.add_argument("--fbx", required=True, metavar="ARCHIVO.fbx", help=tr("color_cli.ayuda_fbx"))
     a.add_argument("--roles", required=True, metavar="ASIGNACION.json", help=tr("color_cli.ayuda_roles"))
     a.add_argument("--k", type=int, default=10, help=tr("color_cli.ayuda_k"))
+    a.add_argument("--sombreado", action="store_true", help=tr("color_cli.ayuda_sombreado"))
     a.add_argument("--similitud", default=None, metavar="SIMILITUD.json", help=tr("color_cli.ayuda_similitud"))
     a = cs.add_parser("color-girar", help=tr("color_cli.girar_ayuda"))
     root(a)
@@ -390,7 +391,7 @@ def _run_color(cat: Catalog, args) -> int:
         tm = load_textured(args.fbx)
         prop = propose(tm, pal, k=args.k)
         origen = {"nombre": os.path.basename(args.fbx), "sha256": P.sha256_file(args.fbx)}
-        pkg = build_package(tm, prop, assign, origen=origen)
+        pkg = build_package(tm, prop, assign, origen=origen, shade=bool(getattr(args, "sombreado", False)))
     except (FbxError, RolesError, OSError) as exc:
         raise CatalogError(tr("color_cli.no_sirve", error=exc)) from exc
     meta, mesh = cat.load(args.ref)

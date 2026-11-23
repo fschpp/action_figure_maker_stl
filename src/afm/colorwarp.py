@@ -202,4 +202,4 @@ def warp_package(pkg, similarity, piece_mesh, *, min_gain: float = MIN_GAIN, gat
         return pkg, rep
     rep["aplicada"] = True
     back = V_new @ Ainv[:3, :3].T + Ainv[:3, 3]
-    return RolesPackage(back.astype(np.float32), pkg.faces, pkg.corner_uv, pkg.labels, list(pkg.roles), dict(pkg.origen or {})), rep
+    return RolesPackage(back.astype(np.float32), pkg.faces, pkg.corner_uv, pkg.labels, list(pkg.roles), dict(pkg.origen or {}), pkg.shade), rep

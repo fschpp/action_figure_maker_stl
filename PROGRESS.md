@@ -1,3 +1,22 @@
+## Current Focus — Color por roles con sombreado: «Conservar sombreado» (2026-11-23)
+La cabeza de catálogo sacada de un busto con FBX llegaba discretizada en roles (color plano del hex): se perdía la luz y la sombra horneadas. Ahora el paquete de roles puede guardar un **atlas de sombreado** (uint8, mismo tamaño que las etiquetas, 128 = ×1,0) con el brillo de cada píxel respecto del color medio de su rol; al armar, color = hex del rol × factor. Cambiar el hex de un rol sigue recoloreando todo y la luz se conserva. Plan: `docs/PLAN_color_sombreado.md`.
+- `colorroles.build_package(..., shade=True)` + `shade_atlas` (factor = luminancia del píxel / luminancia media del rol, ponderada por área de superficie; acotado a 0,5–1,5; roles casi negros y «sin rol» en ×1,0). Formato `afm-color-roles-2` (= `-1` + array `shade`); sin sombreado se escribe el `-1` de siempre y los paquetes viejos se leen igual.
+- `texmesh.apply_shade`: mismo factor en los tres canales y limitado a lo que deja el canal más alto sin pasar de 255 (no cambia el matiz ni «quema» tonos claros). `TexturedMesh.shade` / `sample_shade` (bilineal).
+- `ColorSource` (`sample_shade`, `_compose` en `recolor` y `paint`), `ColorQuery.shade`, `BakeResult.shade` y `Colorizer.recolor` llevan el factor: recolorear lo horneado sigue dando lo mismo, píxel por píxel, que volver a hornear. `_load_roles`, `package_from_fbx`, `warp_package`, `with_roles`, `prune_small_roles` y la ficha (`color.texturas.sombreado`) lo conservan.
+- Interfaz: casilla «Conservar sombreado» (activada por defecto) en «Roles de color desde FBX…»; la vista «roles» del asistente y el editor de paleta muestran el sombreado. CLI: `afm catalogo color … --sombreado` (por defecto no). Textos es/en/pt.
+- Pruebas: `tests/test_color_shade.py` (16).
+
+### Todo List
+- [x] Done: formato + motor + horneado + recolor + asistente + CLI + textos + pruebas (texturas sintéticas)
+- [ ] Todo: probar con el busto de Bolívar y la cabeza de Güemes reales y medir ΔE contra la textura original (hoy ~8 con roles planos; objetivo ≤ ~4)
+- [ ] Todo: probar a mano la casilla en la ventana GTK (sin GTK en este entorno)
+- [ ] Todo (si hace falta): suavizar el atlas de sombreado si se ve granulado; subir `SHADE_MAX` si el pelo oscuro con brillos se queda corto
+
+### Latest Blockers/Discoveries
+- Un solo factor de brillo (no por canal) resuelve el riesgo de «piel clara que sale azul» al recolorear: el sombreado solo cambia el brillo, nunca el matiz del hex.
+- Una pincelada de retoque que cambia el rol de una muestra le deja su factor de luz; un punto «sin origen» pintado a mano sale plano.
+- En este entorno `tests/test_colorpiece.py::test_align_raises_on_mismatch_and_reports_without_require_ok` y `::test_align_cut_fallback_still_rejects_other_shape` ya fallaban antes del cambio (`DID NOT RAISE PieceColorError`); no tienen relación con el sombreado.
+
 ## Current Focus — Ventana «Administrar catálogo»: botones agrupados en una barra de menús (2026-11-23)
 El panel derecho tenía ~15 botones sueltos (Vista 3/4, −, +, Cortar la mano, Taladrar agarre, Reajustar articulación, Retocar color, Girar color, Renombrar, Eliminar, Recuperar, Estado, Certificar, Cobertura, Capacidad, Explicar acoples) y los menús «Catálogo» e «Importar» estaban en otro lado. Ahora hay una sola barra arriba de la ventana (`_build_toolbar`, `WrapRow`: pasa a otra línea si la ventana es angosta), ordenada de lo que afecta a la pieza elegida a lo que afecta a todo el catálogo:
 - **Pieza ▾**: Renombrar (F2), Estado + «Aplicar a las elegidas», Elegir todas las que se ven, Eliminar, Recuperar lo eliminado.

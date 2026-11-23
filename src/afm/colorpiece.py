@@ -231,7 +231,7 @@ def package_from_fbx(saved, tm):
     if not np.allclose(np.asarray(tm.corner_uv, float), np.asarray(saved.corner_uv, float), atol=1e-4):
         raise PieceColorError("el FBX no es el de origen del paquete: los UV no coinciden")
     return RolesPackage(V.astype(np.float32), np.asarray(saved.faces), np.asarray(saved.corner_uv), np.asarray(saved.labels, np.uint8),
-                        list(saved.roles), dict(saved.origen or {}))
+                        list(saved.roles), dict(saved.origen or {}), saved.shade)
 
 
 def turn_roles_package(saved, tm, similarity, meta, mesh, degrees: float = 180.0):
@@ -392,7 +392,7 @@ def _load_roles(path: str):
     for new, old in enumerate(used_idx):
         remap[old] = new
     return RolesPackage(pkg.vertices, pkg.faces, pkg.corner_uv, remap[np.asarray(pkg.labels, np.uint8)],
-                        [pkg.roles[i] for i in used_idx], dict(pkg.origen or {}))
+                        [pkg.roles[i] for i in used_idx], dict(pkg.origen or {}), pkg.shade)
 
 
 def roles_color_source(pkg, palette, to_host, similarity, spacing_mm: float = 0.08, retouch=None):

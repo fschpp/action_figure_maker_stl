@@ -78,6 +78,10 @@ class RolesWizardWindow(Gtk.Window):
         self.spin_k = Gtk.SpinButton.new_with_range(2, 24, 1)
         self.spin_k.set_value(DEFAULT_K)
         row.append(self.spin_k)
+        self.chk_shade = Gtk.CheckButton(label=tr("roles_wizard.conservar_sombreado"), active=bool(self.wiz.shade),
+                                         tooltip_text=tr("roles_wizard.conservar_sombreado_ayuda"))
+        self.chk_shade.connect("toggled", lambda *_: self._on_shade_toggled())
+        row.append(self.chk_shade)
         self.btn_analyze = Gtk.Button(label=tr("roles_wizard.analizar"), css_classes=["suggested-action"])
         self.btn_analyze.connect("clicked", lambda *_: self._analyze())
         row.append(self.btn_analyze)
@@ -429,6 +433,13 @@ class RolesWizardWindow(Gtk.Window):
         self._refresh()
         self._say(tr("roles_wizard.sim_lista", media=f"{info['media_mm']:.3f}"))
         return False
+
+    def _on_shade_toggled(self) -> None:
+        """«Conservar sombreado»: cambia lo que se guarda y lo que muestra la vista previa; la prueba en una pieza anterior ya no vale (su clave lleva `shade`)."""
+        self.wiz.shade = bool(self.chk_shade.get_active())
+        self._parts_cache = None
+        self._render()
+        self._refresh()
 
     def _analyze(self) -> None:
         if not self._fbx or self._busy:

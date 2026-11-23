@@ -105,6 +105,7 @@ class BakeResult:
     # T45 (solo si la fuente trae etiquetas de rol; si no, los tres quedan en None y todo es como antes):
     labels: np.ndarray | None = None     # (alto, ancho) uint8: etiqueta de cada texel; 255 = color plano / sin rol (no depende de la paleta); la dilatación copia la del vecino
     label_roles: list | None = None      # ids de rol de la fuente: el valor `i` de `labels` es `label_roles[i]`
+    shade: np.ndarray | None = None      # (alto, ancho) float32: factor de brillo de cada texel (1 = sin cambio); None si la fuente no trae sombreado. Con él `recolor` rehace el color sin volver a hornear
 
 
 def _to_rest(matrix: np.ndarray, points: np.ndarray, normals: np.ndarray):
@@ -216,6 +217,7 @@ def bake_piece(mesh, unw, src, reg, *, eps: float = 0.15, fill="extend", symmetr
     painted = np.zeros(n, bool)                       # R11: texeles que una pincelada «sin origen» pintó: no son origen, pero tampoco se pisan con el relleno
     label_roles = getattr(src, "label_roles", None) if getattr(src, "sample_label", None) is not None else None
     lab = None if label_roles is None else np.full(n, NO_LABEL, np.uint8)       # T45: etiqueta de cada texel (255 = plano)
+    shd = np.ones(n, np.float32) if lab is not None and getattr(src, "sample_shade", None) is not None else None       # factor de brillo de cada texel
     if unregistered:                                  # no hay dónde consultar: todo sin origen
         rgb[:] = flat
     else:
@@ -227,11 +229,15 @@ def bake_piece(mesh, unw, src, reg, *, eps: float = 0.15, fill="extend", symmetr
                 painted[a:a + CHUNK] = assigned
             if lab is not None:
                 lab[a:a + CHUNK] = q.label
+            if shd is not None and getattr(q, "shade", None) is not None:
+                shd[a:a + CHUNK] = q.shade
         if flat is not None:
             plain = ~(has | painted)
             rgb[plain] = flat
             if lab is not None:
                 lab[plain] = NO_LABEL                 # lo pintado con el relleno plano no tiene rol
+            if shd is not None:
+                shd[plain] = 1.0
     W, H = grid.size
     atlas = np.zeros((H, W, 3), np.uint8)
     mask = np.zeros((H, W), bool)
@@ -244,6 +250,11 @@ def bake_piece(mesh, unw, src, reg, *, eps: float = 0.15, fill="extend", symmetr
         latlas = np.full((H, W), NO_LABEL, np.uint8)
         latlas[grid.rows, grid.cols] = lab
         latlas, _ = dilate(latlas, mask, int(dilate_px))      # `dilate` copia el valor del texel cubierto más cercano: la etiqueta, no un promedio
+    satlas = None
+    if shd is not None:
+        satlas = np.ones((H, W), np.float32)
+        satlas[grid.rows, grid.cols] = shd
+        satlas, _ = dilate(satlas, mask, int(dilate_px))      # el factor se copia del mismo vecino que la etiqueta y el color
     atlas, mask = dilate(atlas, mask, int(dilate_px))
     T = np.asarray(unw.vertices, float)[np.asarray(unw.faces, np.int64)]
     area = float(0.5 * np.linalg.norm(np.cross(T[:, 1] - T[:, 0], T[:, 2] - T[:, 0]), axis=1).sum())
@@ -251,4 +262,4 @@ def bake_piece(mesh, unw, src, reg, *, eps: float = 0.15, fill="extend", symmetr
              "segundos": float(time.perf_counter() - t0)}
     if latlas is None:
         return BakeResult(atlas, mask, stats, origin)
-    return BakeResult(atlas, mask, stats, origin, latlas, list(label_roles))
+    return BakeResult(atlas, mask, stats, origin, latlas, list(label_roles), satlas)

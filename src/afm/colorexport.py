@@ -23,6 +23,7 @@ import time
 import numpy as np
 
 from .frame import Z_UP_TO_Y_UP
+from .texmesh import apply_shade
 
 COLOR_DIR = "piezas_color"
 
@@ -175,7 +176,10 @@ class Colorizer:
             unw, bk, reg, info = self.pieces[name]
             atlas = bk.atlas.copy()
             has_role = bk.mask & (bk.labels != 255)
-            atlas[has_role] = lut[bk.labels[has_role]]
+            rgb = lut[bk.labels[has_role]]
+            if getattr(bk, "shade", None) is not None:            # sombreado: el mismo factor de brillo que se horneó con el color
+                rgb = apply_shade(rgb, bk.shade[has_role])
+            atlas[has_role] = rgb
             self.pieces[name] = (unw, dataclasses.replace(bk, atlas=atlas), reg, info)
         for s, lut in srcs.values():
             s.recolor(lut)

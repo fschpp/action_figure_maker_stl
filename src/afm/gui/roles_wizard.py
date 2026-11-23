@@ -26,7 +26,7 @@ import numpy as np
 
 from ..colorroles import FIGURE_K, FILTER_PX, MERGE_MIN_PCT, PIECE_FILTER_PX, REGION_K, ROLE_MIN_PCT
 from ..i18n import tr
-from ..palette import DEFAULT_FLAT, MAX_ANCHORS, Palette, PaletteError, Role, hex_to_rgb
+from ..palette import DEFAULT_FLAT, MAX_ANCHORS, NO_ROLE, Palette, PaletteError, Role, hex_to_rgb
 
 HIGHLIGHT_RGB = (255, 40, 200)       # el cluster de la fila elegida se ve siempre en este magenta, sea cual sea su color (un gris oscuro sobre fondo oscuro no se veía)
 DIM_MIX = 0.55                       # los demás clusters se ven con su color lavado hacia DIM_TO (se distingue la figura sin competir con el resaltado)
@@ -89,6 +89,7 @@ class RolesWizard:
         self.last_check: PieceCheck | None = None    # O09: la última prueba en una pieza (se descarta si cambian las decisiones, el FBX o la similitud)
         self.region: np.ndarray | None = None        # O10: triángulos del FBX que la pieza tiene (los clusters salen de ahí); None = el FBX entero
         self.region_ref: str = ""                    # O10: pieza con que se calculó la región
+        self.shade: bool = True                      # «Conservar sombreado»: el paquete guarda también el atlas de brillo de cada píxel (`colorroles.shade_atlas`)
         self.dropped_roles: list[str] = []           # O10: roles que `package()` dejó afuera por cubrir < 0,5 % de la pieza
 
     # ------------------------------------------------------------------ catálogo y paleta
@@ -332,7 +333,7 @@ class RolesWizard:
 
         try:
             pkg = build_package(self.tm, self.proposal, self.assignment(), origen=self.origen,
-                                filter_px=PIECE_FILTER_PX if self.region is not None else FILTER_PX)
+                                filter_px=PIECE_FILTER_PX if self.region is not None else FILTER_PX, shade=self.shade)
             self.dropped_roles = []
             if self.region is not None:
                 pkg, self.dropped_roles = prune_small_roles(pkg, self.region, ROLE_MIN_PCT)
@@ -382,7 +383,7 @@ class RolesWizard:
     def _check_key(self, ref: str, similarity) -> tuple:
         """Identifica lo que se probó: pieza, análisis, decisiones y similitud. Si algo cambia, la prueba anterior ya no vale."""
         sim = None if similarity is None else tuple(np.round(np.asarray(similarity, float).ravel(), 9).tolist())
-        return (ref, id(self.proposal), tuple((c, ch.kind, ch.role) for c, ch in sorted(self.choices.items())), sim)
+        return (ref, id(self.proposal), tuple((c, ch.kind, ch.role) for c, ch in sorted(self.choices.items())), sim, self.shade)
 
     def fresh_check(self, ref: str, similarity=None) -> PieceCheck | None:
         """La última prueba si sigue valiendo para `ref` con las decisiones y la similitud de ahora; si no, `None`."""
@@ -562,6 +563,20 @@ class RolesWizard:
             out[highlight] = HIGHLIGHT_RGB
         return out
 
+    def _shaded_roles_image(self, image: np.ndarray) -> np.ndarray:
+        """La vista «roles» con el sombreado que tendría el paquete (la misma cuenta que `build_package(shade=True)`, sobre el atlas filtrado de la propuesta)."""
+        from ..colorroles import shade_atlas
+        from ..texmesh import apply_shade, shade_factor
+
+        assign = self.assignment()
+        k = self.proposal.k
+        roles = list(dict.fromkeys(assign[c] for c in range(k) if assign[c] is not None))
+        if not roles:
+            return image
+        remap = np.array([NO_ROLE if assign[c] is None else roles.index(assign[c]) for c in range(k)], np.uint8)
+        sh = shade_atlas(self.tm, self.proposal, assign, roles, remap[np.asarray(self.proposal.labels_atlas, np.intp)])
+        return np.ascontiguousarray(apply_shade(image.reshape(-1, 3), shade_factor(sh).reshape(-1)).reshape(image.shape))
+
     def preview_parts(self, highlight: int | None = None, mode: str = "clusters") -> list:
         """`[TexturedPart]` del FBX para `PreviewRenderer.render_textured`, con cada cluster pintado de su color (o del rol elegido)."""
         import trimesh
@@ -570,5 +585,7 @@ class RolesWizard:
 
         self._need_loaded()
         image = np.ascontiguousarray(self.preview_lut(highlight, mode)[np.asarray(self.proposal.labels_atlas, np.intp)])
+        if mode == "roles" and self.shade and highlight is None and not self.undecided():
+            image = self._shaded_roles_image(image)
         mesh = trimesh.Trimesh(np.asarray(self.tm.vertices, float), np.asarray(self.tm.faces, np.int64), process=False)
         return [TexturedPart("fbx", mesh, np.ascontiguousarray(self.tm.corner_uv, np.float32), image)]
