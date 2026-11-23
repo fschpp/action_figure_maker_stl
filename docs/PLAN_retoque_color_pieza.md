@@ -102,3 +102,16 @@ Sin retoque, comportamiento y bytes de salida idénticos (R2); los **STL no camb
 1. **[C]** «Rellenar región»: **sí**. Una pincelada de relleno (`"k": "relleno"`, `c` = semilla, `r` = alcance, rol obligatorio) pinta la región conectada de muestras con la misma etiqueta que la semilla, dentro del alcance y con normal compatible (`ColorSource._fill_region`, enlace ≤ 3 × espaciado). Los archivos con rellenos son `afm-retoque-2`; sin rellenos se sigue escribiendo `afm-retoque-1` (bytes idénticos).
 2. **[C]** Exportar/importar entre piezas: **sí**, con espejado en X (`Retouch.mirrored`). Ventana: «Exportar…», «Importar…», «Traer de» y la casilla «Espejar»; CLI: `--importar`/`--copiar-de` con `--espejar`. Lo traído es un solo paso de deshacer.
 3. **[C]** Un retoque **no** invalida el estado `validada`/`impresa` (hay una prueba que lo fija).
+
+## 9. R11 · Pincel «sin origen» (2026-11-22, rama `r11_colorear_sin_origen`)
+**Por qué.** El pincel pinta *muestras del FBX*; la vista previa y el horneado colorean *polígonos/texeles del STL*. Un polígono lee el color del FBX solo si hay una muestra a ≤ 0,15 mm con normal compatible; los demás («sin origen») toman un color adivinado (vista previa: cara con origen más cercana; horneado `extend`: muestra más cercana). Pintar debajo de ellos no los cambia de forma predecible. En `sanmartin-cabeza@2` son el 40,2 % de los polígonos (el 23,8 % porque el FBX trae la normal invertida, el 12,3 % por estar a 0,15–0,5 mm).
+
+**Qué es.** Una pincelada con `"k": "huerfana"` (`Stroke.huerfana`, rol obligatorio, no combinable con `relleno`). **No cambia ninguna muestra**: `ColorSource.paint` la recuerda y `ColorSource.query` la aplica solo a los puntos consultados **sin origen** que caen a ≤ `r` de su centro (con normal `n`, solo los de normal compatible). Esos puntos salen con el color y la etiqueta del rol y `ColorQuery.assigned = True`; nunca se pisa un punto con origen. Entre pinceladas «sin origen» la última gana.
+- Formato `afm-retoque-3`: solo se escribe si hay alguna; sin ellas siguen saliendo `-1`/`-2` (bytes idénticos).
+- Vista previa (`colorpreview.color_parts`) y horneado (`colorbake.bake_piece`): lo pintado se respeta; no lo pisa el relleno por vecino ni el color plano `fill="#RRGGBB"`. `pct_origen` sigue contando solo el origen real. Las consultas sin el campo `assigned` (fuentes viejas, dobles de prueba) valen «ninguna pintada».
+- Ventana de Catálogo: botón «Sin origen» (`RetouchSession.ORPHAN`) junto a Pintar / Borrar / Rellenar; usa rol y radio como Pintar.
+
+**Qué no hace.** No arregla la causa (≈ 26 % de los triángulos del FBX con el sentido invertido): reorientarlos al importar bajaría los huérfanos de ≈ 40 % a ≈ 16 %, pero cambia el `.color.npz`, que hoy es inmutable → tarea aparte. El pincel normal sigue siendo necesario para el negro que sí tiene origen (en la cara de San Martín, el 54 % del negro).
+**Límite conocido.** La vista previa y el horneado siguen sin tratar igual a los huérfanos *sin pintar* (vecino con origen vs. muestra más cercana).
+**Pruebas.** `tests/test_retouch_orphan.py` (15). **Sin verificar:** el botón en la ventana (aquí no hay GTK).
+

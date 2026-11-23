@@ -410,6 +410,8 @@
   "retocar_descartado": "Se descartaron %{n} pinceladas sin aplicar.",
   "retocar_rellenar": "Rellenar",
   "retocar_rellenar_tip": "Un clic pinta con el rol elegido toda la región conectada del mismo color que el punto (hasta el alcance indicado).",
+  "retocar_sin_origen": "Sin origen",
+  "retocar_sin_origen_tip": "Pinta con el rol elegido solo lo que el color del FBX no cubre (superficies sin origen), dentro del radio. Lo que ya tiene color del FBX no se toca.",
   "retocar_alcance": "Alcance",
   "retocar_alcance_tip": "Hasta dónde llega «Rellenar» desde el clic, en mm.",
   "retocar_exportar": "Exportar…",

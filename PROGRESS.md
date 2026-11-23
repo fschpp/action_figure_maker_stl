@@ -2854,3 +2854,11 @@ No existe una «cara interna del muslo» detectable en Güemes (el borde interno
 - [x] `help_note` muestra solo las primeras oraciones (≤200 caracteres) y el resto tras «Más ▾» (`gui/help_text.py`, probado sin GTK; 13 bloques afectados, el mayor era de 1.929 caracteres en Catálogo).
 - [ ] Probar en ventana real: cortes de oración (algunos quedan muy cortos, p. ej. Miembros) y el botón «Más ▾».
 - [ ] Pendiente del informe: reescribir los textos más largos a mano (hoy el corte es automático), 5b riel ya hecho; revisar etapas 1b (motivo en todo botón apagado) y 2c (Cancelar generación) contra el código actual.
+
+
+## R11 · Pincel «sin origen» del retoque de color (2026-11-22, rama r11_colorear_sin_origen, sobre main 87c1645)
+**Objetivo:** poder colorear de un tirón los polígonos/texeles que el FBX no cubre (sin muestra a ≤ 0,15 mm con normal compatible) en vez de pintar muestras que no los controlan (`docs/PLAN_retoque_color_pieza.md` §9).
+**Hecho:** (1) `retouch.py`: `Stroke.huerfana`, formato `afm-retoque-3` (solo si hay de estas pinceladas). (2) `colorsrc.py`: `paint` las guarda sin tocar muestras, `query` las aplica solo a los puntos sin origen y devuelve `ColorQuery.assigned`; `recolor` actualiza la LUT que usan. (3) `colorpreview.py` y `colorbake.py` respetan lo pintado (no lo pisa el vecino ni el color plano). (4) `RetouchSession.ORPHAN` y botón «Sin origen» en la ventana de Catálogo (es/en/pt). (5) `tests/test_retouch_orphan.py`.
+**Medido** (`cabeza-sanmartin-01@2`, 26.912 polígonos): 40,2 % sin origen; una pincelada «sin origen» (piel, r = 1,5 mm) sobre cada 5.º huérfano pinta 10.720 de 10.807 (99,2 %) y ningún punto con origen cambia; la consulta tarda 0,1 s. Pruebas: 152 pasan, 1 skip, 1 xfail (las de retoque, color, i18n y las 15 nuevas).
+**No hecho:** probar el botón con GTK/GL reales; reorientar los triángulos invertidos del FBX al importar (baja los huérfanos de ≈ 40 % a ≈ 16 %; cambia el `.color.npz`, tarea aparte).
+

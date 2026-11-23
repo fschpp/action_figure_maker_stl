@@ -23,7 +23,7 @@ from .catalog_manager import ZOOM_STEP, zoom_about  # noqa: E402
 from .catalog_manager import view_bounds as CM_view_bounds  # noqa: E402
 from .progress_panel import ProgressPanel  # noqa: E402
 from .retouch_editor import RetouchEditor  # noqa: E402
-from .retouch_session import ERASE, FILL, PAINT  # noqa: E402
+from .retouch_session import ERASE, FILL, ORPHAN, PAINT  # noqa: E402
 from ..parts import STATES  # noqa: E402
 from .widgets import WrapRow, no_scroll_change as _no_scroll_change  # noqa: E402
 
@@ -1277,12 +1277,16 @@ class CatalogManagerWindow(Gtk.Window):
         self.tgl_rerase.set_tooltip_text(tr("catalog_window.retocar_borrar_tip"))
         self.tgl_rfill = Gtk.ToggleButton(label=tr("catalog_window.retocar_rellenar"), group=self.tgl_rpaint)
         self.tgl_rfill.set_tooltip_text(tr("catalog_window.retocar_rellenar_tip"))
+        self.tgl_rorphan = Gtk.ToggleButton(label=tr("catalog_window.retocar_sin_origen"), group=self.tgl_rpaint)
+        self.tgl_rorphan.set_tooltip_text(tr("catalog_window.retocar_sin_origen_tip"))
         self.tgl_rpaint.connect("toggled", self._on_retouch_mode)
         self.tgl_rerase.connect("toggled", self._on_retouch_mode)
         self.tgl_rfill.connect("toggled", self._on_retouch_mode)
+        self.tgl_rorphan.connect("toggled", self._on_retouch_mode)
         row.append(self.tgl_rpaint)
         row.append(self.tgl_rerase)
         row.append(self.tgl_rfill)
+        row.append(self.tgl_rorphan)
         row.append(Gtk.Label(label=tr("catalog_window.retocar_alcance")))
         self.spin_rreach = Gtk.SpinButton.new_with_range(0.05, 15.0, 0.5)
         self.spin_rreach.set_digits(1)
@@ -1450,7 +1454,7 @@ class CatalogManagerWindow(Gtk.Window):
 
     def _on_retouch_mode(self, *_) -> None:
         if self._reditor is not None and not self._rupdating:
-            self._reditor.session.set_mode(FILL if self.tgl_rfill.get_active() else PAINT if self.tgl_rpaint.get_active() else ERASE)
+            self._reditor.session.set_mode(FILL if self.tgl_rfill.get_active() else ORPHAN if self.tgl_rorphan.get_active() else PAINT if self.tgl_rpaint.get_active() else ERASE)
 
     def _on_retouch_reach(self, *_) -> None:
         if self._reditor is not None and not self._rupdating:

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from ..retouch import MAX_RADIUS_MM, MAX_STROKES, MIN_RADIUS_MM, Retouch, RetouchError, Stroke
 
-PAINT, ERASE, FILL = "pintar", "borrar", "rellenar"
+PAINT, ERASE, FILL, ORPHAN = "pintar", "borrar", "rellenar", "sin_origen"      # ORPHAN (R11): pinta solo lo que la fuente de color no cubre
 DEFAULT_RADIUS_MM = 1.5
 DEFAULT_REACH_MM = 8.0          # alcance de «Rellenar región»: hasta dónde llega la región desde el clic
 SPACING_FACTOR = 0.5            # separación entre pinceladas de un mismo trazo, en radios (plan §4)
@@ -44,7 +44,7 @@ class RetouchSession:
             self.mode = PAINT
 
     def set_mode(self, mode: str) -> None:
-        if mode not in (PAINT, ERASE, FILL):
+        if mode not in (PAINT, ERASE, FILL, ORPHAN):
             raise RetouchError(f"modo desconocido: {mode!r}")
         self.mode = mode
 
@@ -104,8 +104,9 @@ class RetouchSession:
             raise RetouchError("no hay un trazo en curso")
         if self.mode == FILL:
             return 0
-        rol = self.role if self.mode == PAINT else None
-        new = Stroke(c, self.radius, rol, n)             # valida c, radio y normal
+        rol = self.role if self.mode in (PAINT, ORPHAN) else None
+        orphan = self.mode == ORPHAN
+        new = Stroke(c, self.radius, rol, n, huerfana=orphan)             # valida c, radio y normal
         step = self.radius * SPACING_FACTOR
         pts = [new]
         if self._last_c is not None:
@@ -115,7 +116,7 @@ class RetouchSession:
                 return 0
             k = int(dist // step)
             # intermedios a lo largo del segmento, cada `step` mm (la normal se repite: son puntos del mismo arrastre)
-            pts = [Stroke(tuple(self._last_c[i] + d[i] * (j * step / dist) for i in range(3)), self.radius, rol, n)
+            pts = [Stroke(tuple(self._last_c[i] + d[i] * (j * step / dist) for i in range(3)), self.radius, rol, n, huerfana=orphan)
                    for j in range(1, k)] + [new]
         added = 0
         for s in pts:

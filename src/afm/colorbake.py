@@ -213,6 +213,7 @@ def bake_piece(mesh, unw, src, reg, *, eps: float = 0.15, fill="extend", symmetr
     n = len(P)
     rgb = np.empty((n, 3), np.uint8)
     has = np.zeros(n, bool)
+    painted = np.zeros(n, bool)                       # R11: texeles que una pincelada «sin origen» pintó: no son origen, pero tampoco se pisan con el relleno
     label_roles = getattr(src, "label_roles", None) if getattr(src, "sample_label", None) is not None else None
     lab = None if label_roles is None else np.full(n, NO_LABEL, np.uint8)       # T45: etiqueta de cada texel (255 = plano)
     if unregistered:                                  # no hay dónde consultar: todo sin origen
@@ -221,12 +222,16 @@ def bake_piece(mesh, unw, src, reg, *, eps: float = 0.15, fill="extend", symmetr
         for a in range(0, n, CHUNK):
             q = src.query(P[a:a + CHUNK], N[a:a + CHUNK], eps=eps, workers=workers)
             rgb[a:a + CHUNK], has[a:a + CHUNK] = q.rgb, q.has_origin
+            assigned = getattr(q, "assigned", None)         # una consulta sin el campo (fuente vieja o doble de prueba): ninguna pintada
+            if assigned is not None:
+                painted[a:a + CHUNK] = assigned
             if lab is not None:
                 lab[a:a + CHUNK] = q.label
         if flat is not None:
-            rgb[~has] = flat
+            plain = ~(has | painted)
+            rgb[plain] = flat
             if lab is not None:
-                lab[~has] = NO_LABEL                  # lo pintado con el relleno plano no tiene rol
+                lab[plain] = NO_LABEL                 # lo pintado con el relleno plano no tiene rol
     W, H = grid.size
     atlas = np.zeros((H, W, 3), np.uint8)
     mask = np.zeros((H, W), bool)

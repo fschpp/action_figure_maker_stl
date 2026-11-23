@@ -14,7 +14,7 @@ from ..retouch import MIN_DOT, Retouch
 from .camera import OrbitCamera
 from .catalog_manager import preview_camera, view_bounds, widget_to_image
 from .picking import Picker
-from .retouch_session import ERASE, FILL, PAINT, RetouchSession
+from .retouch_session import ERASE, FILL, ORPHAN, PAINT, RetouchSession
 
 HOVER_MAX_EDGES = 6000             # aristas que se resaltan como máximo (con el pincel grande sobre una malla densa)
 
@@ -148,4 +148,4 @@ class RetouchEditor:
         return meta
 
 
-__all__ = ["RetouchEditor", "PAINT", "ERASE", "FILL", "HOVER_MAX_EDGES", "brush_faces", "face_edges"]
+__all__ = ["RetouchEditor", "PAINT", "ERASE", "FILL", "ORPHAN", "HOVER_MAX_EDGES", "brush_faces", "face_edges"]

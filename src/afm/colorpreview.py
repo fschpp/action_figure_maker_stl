@@ -103,15 +103,18 @@ def color_parts(tm, mesh, *, spacing_mm: float = SPACING_MM, max_colors: int = M
     q = src.query(centers, normals, eps=ORIGIN_EPS_MM, min_dot=ORIGIN_MIN_DOT)
     rgb = np.array(q.rgb, copy=True)
     ok = np.asarray(q.has_origin, bool)
-    if ok.any() and not ok.all():
+    assigned = getattr(q, "assigned", None)               # consultas de fuentes sin el campo (p. ej. dobles de prueba): ninguna pintada
+    painted = np.zeros(len(ok), bool) if assigned is None else np.asarray(assigned, bool)      # R11: pintadas con «sin origen»: ya tienen color
+    todo = ~(ok | painted)
+    if ok.any() and todo.any():
         # Misma regla que el horneado: lo que no tiene origen en la fuente (cortes, paredes internas, la cara de un botón que el STL no
         # tiene) no toma el color de «la muestra más cercana, la que sea» (eso pintaba triángulos sueltos de otra capa) sino el de la
-        # cara con origen más cercana de la propia pieza.
+        # cara con origen más cercana de la propia pieza. Lo que el retoque «sin origen» pintó se respeta (no se pisa ni sirve de fuente).
         from scipy.spatial import cKDTree
 
-        _, near = cKDTree(centers[ok]).query(centers[~ok])
-        rgb[~ok] = rgb[ok][near]
-    elif not ok.any():                                  # nada coincide (similitud mala): la muestra más cercana, como antes
+        _, near = cKDTree(centers[ok]).query(centers[todo])
+        rgb[todo] = rgb[ok][near]
+    elif not ok.any() and not painted.any():            # nada coincide (similitud mala): la muestra más cercana, como antes
         rgb = src.query(centers, eps=1e9).rgb
     inv, means = _quantize(rgb, max_colors)
     parts = []

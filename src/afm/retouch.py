@@ -20,8 +20,10 @@ import numpy as np
 
 FORMAT = "afm-retoque-1"
 FORMAT_FILL = "afm-retoque-2"    # el mismo archivo pero con pinceladas de relleno; sin rellenos se sigue escribiendo `afm-retoque-1` (bytes idénticos)
-FORMATS = (FORMAT, FORMAT_FILL)
+FORMAT_ORPHAN = "afm-retoque-3"  # con pinceladas «sin origen» (`huerfana`); sin ellas se sigue escribiendo `-1` o `-2` (bytes idénticos)
+FORMATS = (FORMAT, FORMAT_FILL, FORMAT_ORPHAN)
 FILL_KIND = "relleno"
+ORPHAN_KIND = "huerfana"
 MAX_STROKES = 20_000             # pinceladas por pieza
 MIN_RADIUS_MM, MAX_RADIUS_MM = 0.05, 15.0
 MIN_DOT = 0.3                    # el mismo criterio que el horneado (`bake_piece`): la normal de la muestra tiene que ser compatible con `n`
@@ -49,6 +51,7 @@ class Stroke:
     rol: str | None                              # id de rol de la paleta; None = borrador
     n: tuple | None = None                       # normal de la superficie (unitaria) o None
     relleno: bool = False                        # True = «rellenar región»: `c` es la semilla, `r` el alcance máximo (mm) y `rol` no puede ser None
+    huerfana: bool = False                       # True = «sin origen»: pinta con `rol`, dentro del radio, SOLO lo que la fuente de color no cubre (sin muestra a ≤ eps con normal compatible); `rol` no puede ser None
 
     def __post_init__(self):
         object.__setattr__(self, "c", _vec3(self.c, "pincelada «c»"))
@@ -61,6 +64,11 @@ class Stroke:
         if self.relleno and self.rol is None:
             raise RetouchError("pincelada de relleno: hace falta un rol (el borrador es del pincel)")
         object.__setattr__(self, "relleno", bool(self.relleno))
+        if self.huerfana and self.rol is None:
+            raise RetouchError("pincelada «sin origen»: hace falta un rol (el borrador es del pincel)")
+        if self.huerfana and self.relleno:
+            raise RetouchError("una pincelada no puede ser a la vez de relleno y «sin origen»")
+        object.__setattr__(self, "huerfana", bool(self.huerfana))
         if self.n is not None:
             n = np.asarray(_vec3(self.n, "pincelada «n»"))
             norm = float(np.linalg.norm(n))
@@ -73,6 +81,8 @@ class Stroke:
         d["n"] = None if self.n is None else [round(a, 4) for a in self.n]
         if self.relleno:
             d["k"] = FILL_KIND
+        elif self.huerfana:
+            d["k"] = ORPHAN_KIND
         return d
 
     @classmethod
@@ -80,9 +90,9 @@ class Stroke:
         if not isinstance(d, dict) or "c" not in d or "r" not in d:
             raise RetouchError("pincelada: faltan «c» o «r»")
         kind = d.get("k")
-        if kind not in (None, FILL_KIND):
+        if kind not in (None, FILL_KIND, ORPHAN_KIND):
             raise RetouchError(f"pincelada: tipo desconocido {kind!r}")
-        return cls(d["c"], d["r"], d.get("rol"), d.get("n"), kind == FILL_KIND)
+        return cls(d["c"], d["r"], d.get("rol"), d.get("n"), kind == FILL_KIND, kind == ORPHAN_KIND)
 
 
 class Retouch:
@@ -115,19 +125,21 @@ class Retouch:
         self.strokes.append(stroke)
 
     def to_dict(self) -> dict:
-        fmt = FORMAT_FILL if any(s.relleno for s in self.strokes) else FORMAT
+        fmt = FORMAT_ORPHAN if any(s.huerfana for s in self.strokes) else FORMAT_FILL if any(s.relleno for s in self.strokes) else FORMAT
         return {"formato": fmt, "pinceladas": [s.to_dict() for s in self.strokes]}
 
     @classmethod
     def from_dict(cls, d) -> "Retouch":
         if not isinstance(d, dict) or d.get("formato") not in FORMATS:
-            raise RetouchError(f"formato desconocido: {d.get('formato') if isinstance(d, dict) else d!r} (se esperaba «{FORMAT}» o «{FORMAT_FILL}»)")
+            raise RetouchError(f"formato desconocido: {d.get('formato') if isinstance(d, dict) else d!r} (se esperaba «{FORMAT}», «{FORMAT_FILL}» o «{FORMAT_ORPHAN}»)")
         items = d.get("pinceladas")
         if not isinstance(items, list):
             raise RetouchError("falta la lista «pinceladas»")
         rt = cls(items)
         if d["formato"] == FORMAT and any(s.relleno for s in rt.strokes):
             raise RetouchError(f"las pinceladas de relleno son del formato «{FORMAT_FILL}»")
+        if d["formato"] != FORMAT_ORPHAN and any(s.huerfana for s in rt.strokes):
+            raise RetouchError(f"las pinceladas «sin origen» son del formato «{FORMAT_ORPHAN}»")
         return rt
 
     def digest(self) -> str:
@@ -172,5 +184,5 @@ def transform_strokes(strokes, M) -> list[Stroke]:
         n = None if s.n is None else tuple(A @ np.asarray(s.n))          # `Stroke` la vuelve a normalizar
         # con una escala extrema el radio puede salirse del rango válido: se recorta en vez de fallar al armar
         r = float(np.clip(s.r * k, MIN_RADIUS_MM, MAX_RADIUS_MM))
-        out.append(Stroke(tuple(A @ np.asarray(s.c) + M[:3, 3]), r, s.rol, n, s.relleno))
+        out.append(Stroke(tuple(A @ np.asarray(s.c) + M[:3, 3]), r, s.rol, n, s.relleno, s.huerfana))
     return out

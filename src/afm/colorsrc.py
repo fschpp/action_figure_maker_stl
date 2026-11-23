@@ -22,6 +22,9 @@ class ColorQuery:
     has_origin: np.ndarray       # (n,) bool: dist ≤ eps y normal compatible
     face: np.ndarray             # (n,) int32
     label: np.ndarray | None = None   # (n,) uint8: etiqueta de rol de la muestra (solo fuentes con etiquetas, T45); None en las demás
+    # R11: puntos que una pincelada «sin origen» (`Stroke.huerfana`) pintó. Nunca coincide con `has_origin` (esas pinceladas solo tocan puntos
+    # sin origen). `None` = la fuente no tiene pinceladas de ese tipo (o una consulta armada sin el campo): equivale a «ninguno».
+    assigned: np.ndarray | None = None   # (n,) bool
 
 
 class ColorSource:
@@ -60,6 +63,7 @@ class ColorSource:
         self.sample_rgb = tm.sample(face, bary, "base_color")
         self._lut = None if tm.labels is None or tm.lut is None else np.asarray(tm.lut)       # R02: para `paint`
         self._base_label = None                                 # etiquetas del paquete, antes de pintar (las crea `paint`)
+        self._orphans: list = []                                # R11: pinceladas «sin origen» como (Stroke, etiqueta); las aplica `query`, no tocan las muestras
         tm.release_image("base_color")                          # RG5: se libera la imagen decodificada
         self._tree = cKDTree(self.sample_xyz)
         self._coarse = cKDTree(self.sample_xyz[::4])
@@ -73,6 +77,7 @@ class ColorSource:
         if lut.shape != (256, 3) or lut.dtype != np.uint8:
             raise ValueError("la tabla de colores debe ser (256, 3) uint8")
         self.sample_rgb = lut[self.sample_label]
+        self._lut = lut                                         # R11: las pinceladas «sin origen» toman el color de esta misma tabla
 
     def paint(self, strokes) -> dict:
         """Aplica pinceladas de retoque (`retouch.Stroke`, **ya en el marco de esta fuente**, ver `retouch.transform_strokes`) a las muestras.
@@ -81,7 +86,11 @@ class ColorSource:
         no atraviesa una solapa fina. `rol = None` (borrador) devuelve las muestras a su etiqueta original. Se aplican en orden, la última gana.
         Una pincelada de **relleno** (`Stroke.relleno`) no pinta toda la esfera sino solo la región conectada de la semilla (`_fill_region`).
         El rol tiene que estar en `label_roles` (se agregan al armar la fuente con `RolesPackage.with_roles`); si no, `ValueError` con la lista.
-        Después recalcula `sample_rgb = lut[sample_label]`. Informe: `{"pinceladas": n, "muestras": cantidad de muestras que cambiaron}`."""
+        Después recalcula `sample_rgb = lut[sample_label]`. Informe: `{"pinceladas": n, "muestras": cantidad de muestras que cambiaron}`.
+
+        R11: las pinceladas **«sin origen»** (`Stroke.huerfana`) no cambian ninguna muestra: la fuente solo las recuerda y `query` las aplica a los
+        puntos consultados que **no tienen origen** (nada a ≤ `eps` con normal compatible), dentro de su radio. El informe suma `"sin_origen": n`.
+        Quedan en el orden en que llegaron: entre ellas la última gana; las del pincel normal no las pisan (solo cambian muestras, y un punto sin origen no lee muestras)."""
         from .retouch import MIN_DOT
 
         strokes = list(strokes)
@@ -93,6 +102,10 @@ class ColorSource:
         missing = sorted({s.rol for s in strokes if s.rol is not None and s.rol not in index})
         if missing:
             raise ValueError("la fuente no tiene etiqueta para los roles del retoque: " + ", ".join(missing))
+        total = len(strokes)
+        orphans = [s for s in strokes if getattr(s, "huerfana", False)]
+        strokes = [s for s in strokes if not getattr(s, "huerfana", False)]
+        self._orphans.extend((s, index[s.rol]) for s in orphans)
         if self._base_label is None:
             self._base_label = self.sample_label.copy()
         before = self.sample_label.copy()
@@ -113,7 +126,10 @@ class ColorSource:
                     continue
             self.sample_label[idx] = self._base_label[idx] if s.rol is None else np.uint8(index[s.rol])
         self.sample_rgb = self._lut[self.sample_label]
-        return {"pinceladas": len(strokes), "muestras": int((self.sample_label != before).sum())}
+        report = {"pinceladas": total, "muestras": int((self.sample_label != before).sum())}
+        if orphans:
+            report["sin_origen"] = len(orphans)
+        return report
 
     def _fill_region(self, stroke, idx: np.ndarray) -> np.ndarray:
         """«Rellenar región»: de las muestras candidatas `idx` (dentro del alcance y con normal compatible), las que forman una sola región con la
@@ -167,7 +183,42 @@ class ColorSource:
         if normals is not None:
             ok &= np.einsum("nc,nc->n", self.face_normals[face], np.asarray(normals, float)) > min_dot
         label = None if self.sample_label is None else self.sample_label[idx]
-        return ColorQuery(self.sample_rgb[idx], dist.astype(np.float32), ok, face.astype(np.int32), label)
+        rgb = self.sample_rgb[idx]
+        assigned = None
+        if self._orphans:
+            rgb, label, assigned = self._apply_orphans(P, normals, rgb, label, ok)
+        return ColorQuery(rgb, dist.astype(np.float32), ok, face.astype(np.int32), label, assigned)
+
+    def _apply_orphans(self, P, normals, rgb, label, ok):
+        """R11: aplica las pinceladas «sin origen» a los puntos de `P` que no tienen origen (`~ok`): los que caen a ≤ `r` de su centro (y, con normal
+        `n` en la pincelada y `normals` en la consulta, con normal compatible) toman el color y la etiqueta del rol. En orden: la última gana.
+        Devuelve `(rgb, label, assigned)` con copias; no toca `sample_*`."""
+        from scipy.spatial import cKDTree
+
+        from .retouch import MIN_DOT
+
+        rgb = np.array(rgb, copy=True)
+        label = None if label is None else np.array(label, copy=True)
+        assigned = np.zeros(len(P), bool)
+        todo = np.flatnonzero(~ok)
+        if todo.size == 0:
+            return rgb, label, assigned
+        tree = cKDTree(P[todo])
+        nrm = None if normals is None else np.asarray(normals, float)
+        for s, lab in self._orphans:
+            hit = np.asarray(tree.query_ball_point(np.asarray(s.c, float), float(s.r)), np.int64)
+            if hit.size == 0:
+                continue
+            sel = todo[hit]
+            if s.n is not None and nrm is not None:
+                sel = sel[nrm[sel] @ np.asarray(s.n, float) > MIN_DOT]
+                if sel.size == 0:
+                    continue
+            rgb[sel] = self._lut[lab]
+            if label is not None:
+                label[sel] = np.uint8(lab)
+            assigned[sel] = True
+        return rgb, label, assigned
 
     def distance(self, points, workers: int = 1, upper: float | None = None) -> np.ndarray:
         """Distancia gruesa (una muestra de cada 4), para puntuar registros. Con `upper`, los puntos más lejos que eso
