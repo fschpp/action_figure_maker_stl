@@ -1,3 +1,19 @@
+## Current Focus — Salida de color para Bambu Studio: 3MF / OBJ con un material plano por color, sin textura (2026-11-23)
+El GLB con textura «una celda por triángulo» (decenas de miles de celdas) da errores en Bambu Studio aunque el STL esté bien. Ahora, con `--bambu-3mf [N]` (en `afm run` con color y en `afm armar`) o `Colorizer(bambu=N)`, el color ya horneado se reduce a **un color por triángulo** y a **a lo sumo N colores** (8 por defecto) y se escribe `<fig>_bambu.3mf` (3MF estándar: `basematerials` + `pid`/`p1` por triángulo, Z arriba, un objeto por pieza dentro de un ensamblado) y `<fig>_bambu.obj/.mtl` (un `newmtl` plano `Kd` por color, Y arriba, sin `map_Kd`).
+- `src/afm/bambu.py` (nuevo): color por cara = etiqueta de rol más repetida en 4 muestras de la celda → color de la paleta (sin roles: promedio del atlas); paleta única para toda la figura (las piezas del mismo color comparten filamento); k-means ponderado por área en Lab solo si se pasa del tope; `--bambu-min-pct` (0,5) funde los colores que cubren muy poca área (cada color de más = cambios de filamento + torre); `despeckle` quita caras sueltas.
+- `Colorizer(bambu=…)` reescribe los archivos también en `recolor`; el informe `<fig>_color_informe.json` trae `bambu` (colores, % de área, triángulos, caras suavizadas).
+- Textos es/en/pt (`color.ayuda_bambu`, `ayuda_bambu_min`, `error_bambu_sin_color`). Pruebas: `tests/test_bambu.py` (10).
+
+### Todo List
+- [x] Done: módulo `bambu.py` + enchufe en `Colorizer.write` + CLI (`run`, `armar`) + textos + pruebas unitarias y de punta a punta con el muñeco de pruebas
+- [/] In Progress: correr la suite de color completa (regresiones) y probar con la figura real de Güemes
+- [ ] Todo: abrir `<fig>_bambu.3mf` y `<fig>_bambu.obj` en Bambu Studio real y mirar si asigna un filamento por color (diálogo de colores) y cuántos cambios de filamento da el corte
+- [ ] Todo: casilla en la GUI («Armar desde catálogo» / exportar) para pedir la salida Bambu; hoy solo CLI / API
+
+### Latest Blockers/Discoveries
+- No hay Bambu Studio en este entorno: el 3MF y el OBJ están validados solo por estructura (zip, XML, índices, colores). Según el foro de Bambu, el OBJ con `Kd` por material abre el diálogo de asignación de filamentos de forma confiable; el 3MF con `basematerials` se lee desde Bambu Studio 2.5 y es menos predecible. Si el 3MF no asigna bien, usar el OBJ.
+- `--bambu-3mf` lleva `nargs="?"`: escribir `--bambu-3mf=8` si va justo antes de un argumento posicional.
+
 ## Current Focus — «Armar figura desde catálogo»: ver el corte de «sin soportes» antes de armar (2026-11-23)
 En «Impresión sin soportes» no había forma de ver dónde corta el plano de la cama: había que armar (minutos) y abrir el STL. Ahora la casilla **«Ver el corte en la vista previa»** (dentro de «Impresión sin soportes», se habilita con «sin soportes» activo) pasa a la vista conjunta con la figura **sentada**, el **plano de la cama** (azul) a la altura del corte (`flat_depth` sobre el punto más bajo del torso / la pelvis) y, **en rojo**, el material que el corte le saca. Cambiar la altura del corte la redibuja en el momento.
 - `figure_builder.preview_flat_parts` / `FigureBuilder.preview_flat()`: parte de `_place_parts` (nuevo `pivots=` devuelve centro y eje del pasador de brazo y pierna, el mismo `_rotation_axis` del armado); piernas a `sit_angle`; corte con `trimesh.slice_plane(cap=True)` de todo menos brazos, manos y cabeza; cada brazo (con su mano) gira hacia adelante hasta apoyar con `pipeline._arm_turn_to_plane` (con clic de hombro parte del `print_angle` de la línea). Avisos: giro del brazo, brazo que no sube / no llega, **piernas que quedan por encima del plano** (el corte no las toca).

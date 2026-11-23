@@ -7,6 +7,7 @@ Por cada pieza: registro contra la fuente de color (`colorreg`), despliegue (`un
     piezas_color/<fig>_ensamblada.obj + .mtl                              (todas las piezas en un OBJ, para Bambu Studio)
     <fig>_ensamblada.glb                                                   (todas las piezas, cada una con su material)
     <fig>_color_informe.json                                               (estado de registro y % con origen por pieza)
+    <fig>_bambu.3mf + <fig>_bambu.obj/.mtl                                 (solo con `bambu=`: un color plano por triángulo, sin textura; ver `bambu.py`)
 
 Los OBJ y el GLB se escriben con Y hacia arriba (convención de OBJ y glTF, `frame.Z_UP_TO_Y_UP`); los STL siguen en Z arriba. Así
 Bambu Studio, Blender y los visores de glTF dejan la figura parada y mirando hacia donde mira el STL.
@@ -31,7 +32,8 @@ COLOR_DIR = "piezas_color"
 class Colorizer:
     def __init__(self, src, params, *, texel_mm: float = 0.2, eps: float = 0.15, fill="extend", symmetric: bool = False,
                  workers: int = 1, sources: dict | None = None, palette_report: dict | None = None,
-                 piece_roles: dict | None = None):
+                 piece_roles: dict | None = None, bambu=None):
+        from .bambu import BambuOptions
         from .colorbake import parse_fill
 
         parse_fill(fill)                                   # falla ya, no después de registrar todas las piezas
@@ -44,6 +46,8 @@ class Colorizer:
         # que usa la pieza. Solo van al informe (no cambian el color): sin ellos el informe es el de antes.
         self.palette_report: dict | None = dict(palette_report) if palette_report else None
         self.piece_roles: dict = {k: list(v) for k, v in (piece_roles or {}).items()}
+        # Salida para Bambu Studio (`bambu.py`): `None` = apagada; un entero (tope de colores), `True` o un dict {max_colors, min_area_pct, despeckle}.
+        self.bambu = BambuOptions.coerce(bambu)
         self._last_write: tuple | None = None              # T45: argumentos del último `write`, para que `recolor` reescriba los mismos archivos
 
     # ------------------------------------------------------------------ fuente de cada pieza
@@ -242,6 +246,11 @@ class Colorizer:
         if self.palette_report:
             out["paleta"] = dict(self.palette_report)
         out["sin_origen"] = sorted(n for n, (_u, _b, r, _i) in self.pieces.items() if r.status == "sin_origen")
+        if self.bambu is not None and self.pieces:          # un color plano por triángulo, sin textura: <fig>_bambu.3mf / .obj / .mtl
+            from .bambu import write_bambu
+
+            out["bambu"] = write_bambu(outdir, fig_name, {n: (v[0], v[1]) for n, v in self.pieces.items()},
+                                       (self.palette_report or {}).get("roles"), orientation, self.bambu)
         out["segundos"] = round(float(sum(i["segundos"] for *_x, i in self.pieces.values())), 2)
         with open(os.path.join(outdir, out["informe"]), "w", encoding="utf-8") as fh:
             json.dump(out, fh, ensure_ascii=False, indent=2, default=float)

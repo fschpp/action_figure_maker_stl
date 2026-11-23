@@ -10,6 +10,7 @@ import sys
 import time
 
 from . import __version__, meshio, pipeline as P, solids as S
+from .bambu import DEFAULT_MAX_COLORS, DEFAULT_MIN_AREA_PCT, BambuOptions
 from .horse_cli import CABALLO_ERRORS
 from .i18n import tr
 from .project import Project, demo_project
@@ -91,7 +92,7 @@ def make_colorizer(color: dict, mesh, params, progress=print, post=None, frame=N
     src = ColorSource(tm, frame)
     cz = Colorizer(src, params, texel_mm=color.get("texel_mm", 0.2), eps=color.get("eps", 0.15),
                    fill=color.get("fill", "extend"), symmetric=bool(color.get("symmetric", False)), sources=sources,
-                   palette_report=palette_report)
+                   palette_report=palette_report, bambu=color.get("bambu"))
     return cz, info
 
 
@@ -170,7 +171,8 @@ def run(stl_path: str, project: Project, outdir: str, name: str, progress=print,
             from .colorexport import Colorizer
             c = color or {}
             colorize = Colorizer(None, project.params, texel_mm=c.get("texel_mm", 0.2), eps=c.get("eps", 0.15),
-                                 fill=c.get("fill", "extend"), symmetric=bool(c.get("symmetric", False)), sources=head_src)
+                                 fill=c.get("fill", "extend"), symmetric=bool(c.get("symmetric", False)), sources=head_src,
+                                 bambu=c.get("bambu"))
             color_info = {}
         else:
             colorize.sources.update(head_src)
@@ -246,9 +248,20 @@ def _rest_click_arms_on_plane(recipe, asm, catalog_root: str | None, flat: float
     return new
 
 
+def _bambu_from_args(args, ap):
+    """`--bambu-3mf [N]` + `--bambu-min-pct` → `{max_colors, min_area_pct}` para `Colorizer(bambu=)`, o `None` si no se pidió."""
+    if getattr(args, "bambu_3mf", None) is None:
+        return None
+    try:
+        BambuOptions.coerce({"max_colors": args.bambu_3mf, "min_area_pct": args.bambu_min_pct})
+    except ValueError as exc:
+        ap.error(f"--bambu-3mf: {exc}")
+    return {"max_colors": args.bambu_3mf, "min_area_pct": args.bambu_min_pct}
+
+
 def run_armar(recipe_path: str, outdir: str, name: str | None = None, catalog_root: str | None = None, progress=print,
               orient: bool | str = False, max_angle: float = 45.0, flat: float | None = None, color_overrides: dict | None = None, fill_hip: bool = False,
-              keep: dict | None = None, fijar_geometria: bool = False) -> dict:
+              keep: dict | None = None, fijar_geometria: bool = False, bambu=None) -> dict:
     """`afm armar`: arma la figura de una receta (`afm-receta-1`) solo con piezas de catálogo, valida y exporta.
 
     E13: si la receta trae `cabalgadura` la figura se monta en el caballo de la biblioteca de la línea y se exporta el conjunto (`info[\"cabalgadura\"]`;
@@ -305,7 +318,7 @@ def run_armar(recipe_path: str, outdir: str, name: str | None = None, catalog_ro
     if c_src:
         from .colorexport import Colorizer
 
-        colorize = Colorizer(None, asm.params, sources=c_src, palette_report=(color_info or {}).get("paleta"),
+        colorize = Colorizer(None, asm.params, sources=c_src, palette_report=(color_info or {}).get("paleta"), bambu=bambu,
                              piece_roles={k: v["roles"] for k, v in (color_info or {}).get("piezas", {}).items() if v.get("roles")})
     progress("Exportando las piezas…")
     extra = {"colorize": colorize} if colorize is not None else {}
@@ -546,6 +559,8 @@ def main(argv=None) -> int:
     b.add_argument("--color-simetrico", action="store_true", help=tr("color.ayuda_simetrico"))
     b.add_argument("--color-relleno", default="extend", metavar="#RRGGBB", help=tr("color.ayuda_relleno"))
     b.add_argument("--color-tolerancia", type=float, default=0.15, metavar="MM", help=tr("color.ayuda_tolerancia"))
+    b.add_argument("--bambu-3mf", nargs="?", type=int, const=DEFAULT_MAX_COLORS, default=None, metavar="N", help=tr("color.ayuda_bambu"))
+    b.add_argument("--bambu-min-pct", type=float, default=DEFAULT_MIN_AREA_PCT, metavar="PCT", help=tr("color.ayuda_bambu_min"))
     b.add_argument("--max-angle", type=float, default=45.0, help="ángulo de voladizo tolerado (grados desde la vertical)")
     a = sub.add_parser("armar", help="armar una figura solo con piezas de catálogo a partir de una receta (afm-receta-1)")
     a.add_argument("catalogo", metavar="RUTA", help="catálogo de piezas de la línea de la receta")
@@ -560,6 +575,8 @@ def main(argv=None) -> int:
     a.add_argument("--orient-auto", action="store_true", help="exportar en la orientación de menor voladizo")
     a.add_argument("--max-angle", type=float, default=45.0, help="ángulo de voladizo tolerado (grados desde la vertical)")
     a.add_argument("--color-cambio", action="append", default=[], metavar="ROL=#RRGGBB", help=tr("color.ayuda_cambio"))
+    a.add_argument("--bambu-3mf", nargs="?", type=int, const=DEFAULT_MAX_COLORS, default=None, metavar="N", help=tr("color.ayuda_bambu"))
+    a.add_argument("--bambu-min-pct", type=float, default=DEFAULT_MIN_AREA_PCT, metavar="PCT", help=tr("color.ayuda_bambu_min"))
     a.add_argument("--fijar-geometria", action="store_true",
                    help="receta con caballo: guarda en la copia de la receta el hash de la geometría validada (caballo tallado / silla)")
     mm = sub.add_parser("montura-mapa", help="mapa de espacio libre del flanco: dónde cabe el puente de una montura de arma (antes de elegir el ancla)")
@@ -672,7 +689,7 @@ def main(argv=None) -> int:
         try:
             info = run_armar(args.receta, args.out, args.name, args.catalogo, orient="auto" if args.orient_auto else args.orient,
                              max_angle=args.max_angle, flat=args.sin_soportes, color_overrides=cambios or None,
-                             fill_hip=args.rellenar_muslos, fijar_geometria=args.fijar_geometria)
+                             fill_hip=args.rellenar_muslos, fijar_geometria=args.fijar_geometria, bambu=_bambu_from_args(args, ap))
         except (RecipeError, OSError) as exc:
             print(f"ERROR (receta): {exc}", file=sys.stderr)
             return 2
@@ -874,6 +891,11 @@ def main(argv=None) -> int:
                 ap.error(tr("color.error_no_existe", ruta=args.color_desde))
             run_kw["color"] = {**run_kw.get("color", {}), "fbx": args.color_desde, "texel_mm": args.textura_mm, "eps": args.color_tolerancia,
                                "fill": args.color_relleno, "symmetric": args.color_simetrico}
+        bambu = _bambu_from_args(args, ap)
+        if bambu is not None:
+            if "color" not in run_kw or args.sin_color:
+                ap.error(tr("color.error_bambu_sin_color"))
+            run_kw["color"] = {**run_kw["color"], "bambu": bambu}
         from .colorpiece import PieceColorError
         from .fbxio import FbxError
         try:
