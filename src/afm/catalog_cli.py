@@ -213,8 +213,9 @@ def add_parsers(sub) -> None:
     root(a)
     a.add_argument("ref", metavar="REF", help=tr("color_cli.ayuda_ref"))
     a.add_argument("--fbx", required=True, metavar="ARCHIVO.fbx", help=tr("color_cli.ayuda_fbx"))
-    a.add_argument("--roles", required=True, metavar="ASIGNACION.json", help=tr("color_cli.ayuda_roles"))
-    a.add_argument("--k", type=int, default=10, help=tr("color_cli.ayuda_k"))
+    a.add_argument("--roles", default=None, metavar="ASIGNACION.json", help=tr("color_cli.ayuda_roles"))
+    a.add_argument("--rgb", action="store_true", help=tr("color_cli.ayuda_rgb"))
+    a.add_argument("--k", type=int, default=None, help=tr("color_cli.ayuda_k"))
     a.add_argument("--sombreado", action="store_true", help=tr("color_cli.ayuda_sombreado"))
     a.add_argument("--similitud", default=None, metavar="SIMILITUD.json", help=tr("color_cli.ayuda_similitud"))
     a = cs.add_parser("color-girar", help=tr("color_cli.girar_ayuda"))
@@ -367,12 +368,19 @@ def _run_color(cat: Catalog, args) -> int:
     """`afm catalogo color RUTA REF --fbx F --roles A.json [--k N] [--similitud S.json]` (T42): guarda una **versión nueva** de la pieza `REF` (misma
     malla y mismos puertos) con el color del FBX reducido a roles de la paleta de la línea. `A.json` es `{cluster: rol | null}` sobre los clusters
     que propone `colorroles.propose` con `--k` (la ventana de T47 lo arma sola). Para una pieza recortada de una figura, `S.json` es la 4×4
-    FBX → figura entera; sin ella se alinea por momentos, que solo sirve con una pieza completa (plan §5.7)."""
+    FBX → figura entera; sin ella se alinea por momentos, que solo sirve con una pieza completa (plan §5.7).
+
+    `--rgb` (en lugar de `--roles`): guarda el FBX ENTERO como color de la pieza (modo `rgb`, T35): el aspecto de la pantalla principal, sin recoloreo por
+    paleta. No pide paleta. Con `--similitud` no se alinea; sin ella, en una cabeza la cara del FBX tiene que quedar del lado del frente."""
     import json
 
     from .colorroles import RolesError, build_package, propose
     from .fbxio import FbxError, load_textured
 
+    if getattr(args, "rgb", False):
+        return _run_color_rgb(cat, args)
+    if not args.roles:
+        raise CatalogError(tr("color_cli.elegir_modo"))
     pal = cat.palette()
     if pal is None:
         raise CatalogError(tr("color_cli.sin_paleta", line=cat.name))
@@ -389,7 +397,7 @@ def _run_color(cat: Catalog, args) -> int:
         raise CatalogError(tr("color_cli.json_malo", error=exc)) from exc
     try:
         tm = load_textured(args.fbx)
-        prop = propose(tm, pal, k=args.k)
+        prop = propose(tm, pal, k=args.k or 10)
         origen = {"nombre": os.path.basename(args.fbx), "sha256": P.sha256_file(args.fbx)}
         pkg = build_package(tm, prop, assign, origen=origen, shade=bool(getattr(args, "sombreado", False)))
     except (FbxError, RolesError, OSError) as exc:
@@ -399,6 +407,28 @@ def _run_color(cat: Catalog, args) -> int:
     for w in warns:
         print(f"AVISO: {w}")
     print(tr("color_cli.listo", ref=new.ref, antes=meta.ref, roles=", ".join(new.color["roles"]), kb=os.path.getsize(cat.color_file(new.ref)) // 1024))
+    return 0
+
+
+def _run_color_rgb(cat: Catalog, args) -> int:
+    """`afm catalogo color RUTA REF --fbx F --rgb [--similitud S.json]`: ver `_run_color`. Guarda una versión nueva de `REF` con el FBX entero."""
+    import json
+
+    if args.roles or args.sombreado or args.k is not None:
+        raise CatalogError(tr("color_cli.rgb_no_mezcla"))
+    sim = None
+    if args.similitud:
+        try:
+            with open(args.similitud) as f:
+                sim = json.load(f)
+            sim = sim.get("similitud", sim) if isinstance(sim, dict) else sim
+        except (OSError, ValueError, AttributeError) as exc:
+            raise CatalogError(tr("color_cli.json_malo", error=exc)) from exc
+    meta, mesh = cat.load(args.ref)
+    new, warns = cat.add_piece(mesh, P.PieceMeta.from_dict(meta.to_dict()), new_version=True, color_fbx=args.fbx, similarity=sim)
+    for w in warns:
+        print(f"AVISO: {w}")
+    print(tr("color_cli.listo_rgb", ref=new.ref, antes=meta.ref, mb=f"{os.path.getsize(cat.color_file(new.ref)) / 1048576:.1f}"))
     return 0
 
 

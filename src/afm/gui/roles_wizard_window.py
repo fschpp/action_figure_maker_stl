@@ -20,7 +20,7 @@ from gi.repository import Gdk, GLib, Gtk  # noqa: E402
 
 from ..palette import hex_to_rgb  # noqa: E402
 from .catalog_manager import PreviewRenderer  # noqa: E402
-from .roles_wizard import RolesWizard, RolesWizardError  # noqa: E402
+from .roles_wizard import RolesWizard, RolesWizardError, RolesWizardFrontError  # noqa: E402
 
 DEFAULT_K = 10
 VIEWS = ("clusters", "roles", "pieza")             # vista previa: colores encontrados / roles elegidos / la pieza con el color real (O09, tras «Probar en la pieza»)
@@ -155,6 +155,9 @@ class RolesWizardWindow(Gtk.Window):
         self.btn_try = Gtk.Button(label=tr("roles_wizard.probar"), tooltip_text=tr("roles_wizard.probar_ayuda"))
         self.btn_try.connect("clicked", lambda *_: self._try_piece())
         bar.append(self.btn_try)
+        self.btn_save_rgb = Gtk.Button(label=tr("roles_wizard.guardar_rgb"), tooltip_text=tr("roles_wizard.guardar_rgb_ayuda"))
+        self.btn_save_rgb.connect("clicked", lambda *_: self._save_rgb())
+        bar.append(self.btn_save_rgb)
         self.btn_save = Gtk.Button(label=tr("roles_wizard.guardar"), css_classes=["suggested-action"])
         self.btn_save.connect("clicked", lambda *_: self._save())
         bar.append(self.btn_save)
@@ -183,6 +186,8 @@ class RolesWizardWindow(Gtk.Window):
         ok_target = bool(self._refs) if to_piece else True
         self.btn_save.set_sensitive(ready and self.wiz.can_save and ok_target)
         self.btn_try.set_visible(to_piece)
+        self.btn_save_rgb.set_visible(to_piece)                 # modo rgb: el FBX entero, sin analizar ni asignar roles
+        self.btn_save_rgb.set_sensitive(bool(self._fbx) and bool(self._refs) and not self._busy)
         self.btn_try.set_sensitive(ready and self.wiz.can_save and bool(self._refs))
         if not self._busy:
             self._say(self.wiz.blockers() if self.wiz.loaded else tr("roles_wizard.sin_analisis"))
@@ -709,6 +714,57 @@ class RolesWizardWindow(Gtk.Window):
             return False
         self._refresh()
         self._after_saved(tr("roles_wizard.guardada_pieza", ref=new.ref, roles=", ".join(new.color.get("roles", []))))
+        return False
+
+    def _save_rgb(self, confirm_front: bool = False) -> None:
+        """Guardar el FBX entero como color de la pieza elegida (modo rgb). Si en una cabeza la cara quedó hacia atrás se pide confirmación explícita."""
+        ref = self._current_ref()
+        if ref is None or self._busy or not self._fbx:
+            return
+        try:
+            sim = self._current_similarity()
+        except RolesWizardError as exc:
+            self._error(exc)
+            return
+        fbx = self._fbx
+        self._busy = True
+        self.btn_save.set_sensitive(False)
+        self.btn_try.set_sensitive(False)
+        self.btn_save_rgb.set_sensitive(False)
+        self._say(tr("roles_wizard.guardando_pieza"))
+
+        def work():
+            try:
+                new, err = self.wiz.save_piece_rgb(ref, fbx, sim, confirm_front=confirm_front), None
+            except Exception as exc:                                 # noqa: BLE001  (se muestra en la ventana)
+                new, err = None, exc
+            GLib.idle_add(self._rgb_saved, new, err, ref)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _rgb_saved(self, new, err, ref: str) -> bool:
+        self._busy = False
+        if self._closed:
+            return False
+        self._refresh()
+        if isinstance(err, RolesWizardFrontError):
+            dlg = Gtk.AlertDialog(message=tr("roles_wizard.frente_confirmar", mensaje=str(err)),
+                                  buttons=[tr("common.cancelar"), tr("roles_wizard.guardar_igual")], cancel_button=0, default_button=0)
+
+            def answered(d, res):
+                try:
+                    i = d.choose_finish(res)
+                except GLib.Error:
+                    i = 0
+                if not self._closed and i == 1:
+                    self._save_rgb(confirm_front=True)
+
+            dlg.choose(self, None, answered)
+            return False
+        if err is not None:
+            self._error(err)
+            return False
+        self._after_saved(tr("roles_wizard.guardada_pieza_rgb", ref=new.ref))
         return False
 
     def _save_figure(self) -> None:

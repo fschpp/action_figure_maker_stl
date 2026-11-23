@@ -182,24 +182,49 @@ def mount_block_problems(block, tipo: str) -> list[str]:
     return out
 
 
-def color_block(mesh, fbx_path: str, **kw) -> dict:
+def color_block(mesh, fbx_path: str, *, similarity=None, frame=None, front_confirmed: bool = False, **kw) -> dict:
     """Bloque `color` para una pieza con su FBX: alinea el FBX con la malla de la pieza (`colorpiece.align_fbx_to_piece`, que levanta
     `PieceColorError` si no calza) y devuelve `{fuente, sha256, similitud, texturas, estado, alineacion}`. `fuente` queda con el
-    nombre que se le pone al copiarlo (`write_piece(..., color_fbx=)`)."""
+    nombre que se le pone al copiarlo (`write_piece(..., color_fbx=)`).
+
+    `similarity` (4×4 FBX → pieza, p. ej. la de la figura entera para una pieza recortada de una figura): no se alinea, se usa esa matriz y la
+    alineación queda como `{origen: "figura"}`. `frame` (un `FigureFrame` ya calculado): igual, con su informe. `front_confirmed`: si en una cabeza
+    (`front=` en `kw`) la cara del FBX quedó hacia atrás o no se pudo decidir (`PieceFrontError`), se guarda igual y el informe anota `frente_confirmado`;
+    sin esto el error se propaga."""
     import io
 
     from PIL import Image
 
-    from .colorpiece import align_fbx_to_piece
+    from .colorpiece import PieceColorError, PieceFrontError, align_fbx_to_piece
     from .fbxio import load_textured
 
+    if similarity is not None and frame is not None:
+        raise PieceColorError("la pose es o la similitud dada o la ya calculada, no las dos")
     tm = load_textured(fbx_path)
-    frame = align_fbx_to_piece(tm, _as_trimesh(mesh), **kw)
+    if frame is not None:
+        matrix, report = np.asarray(frame.matrix, float), dict(frame.report)
+    elif similarity is not None:
+        try:
+            matrix = np.asarray(similarity, float)
+        except (TypeError, ValueError):
+            matrix = None
+        if matrix is None or matrix.shape != (4, 4) or not np.all(np.isfinite(matrix)) or abs(np.linalg.det(matrix[:3, :3])) < 1e-12:
+            raise PieceColorError("la similitud FBX → pieza tiene que ser una matriz 4×4 válida")
+        report = {"origen": "figura"}                     # la dio quien llama: no se midió contra esta pieza
+    else:
+        try:
+            fr = align_fbx_to_piece(tm, _as_trimesh(mesh), **kw)
+        except PieceFrontError as exc:
+            if not front_confirmed:
+                raise
+            fr = exc.frame                                # la persona vio el aviso y confirmó guardar con la cara al revés
+            fr.report["frente_confirmado"] = True
+        matrix, report = np.asarray(fr.matrix, float), dict(fr.report)
     with Image.open(io.BytesIO(tm.images["base_color"])) as im:
         w, h = im.size
-    return {"fuente": "", "sha256": sha256_file(fbx_path), "similitud": np.asarray(frame.matrix, float).tolist(),
+    return {"fuente": "", "sha256": sha256_file(fbx_path), "similitud": matrix.tolist(),
             "texturas": {"base": f"{w}x{h}"}, "estado": "alineada",
-            "alineacion": {k: (round(float(v), 4) if isinstance(v, float) else v) for k, v in frame.report.items()}}
+            "alineacion": {k: (round(float(v), 4) if isinstance(v, float) else v) for k, v in report.items()}}
 
 
 def sha256_file(path: str) -> str:

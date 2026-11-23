@@ -48,6 +48,15 @@ class CatalogError(ValueError):
     """Error del catálogo (no existe, la pieza ya existe, referencia inválida…)."""
 
 
+class CatalogFrontError(CatalogError):
+    """El FBX calza con la cabeza pero la cara quedó hacia atrás (o no se pudo decidir hacia dónde mira): no se guarda sin `front_confirmed=True`.
+    `frame` es la alineación que se habría guardado."""
+
+    def __init__(self, message: str, frame=None):
+        super().__init__(message)
+        self.frame = frame
+
+
 def default_root(line: str) -> str:
     """Directorio por defecto del catálogo de la línea: `$AFM_CATALOGO` o `~/.local/share/afm/catalogos/<linea>`."""
     env = os.environ.get("AFM_CATALOGO")
@@ -407,7 +416,8 @@ class Catalog:
         paleta de la línea: si falta alguno (o la línea no tiene paleta) es `CatalogError` y **no se escribe nada**. `similarity` (4×4 FBX → STL de
         la pieza) viene de quien llama: para una pieza recortada de una figura es la matriz FBX → figura entera (no la alineación por momentos, que no
         calza con un trozo: plan §5.7); sin ella se calcula con `colorpiece.align_fbx_to_piece`, que solo sirve para una pieza completa. `color_fbx` y
-        `color_roles` no se pueden dar juntos.
+        `color_roles` no se pueden dar juntos. Con `color_fbx`, `similarity` (4×4 FBX → pieza) evita alinear (pieza recortada de una figura) y
+        `front_confirmed` guarda una cabeza cuya cara quedó hacia atrás (`CatalogFrontError` si no se confirma; la ficha anota `frente_confirmado`).
 
         `alignment` (O09): el `FigureFrame` que ya calculó quien llama (`colorpiece.align_roles_package`), para no alinear dos veces; se usa solo sin
         `similarity`. `front_confirmed`: la persona vio que la cara del FBX quedó hacia atrás (o que no se pudo decidir) y pidió guardar igual; sin
@@ -434,13 +444,7 @@ class Catalog:
         if color_frame is not None and color_roles is None:
             raise CatalogError(f"«{meta.id}»: la pose ya calculada (color_frame) solo vale con un paquete de roles")
         if color_fbx:
-            from .colorpiece import PieceColorError
-            from .fbxio import FbxError
-
-            try:
-                meta.color = P.color_block(mesh, color_fbx)
-            except (PieceColorError, FbxError, OSError) as exc:
-                raise CatalogError(f"el FBX de color de «{meta.id}» no sirve: {exc}") from exc
+            meta.color = self._rgb_block(meta, mesh, color_fbx, similarity, front_confirmed)
         elif color_roles is not None:
             meta.color = self._roles_block(meta, mesh, color_roles, similarity, alignment, front_confirmed, color_frame)
             color_roles = self._fit_roles_package(meta, mesh, color_roles, warnings)
@@ -450,6 +454,25 @@ class Catalog:
         P.write_piece(self._dir(meta.tipo), meta, mesh, color_fbx=color_fbx, color_roles=color_roles)
         self.write_index()
         return meta, warnings
+
+    def _rgb_block(self, meta: P.PieceMeta, mesh, fbx_path: str, similarity=None, front_confirmed: bool = False) -> dict:
+        """Bloque `color` (modo `rgb`, el FBX entero) de una pieza. No escribe nada: si algo no sirve levanta `CatalogError` antes.
+
+        Con `similarity` (4×4 FBX → pieza, para una pieza recortada de una figura) no se alinea. Sin ella se alinea contra la malla y, en una `cabeza`, la
+        cara del FBX tiene que quedar del lado del frente (O05/O06, igual que en modo `roles` pero decidido solo por el calce: no hay paquete con los
+        roles de piel): si queda hacia atrás o no se puede decidir es `CatalogFrontError`, salvo `front_confirmed=True`."""
+        from .colorpiece import PieceColorError, PieceFrontError, front_hint
+        from .fbxio import FbxError
+
+        try:
+            if similarity is not None:
+                return P.color_block(mesh, fbx_path, similarity=similarity)
+            front = front_hint(meta, P._as_trimesh(mesh)) if meta.tipo == "cabeza" else None
+            return P.color_block(mesh, fbx_path, front=front, front_confirmed=front_confirmed)
+        except PieceFrontError as exc:
+            raise CatalogFrontError(f"el FBX de color de «{meta.id}» no sirve: {exc}", exc.frame) from exc
+        except (PieceColorError, FbxError, OSError) as exc:
+            raise CatalogError(f"el FBX de color de «{meta.id}» no sirve: {exc}") from exc
 
     def _roles_block(self, meta: P.PieceMeta, mesh, pkg, similarity, alignment=None, front_confirmed: bool = False, frame=None) -> dict:
         """Bloque `color` (modo `roles`) de una pieza con paquete de roles. No escribe nada: si algo no sirve levanta `CatalogError` antes."""

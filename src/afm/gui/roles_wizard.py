@@ -37,6 +37,10 @@ class RolesWizardError(ValueError):
     """Lo pedido no se puede hacer (rol inexistente, clusters sin decidir, sin catálogo…). El mensaje está listo para mostrarse."""
 
 
+class RolesWizardFrontError(RolesWizardError):
+    """El FBX calza con la cabeza pero la cara quedó hacia atrás o no se pudo decidir hacia dónde mira (modo `rgb`): hace falta confirmar para guardar."""
+
+
 @dataclass
 class PieceCheck:
     """O09 · Resultado de alinear el FBX con una pieza, antes de guardar. `matrix`: 4×4 FBX → pieza. `frente_ok`: `True` la cara quedó del lado del frente de la
@@ -505,6 +509,31 @@ class RolesWizard:
         try:
             new, warns = self._with_palette(cat, action)
         except (CatalogError, P.PieceError) as exc:
+            raise RolesWizardError(str(exc)) from exc
+        self.warnings = list(warns)
+        self.last_check = None
+        return new
+
+    def save_piece_rgb(self, ref: str, fbx_path: str, similarity=None, confirm_front: bool = False):
+        """Guarda una **versión nueva** de la pieza `ref` con el FBX ENTERO como color (modo `rgb`, como `afm catalogo color --rgb`): el aspecto de la pantalla
+        principal, sin recoloreo por paleta. No hace falta analizar ni asignar roles ni que la línea tenga paleta. `similarity`: 4×4 FBX → pieza (pieza recortada
+        de una figura); sin ella se alinea con la pieza y, en una cabeza, si la cara quedó hacia atrás (o no se pudo decidir) levanta `RolesWizardFrontError`
+        salvo `confirm_front=True`. Si algo falla no queda nada escrito. Devuelve la `PieceMeta` nueva."""
+        from .. import parts as P
+        from ..catalog import CatalogError, CatalogFrontError
+
+        if not fbx_path or not os.path.isfile(fbx_path):
+            raise RolesWizardError(tr("roles_wizard.rgb_sin_fbx"))
+        if similarity is None:
+            similarity = self.similarity
+        cat = self._cat()
+        try:
+            meta, mesh = cat.load(ref)
+            new, warns = cat.add_piece(mesh, P.PieceMeta.from_dict(meta.to_dict()), new_version=True, color_fbx=fbx_path, similarity=similarity,
+                                       front_confirmed=bool(confirm_front))
+        except CatalogFrontError as exc:
+            raise RolesWizardFrontError(str(exc)) from exc
+        except (CatalogError, P.PieceError, ValueError) as exc:
             raise RolesWizardError(str(exc)) from exc
         self.warnings = list(warns)
         self.last_check = None

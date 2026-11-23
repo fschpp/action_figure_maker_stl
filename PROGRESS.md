@@ -1,3 +1,18 @@
+## Current Focus — Modo rgb (FBX entero) con entrada de interfaz y de línea de comandos (2026-11-23)
+El modo `rgb` (el FBX entero como color de la pieza, T35) existía en `Catalog.add_piece(color_fbx=)` pero no tenía entrada de interfaz ni de CLI, y no cuidaba el frente de una cabeza. Ahora se puede elegir desde el asistente «Roles de color desde FBX…» y desde `afm catalogo color`.
+- CLI: `afm catalogo color RUTA REF --fbx F --rgb [--similitud S.json]` (excluyente con `--roles`, `--k` y `--sombreado`; no pide paleta). Sin `--roles` ni `--rgb` es un error claro.
+- Asistente: botón **«Guardar el FBX entero (rgb)»** junto a «Guardar» (solo con «a una pieza»; no hace falta analizar ni asignar roles). `RolesWizard.save_piece_rgb`; si en una cabeza la cara quedó hacia atrás (o no se pudo decidir) pide confirmación como el modo roles (`RolesWizardFrontError`).
+- Motor: `Catalog._rgb_block`; en una `cabeza` el calce valida el frente (`front_hint`, decidido solo por el calce: no hay paquete con roles de piel) y `CatalogFrontError` si queda al revés, salvo `front_confirmed=True` (la ficha anota `alineacion.frente_confirmado`). `similarity=` (4×4 FBX → pieza) evita alinear (pieza recortada de una figura). `parts.color_block(similarity=, frame=, front_confirmed=)`.
+- Costo: la pieza pesa lo que el FBX (decenas de MB) y no se recolorea con la paleta; el aspecto es el de la pantalla principal (no hay discretización ni «sombreado»: la textura va entera).
+- Pruebas: `tests/test_color_rgb_catalog.py` (6).
+
+### Todo List
+- [x] Done: motor + CLI + botón del asistente + textos es/en/pt + pruebas (sin GTK)
+- [ ] Todo: probar a mano el botón en la ventana GTK (no hay GTK en este entorno) y con la cabeza real de Bolívar (frente decidido solo por el calce: puede quedar «ambigua» y pedir confirmación)
+
+### Latest Blockers/Discoveries
+- Ya fallaban en `main` antes de este cambio: `test_color_catalog_head.py::test_head_fbx_that_does_not_fit_is_reported_and_the_head_stays_flat` y `test_catalog_roles.py::test_cut_piece_uses_figure_similarity_not_moments` (además de los dos de `test_colorpiece.py` ya anotados).
+
 ## Current Focus — Color por roles con sombreado: «Conservar sombreado» (2026-11-23)
 La cabeza de catálogo sacada de un busto con FBX llegaba discretizada en roles (color plano del hex): se perdía la luz y la sombra horneadas. Ahora el paquete de roles puede guardar un **atlas de sombreado** (uint8, mismo tamaño que las etiquetas, 128 = ×1,0) con el brillo de cada píxel respecto del color medio de su rol; al armar, color = hex del rol × factor. Cambiar el hex de un rol sigue recoloreando todo y la luz se conserva. Plan: `docs/PLAN_color_sombreado.md`.
 - `colorroles.build_package(..., shade=True)` + `shade_atlas` (factor = luminancia del píxel / luminancia media del rol, ponderada por área de superficie; acotado a 0,5–1,5; roles casi negros y «sin rol» en ×1,0). Formato `afm-color-roles-2` (= `-1` + array `shade`); sin sombreado se escribe el `-1` de siempre y los paquetes viejos se leen igual.
