@@ -362,17 +362,19 @@ class RolesWizard:
                     os.remove(cat.palette_path)
             raise
 
-    def compute_similarity(self, stl_path: str, project_path: str) -> dict:
-        """Calcula la similitud FBX → figura con el FBX ya cargado (o el de `fbx_path`) y la deja en `self.similarity` para `save_piece`.
-        Devuelve `{"media_mm", "ok"}`. Si el FBX no calza con esa figura levanta `RolesWizardError` y no deja nada guardado.
-        Puede tardar (se llama desde un hilo)."""
+    def compute_similarity(self, stl_path: str, project_path: str, fbx_path: str | None = None) -> dict:
+        """Calcula la similitud FBX → figura y la deja en `self.similarity` para `save_piece`. Usa `fbx_path` (el FBX elegido en la ventana: no hace falta
+        haberlo analizado antes) o, si no se da, el ya cargado. Devuelve `{"media_mm", "ok"}`. Si el FBX no calza con esa figura levanta `RolesWizardError`
+        y no deja nada guardado. Puede tardar (se llama desde un hilo)."""
         from ..figsim import FigureSimilarityError, compute_figure_similarity
         from ..frame import SIMILARITY_OK_MM
 
-        if not self.fbx_path:
+        path = fbx_path or self.fbx_path
+        if not path:
             raise RolesWizardError(tr("roles_wizard.sim_sin_fbx"))
+        tm = self.tm if (path == self.fbx_path and getattr(self, "tm", None) is not None) else None      # el ya leído solo vale para su propio FBX
         try:
-            sim = compute_figure_similarity(stl_path, project_path, self.fbx_path, tm=self.tm)
+            sim = compute_figure_similarity(stl_path, project_path, path, tm=tm)
         except FigureSimilarityError as exc:
             raise RolesWizardError(str(exc)) from exc
         if not sim.ok:

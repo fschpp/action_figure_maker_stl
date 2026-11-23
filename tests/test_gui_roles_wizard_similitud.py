@@ -69,3 +69,26 @@ def test_wizard_rejects_similarity_of_other_figure(line, head_mesh, tm):  # noqa
     with pytest.raises(RW.RolesWizardError, match="no corresponde al proyecto"):   # STL de otra figura con el .proyecto de Güemes: no calza en escala
         w.compute_similarity(other, PROJ)
     assert w.similarity is None
+
+
+def test_wizard_compute_similarity_with_chosen_fbx_without_analyzing(line, head_mesh, tm):  # noqa: F811
+    """La similitud se calcula con el FBX elegido en la ventana, sin haberlo analizado antes (el asistente puede tener otro FBX cargado)."""
+    w = RW.RolesWizard(make_ctrl(line))
+    assert w.fbx_path is None or not w.tm                                    # nada analizado
+    info = w.compute_similarity(STL, PROJ, FBX)
+    assert info["ok"] and w.similarity is not None
+    w.clear_similarity()
+    w.load_textured(two_color_tm(head_mesh))                                 # otro FBX ya cargado: su `tm` no debe usarse para el FBX elegido
+    w.fbx_path, w.tm = "/otro/fbx.fbx", w.tm
+    assert w.compute_similarity(STL, PROJ, FBX)["ok"]
+
+
+def test_roles_wizard_locale_keys_ux():
+    import json
+    keys = ("intro", "colores_k_ayuda", "origen", "origen_pieza", "origen_pieza_ayuda", "origen_figura", "origen_figura_ayuda", "elegir_similitud_ayuda",
+            "lista_vacia", "vista_vacia", "sim_falta", "sim_falta_fbx", "sim_archivo", "sim_calculada")
+    for lg in ("es", "en", "pt"):
+        d = json.load(open(os.path.join(ROOT, "src", "afm", "locales", f"{lg}.json"), encoding="utf-8"))
+        assert all(k in d["roles_wizard"] for k in keys), lg
+        for sec in ("common", "catalog_window"):                             # los botones de menú del catálogo no llevan la flecha ▾ en el texto
+            assert not [k for k, v in d[sec].items() if isinstance(v, str) and "▾" in v], (lg, sec)

@@ -47,6 +47,7 @@ class RolesWizardWindow(Gtk.Window):
         self._drag0 = (0.0, 0.0)
 
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_top=8, margin_bottom=8, margin_start=8, margin_end=8)
+        outer.append(Gtk.Label(label=tr("roles_wizard.intro"), xalign=0.0, wrap=True, css_classes=["dim-label"]))      # qué se hace acá, en 4 pasos
         outer.append(self._build_source())
         outer.append(self._build_target())
         paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL, wide_handle=True, vexpand=True)
@@ -74,8 +75,9 @@ class RolesWizardWindow(Gtk.Window):
         self.btn_fbx = Gtk.Button(label=tr("roles_wizard.elegir_fbx"))
         self.btn_fbx.connect("clicked", lambda *_: self._choose_fbx())
         row.append(self.btn_fbx)
-        row.append(Gtk.Label(label=tr("roles_wizard.colores_k")))
+        row.append(Gtk.Label(label=tr("roles_wizard.colores_k"), tooltip_text=tr("roles_wizard.colores_k_ayuda")))
         self.spin_k = Gtk.SpinButton.new_with_range(2, 24, 1)
+        self.spin_k.set_tooltip_text(tr("roles_wizard.colores_k_ayuda"))
         self.spin_k.set_value(DEFAULT_K)
         row.append(self.spin_k)
         self.chk_shade = Gtk.CheckButton(label=tr("roles_wizard.conservar_sombreado"), active=bool(self.wiz.shade),
@@ -99,20 +101,33 @@ class RolesWizardWindow(Gtk.Window):
         row.append(self.rb_piece)
         row.append(self.rb_figure)
         box.append(row)
-        self.piece_row = Gtk.Box(spacing=8)
-        self.piece_row.append(Gtk.Label(label=tr("roles_wizard.pieza")))
+        self.piece_row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        line = Gtk.Box(spacing=8)
+        line.append(Gtk.Label(label=tr("roles_wizard.pieza")))
         self._refs = self.wiz.piece_refs()
         self.drop_piece = Gtk.DropDown(model=Gtk.StringList.new(self._refs), hexpand=False)
-        self.piece_row.append(self.drop_piece)
-        self.piece_row.append(Gtk.Label(label=tr("roles_wizard.similitud")))
-        self.lbl_sim = Gtk.Label(label="", xalign=0.0, hexpand=True, ellipsize=3)
-        self.piece_row.append(self.lbl_sim)
+        line.append(self.drop_piece)
+        self.piece_row.append(line)
+        # ¿de dónde sale el FBX? Una pieza sola se alinea sola; si es un recorte de una figura hay que alinearlo con la figura entera
+        origin = Gtk.Box(spacing=8)
+        origin.append(Gtk.Label(label=tr("roles_wizard.origen")))
+        self.rb_alone = Gtk.CheckButton(label=tr("roles_wizard.origen_pieza"), active=True, tooltip_text=tr("roles_wizard.origen_pieza_ayuda"))
+        self.rb_whole = Gtk.CheckButton(label=tr("roles_wizard.origen_figura"), tooltip_text=tr("roles_wizard.origen_figura_ayuda"))
+        self.rb_whole.set_group(self.rb_alone)
+        self.rb_alone.connect("toggled", lambda *_: self._on_origin_toggled())
+        origin.append(self.rb_alone)
+        origin.append(self.rb_whole)
+        self.piece_row.append(origin)
+        self.sim_box = Gtk.Box(spacing=8, margin_start=24)         # solo con «la figura entera»: estado de la alineación y cómo conseguirla
+        self.lbl_sim = Gtk.Label(label="", xalign=0.0, hexpand=True, wrap=True)
+        self.sim_box.append(self.lbl_sim)
         self.btn_calc = Gtk.Button(label=tr("roles_wizard.calcular_similitud"), tooltip_text=tr("roles_wizard.calcular_similitud_ayuda"))
         self.btn_calc.connect("clicked", lambda *_: self._calc_similarity())
-        self.piece_row.append(self.btn_calc)
-        btn = Gtk.Button(label=tr("roles_wizard.elegir_similitud"))
-        btn.connect("clicked", lambda *_: self._choose_similarity())
-        self.piece_row.append(btn)
+        self.sim_box.append(self.btn_calc)
+        self.btn_choose_sim = Gtk.Button(label=tr("roles_wizard.elegir_similitud"), tooltip_text=tr("roles_wizard.elegir_similitud_ayuda"))
+        self.btn_choose_sim.connect("clicked", lambda *_: self._choose_similarity())
+        self.sim_box.append(self.btn_choose_sim)
+        self.piece_row.append(self.sim_box)
         box.append(self.piece_row)
         return box
 
@@ -121,6 +136,8 @@ class RolesWizardWindow(Gtk.Window):
         box.append(Gtk.Label(label=tr("roles_wizard.colores"), xalign=0.0, css_classes=["heading"]))
         self.listbox = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
         self.listbox.connect("row-selected", self._on_row_selected)
+        self.listbox.set_placeholder(Gtk.Label(label=tr("roles_wizard.lista_vacia"), wrap=True, justify=Gtk.Justification.CENTER, margin_top=24, margin_start=24,
+                                               margin_end=24, css_classes=["dim-label"]))
         scroll = Gtk.ScrolledWindow(vexpand=True, hexpand=True, min_content_height=220)
         scroll.set_child(self.listbox)
         box.append(scroll)
@@ -144,7 +161,7 @@ class RolesWizardWindow(Gtk.Window):
         drag.connect("drag-update", self._on_drag)
         self.picture.add_controller(drag)
         box.append(self.picture)
-        self.lbl_preview = Gtk.Label(xalign=0.0, wrap=True)
+        self.lbl_preview = Gtk.Label(label=tr("roles_wizard.vista_vacia"), xalign=0.0, wrap=True)
         box.append(self.lbl_preview)
         return box
 
@@ -180,6 +197,7 @@ class RolesWizardWindow(Gtk.Window):
         """Pone a punto los botones y el mensaje de lo que falta."""
         to_piece = self.rb_piece.get_active()
         self.piece_row.set_visible(to_piece)
+        self._update_sim_ui()
         ready = self.wiz.loaded and not self._busy
         self.btn_analyze.set_sensitive(bool(self._fbx) and not self._busy)
         self.btn_confirm.set_sensitive(ready and bool(self.wiz.unconfirmed()))
@@ -329,11 +347,43 @@ class RolesWizardWindow(Gtk.Window):
                 f = d.open_finish(res)
             except GLib.Error:
                 return                                              # cancelado
+            if f.get_path() != self._fbx:
+                self.wiz.clear_similarity()                         # la alineación calculada era de otro FBX: ya no vale
             self._fbx = f.get_path()
             self.lbl_fbx.set_text(os.path.basename(self._fbx))
             self._refresh()
 
         dlg.open(self, None, done)
+
+    def _on_origin_toggled(self) -> None:
+        """«El FBX es de: esta pieza sola / la figura entera». Volver a «esta pieza sola» descarta la alineación con la figura (calculada o de un JSON): así lo que se
+        ve en la ventana es lo que se guarda."""
+        if self._updating:
+            return
+        if self.rb_alone.get_active():
+            self.wiz.clear_similarity()
+            self._sim_path, self._sim_cache = "", None
+            self._parts_cache = None
+            self._render()
+        self._refresh()
+
+    def _update_sim_ui(self) -> None:
+        """Muestra el bloque de la alineación solo con «la figura entera» y dice, con palabras, en qué está: falta, calculada o tomada de un archivo."""
+        whole = self.rb_whole.get_active()
+        self.sim_box.set_visible(whole)
+        self.btn_calc.set_sensitive(bool(self._fbx) and not self._busy)
+        self.btn_choose_sim.set_sensitive(not self._busy)
+        for cls in ("success", "warning"):
+            self.lbl_sim.remove_css_class(cls)
+        if self.wiz.similarity is not None:
+            self.lbl_sim.set_text(tr("roles_wizard.sim_calculada", media=f"{float(self.wiz.similarity_info.get('media_mm', 0.0)):.3f}", stl=self.wiz.similarity_info.get("stl", "")))
+            self.lbl_sim.add_css_class("success")
+        elif self._sim_path:
+            self.lbl_sim.set_text(tr("roles_wizard.sim_archivo", nombre=os.path.basename(self._sim_path)))
+            self.lbl_sim.add_css_class("success")
+        else:
+            self.lbl_sim.set_text(tr("roles_wizard.sim_falta") if self._fbx else tr("roles_wizard.sim_falta_fbx"))
+            self.lbl_sim.add_css_class("warning")
 
     def _choose_similarity(self) -> None:
         dlg = Gtk.FileDialog(title=tr("roles_wizard.elegir_similitud_titulo"))
@@ -346,7 +396,7 @@ class RolesWizardWindow(Gtk.Window):
             self._sim_path = f.get_path()
             self._sim_cache = None
             self.wiz.clear_similarity()                             # el JSON elegido reemplaza a la similitud calculada
-            self.lbl_sim.set_text(os.path.basename(self._sim_path))
+            self._refresh()
 
         dlg.open(self, None, done)
 
@@ -355,6 +405,8 @@ class RolesWizardWindow(Gtk.Window):
         """Calcula la 4×4 FBX → figura sin salir de la ventana: con la figura abierta (si hay) o con un STL y un `.proyecto` a elegir."""
         if not self._fbx:
             self._say(tr("roles_wizard.sim_sin_fbx"))
+            return
+        if self._busy:
             return
         sess = getattr(self.ctrl, "session", None)
         stl, proj = getattr(sess, "stl_path", None), getattr(sess, "project_path", None)
@@ -407,14 +459,16 @@ class RolesWizardWindow(Gtk.Window):
     def _run_similarity(self, stl: str, proj: str) -> None:
         if self._busy:
             return
+        fbx = self._fbx
         self._busy = True
         self.btn_calc.set_sensitive(False)
+        self.btn_choose_sim.set_sensitive(False)
         self.btn_save.set_sensitive(False)
         self._say(tr("roles_wizard.sim_calculando"))
 
         def work():
             try:
-                info, err = self.wiz.compute_similarity(stl, proj), None
+                info, err = self.wiz.compute_similarity(stl, proj, fbx), None
             except Exception as exc:                                 # noqa: BLE001  (se muestra en la ventana)
                 info, err = None, exc
             GLib.idle_add(self._similarity_done, info, err)
@@ -425,16 +479,13 @@ class RolesWizardWindow(Gtk.Window):
         self._busy = False
         if self._closed:
             return False
-        self.btn_calc.set_sensitive(True)
         if err is not None:
             self.wiz.clear_similarity()
             self._sim_path = ""
-            self.lbl_sim.set_text("")
             self._refresh()
             self._error(err)
             return False
         self._sim_path = ""                                          # la calculada reemplaza a un JSON elegido antes
-        self.lbl_sim.set_text(tr("roles_wizard.sim_calculada", media=f"{info['media_mm']:.3f}", stl=self.wiz.similarity_info.get("stl", "")))
         self._refresh()
         self._say(tr("roles_wizard.sim_lista", media=f"{info['media_mm']:.3f}"))
         return False
@@ -624,9 +675,10 @@ class RolesWizardWindow(Gtk.Window):
         self._show_check(chk)
         return False
 
-    @staticmethod
-    def _with_sim_hint(err, no_sim: bool):
+    def _with_sim_hint(self, err, no_sim: bool):
         if no_sim and isinstance(err, RolesWizardError) and "similarity" in str(err):        # pieza recortada de una figura: el error pedía la similitud
+            self.rb_whole.set_active(True)                                                    # se muestra solo el bloque que hay que completar
+            self._refresh()
             return RolesWizardError(f"{err}\n\n{tr('roles_wizard.sim_pista')}")
         return err
 
