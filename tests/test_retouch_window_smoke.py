@@ -216,10 +216,25 @@ def test_retouch_release_while_busy_recalculates(win, line):
     assert ed.result_shown
 
 
-def test_detail_rows_wrap_when_window_is_narrow(win, line):
-    """Los botones del detalle pasan a otra línea en vez de recortarse o ensanchar la ventana (WrapRow)."""
+def test_detail_actions_live_in_toolbar_menus(win, line):
+    """Los botones de la pieza ya no están sueltos en el panel: cada uno vive en el menú de su función (Pieza, Editar, Color, Análisis…)."""
+    def in_menu(btn, menu):
+        w = btn
+        while w is not None and w is not menu.get_popover():
+            w = w.get_parent()
+        return w is not None
+    for btn, menu in ((win.btn_rename, win.menu_piece), (win.btn_delete, win.menu_piece), (win.btn_undo, win.menu_piece),
+                      (win.btn_wrist, win.menu_edit), (win.btn_grip, win.menu_edit), (win.btn_joint, win.menu_edit),
+                      (win.btn_retouch, win.menu_color), (win.btn_turn, win.menu_color),
+                      (win.btn_certify, win.menu_analysis), (win.btn_cover, win.menu_analysis), (win.btn_capacity, win.menu_analysis),
+                      (win.btn_explain, win.menu_analysis)):
+        assert in_menu(btn, menu), btn.get_label()
+
+
+def test_toolbar_wraps_when_window_is_narrow(win, line):
+    """La barra de menús pasa a otra línea en vez de recortarse o ensanchar la ventana (WrapRow)."""
     from afm.gui.widgets import WrapRow
-    assert isinstance(win.btn_retouch.get_parent(), WrapRow)
+    assert isinstance(win.menu_piece.get_parent(), WrapRow)
     win.set_default_size(900, 700)
     pump(20)
     assert win.get_width() <= 900 or win.is_maximized()

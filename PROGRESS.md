@@ -1,3 +1,18 @@
+## Current Focus — Ventana «Administrar catálogo»: botones agrupados en una barra de menús (2026-11-23)
+El panel derecho tenía ~15 botones sueltos (Vista 3/4, −, +, Cortar la mano, Taladrar agarre, Reajustar articulación, Retocar color, Girar color, Renombrar, Eliminar, Recuperar, Estado, Certificar, Cobertura, Capacidad, Explicar acoples) y los menús «Catálogo» e «Importar» estaban en otro lado. Ahora hay una sola barra arriba de la ventana (`_build_toolbar`, `WrapRow`: pasa a otra línea si la ventana es angosta), ordenada de lo que afecta a la pieza elegida a lo que afecta a todo el catálogo:
+- **Pieza ▾**: Renombrar (F2), Estado + «Aplicar a las elegidas», Elegir todas las que se ven, Eliminar, Recuperar lo eliminado.
+- **Editar pieza ▾**: Cortar la mano…, Taladrar agarre…, Reajustar articulación…
+- **Color ▾**: Retocar color…, Girar color 180°…, Paleta de la línea…, Roles de color desde un FBX… (estos dos salieron del menú «Catálogo»).
+- **Análisis ▾**: Certificar (+ «forzar»), Cobertura, Capacidad, Explicar acoples.
+- **Importar ▾**, **Catálogo ▾** (verificar, contrato, certificar todo, compatibilidad, capacidad), **Vista ▾** (3/4, acercar, alejar).
+- Los `Gtk.Button` conservan sus nombres de atributo (`btn_wrist`, `btn_retouch`, `btn_delete`…): solo cambió dónde se muestran, así la lógica de habilitar / deshabilitar y los atajos (F2, Supr) no cambian. Los filtros (tipo / estado / etiqueta) quedan en una fila y «solo la última versión» en otra. La ayuda del ratón pasó a una línea de texto debajo del visor.
+- Textos nuevos es/en/pt: `catalog_window.menu_*`. Pruebas: `test_detail_actions_live_in_toolbar_menus` y `test_toolbar_wraps_when_window_is_narrow` (reemplaza a la de WrapRow del detalle).
+
+### Todo List
+- [x] Done: barra de menús + textos + pruebas GTK con xvfb
+- [ ] Todo: probar a mano en el escritorio real (ancho de la barra con el tema del sistema; menú «Pieza» con el desplegable de estado dentro del popover)
+- [ ] Todo (si hace falta): deshabilitar el menú entero cuando todos sus ítems estén apagados; atajos de teclado por menú (Alt+letra)
+
 ## Current Focus — Retocar color: ventana de herramientas estilo Paintbrush (2026-11-23)
 El panel de retoque tenía demasiados botones en filas y el rol se elegía con un desplegable. Ahora las herramientas viven en una ventana flotante (no modal) `RetouchToolbox` (`src/afm/gui/retouch_toolbox.py`) y la ventana de Catálogo deja solo una franja con el estado, la ayuda y el botón «Herramientas» (la reabre si se cierra).
 - Izquierda: Pintar / Borrar / Rellenar / Polígono entero (toggles con ícono + texto) y Deshacer / Rehacer. Al lado: 5 grosores dibujados como líneas de espesor creciente (0,25 · 0,75 · 1,5 · 3 · 6 mm de radio), el radio exacto y, solo con «Rellenar», el alcance. Con «Polígono entero» el grosor se apaga.

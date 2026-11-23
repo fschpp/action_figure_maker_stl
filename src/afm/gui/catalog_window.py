@@ -75,7 +75,12 @@ class CatalogManagerWindow(Gtk.Window):
         paned.set_resize_start_child(False)
         paned.set_shrink_start_child(True)           # ninguno de los dos lados fija el tamaño mínimo de la ventana: se puede achicar y maximizar
         paned.set_shrink_end_child(True)
-        self.set_child(paned)
+        paned.set_vexpand(True)
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        outer.append(self._build_toolbar())          # todas las acciones, agrupadas por función, en un solo lugar
+        outer.append(Gtk.Separator())
+        outer.append(paned)
+        self.set_child(outer)
         self.connect("destroy", lambda *_: self.preview.close())
         win_keys = Gtk.EventControllerKey()
         win_keys.connect("key-pressed", self._on_window_key)
@@ -91,31 +96,22 @@ class CatalogManagerWindow(Gtk.Window):
         self.search = Gtk.SearchEntry(placeholder_text=tr("catalog_window.buscar_nombre_tipo_figura_de_origen"))
         self.search.connect("search-changed", lambda *_: self._reload())
         box.append(self.search)
-        row = Gtk.Box(spacing=6)
+        row2 = Gtk.Box(spacing=6)                                  # los tres filtros en una sola fila
         self.dd_type = Gtk.DropDown.new_from_strings([ALL_TYPES])
-        self.dd_type.set_hexpand(True)
-        self.dd_type.connect("notify::selected", lambda *_: None if self._updating else self._reload())
-        row.append(self.dd_type)
-        btn_all = Gtk.Button(label=tr("catalog_window.elegir_todas_las_que_se_ven"))
-        btn_all.connect("clicked", lambda *_: self.listbox.select_all())
-        row.append(btn_all)
-        row.append(self._build_catalog_menu())
-        row.append(self._build_import_menu())
-        box.append(row)
-        row2 = Gtk.Box(spacing=6)
         self.dd_fstate = Gtk.DropDown.new_from_strings([ALL_STATES])
-        self.dd_fstate.set_hexpand(True)
         self.dd_tag = Gtk.DropDown.new_from_strings([ALL_TAGS])
-        self.dd_tag.set_hexpand(True)
-        for dd in (self.dd_fstate, self.dd_tag):
+        for dd in (self.dd_type, self.dd_fstate, self.dd_tag):
+            dd.set_hexpand(True)
             dd.connect("notify::selected", lambda *_: None if self._updating else self._reload())
             row2.append(dd)
+        box.append(row2)
+        row3 = Gtk.Box(spacing=6)
         self.chk_latest = Gtk.CheckButton(label=tr("catalog_window.solo_la_ultima_version"))
         self.chk_latest.set_tooltip_text(tr("catalog_window.como_afm_catalogo_listar_una_fila"))
         self.chk_latest.set_active(True)                          # por defecto solo la última versión (antes de conectar «toggled»: no recarga)
         self.chk_latest.connect("toggled", lambda *_: None if self._updating else self._reload())
-        row2.append(self.chk_latest)
-        box.append(row2)
+        row3.append(self.chk_latest)
+        box.append(row3)
 
         head_sw = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.EXTERNAL, vscrollbar_policy=Gtk.PolicyType.NEVER)
         head_sw.set_child(self._build_header())        # EXTERNAL: no pide su ancho completo como mínimo (si no, la ventana no se podría achicar)
@@ -217,54 +213,47 @@ class CatalogManagerWindow(Gtk.Window):
         legend.add_css_class("dim-label")
         box.append(legend)
 
-        bar = WrapRow(spacing=6)                                   # (si la ventana es angosta, los botones pasan a otra línea; el texto largo se acorta)
+        # Los botones se crean acá pero no se muestran sueltos: `_build_toolbar` los reparte en los menús de la barra de arriba
+        # (con los mismos nombres de atributo de siempre, así la lógica de habilitar / deshabilitar no cambia).
         reset = Gtk.Button(label=tr("common.vista_3_4"))
         reset.set_tooltip_text(tr("catalog_window.vuelve_a_la_vista_3_4"))
         reset.connect("clicked", self._on_reset_view)
-        bar.append(reset)
+        self._view_items = [reset]
         for txt, tip, fac in (("−", tr("catalog_window.alejar_tambien_la_rueda_del_raton"), 1 / ZOOM_STEP), ("+", tr("catalog_window.acercar_tambien_la_rueda_del_raton"), ZOOM_STEP)):
             b = Gtk.Button(label=txt)
             b.set_tooltip_text(tip)
             b.connect("clicked", lambda _b, f=fac: self._zoom_by(f))
-            bar.append(b)
-        bar.append(Gtk.Label(label=tr("catalog_window.arrastra_para_girar_rueda_o_pellizco"), xalign=0, hexpand=True,
-                             ellipsize=Pango.EllipsizeMode.END, width_chars=8))
+            self._view_items.append(b)
+        mouse_hint = Gtk.Label(label=tr("catalog_window.arrastra_para_girar_rueda_o_pellizco"), xalign=0, wrap=True)
+        mouse_hint.add_css_class("dim-label")
+        box.append(mouse_hint)
         self.btn_wrist = Gtk.Button(label=tr("catalog_window.cortar_la_mano"))
         self.btn_wrist.set_sensitive(False)
         self.btn_wrist.connect("clicked", self._on_wrist_start)
-        bar.append(self.btn_wrist)
         self.btn_grip = Gtk.Button(label=tr("catalog_window.taladrar_agarre"))
         self.btn_grip.set_sensitive(False)
         self.btn_grip.connect("clicked", self._on_grip_start)
-        bar.append(self.btn_grip)
         self.btn_joint = Gtk.Button(label=tr("catalog_window.reajustar_articulacion"))
         self.btn_joint.set_sensitive(False)
         self.btn_joint.connect("clicked", self._on_joint_start)
-        bar.append(self.btn_joint)
         self.btn_retouch = Gtk.Button(label=tr("catalog_window.retocar_color"))
         self.btn_retouch.set_sensitive(False)
         self.btn_retouch.connect("clicked", self._on_retouch_start)
-        bar.append(self.btn_retouch)
         self.btn_turn = Gtk.Button(label=tr("catalog_window.girar_color"))
         self.btn_turn.set_sensitive(False)
         self.btn_turn.connect("clicked", self._on_turn_start)
-        bar.append(self.btn_turn)
         self.btn_rename = Gtk.Button(label=tr("catalog_window.renombrar_f2"))
         self.btn_rename.set_sensitive(False)
         self.btn_rename.set_tooltip_text(tr("catalog_window.cambia_el_nombre_con_que_se"))
         self.btn_rename.connect("clicked", self._on_rename)
-        bar.append(self.btn_rename)
         self.btn_delete = Gtk.Button(label=tr("catalog_window.eliminar"))
         self.btn_delete.add_css_class("destructive-action")
         self.btn_delete.connect("clicked", self._on_delete)
-        bar.append(self.btn_delete)
         self.btn_undo = Gtk.Button(label=tr("catalog_window.recuperar_lo_eliminado"))
         self.btn_undo.set_sensitive(False)
         self.btn_undo.connect("clicked", self._on_undo_delete)
-        bar.append(self.btn_undo)
-        box.append(bar)
-        box.append(self._build_state_row())
-        box.append(self._build_ops_row())
+        self._state_row = self._build_state_row()
+        self._build_ops_row()
         box.append(self._build_flex_row())
         box.append(self._build_wrist_panel())
         box.append(self._build_joint_panel())
@@ -290,7 +279,7 @@ class CatalogManagerWindow(Gtk.Window):
     # ------------------------------------------------------------ estado de las piezas elegidas
     def _build_state_row(self) -> Gtk.Widget:
         """«Estado: [borrador ▾] [Aplicar a las elegidas]»: cambia el estado de una o varias versiones a la vez."""
-        row = WrapRow(spacing=8)
+        row = Gtk.Box(spacing=8, margin_start=6, margin_end=6)
         row.append(Gtk.Label(label=tr("catalog_window.estado"), xalign=0))
         self.dd_state = Gtk.DropDown.new_from_strings(list(STATES))
         self.dd_state.set_tooltip_text(tr("catalog_window.borrador_validada_impresa_es_lo_unico"))
@@ -334,64 +323,116 @@ class CatalogManagerWindow(Gtk.Window):
         self.lbl_status.set_text(self.ctrl.message or "")
 
     # ------------------------------------------------------------ comandos de `afm catalogo` (catalog_ops)
-    def _build_catalog_menu(self) -> Gtk.Widget:
-        """Menú «Catálogo ▾»: los comandos que valen para todo el catálogo (verificar, contrato, certificar todo, compatibilidad, matriz)."""
-        self.menu_cat = Gtk.MenuButton(label=tr("common.catalogo"))
+    # ------------------------------------------------------------ barra de menús (todas las acciones, agrupadas por función)
+    def _make_menu(self, label: str, tip: str, entries: list) -> Gtk.MenuButton:
+        """Un `Gtk.MenuButton` con un popover. `entries`: botones (se muestran como ítems planos y cierran el menú al usarse),
+        `None` (separador), un `str` (subtítulo del grupo) u otro widget (se agrega tal cual)."""
+        mb = Gtk.MenuButton(label=label, tooltip_text=tip)
         pop = Gtk.Popover()
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, margin_top=6, margin_bottom=6, margin_start=6, margin_end=6)
-        self._menu_buttons: list[Gtk.Button] = []
-        items = [
-            (tr("catalog_window.verificar_el_catalogo"), self._op_verify, tr("catalog_window.afm_catalogo_verificar_formato_hash_mallas")),
-            (tr("catalog_window.ver_el_contrato_de_la_linea"), self._op_contract, tr("catalog_window.afm_catalogo_contrato_ver_talles_de")),
-            (tr("palette_panel.abrir"), self._open_palette, tr("palette_panel.abrir_tip")),
-            (tr("roles_wizard.abrir"), self._open_roles_wizard, tr("roles_wizard.abrir_tip")),
-            None,
-            (tr("catalog_window.estado_de_la_certificacion_todas"), lambda: self._op_certify(None, status_only=True), tr("catalog_window.afm_catalogo_certificar_estado_no_arma")),
-            (tr("catalog_window.certificar_todas_las_piezas"), lambda: self._op_certify(None), tr("catalog_window.afm_catalogo_certificar_arma_de_verdad")),
-            (tr("catalog_window.certificar_todas_de_nuevo_forzar"), lambda: self._op_certify(None, force=True), tr("catalog_window.afm_catalogo_certificar_forzar_vuelve_a")),
-            None,
-            (tr("common.compatibilidad_de_las_recetas"), lambda: self._op_compat(False), tr("catalog_window.afm_catalogo_compat_build_validate_de")),
-            (tr("catalog_window.compatibilidad_de_las_recetas_forzar"), lambda: self._op_compat(True), tr("catalog_window.afm_catalogo_compat_forzar")),
-            (tr("catalog_window.escribir_compatibilidad_md"), lambda: self._op_matrix(False), tr("catalog_window.afm_catalogo_matriz_matriz_barata_del")),
-            (tr("catalog_window.escribir_compatibilidad_md_validando_antes"), lambda: self._op_matrix(True), tr("catalog_window.afm_catalogo_matriz_completa")),
-            None,
-            (tr("catalog_window.medir_la_capacidad_de_las_tomas"), lambda: self._op_capacity(None), tr("catalog_window.afm_catalogo_capacidad_hasta_donde_llega")),
-            (tr("catalog_window.medir_y_guardar_la_capacidad"), lambda: self._op_capacity(None, write=True), tr("catalog_window.afm_catalogo_capacidad_escribir_ademas_esc")),
-            None,
-            (tr("catalog_window.calibrar_el_contrato_propuesta"), self._op_contract_propose, tr("catalog_window.afm_catalogo_contrato_calibrar_tolerancia")),
-            (tr("catalog_window.guardar_la_propuesta_del_contrato"), self._op_contract_save, tr("catalog_window.afm_catalogo_contrato_calibrar_guardar_esc")),
-            (tr("catalog_window.borrar_el_contrato_de_la_linea_2"), self._op_contract_clear, tr("catalog_window.afm_catalogo_contrato_quitar_pide_confirma")),
-        ]
-        for it in items:
-            if it is None:
-                box.append(Gtk.Separator())
+        for e in entries:
+            if e is None:
+                box.append(Gtk.Separator(margin_top=4, margin_bottom=4))
                 continue
-            label, cb, tip = it
-            b = Gtk.Button(label=label, has_frame=False, halign=Gtk.Align.START, tooltip_text=tip)
-            b.connect("clicked", lambda _b, cb=cb: (pop.popdown(), cb()))
-            box.append(b)
-            self._menu_buttons.append(b)
-            if label == tr("catalog_window.guardar_la_propuesta_del_contrato"):
-                self._btn_save_proposal = b
+            if isinstance(e, str):
+                head = Gtk.Label(label=e, xalign=0, margin_start=6, margin_top=2)
+                head.add_css_class("dim-label")
+                head.add_css_class("caption-heading")
+                box.append(head)
+                continue
+            if isinstance(e, Gtk.Button):
+                e.set_has_frame(False)
+                e.set_halign(Gtk.Align.START)
+                e.connect("clicked", lambda *_: pop.popdown())
+            box.append(e)
         pop.set_child(box)
-        self.menu_cat.set_popover(pop)
-        return self.menu_cat
+        mb.set_popover(pop)
+        return mb
 
-    def _build_import_menu(self) -> Gtk.Widget:
-        """Menú «Importar ▾»: agregar al catálogo una mano, un accesorio, un arma o una pieza suelta desde un STL."""
-        self.menu_import = Gtk.MenuButton(label=tr("catalog_window.importar"))
-        pop = Gtk.Popover()
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, margin_top=6, margin_bottom=6, margin_start=6, margin_end=6)
+    def _menu_entry(self, label: str, cb, tip: str, registry: list) -> Gtk.Button:
+        """Ítem de menú que lanza `cb` y se deshabilita junto con el resto de los comandos de catálogo (`registry`)."""
+        b = Gtk.Button(label=label, tooltip_text=tip)
+        b.connect("clicked", lambda _b: cb())
+        registry.append(b)
+        return b
+
+    def _build_toolbar(self) -> Gtk.Widget:
+        """Barra de menús de la ventana: lo de la pieza elegida primero (Pieza, Editar, Color, Análisis) y lo de todo el catálogo después
+        (Importar, Catálogo, Vista). Antes eran ~15 botones sueltos en el panel de la derecha."""
+        self._menu_buttons: list[Gtk.Button] = []
         self._import_buttons: list[Gtk.Button] = []
-        for kind, label in CI.LABELS.items():
-            b = Gtk.Button(label=label, has_frame=False, halign=Gtk.Align.START,
-                           tooltip_text=tr("catalog_window.afm_catalogo_comando_ayuda", comando=CI.FORMS[kind]['comando'], ayuda=CI.FORMS[kind]['ayuda']))
-            b.connect("clicked", lambda _b, k=kind: (pop.popdown(), self._open_import(k)))
-            box.append(b)
-            self._import_buttons.append(b)
-        pop.set_child(box)
-        self.menu_import.set_popover(pop)
-        return self.menu_import
+        self.menu_piece = self._make_menu(tr("catalog_window.menu_pieza"), tr("catalog_window.menu_pieza_tip"), [
+            self.btn_rename,
+            self._state_row,
+            None,
+            self._entry_select_all(),
+            None,
+            self.btn_delete,
+            self.btn_undo,
+        ])
+        self.menu_edit = self._make_menu(tr("catalog_window.menu_editar"), tr("catalog_window.menu_editar_tip"), [
+            self.btn_wrist, self.btn_grip, self.btn_joint,
+        ])
+        self.menu_color = self._make_menu(tr("catalog_window.menu_color"), tr("catalog_window.menu_color_tip"), [
+            self.btn_retouch, self.btn_turn,
+            None,
+            self._menu_entry(tr("palette_panel.abrir"), self._open_palette, tr("palette_panel.abrir_tip"), self._menu_buttons),
+            self._menu_entry(tr("roles_wizard.abrir"), self._open_roles_wizard, tr("roles_wizard.abrir_tip"), self._menu_buttons),
+        ])
+        self.menu_analysis = self._make_menu(tr("catalog_window.menu_analisis"), tr("catalog_window.menu_analisis_tip"), [
+            self.btn_certify, self.chk_force,
+            None,
+            self.btn_cover, self.btn_capacity, self.btn_explain,
+        ])
+        self.menu_import = self._make_menu(tr("catalog_window.importar"), tr("catalog_window.menu_importar_tip"), [
+            self._import_entry(kind, label) for kind, label in CI.LABELS.items()
+        ])
+        self.menu_cat = self._build_catalog_menu()
+        self.menu_view = self._make_menu(tr("catalog_window.menu_vista"), tr("catalog_window.menu_vista_tip"), list(self._view_items))
+        bar = WrapRow(spacing=6)
+        for mb in (self.menu_piece, self.menu_edit, self.menu_color, self.menu_analysis, self.menu_import, self.menu_cat, self.menu_view):
+            bar.append(mb)
+        wrap = Gtk.Box(margin_top=6, margin_bottom=6, margin_start=8, margin_end=8)
+        wrap.append(bar)
+        return wrap
+
+    def _entry_select_all(self) -> Gtk.Button:
+        b = Gtk.Button(label=tr("catalog_window.elegir_todas_las_que_se_ven"))
+        b.connect("clicked", lambda *_: self.listbox.select_all())
+        return b
+
+    def _import_entry(self, kind: str, label: str) -> Gtk.Button:
+        b = Gtk.Button(label=label, tooltip_text=tr("catalog_window.afm_catalogo_comando_ayuda", comando=CI.FORMS[kind]['comando'], ayuda=CI.FORMS[kind]['ayuda']))
+        b.connect("clicked", lambda _b, k=kind: self._open_import(k))
+        self._import_buttons.append(b)
+        return b
+
+    def _build_catalog_menu(self) -> Gtk.MenuButton:
+        """Menú «Catálogo ▾»: los comandos que valen para todo el catálogo (verificar, contrato, certificar todo, compatibilidad, matriz)."""
+        reg = self._menu_buttons
+        e = lambda label, cb, tip: self._menu_entry(label, cb, tip, reg)     # noqa: E731
+        items = [
+            e(tr("catalog_window.verificar_el_catalogo"), self._op_verify, tr("catalog_window.afm_catalogo_verificar_formato_hash_mallas")),
+            e(tr("catalog_window.ver_el_contrato_de_la_linea"), self._op_contract, tr("catalog_window.afm_catalogo_contrato_ver_talles_de")),
+            None,
+            e(tr("catalog_window.estado_de_la_certificacion_todas"), lambda: self._op_certify(None, status_only=True), tr("catalog_window.afm_catalogo_certificar_estado_no_arma")),
+            e(tr("catalog_window.certificar_todas_las_piezas"), lambda: self._op_certify(None), tr("catalog_window.afm_catalogo_certificar_arma_de_verdad")),
+            e(tr("catalog_window.certificar_todas_de_nuevo_forzar"), lambda: self._op_certify(None, force=True), tr("catalog_window.afm_catalogo_certificar_forzar_vuelve_a")),
+            None,
+            e(tr("common.compatibilidad_de_las_recetas"), lambda: self._op_compat(False), tr("catalog_window.afm_catalogo_compat_build_validate_de")),
+            e(tr("catalog_window.compatibilidad_de_las_recetas_forzar"), lambda: self._op_compat(True), tr("catalog_window.afm_catalogo_compat_forzar")),
+            e(tr("catalog_window.escribir_compatibilidad_md"), lambda: self._op_matrix(False), tr("catalog_window.afm_catalogo_matriz_matriz_barata_del")),
+            e(tr("catalog_window.escribir_compatibilidad_md_validando_antes"), lambda: self._op_matrix(True), tr("catalog_window.afm_catalogo_matriz_completa")),
+            None,
+            e(tr("catalog_window.medir_la_capacidad_de_las_tomas"), lambda: self._op_capacity(None), tr("catalog_window.afm_catalogo_capacidad_hasta_donde_llega")),
+            e(tr("catalog_window.medir_y_guardar_la_capacidad"), lambda: self._op_capacity(None, write=True), tr("catalog_window.afm_catalogo_capacidad_escribir_ademas_esc")),
+            None,
+            e(tr("catalog_window.calibrar_el_contrato_propuesta"), self._op_contract_propose, tr("catalog_window.afm_catalogo_contrato_calibrar_tolerancia")),
+            e(tr("catalog_window.guardar_la_propuesta_del_contrato"), self._op_contract_save, tr("catalog_window.afm_catalogo_contrato_calibrar_guardar_esc")),
+            e(tr("catalog_window.borrar_el_contrato_de_la_linea_2"), self._op_contract_clear, tr("catalog_window.afm_catalogo_contrato_quitar_pide_confirma")),
+        ]
+        self._btn_save_proposal = reg[-2]
+        return self._make_menu(tr("common.catalogo"), tr("catalog_window.menu_catalogo_tip"), items)
 
     def _open_palette(self) -> None:
         """«Paleta de la línea…»: abre la ventana de roles de color (una sola; si ya está abierta, la trae al frente)."""
@@ -462,8 +503,7 @@ class CatalogManagerWindow(Gtk.Window):
                 return
 
     def _build_ops_row(self) -> Gtk.Widget:
-        """Comandos de la pieza elegida: certificar, cobertura, explicar."""
-        row = WrapRow(spacing=6)
+        """Comandos de la pieza elegida (certificar, cobertura, capacidad, explicar): se crean acá y se muestran en el menú «Análisis»."""
         self.btn_certify = Gtk.Button(label=tr("catalog_window.certificar"))
         self.btn_certify.connect("clicked", lambda *_: self._op_certify(self._selected_refs()))
         self.chk_force = Gtk.CheckButton(label=tr("catalog_window.forzar"))
@@ -479,10 +519,6 @@ class CatalogManagerWindow(Gtk.Window):
                        (self.btn_capacity, tr("catalog_window.afm_catalogo_capacidad_id_hasta_donde")),
                        (self.btn_explain, tr("catalog_window.afm_catalogo_explicar_id_por_que"))):
             w.set_tooltip_text(tip)
-            row.append(w)
-            if w is self.btn_certify:
-                row.append(self.chk_force)
-        return row
 
     def _build_task_row(self) -> Gtk.Widget:
         """Progreso de una tarea larga de catálogo (oculto hasta que corre una) y su botón para cancelarla."""
