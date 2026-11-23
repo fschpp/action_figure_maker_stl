@@ -375,6 +375,19 @@ class PreviewRenderer:
             off.scene.set_points(name, np.asarray(pts, float), rgba, size=float(dot_px), on_top=False)
         self._overlay_names = wanted
 
+    EDGE_LIGHT_NAME, EDGE_DARK_NAME = "aristas_claras", "aristas_oscuras"
+
+    def _edges(self, off, mesh, color_parts) -> None:
+        """Los lados de los polígonos de `mesh`, en dos capas de línea: claras (sobre colores oscuros) y oscuras (sobre colores claros)."""
+        from ..colorpreview import EDGE_DARK, EDGE_LIGHT, edge_segments_by_contrast, face_rgb_from_parts
+
+        light, dark = edge_segments_by_contrast(mesh, face_rgb_from_parts(mesh, color_parts, self.PIECE_COLOR))
+        for name, segs, rgba in ((self.EDGE_LIGHT_NAME, light, EDGE_LIGHT), (self.EDGE_DARK_NAME, dark, EDGE_DARK)):
+            if len(segs):
+                off.scene.set_segments(name, segs, rgba)
+            else:
+                off.scene.remove(name)
+
     HOVER_COLOR = (0.35, 1.0, 1.0, 1.0)          # aristas que se iluminan bajo el pincel (modo «Retocar»)
 
     def _hover(self, off, segments) -> None:
@@ -386,17 +399,19 @@ class PreviewRenderer:
         off.scene.set_lines("hover_pincel", np.asarray(segments, float), self.HOVER_COLOR, on_top=False, width=2.0)
 
     def render(self, mesh, meta: PieceMeta | None = None, yaw_off: float = 0.0, pitch_off: float = 0.0, marks=None,
-               zoom: float = 1.0, pan=(0.0, 0.0), color_parts=None, overlay=None, dot_px: float = 14.0, guides: bool = True, hover=None) -> np.ndarray:
+               zoom: float = 1.0, pan=(0.0, 0.0), color_parts=None, overlay=None, dot_px: float = 14.0, guides: bool = True, hover=None, edges: bool = False) -> np.ndarray:
         """Imagen RGBA (alto × ancho × 4, uint8) de `mesh` en vista 3/4; `yaw_off` / `pitch_off` giran la vista (°).
         `marks`: puntos (Nx3) a marcar encima, p. ej. los de la muñeca. `color_parts` (`colorpreview.piece_color_parts`): la misma pieza
         partida por color, `[(nombre, malla, rgba)]`; con ella la pieza se dibuja a color en lugar de gris (pasadores y ejes igual).
         `guides=False` deja afuera los pasadores, los puertos y el plano de la articulación (p. ej. al retocar el color).
-        `hover`: aristas `(E, 2, 3)` a resaltar (lo que el pincel pintaría bajo el mouse)."""
+        `hover`: aristas `(E, 2, 3)` a resaltar (lo que el pincel pintaría bajo el mouse). `edges=True` dibuja SIEMPRE los lados de los polígonos de
+        la pieza, claros sobre un color oscuro y oscuros sobre uno claro (`colorpreview.edge_segments_by_contrast`), para que un color oscuro
+        no haga perder la forma (el modo «Retocar color»)."""
         off = self._ensure()
         if off is None:
             raise RuntimeError(self.error or tr("catalog_manager.sin_vista_previa"))
         with off.ctx:                        # vuelve a poner este contexto como el actual (GTK tiene el suyo)
-            key = (id(mesh), meta.ref if meta is not None else None, len(meta.articulaciones or []) if meta is not None else 0, id(color_parts), guides)
+            key = (id(mesh), meta.ref if meta is not None else None, len(meta.articulaciones or []) if meta is not None else 0, id(color_parts), guides, edges)
             if self._mesh is not mesh or self._key != key:
                 off.scene.clear()
                 if color_parts:
@@ -412,6 +427,8 @@ class PreviewRenderer:
                         off.scene.set_points("puertos", pts, self.PORT_COLOR, size=14.0, on_top=True)
                     for name, plane in joint_planes(meta):
                         off.scene.set_plane(name, plane, float(max(mesh.extents)) * 0.35, color=JOINT_PLANE_COLOR)
+                if edges:
+                    self._edges(off, mesh, color_parts)
                 self._mesh = mesh
                 self._key = key
                 self._overlay_names = set()                          # scene.clear() ya se llevó las capas

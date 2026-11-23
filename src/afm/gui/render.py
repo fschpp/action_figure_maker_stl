@@ -338,6 +338,18 @@ class SceneRenderer:
         vao = self.ctx.vertex_array(self.flat_prog, [(vbo, "3f", "in_pos")])
         return self._put(name, Item("lines", vao, vbo, len(data), color, bias=2e-4, on_top=on_top))
 
+    def set_segments(self, name: str, segments, color=(1.0, 0.8, 0.2, 1.0), on_top: bool = False, width: float = 1.0):
+        """Segmentos sueltos `(E, 2, 3)` como líneas (sin recorrer uno por uno: sirve para las aristas de una malla entera)."""
+        seg = np.asarray(segments, np.float32).reshape(-1, 2, 3)
+        if len(seg) == 0:
+            return self.remove(name)
+        data = np.ascontiguousarray(seg.reshape(-1, 3), dtype="f4")
+        if width > 1.0:
+            return self._put(name, self._thick_item(data, color, on_top, float(width)))
+        vbo = self.ctx.buffer(data.tobytes())
+        vao = self.ctx.vertex_array(self.flat_prog, [(vbo, "3f", "in_pos")])
+        return self._put(name, Item("lines", vao, vbo, len(data), color, bias=2e-4, on_top=on_top))
+
     def _thick_item(self, seg: np.ndarray, color, on_top: bool, width: float) -> Item:
         """Cada segmento (a, b) se vuelve un rectángulo de 2 triángulos que el shader ensancha en pantalla."""
         a, b = seg[0::2], seg[1::2]

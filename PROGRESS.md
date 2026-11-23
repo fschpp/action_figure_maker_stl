@@ -1,3 +1,18 @@
+## Current Focus — Retocar color: los lados de los polígonos siempre visibles (2026-11-22)
+Al retocar el color de una pieza del catálogo, un color oscuro hacía perder la forma (el sombreado no alcanza). Ahora «Retocar color…» dibuja siempre los lados de los polígonos de la pieza con un color que contrasta con el de las caras que tocan: claros sobre un color oscuro, oscuros sobre uno claro (razón de contraste WCAG medida sobre el color ya sombreado). La arista entre dos colores usa el promedio de los dos lados.
+- `colorpreview.face_rgb_from_parts` (color de cada cara de la pieza original desde las partes subdivididas por color) y `colorpreview.edge_segments_by_contrast` (aristas sin repetir → `(claras, oscuras)`; tope `EDGE_MAX` 200 000). Son las aristas de la pieza, no las de la subdivisión de la vista previa.
+- `SceneRenderer.set_segments` (segmentos `(E, 2, 3)` vectorizados); `PreviewRenderer.render(edges=True)` las dibuja en dos capas (`aristas_claras` / `aristas_oscuras`); `catalog_window._redraw` lo activa en el modo retoque. Sin retoque ni color, la vista no cambia.
+- Pruebas: `tests/test_retouch_edges.py` (16; las de dibujo con EGL fuera de pantalla: pieza negra, pieza clara, apagar aristas).
+
+### Todo List
+- [x] Done: aristas contrastantes en el modo «Retocar color…» + pruebas (270 pasan en el subconjunto render/retoque/colorpreview/catálogo/i18n)
+- [ ] Todo: probar a mano en la ventana GTK con una pieza de color oscuro (sin GTK en este entorno)
+- [ ] Todo (si hace falta): botón para apagar las aristas, grosor configurable, o aristas también en «Ver resultado» fuera del retoque (hoy solo retocando)
+
+### Latest Blockers/Discoveries
+- NO verificado en la ventana GTK: sí con el renderer fuera de pantalla (llvmpipe/EGL); comparación antes/después con una esfera mitad negra, mitad amarilla.
+- Las aristas oscuras sobre un color claro saturado (p. ej. amarillo) se ven finas; las claras sobre negro se ven bien. Mallas con más de 200 000 aristas no las dibujan (serían una mancha).
+
 ## Current Focus — Cabeza de reemplazo con la cara al revés: O01–O10 (2026-11-22, sobre main 6f6c3bf)
 La textura de «bolivar-cabeza» sale con la cara en la nuca: la similitud guardada es la correcta girada 180° sobre el eje del cuello. Plan en `docs/PLAN_orientacion_color_cabeza.md`. Hecho: O01–O10 (excepto lo indicado). El plan está completo salvo lo marcado como pendiente.
 

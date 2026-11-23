@@ -1843,7 +1843,8 @@ class CatalogManagerWindow(Gtk.Window):
                 cs = getattr(self, "_color_shown", None)
                 cparts = cs[1] if cs is not None and cs[0] == meta.ref else None
                 img = self.preview.render(mesh, meta, self._dyaw, self._dpitch, None, zoom=self._zoom, pan=self._pan, color_parts=cparts, guides=False,      # al retocar el color no se dibujan los pasadores ni el plano de la articulación
-                                          hover=re_.hover_segments())            # solo se iluminan las aristas que el pincel pintaría bajo el mouse (sin manchas de color)
+                                          hover=re_.hover_segments(),
+                                          edges=True)             # los lados de los polígonos siempre a la vista (claros sobre un color oscuro, oscuros sobre uno claro)            # solo se iluminan las aristas que el pincel pintaría bajo el mouse (sin manchas de color)
             elif c is not None and c.preview_parts() is not None:          # corte calculado: brazo sin mano en gris y la mano en verde
                 img = self.preview.render_parts(c.preview_parts(), self._dyaw, self._dpitch, c.marks(),
                                                 zoom=self._zoom, pan=self._pan,
