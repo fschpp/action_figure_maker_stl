@@ -410,6 +410,8 @@
   "retocar_descartado": "%{n} unapplied strokes were discarded.",
   "retocar_rellenar": "Fill",
   "retocar_rellenar_tip": "One click paints, with the chosen role, the whole connected region of the same color as the point (up to the given reach).",
+  "retocar_poligono": "Whole polygon",
+  "retocar_poligono_tip": "Paint, Erase and No source act on the whole triangle of the piece under the mouse (the one lit in cyan), whatever the radius. Dragging paints every polygon you cross.",
   "retocar_sin_origen": "No source",
   "retocar_sin_origen_tip": "Paints with the chosen role only what the FBX color does not cover (surfaces with no source), within the radius. Anything that already has FBX color is left alone.",
   "retocar_alcance": "Reach",

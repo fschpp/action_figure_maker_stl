@@ -410,6 +410,8 @@
   "retocar_descartado": "Se descartaron %{n} pinceladas sin aplicar.",
   "retocar_rellenar": "Rellenar",
   "retocar_rellenar_tip": "Un clic pinta con el rol elegido toda la región conectada del mismo color que el punto (hasta el alcance indicado).",
+  "retocar_poligono": "Polígono entero",
+  "retocar_poligono_tip": "Pintar, Borrar y Sin origen actúan sobre el triángulo completo de la pieza bajo el mouse (lo que se ilumina en cian), sin importar el radio. Arrastrando se pintan todos los polígonos que se recorren.",
   "retocar_sin_origen": "Sin origen",
   "retocar_sin_origen_tip": "Pinta con el rol elegido solo lo que el color del FBX no cubre (superficies sin origen), dentro del radio. Lo que ya tiene color del FBX no se toca.",
   "retocar_alcance": "Alcance",

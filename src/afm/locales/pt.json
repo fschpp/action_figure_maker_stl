@@ -410,6 +410,8 @@
   "retocar_descartado": "%{n} pinceladas não aplicadas foram descartadas.",
   "retocar_rellenar": "Preencher",
   "retocar_rellenar_tip": "Um clique pinta, com o papel escolhido, toda a região conectada da mesma cor do ponto (até o alcance indicado).",
+  "retocar_poligono": "Polígono inteiro",
+  "retocar_poligono_tip": "Pintar, Apagar e Sem origem atuam sobre o triângulo inteiro da peça sob o mouse (o que fica em ciano), seja qual for o raio. Arrastando, pinta todos os polígonos percorridos.",
   "retocar_sin_origen": "Sem origem",
   "retocar_sin_origen_tip": "Pinta com o papel escolhido apenas o que a cor do FBX não cobre (superfícies sem origem), dentro do raio. O que já tem cor do FBX não é alterado.",
   "retocar_alcance": "Alcance",

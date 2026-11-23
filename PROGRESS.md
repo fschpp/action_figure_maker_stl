@@ -1,3 +1,18 @@
+## Current Focus — Retocar color: «Polígono entero» (el pincel mínimo no pintaba nada) (2026-11-22)
+Con radio 0,05 mm (el mínimo) el pincel normal y «Sin origen» «no pintaban»: el contador de pinceladas subía pero el polígono no cambiaba. Causa: una pincelada solo cambia las muestras de la fuente de color que caen en su bola, y esas muestras están a 0,08 mm (al armar) / 0,25 mm (vista previa) y a 0,05–0,2 mm de la superficie de la pieza (otro modelado): una bola de 0,05 mm casi nunca toca una (en un cubo ideal, 12 % de las pinceladas cambian algo en la vista previa y 70 % al armar; en la cabeza de Güemes del reporte hay ~1 530 pinceladas de 0,05 mm). El resaltado cian sí mostraba el polígono (`brush_faces` siempre incluye la cara más cercana), así que prometía algo que la pincelada no hacía.
+- `Stroke.tri` (3 vértices): pincelada de **polígono**; pinta lo que cae sobre el triángulo (a ≤ `TRI_DEPTH_MM` 0,4 mm de su plano, baricéntricas ≥ −`TRI_EDGE_TOL`), no una bola. Formato `afm-retoque-4` solo si hay alguna (sin ellas se escriben los bytes de siempre). Vale para pintar, borrar y «Sin origen» (`ColorSource.paint` / `_apply_orphans`), y viaja con `transform_strokes` y el espejo.
+- `RetouchSession.polygon` / `set_polygon`; `RetouchEditor` guarda la cara del `pick` y manda el triángulo; con la casilla activa el resaltado muestra solo esa cara. Ventana: casilla «Polígono entero» junto al radio (desactiva el radio); textos es/en/pt.
+- Pruebas: `tests/test_retouch_polygon.py` (10, incluye la reproducción del radio mínimo).
+
+### Todo List
+- [x] Done: pincelada de polígono + sesión + editor + casilla + textos + pruebas (217 pasan en retoque/colorsrc/colorbake/colorpreview/i18n/render)
+- [ ] Todo: probar a mano en la ventana GTK con la cabeza de Güemes (sin GTK en este entorno); no se pudo reproducir con el STL real (no estaba adjunto, solo la ficha, el retoque y el `.color.npz`)
+- [ ] Todo (si hace falta): avisar en la ventana cuando una pincelada no cambió ninguna muestra, y/o subir el radio efectivo mínimo al espaciado de la fuente (cambiaría el resultado de retoques ya guardados con 0,05)
+
+### Latest Blockers/Discoveries
+- Las ~1 530 pinceladas de 0,05 mm del retoque de «guemes-cabeza» siguen sin efecto (se guardan igual); para rehacerlas hay que repintar con «Polígono entero».
+- «Sin origen» con radio chico tiene además otro problema: actúa sobre los centros de las caras subdivididas de la vista previa (cada ~1,2 mm), que casi nunca caen dentro de una bola de 0,05 mm.
+
 ## Current Focus — Retocar color: los lados de los polígonos siempre visibles (2026-11-22)
 Al retocar el color de una pieza del catálogo, un color oscuro hacía perder la forma (el sombreado no alcanza). Ahora «Retocar color…» dibuja siempre los lados de los polígonos de la pieza con un color que contrasta con el de las caras que tocan: claros sobre un color oscuro, oscuros sobre uno claro (razón de contraste WCAG medida sobre el color ya sombreado). La arista entre dos colores usa el promedio de los dos lados.
 - `colorpreview.face_rgb_from_parts` (color de cada cara de la pieza original desde las partes subdivididas por color) y `colorpreview.edge_segments_by_contrast` (aristas sin repetir → `(claras, oscuras)`; tope `EDGE_MAX` 200 000). Son las aristas de la pieza, no las de la subdivisión de la vista previa.

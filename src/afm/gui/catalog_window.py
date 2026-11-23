@@ -1272,6 +1272,10 @@ class CatalogManagerWindow(Gtk.Window):
         self.spin_rradius.connect("value-changed", self._on_retouch_radius)
         _no_scroll_change(self.spin_rradius)
         row.append(self.spin_rradius)
+        self.chk_rpoly = Gtk.CheckButton(label=tr("catalog_window.retocar_poligono"))
+        self.chk_rpoly.set_tooltip_text(tr("catalog_window.retocar_poligono_tip"))
+        self.chk_rpoly.connect("toggled", self._on_retouch_polygon)
+        row.append(self.chk_rpoly)
         self.tgl_rpaint = Gtk.ToggleButton(label=tr("catalog_window.retocar_pintar"))
         self.tgl_rerase = Gtk.ToggleButton(label=tr("catalog_window.retocar_borrar"), group=self.tgl_rpaint)
         self.tgl_rerase.set_tooltip_text(tr("catalog_window.retocar_borrar_tip"))
@@ -1382,6 +1386,7 @@ class CatalogManagerWindow(Gtk.Window):
             self.spin_rreach.set_value(ed.session.reach)
             self.tgl_rpaint.set_active(True)
             self.chk_rmirror.set_active(False)
+            self.chk_rpoly.set_active(ed.session.polygon)
             self._rsources = [m.ref for m in self.mgr.pieces() if m.ref != meta.ref and (getattr(m, "color", None) or {}).get("retoque")]
             self.dd_rsource.set_model(Gtk.StringList.new(self._rsources or [tr("common.ninguna")]))
             self.btn_rbring.set_sensitive(bool(self._rsources))
@@ -1455,6 +1460,13 @@ class CatalogManagerWindow(Gtk.Window):
     def _on_retouch_mode(self, *_) -> None:
         if self._reditor is not None and not self._rupdating:
             self._reditor.session.set_mode(FILL if self.tgl_rfill.get_active() else ORPHAN if self.tgl_rorphan.get_active() else PAINT if self.tgl_rpaint.get_active() else ERASE)
+
+    def _on_retouch_polygon(self, *_) -> None:
+        if self._reditor is not None and not self._rupdating:
+            self._reditor.session.set_polygon(self.chk_rpoly.get_active())
+            self.spin_rradius.set_sensitive(not self.chk_rpoly.get_active())          # con el polígono entero el radio no cuenta
+            self._reditor.clear_hover()
+            self._redraw()
 
     def _on_retouch_reach(self, *_) -> None:
         if self._reditor is not None and not self._rupdating:

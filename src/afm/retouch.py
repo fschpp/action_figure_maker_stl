@@ -21,12 +21,15 @@ import numpy as np
 FORMAT = "afm-retoque-1"
 FORMAT_FILL = "afm-retoque-2"    # el mismo archivo pero con pinceladas de relleno; sin rellenos se sigue escribiendo `afm-retoque-1` (bytes idénticos)
 FORMAT_ORPHAN = "afm-retoque-3"  # con pinceladas «sin origen» (`huerfana`); sin ellas se sigue escribiendo `-1` o `-2` (bytes idénticos)
-FORMATS = (FORMAT, FORMAT_FILL, FORMAT_ORPHAN)
+FORMAT_TRI = "afm-retoque-4"     # con pinceladas de polígono (`tri`); sin ellas se sigue escribiendo `-1`, `-2` o `-3` (bytes idénticos)
+FORMATS = (FORMAT, FORMAT_FILL, FORMAT_ORPHAN, FORMAT_TRI)
 FILL_KIND = "relleno"
 ORPHAN_KIND = "huerfana"
 MAX_STROKES = 20_000             # pinceladas por pieza
 MIN_RADIUS_MM, MAX_RADIUS_MM = 0.05, 15.0
 MIN_DOT = 0.3                    # el mismo criterio que el horneado (`bake_piece`): la normal de la muestra tiene que ser compatible con `n`
+TRI_DEPTH_MM = 0.4               # pincelada de polígono: las muestras a esta distancia del plano del triángulo (a cualquier lado) cuentan como «del polígono»
+TRI_EDGE_TOL = 0.02              # ...y su proyección puede salirse de los bordes esta fracción (coordenadas baricéntricas ≥ -tol)
 _ROLE_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")         # igual que `palette.Role`
 
 
@@ -52,6 +55,7 @@ class Stroke:
     n: tuple | None = None                       # normal de la superficie (unitaria) o None
     relleno: bool = False                        # True = «rellenar región»: `c` es la semilla, `r` el alcance máximo (mm) y `rol` no puede ser None
     huerfana: bool = False                       # True = «sin origen»: pinta con `rol`, dentro del radio, SOLO lo que la fuente de color no cubre (sin muestra a ≤ eps con normal compatible); `rol` no puede ser None
+    tri: tuple | None = None                     # «polígono entero»: los 3 vértices (marco del STL) de un triángulo de la pieza; pinta todo lo que cae sobre él (no una bola). `c` es su centro y `r` lo cubre
 
     def __post_init__(self):
         object.__setattr__(self, "c", _vec3(self.c, "pincelada «c»"))
@@ -69,6 +73,15 @@ class Stroke:
         if self.huerfana and self.relleno:
             raise RetouchError("una pincelada no puede ser a la vez de relleno y «sin origen»")
         object.__setattr__(self, "huerfana", bool(self.huerfana))
+        if self.tri is not None:
+            tri = tuple(_vec3(v, "pincelada «tri»") for v in self.tri) if len(self.tri) == 3 else None
+            if tri is None:
+                raise RetouchError("pincelada «tri»: se esperaban tres vértices")
+            if self.relleno:
+                raise RetouchError("una pincelada no puede ser a la vez de relleno y de polígono")
+            if np.linalg.norm(np.cross(np.subtract(tri[1], tri[0]), np.subtract(tri[2], tri[0]))) < 1e-12:
+                raise RetouchError("pincelada «tri»: el triángulo es degenerado")
+            object.__setattr__(self, "tri", tri)
         if self.n is not None:
             n = np.asarray(_vec3(self.n, "pincelada «n»"))
             norm = float(np.linalg.norm(n))
@@ -83,6 +96,8 @@ class Stroke:
             d["k"] = FILL_KIND
         elif self.huerfana:
             d["k"] = ORPHAN_KIND
+        if self.tri is not None:
+            d["t"] = [[round(a, 4) for a in v] for v in self.tri]
         return d
 
     @classmethod
@@ -92,7 +107,7 @@ class Stroke:
         kind = d.get("k")
         if kind not in (None, FILL_KIND, ORPHAN_KIND):
             raise RetouchError(f"pincelada: tipo desconocido {kind!r}")
-        return cls(d["c"], d["r"], d.get("rol"), d.get("n"), kind == FILL_KIND, kind == ORPHAN_KIND)
+        return cls(d["c"], d["r"], d.get("rol"), d.get("n"), kind == FILL_KIND, kind == ORPHAN_KIND, d.get("t"))
 
 
 class Retouch:
@@ -125,7 +140,7 @@ class Retouch:
         self.strokes.append(stroke)
 
     def to_dict(self) -> dict:
-        fmt = FORMAT_ORPHAN if any(s.huerfana for s in self.strokes) else FORMAT_FILL if any(s.relleno for s in self.strokes) else FORMAT
+        fmt = FORMAT_TRI if any(s.tri is not None for s in self.strokes) else FORMAT_ORPHAN if any(s.huerfana for s in self.strokes) else FORMAT_FILL if any(s.relleno for s in self.strokes) else FORMAT
         return {"formato": fmt, "pinceladas": [s.to_dict() for s in self.strokes]}
 
     @classmethod
@@ -138,8 +153,10 @@ class Retouch:
         rt = cls(items)
         if d["formato"] == FORMAT and any(s.relleno for s in rt.strokes):
             raise RetouchError(f"las pinceladas de relleno son del formato «{FORMAT_FILL}»")
-        if d["formato"] != FORMAT_ORPHAN and any(s.huerfana for s in rt.strokes):
+        if d["formato"] not in (FORMAT_ORPHAN, FORMAT_TRI) and any(s.huerfana for s in rt.strokes):
             raise RetouchError(f"las pinceladas «sin origen» son del formato «{FORMAT_ORPHAN}»")
+        if d["formato"] != FORMAT_TRI and any(s.tri is not None for s in rt.strokes):
+            raise RetouchError(f"las pinceladas de polígono son del formato «{FORMAT_TRI}»")
         return rt
 
     def digest(self) -> str:
@@ -184,5 +201,35 @@ def transform_strokes(strokes, M) -> list[Stroke]:
         n = None if s.n is None else tuple(A @ np.asarray(s.n))          # `Stroke` la vuelve a normalizar
         # con una escala extrema el radio puede salirse del rango válido: se recorta en vez de fallar al armar
         r = float(np.clip(s.r * k, MIN_RADIUS_MM, MAX_RADIUS_MM))
-        out.append(Stroke(tuple(A @ np.asarray(s.c) + M[:3, 3]), r, s.rol, n, s.relleno, s.huerfana))
+        tri = None if s.tri is None else tuple(tuple(A @ np.asarray(v) + M[:3, 3]) for v in s.tri)
+        out.append(Stroke(tuple(A @ np.asarray(s.c) + M[:3, 3]), r, s.rol, n, s.relleno, s.huerfana, tri))
     return out
+
+
+def triangle_of(tri, margin: float = 0.0) -> tuple:
+    """`(centro, radio que cubre el triángulo + margin)` de `tri` (3 vértices): la bola donde buscar candidatos de una pincelada de polígono."""
+    T = np.asarray(tri, float)
+    c = T.mean(axis=0)
+    return c, float(np.linalg.norm(T - c, axis=1).max()) + float(margin)
+
+
+def in_triangle_prism(points, tri, depth: float = TRI_DEPTH_MM, tol: float = TRI_EDGE_TOL) -> np.ndarray:
+    """Máscara de los `points` (N, 3) que caen sobre el triángulo `tri`: a ≤ `depth` mm de su plano (a cualquier lado) y con su proyección dentro
+    del triángulo (coordenadas baricéntricas ≥ -`tol`). Es lo que una pincelada de polígono pinta."""
+    P = np.atleast_2d(np.asarray(points, float))
+    a, b, c = (np.asarray(v, float) for v in tri)
+    e1, e2 = b - a, c - a
+    nrm = np.cross(e1, e2)
+    area2 = float(np.linalg.norm(nrm))
+    if area2 < 1e-12 or len(P) == 0:
+        return np.zeros(len(P), bool)
+    nrm = nrm / area2
+    rel = P - a
+    dist = rel @ nrm
+    d11, d12, d22 = e1 @ e1, e1 @ e2, e2 @ e2
+    d1, d2 = rel @ e1, rel @ e2
+    den = d11 * d22 - d12 * d12
+    v = (d22 * d1 - d12 * d2) / den
+    w = (d11 * d2 - d12 * d1) / den
+    u = 1.0 - v - w
+    return (np.abs(dist) <= depth) & (u >= -tol) & (v >= -tol) & (w >= -tol)

@@ -61,6 +61,7 @@ class RetouchEditor:
         ids = self.palette.ids() if self.palette is not None else []
         self.session = RetouchSession(retouch if retouch is not None else catalog.retouch(meta.ref), ids)
         self._picker: Picker | None = None
+        self._face: int | None = None               # cara de la pieza que dio el último `pick` (para «Polígono entero»)
         self.message = ""
         self.result_shown = False                  # la vista ya muestra el color real del retoque sin guardar («Ver resultado»)
         self._hover: np.ndarray | None = None      # aristas (E, 2, 3) de lo que el pincel pintaría bajo el mouse (None = nada)
@@ -82,19 +83,27 @@ class RetouchEditor:
             self._picker = Picker(self.mesh)
         res = self._picker.pick(origin, direction, snap_radius=0.0)
         if res is None:
+            self._face = None
             return None
+        self._face = int(res.face)
         n = np.asarray(res.normal, float)
         if float(n @ direction) > 0:               # la normal de la cara tiene que mirar hacia la cámara
             n = -n
         return np.asarray(res.hit, float), n
 
     # ------------------------------------------------------------------ mouse
+    def _tri(self):
+        """Los 3 vértices de la cara bajo el mouse si «Polígono entero» está activo (y no se está rellenando); si no, `None`."""
+        if not self.session.polygon or self.session.mode == FILL or self._face is None:
+            return None
+        return np.asarray(self.mesh.triangles, float)[self._face]
+
     def press(self, *pick_args, **pick_kw) -> bool:
         """Empieza un trazo donde se hizo clic. `False` si ahí no hay pieza."""
         p = self.pick(*pick_args, **pick_kw)
         if p is None:
             return False
-        self.session.begin_stroke(*p)
+        self.session.begin_stroke(*p, tri=self._tri())
         self.result_shown = False                  # el color real queda viejo
         return True
 
@@ -103,7 +112,7 @@ class RetouchEditor:
         if not self.session.stroking:
             return 0
         p = self.pick(*pick_args, **pick_kw)
-        return 0 if p is None else self.session.add_point(*p)
+        return 0 if p is None else self.session.add_point(*p, tri=self._tri())
 
     def release(self) -> int:
         n = self.session.end_stroke()
@@ -119,7 +128,8 @@ class RetouchEditor:
         if p is None:
             return self.clear_hover()
         c, n = p
-        faces = brush_faces(self.mesh, c, n, self.session.radius, only_nearest=self.session.mode == FILL)
+        faces = (np.array([self._face]) if self.session.polygon and self._face is not None and self.session.mode != FILL     # «Polígono entero»: solo la cara que se pintaría
+                 else brush_faces(self.mesh, c, n, self.session.radius, only_nearest=self.session.mode == FILL))
         new = face_edges(self.mesh, faces)
         changed = self._hover is None or self._hover.shape != new.shape or not np.array_equal(self._hover, new)
         self._hover = new

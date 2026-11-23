@@ -29,6 +29,8 @@ class RetouchSession:
         self.role: str | None = self._palette[0] if self._palette else None
         self.radius = float(radius)
         self.reach = DEFAULT_REACH_MM
+        self.polygon = False               # «Polígono entero»: pintar / borrar / sin origen actúan sobre el triángulo de la pieza bajo el mouse, no sobre una bola
+        self._last_tri = None
         self.truncated = False            # el último trazo se cortó porque la pieza llegó al máximo de pinceladas
 
     # ------------------------------------------------------------------ herramienta
@@ -78,16 +80,19 @@ class RetouchSession:
         """Las pinceladas del trazo en curso (vacío si no se está pintando)."""
         return list(self._open or [])
 
-    def begin_stroke(self, c, n=None) -> int:
+    def set_polygon(self, on: bool) -> None:
+        self.polygon = bool(on)
+
+    def begin_stroke(self, c, n=None, tri=None) -> int:
         """Empieza un trazo con una primera pincelada en `c` (marco del STL; `n` = normal de la superficie o `None`). Devuelve las pinceladas agregadas."""
         if self._open is not None:
             self.end_stroke()
         if not self.can_paint:
             raise RetouchError("no hay rol elegido para pintar")
-        self._open, self._last_c, self.truncated = [], None, False
+        self._open, self._last_c, self._last_tri, self.truncated = [], None, None, False
         if self.mode == FILL:                       # un clic = una pincelada de relleno (no se arrastra)
             return self._add_fill(c, n)
-        return self.add_point(c, n)
+        return self.add_point(c, n, tri)
 
     def _add_fill(self, c, n) -> int:
         s = Stroke(c, self.reach, self.role, n, relleno=True)
@@ -98,7 +103,24 @@ class RetouchSession:
         self._open.append(s)
         return 1
 
-    def add_point(self, c, n=None) -> int:
+    def _add_polygon(self, c, n, tri, rol, orphan) -> int:
+        """«Polígono entero»: una pincelada por cada triángulo que el mouse toca (el mismo triángulo seguido no se repite)."""
+        t = tuple(tuple(float(a) for a in v) for v in tri)
+        if t == self._last_tri:
+            return 0
+        if len(self._strokes) >= MAX_STROKES:
+            self.truncated = True
+            return 0
+        from ..retouch import triangle_of
+
+        centre, radius = triangle_of(t)
+        s = Stroke(centre, min(max(radius, MIN_RADIUS_MM), MAX_RADIUS_MM), rol, n, huerfana=orphan, tri=t)
+        self._strokes.append(s)
+        self._open.append(s)
+        self._last_tri = t
+        return 1
+
+    def add_point(self, c, n=None, tri=None) -> int:
         """Suma un punto al trazo en curso: agrega pinceladas solo si se alejó ≥ radio·0,5 de la última (rellena el hueco si el mouse saltó)."""
         if self._open is None:
             raise RetouchError("no hay un trazo en curso")
@@ -106,6 +128,8 @@ class RetouchSession:
             return 0
         rol = self.role if self.mode in (PAINT, ORPHAN) else None
         orphan = self.mode == ORPHAN
+        if self.polygon and tri is not None:
+            return self._add_polygon(c, n, tri, rol, orphan)
         new = Stroke(c, self.radius, rol, n, huerfana=orphan)             # valida c, radio y normal
         step = self.radius * SPACING_FACTOR
         pts = [new]

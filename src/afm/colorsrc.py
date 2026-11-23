@@ -13,6 +13,8 @@ from .texmesh import TexturedMesh
 
 FILL_LINK_FACTOR = 3.0           # «rellenar región»: dos muestras se unen si están a ≤ 3 × espaciado (las muestras son aleatorias, no una grilla)
 NORMAL_CANDIDATES = 16           # R12: con normales, un punto sin origen busca una muestra compatible entre las K más cercanas (no solo la más cercana)
+TRI_EDGE_TOL_MM = 0.1            # pincelada de polígono: margen de la bola de candidatos alrededor del triángulo (la prueba exacta la hace `in_triangle_prism`)
+TRI_DEPTH_BALL_MM = 0.4
 MAX_SAMPLES = 6_000_000          # RG5: tope de memoria de la fuente densa; si se pasa, sube el espaciado
 
 
@@ -92,7 +94,7 @@ class ColorSource:
         R11: las pinceladas **«sin origen»** (`Stroke.huerfana`) no cambian ninguna muestra: la fuente solo las recuerda y `query` las aplica a los
         puntos consultados que **no tienen origen** (nada a ≤ `eps` con normal compatible), dentro de su radio. El informe suma `"sin_origen": n`.
         Quedan en el orden en que llegaron: entre ellas la última gana; las del pincel normal no las pisan (solo cambian muestras, y un punto sin origen no lee muestras)."""
-        from .retouch import MIN_DOT
+        from .retouch import MIN_DOT, in_triangle_prism, triangle_of
 
         strokes = list(strokes)
         if not strokes:
@@ -112,7 +114,13 @@ class ColorSource:
         before = self.sample_label.copy()
         sample_normals = None
         for s in strokes:
-            idx = np.asarray(self._tree.query_ball_point(np.asarray(s.c, float), float(s.r)), np.int64)
+            if getattr(s, "tri", None) is not None:             # «polígono entero»: lo que cae sobre el triángulo, no una bola (el radio mínimo del pincel no llega a una muestra)
+                tc, tr_ = triangle_of(s.tri, TRI_EDGE_TOL_MM + TRI_DEPTH_BALL_MM)
+                idx = np.asarray(self._tree.query_ball_point(tc, tr_), np.int64)
+                if idx.size:
+                    idx = idx[in_triangle_prism(self.sample_xyz[idx], s.tri)]
+            else:
+                idx = np.asarray(self._tree.query_ball_point(np.asarray(s.c, float), float(s.r)), np.int64)
             if idx.size == 0:
                 continue
             if s.n is not None:
@@ -206,7 +214,7 @@ class ColorSource:
         Devuelve `(rgb, label, assigned)` con copias; no toca `sample_*`."""
         from scipy.spatial import cKDTree
 
-        from .retouch import MIN_DOT
+        from .retouch import MIN_DOT, in_triangle_prism
 
         rgb = np.array(rgb, copy=True)
         label = None if label is None else np.array(label, copy=True)
@@ -218,6 +226,8 @@ class ColorSource:
         nrm = None if normals is None else np.asarray(normals, float)
         for s, lab in self._orphans:
             hit = np.asarray(tree.query_ball_point(np.asarray(s.c, float), float(s.r)), np.int64)
+            if getattr(s, "tri", None) is not None:             # «polígono entero»: los puntos sin origen que caen sobre el triángulo
+                hit = np.flatnonzero(in_triangle_prism(P[todo], s.tri))
             if hit.size == 0:
                 continue
             sel = todo[hit]
