@@ -57,6 +57,9 @@ class FigureBuilder:
         self._color_tm_cache: dict = {}                                                 # ref -> (clave, fuente de color de la vista previa)
         self.flat = False                                                               # «imprimir sin soportes»: aplana piernas y cola, los brazos giran hacia adelante
         self.flat_depth: float | None = None                                            # altura del corte sobre la cola (mm); None = la de la línea (`Params.flat_depth`)
+        self.bambu = False                                                              # salida para Bambu Studio: <fig>_bambu.3mf / .obj con un color plano por triángulo (solo con color)
+        self.bambu_colors = 8                                                           # tope de colores (filamentos) de esa salida
+        self.bambu_min_pct = 0.5                                                        # los colores con menos de tanto % del área se funden con el más parecido
         self.fill_hip = False                                                           # con `flat`: el muslo se queda con la loncha de pelvis que saca el corte
         self.horse: str | None = None                                                   # E14: «id@versión» del caballo de la biblioteca de la línea (None = sin caballo)
         self.ride: dict = dict(RIDE_DEFAULTS)                                           # E14: asiento y ajustes de la cabalgadura (marco del caballo, mm)
@@ -879,6 +882,13 @@ class FigureBuilder:
         """Vista previa de «Imprimir sin soportes»: figura sentada, plano de la cama y material cortado (ver `preview_flat_parts`)."""
         return preview_flat_parts(self)
 
+    def bambu_options(self) -> dict | None:
+        """Opciones de la salida para Bambu Studio (`Colorizer(bambu=)`) o `None` si la casilla está apagada. Es una opción de exportación:
+        no cambia la receta ni la geometría (no entra en `_geometry_key`)."""
+        if not self.bambu:
+            return None
+        return {"max_colors": max(1, int(self.bambu_colors)), "min_area_pct": float(self.bambu_min_pct)}
+
     def progress_stages(self) -> list:
         """Pasos esperados de «Armar y exportar» con las piezas elegidas (para la barra de progreso)."""
         from ..recipe import progress_stages
@@ -903,7 +913,7 @@ class FigureBuilder:
         self._built = None
         flat = None if not self.flat else (-1.0 if self.flat_depth is None else float(self.flat_depth))      # -1: la altura de la línea
         info = run_armar(recipe_path, outdir, self.name, self.root, progress=progress, orient=orient, keep=keep, flat=flat,
-                         fill_hip=bool(self.flat and self.fill_hip))
+                         fill_hip=bool(self.flat and self.fill_hip), bambu=self.bambu_options())
         cab = info.get("cabalgadura")                                      # E14: con caballo, si el asiento no pasa no se exporta el conjunto
         info["ensamblada"] = os.path.join(outdir, info["archivos"]["ensamblada"]) if info["archivos"].get("ensamblada") else None
         if cab and cab.get("ok"):

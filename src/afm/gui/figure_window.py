@@ -148,6 +148,7 @@ class FigureBuilderWindow(Gtk.Window):
         box.append(self._build_ride_section())
         box.append(self._build_colors_section())
         box.append(self._build_flat_section())
+        box.append(self._build_bambu_section())
         self.lbl_problems = Gtk.Label(xalign=0, wrap=True)
         self.lbl_problems.add_css_class("dim-label")
         box.append(self.lbl_problems)
@@ -696,6 +697,50 @@ class FigureBuilderWindow(Gtk.Window):
         exp.set_child(box)
         return exp
 
+    def _build_bambu_section(self) -> Gtk.Widget:
+        """«Salida para Bambu Studio»: además de los archivos de color, deja `<nombre>_bambu.3mf` y `.obj` con un color plano por triángulo
+        (sin textura) y a lo sumo N colores. Es una opción de exportación (`FigureBuilder.bambu*`); necesita que la figura tenga color."""
+        exp = Gtk.Expander(label=tr("figure_window.bambu_titulo"))
+        self.exp_bambu = exp
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, margin_top=4)
+        self.chk_bambu = Gtk.CheckButton(label=tr("figure_window.bambu_activar"))
+        self.chk_bambu.set_tooltip_text(tr("figure_window.bambu_activar_tip"))
+        self.chk_bambu.set_active(self.builder.bambu)
+        self.chk_bambu.connect("toggled", self._on_bambu)
+        box.append(self.chk_bambu)
+        row = Gtk.Box(spacing=6)
+        row.append(Gtk.Label(label=tr("figure_window.bambu_colores"), xalign=0, hexpand=True, wrap=True))
+        self.sp_bambu_n = Gtk.SpinButton.new_with_range(1, 16, 1)
+        self.sp_bambu_n.set_value(int(self.builder.bambu_colors))
+        self.sp_bambu_n.set_tooltip_text(tr("figure_window.bambu_colores_tip"))
+        self.sp_bambu_n.connect("value-changed", self._on_bambu)
+        row.append(self.sp_bambu_n)
+        self.row_bambu_n = row
+        box.append(row)
+        row2 = Gtk.Box(spacing=6)
+        row2.append(Gtk.Label(label=tr("figure_window.bambu_min"), xalign=0, hexpand=True, wrap=True))
+        self.sp_bambu_min = Gtk.SpinButton.new_with_range(0.0, 20.0, 0.1)
+        self.sp_bambu_min.set_digits(1)
+        self.sp_bambu_min.set_value(float(self.builder.bambu_min_pct))
+        self.sp_bambu_min.set_tooltip_text(tr("figure_window.bambu_min_tip"))
+        self.sp_bambu_min.connect("value-changed", self._on_bambu)
+        row2.append(self.sp_bambu_min)
+        self.row_bambu_min = row2
+        box.append(row2)
+        note = Gtk.Label(label=tr("figure_window.bambu_nota"), xalign=0, wrap=True)
+        note.add_css_class("dim-label")
+        box.append(note)
+        exp.set_child(box)
+        return exp
+
+    def _on_bambu(self, *_args) -> None:
+        b = self.builder
+        b.bambu = self.chk_bambu.get_active()
+        b.bambu_colors = int(self.sp_bambu_n.get_value())
+        b.bambu_min_pct = round(self.sp_bambu_min.get_value(), 1)
+        self.row_bambu_n.set_sensitive(b.bambu and not self._busy)
+        self.row_bambu_min.set_sensitive(b.bambu and not self._busy)
+
     def _on_flat(self, *_args) -> None:
         b = self.builder
         b.flat = self.chk_flat.get_active()
@@ -855,6 +900,8 @@ class FigureBuilderWindow(Gtk.Window):
             self._update_color_status()
             return False
         self.lbl_result.set_text(tr("figure_window.colores_recoloreada", seg=f"{out.get('segundos', time.monotonic() - self._t0):g}"))
+        if self.builder.bambu:
+            self.lbl_result.set_text(self.lbl_result.get_text() + "\n" + tr("figure_window.bambu_recoloreado"))
         if out.get("glb") and os.path.exists(out["glb"]):
             try:
                 self._show_glb(out["glb"])
@@ -1014,6 +1061,10 @@ class FigureBuilderWindow(Gtk.Window):
         finally:
             self._updating = False
         has_hand = bool(b.choices.get("mano")) and not self._busy
+        if hasattr(self, "exp_bambu"):
+            self.exp_bambu.set_sensitive(not self._busy)
+            self.row_bambu_n.set_sensitive(b.bambu and not self._busy)
+            self.row_bambu_min.set_sensitive(b.bambu and not self._busy)
         if hasattr(self, "exp_flat"):
             self.exp_flat.set_sensitive(not self._busy)
             self.row_flat.set_sensitive(b.flat and not self._busy)
@@ -1866,6 +1917,11 @@ class FigureBuilderWindow(Gtk.Window):
         self._last_project = info.get("proyecto")
         self.btn_open_main.set_visible(bool(self._last_project))
         self.lbl_result.set_text(summary(info) + ('\n\n' + tr("figure_window.exportado_en_folder", folder=folder)))
+        if self.builder.bambu:                    # salida para Bambu Studio: qué archivos quedaron, o por qué no
+            bam = ((info.get("color") or {}).get("salida") or {}).get("bambu")
+            self.lbl_result.set_text(self.lbl_result.get_text() + "\n" + (
+                tr("figure_window.bambu_resultado", archivos=f"{bam['3mf']}, {bam['obj']}", n=len(bam["colores"])) if bam
+                else tr("figure_window.bambu_sin_color")))
         if self._ride_view is not None:
             self._ride_fit = None                # E15: se muestra la figura armada de verdad, no la vista del asiento
             self._set_ride_view(None)

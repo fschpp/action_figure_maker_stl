@@ -1,3 +1,17 @@
+## Current Focus — Casilla «Salida para Bambu Studio» en «Armar figura desde catálogo» (2026-11-23)
+La salida `<fig>_bambu.3mf` / `.obj` (ya en main) ahora se pide desde la GUI: sección **«Salida para Bambu Studio»** (debajo de «Impresión sin soportes») con la casilla, el tope de colores (1–16, 8 por defecto) y el % de área mínimo para fundir colores (0,5). Es una opción de exportación: no cambia la receta ni la geometría (no entra en `_geometry_key`).
+- `FigureBuilder.bambu / bambu_colors / bambu_min_pct` + `bambu_options()` → `run_armar(bambu=)`; `generate` la pasa siempre. «Recolorear» rehace también los archivos de Bambu (el `Colorizer` conserva las opciones).
+- `FigureWindow._build_bambu_section` / `_on_bambu`; tras armar, el resultado dice qué archivos quedaron y con cuántos colores, o avisa que no se generó porque la figura no tiene color (`info["color"]["salida"]["bambu"]`).
+- Textos es/en/pt (`figure_window.bambu_*`). Pruebas: `tests/test_gui_figure_bambu.py` (3, sin GTK).
+
+### Todo List
+- [x] Done: estado en `FigureBuilder` + sección en la ventana + textos + pruebas del builder
+- [ ] Todo: probar la sección a mano en la ventana GTK (no hay GTK en este entorno) y abrir los archivos en Bambu Studio real
+- [ ] Todo (opcional): lo mismo en la ventana principal (`afm-gui`, exportar con color por FBX)
+
+### Latest Blockers/Discoveries
+- Rama `feat/bambu-gui` sobre main. El informe de color de `run_armar` está en `info["color"]["salida"]`, no en `info["color"]` (esa clave trae la paleta/fuentes).
+
 ## Current Focus — Salida de color para Bambu Studio: 3MF / OBJ con un material plano por color, sin textura (2026-11-23)
 El GLB con textura «una celda por triángulo» (decenas de miles de celdas) da errores en Bambu Studio aunque el STL esté bien. Ahora, con `--bambu-3mf [N]` (en `afm run` con color y en `afm armar`) o `Colorizer(bambu=N)`, el color ya horneado se reduce a **un color por triángulo** y a **a lo sumo N colores** (8 por defecto) y se escribe `<fig>_bambu.3mf` (3MF estándar: `basematerials` + `pid`/`p1` por triángulo, Z arriba, un objeto por pieza dentro de un ensamblado) y `<fig>_bambu.obj/.mtl` (un `newmtl` plano `Kd` por color, Y arriba, sin `map_Kd`).
 - `src/afm/bambu.py` (nuevo): color por cara = etiqueta de rol más repetida en 4 muestras de la celda → color de la paleta (sin roles: promedio del atlas); paleta única para toda la figura (las piezas del mismo color comparten filamento); k-means ponderado por área en Lab solo si se pasa del tope; `--bambu-min-pct` (0,5) funde los colores que cubren muy poca área (cada color de más = cambios de filamento + torre); `despeckle` quita caras sueltas.
