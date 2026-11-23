@@ -115,3 +115,16 @@ Sin retoque, comportamiento y bytes de salida idénticos (R2); los **STL no camb
 **Límite conocido.** La vista previa y el horneado siguen sin tratar igual a los huérfanos *sin pintar* (vecino con origen vs. muestra más cercana).
 **Pruebas.** `tests/test_retouch_orphan.py` (15). **Sin verificar:** el botón en la ventana (aquí no hay GTK).
 
+## 10. R12 · La consulta mira más de una muestra (2026-11-23, rama `r11_colorear_sin_origen`)
+**Qué se creyó.** Que ≈ 26 % de los triángulos del FBX estaban con el sentido (winding) invertido y que había que reorientarlos al importar.
+**Qué se midió** (`cabeza-sanmartin-01@2`, 26.912 polígonos del STL, 14.128 triángulos del FBX):
+- El FBX **ya es consistente** entre aristas compartidas: reorientarlo (consistencia por componente + «hacia afuera») gira el 0,6 % de las caras y el porcentaje opuesto al STL no cambia (25,1 % → 25,4 %). El STL es cerrado, consistente y con volumen positivo. Reorientar al importar **no** arregla nada, y se descartó.
+- Las caras del FBX opuestas al STL están a ≈ 0,045 mm de su superficie (mediana): hay capas del FBX superpuestas con otra orientación (el FBX tiene 13 componentes y un volumen de 529 mm³ contra 184 del STL; qué es exactamente cada capa no se identificó).
+- `ColorSource.query` probaba **solo la muestra más cercana**; si era de la capa «equivocada», rechazaba el punto por la normal aunque a pocas muestras hubiera una compatible. Mirando las K más cercanas: K = 2 → 69,1 %; K = 8 → 80,0 %; K = 32 → 80,7 % de polígonos con origen (antes 59,8 %).
+
+**Qué se hizo.** `ColorSource.query(..., candidates=NORMAL_CANDIDATES)` (16): los puntos que la muestra más cercana rechaza por la normal (y que tienen alguna a ≤ `eps` + espaciado) prueban las K más cercanas en orden y se quedan con la primera de triángulo a ≤ `eps` y normal compatible. Color, etiqueta, cara y distancia salen de **esa** muestra. `candidates=1` es el comportamiento anterior; sin `normals` no cambia nada; los puntos que ya tenían origen no cambian.
+- **No cambia el `.color.npz`** (sigue inmutable): las piezas ya catalogadas se benefician sin reimportar el FBX.
+- Resultado: huérfanos 40,2 % → 19,3 %; el negro con origen sube de 10.239 a 13.965 polígonos (antes adivinados). Costo: 1 M de consultas pasa de 1,3 s a 3,2 s.
+- El resto (≈ 19 %): puntos a 0,15–0,5 mm, cortes y cavidad del cuello; ahí sigue sirviendo el pincel «Sin origen».
+**Pruebas.** `tests/test_colorsrc_normal_candidates.py` (6).
+

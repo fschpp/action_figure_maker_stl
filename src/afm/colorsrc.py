@@ -12,6 +12,7 @@ import numpy as np
 from .texmesh import TexturedMesh
 
 FILL_LINK_FACTOR = 3.0           # «rellenar región»: dos muestras se unen si están a ≤ 3 × espaciado (las muestras son aleatorias, no una grilla)
+NORMAL_CANDIDATES = 16           # R12: con normales, un punto sin origen busca una muestra compatible entre las K más cercanas (no solo la más cercana)
 MAX_SAMPLES = 6_000_000          # RG5: tope de memoria de la fuente densa; si se pasa, sube el espaciado
 
 
@@ -170,7 +171,14 @@ class ColorSource:
         return self.to_trimesh()
 
     # ------------------------------------------------------------------ consulta
-    def query(self, points, normals=None, eps: float = 0.15, min_dot: float = 0.3, workers: int = 1) -> ColorQuery:
+    def query(self, points, normals=None, eps: float = 0.15, min_dot: float = 0.3, workers: int = 1, candidates: int = NORMAL_CANDIDATES) -> ColorQuery:
+        """Color de la fuente en cada punto. Un punto «tiene origen» si hay una muestra cuyo triángulo está a ≤ `eps` mm y, con `normals`, con la
+        normal de esa cara compatible (`> min_dot`) con la del punto.
+
+        R12: la muestra más cercana a veces es de una capa del FBX con otra orientación (superficies superpuestas bajo la piel, cuellos, párpados)
+        y descarta el punto aunque a pocas muestras haya una de la orientación correcta. Con `normals`, los puntos que la más cercana rechaza por la
+        normal vuelven a mirar entre las `candidates` muestras más cercanas y se quedan con la primera compatible (color, etiqueta, cara y distancia
+        salen de **esa** muestra). `candidates=1` es el comportamiento anterior. Los puntos sin ninguna compatible siguen como antes."""
         import trimesh
 
         P = np.atleast_2d(np.asarray(points, float))
@@ -181,7 +189,10 @@ class ColorSource:
         dist = np.linalg.norm(cp - P, axis=1)
         ok = dist <= eps
         if normals is not None:
-            ok &= np.einsum("nc,nc->n", self.face_normals[face], np.asarray(normals, float)) > min_dot
+            nrm = np.asarray(normals, float)
+            ok &= np.einsum("nc,nc->n", self.face_normals[face], nrm) > min_dot
+            if candidates > 1:
+                idx, face, dist, ok = self._retry_by_normal(P, nrm, idx, face, dist, ok, eps, min_dot, workers, int(candidates))
         label = None if self.sample_label is None else self.sample_label[idx]
         rgb = self.sample_rgb[idx]
         assigned = None
@@ -219,6 +230,34 @@ class ColorSource:
                 label[sel] = np.uint8(lab)
             assigned[sel] = True
         return rgb, label, assigned
+
+    def _retry_by_normal(self, P, nrm, idx, face, dist, ok, eps, min_dot, workers, k):
+        """R12: para los puntos que la muestra más cercana rechazó (`~ok`) pero que tienen una muestra a ≤ `eps` + espaciado, prueba las `k` más
+        cercanas en orden y toma la primera cuyo triángulo está a ≤ `eps` y de normal compatible. Devuelve `(idx, face, dist, ok)` (copias)."""
+        import trimesh
+
+        todo = np.flatnonzero(~ok & (dist <= eps + self.spacing_mm))
+        if todo.size == 0:
+            return idx, face, dist, ok
+        idx, face, dist, ok = idx.copy(), face.copy(), dist.copy(), ok.copy()
+        d, cand = self._tree.query(P[todo], k=k, distance_upper_bound=eps + self.spacing_mm, workers=workers)
+        n_samples = len(self.sample_face)
+        pending = np.ones(todo.size, bool)
+        for j in range(1, k):                                   # j = 0 es la que ya se probó
+            rows = np.flatnonzero(pending & (cand[:, j] < n_samples))
+            if rows.size == 0:
+                break
+            cj = cand[rows, j]
+            fj = self.sample_face[cj]
+            Pj = P[todo[rows]]
+            dj = np.linalg.norm(trimesh.triangles.closest_point(self._tris[fj], Pj) - Pj, axis=1)
+            good = (dj <= eps) & (np.einsum("nc,nc->n", self.face_normals[fj], nrm[todo[rows]]) > min_dot)
+            win = rows[good]
+            if win.size:
+                t = todo[win]
+                idx[t], face[t], dist[t], ok[t] = cand[win, j], fj[good], dj[good], True
+                pending[win] = False
+        return idx, face, dist, ok
 
     def distance(self, points, workers: int = 1, upper: float | None = None) -> np.ndarray:
         """Distancia gruesa (una muestra de cada 4), para puntuar registros. Con `upper`, los puntos más lejos que eso

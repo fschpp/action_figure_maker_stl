@@ -2862,3 +2862,11 @@ No existe una «cara interna del muslo» detectable en Güemes (el borde interno
 **Medido** (`cabeza-sanmartin-01@2`, 26.912 polígonos): 40,2 % sin origen; una pincelada «sin origen» (piel, r = 1,5 mm) sobre cada 5.º huérfano pinta 10.720 de 10.807 (99,2 %) y ningún punto con origen cambia; la consulta tarda 0,1 s. Pruebas: 152 pasan, 1 skip, 1 xfail (las de retoque, color, i18n y las 15 nuevas).
 **No hecho:** probar el botón con GTK/GL reales; reorientar los triángulos invertidos del FBX al importar (baja los huérfanos de ≈ 40 % a ≈ 16 %; cambia el `.color.npz`, tarea aparte).
 
+
+## R12 · Normales del FBX: la consulta mira varias muestras (2026-11-23, rama r11_colorear_sin_origen, sobre R11)
+**Objetivo:** bajar los polígonos «sin origen» por normal rechazada (`docs/PLAN_retoque_color_pieza.md` §10).
+**Hallazgo:** el FBX no tiene los triángulos invertidos (ya es consistente; reorientar gira el 0,6 % y no cambia el porcentaje opuesto al STL). `ColorSource.query` solo probaba la muestra más cercana, que a veces es de otra capa del FBX.
+**Hecho:** `ColorSource.query(candidates=16)` y `_retry_by_normal`; `tests/test_colorsrc_normal_candidates.py` (6).
+**Medido** (`cabeza-sanmartin-01@2`): polígonos con origen 59,8 % → 80,7 %; huérfanos 40,2 % → 19,3 %; 1 M de consultas 1,3 s → 3,2 s. El `.color.npz` no cambia.
+**No hecho:** identificar qué son las capas superpuestas del FBX; el pincel normal de `paint` también filtra por normal (descarta ≈ 11 % de las muestras de cada esfera): no se tocó.
+
