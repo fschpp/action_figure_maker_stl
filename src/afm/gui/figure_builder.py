@@ -20,7 +20,7 @@ from ..mount import DEFAULT_CLEARANCE, DEFAULT_STATIONS, MOUNT_PLACES, MountErro
 from ..equestrian import (FIT_MODES, CarveLimits, HorseError, ReliefSpec, RiderError, SaddleError, SaddleSpec, horse_back_z, rider_profile,
                           suggest_saddle_spec)
 from ..horse_library import HorseLibrary, parse_horse_ref
-from ..recipe import PLACES, SCALE_PLACES, Recipe, RecipeError, accessory_fit
+from ..recipe import JOINT_OPTIONS, PLACES, SCALE_PLACES, Recipe, RecipeError, accessory_fit, articulation_points
 from ..ride import RideSpec, geometry_hash, resolve_horse
 
 # lugar -> tipos de pieza que acepta (el torso puede ser entero o solo la parte de arriba)
@@ -47,7 +47,7 @@ class FigureBuilder:
         self.root = os.path.abspath(catalog_root)
         self.name = name
         self.choices: dict[str, str | None] = {p: None for p in PLACE_ORDER}      # lugar -> "id@versión"
-        self.options = {"clic_hombro": False, "clic_cadera": False, "torso_mirror": True}
+        self.options = {"clic_hombro": False, "clic_cadera": False, "torso_mirror": True, "codo": True, "rodilla": True}
         self.hand = {"yaw": 0.0, "union": "solape", "solape": DEFAULT_OVERLAP_MM}     # ajustes de la mano (grados, unión, mm)
         self.scales: dict[str, list[float]] = {}                                        # lugar -> [sx, sy, sz] (solo los ≠ ×1)
         self.accessories: list[str] = []                                                # «id@versión» de los accesorios que acompañan a la figura
@@ -568,7 +568,7 @@ class FigureBuilder:
         if not self.waist:
             self.choices["pelvis"] = None
         o = r.options()
-        self.options = {k: bool(o[k]) for k in ("clic_hombro", "clic_cadera", "torso_mirror")}
+        self.options = {k: bool(o.get(k, JOINT_OPTIONS.get(k, False))) for k in ("clic_hombro", "clic_cadera", "torso_mirror", *JOINT_OPTIONS)}
         self.hand = {"yaw": 0.0, "union": "solape", "solape": DEFAULT_OVERLAP_MM}
         self.set_hand(**{k: v for k, v in (r.ajustes.get("mano") or {}).items() if k in self.hand})
         self.scales = {}
@@ -763,6 +763,23 @@ class FigureBuilder:
                 self.recipe().save(rec_path)
         except (OSError, ValueError):                                            # los informes son accesorios: el recoloreo ya quedó hecho
             pass
+
+    def piece_has_joint(self, place: str) -> bool:
+        """¿La pieza elegida para «brazo» / «pierna» trae su codo / rodilla? (Si no, la opción no cambia nada.)"""
+        ref = self.choices.get(place)
+        if not ref:
+            return False
+        try:
+            return bool(self.catalog().meta(ref).articulaciones or [])
+        except CatalogError:
+            return False
+
+    def articulation_points(self) -> int:
+        """Puntos de articulación que tendrá la figura con lo elegido: 6 = juguete simple, 10 = completo."""
+        try:
+            return articulation_points(self.recipe(), self.catalog())
+        except (CatalogError, ValueError):
+            return 0
 
     def problems(self) -> list[str]:
         """Lo que falta o sobra antes de poder armar (vacío = listo)."""

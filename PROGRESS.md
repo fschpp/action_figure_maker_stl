@@ -1,3 +1,21 @@
+## Current Focus — «Armar desde catálogo»: brazos y piernas con o sin articulación de codo / rodilla (2026-11-23)
+Juguete simple (6 puntos: cabeza, cintura, hombros, caderas) o completo (10: suma codos y rodillas). Cada brazo / pierna elegido puede armarse con la articulación que trae su pieza de catálogo o rígido, de una sola pieza.
+- Receta: opciones `codo` y `rodilla` (`recipe.JOINT_OPTIONS`, defecto `true`). `Recipe.options()` solo las escribe cuando valen `false`: las recetas existentes y su clave de compatibilidad (`compat.recipe_key`) no cambian. Valor no booleano = error de receta.
+- Motor: `assembly.rigid_choice` (copia de la pieza sin `meta.articulaciones`; el catálogo no se toca); `Recipe.joint_on` / `apply_joint_options`, aplicado en `recipe.load_choices` (CLI `afm armar` y GUI). `recipe.articulation_points(recipe, cat)` cuenta los puntos.
+- Ventana principal: `Session._origin_recipe_joints` en `_catalog_only_choices`, así una figura reabierta desde su `.proyecto` respeta el «sin codo / sin rodilla» de su receta.
+- GUI «Armar figura desde catálogo»: casillas «Brazos con articulación de codo» / «Piernas con articulación de rodilla» (se habilitan solo si la pieza trae la articulación) y rótulo «Puntos de articulación: N». `FigureBuilder.options["codo"|"rodilla"]`, `piece_has_joint`, `articulation_points`; se cargan y guardan con la receta. Textos es/en/pt.
+- Pruebas: `tests/test_joint_options.py` (12) + 144 de receta / constructor / compat / i18n en verde.
+
+### Todo List
+- [x] Done: motor + receta + sesión + constructor + casillas + textos + pruebas
+- [ ] Todo: probar a mano las casillas en la ventana GTK (no hay GTK en este entorno)
+- [ ] Todo: armar de punta a punta una figura con una pieza que traiga codo / rodilla real, con y sin la opción (el catálogo de ejemplo no tiene ninguna pieza con articulación; las pruebas usan piezas sintéticas)
+- [ ] Todo (opcional): flag `--sin-codo` / `--sin-rodilla` en `afm armar` (hoy se pide editando la receta)
+
+### Latest Blockers/Discoveries
+- Rama `feat/articulaciones-opcionales`. Las opciones nuevas van fuera de `OPTIONS` a propósito para no invalidar `compat.json` de catálogos existentes.
+- Las piezas de brazo/pierna con codo/rodilla se arman con UNA articulación por miembro; rígido = `meta.articulaciones` vacío, el resto del pipeline ya trataba así a una pieza sin articulación.
+
 ## Current Focus — Modo rgb (FBX entero) con entrada de interfaz y de línea de comandos (2026-11-23)
 El modo `rgb` (el FBX entero como color de la pieza, T35) existía en `Catalog.add_piece(color_fbx=)` pero no tenía entrada de interfaz ni de CLI, y no cuidaba el frente de una cabeza. Ahora se puede elegir desde el asistente «Roles de color desde FBX…» y desde `afm catalogo color`.
 - CLI: `afm catalogo color RUTA REF --fbx F --rgb [--similitud S.json]` (excluyente con `--roles`, `--k` y `--sombreado`; no pide paleta). Sin `--roles` ni `--rgb` es un error claro.

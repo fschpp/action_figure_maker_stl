@@ -12,7 +12,7 @@ import json
 from dataclasses import dataclass, field
 
 from . import pipeline as P
-from .assembly import AssemblyError, PartChoice, synthesize_host
+from .assembly import AssemblyError, PartChoice, rigid_choice, synthesize_host
 from . import solids as S
 from .catalog import Catalog, CatalogError, default_root, parse_ref
 from .customize import scale_choice
@@ -21,6 +21,11 @@ from .params import Params
 RECIPE_FORMAT = "afm-receta-1"
 PLACES = ("cabeza", "torso", "pelvis", "brazo", "pierna", "mano")
 OPTIONS = {"cintura": False, "clic_hombro": False, "clic_cadera": False, "torso_mirror": True}
+# Codo y rodilla: True (defecto) = el miembro usa la articulación que trae su pieza de catálogo (si la trae); False = el
+# miembro se arma rígido. Aparte de `OPTIONS` a propósito: `options()` solo las incluye cuando valen False, así las recetas
+# anteriores (todas «con») conservan su archivo y su clave de compatibilidad (`compat.recipe_key`).
+JOINT_OPTIONS = {"codo": True, "rodilla": True}
+JOINT_OF_PLACE = {"brazo": "codo", "pierna": "rodilla"}
 HAND_ADJUSTS = ("yaw", "union", "solape")
 AJUSTES = ("mano", "escalas", "monturas")
 SCALE_PLACES = ("torso", "pelvis", "cabeza", "brazo", "pierna")     # la mano no se reescala (mm reales)
@@ -44,7 +49,7 @@ class Recipe:
     # ------------------------------------------------------------------ formato
     def to_dict(self) -> dict:
         d = {"formato": RECIPE_FORMAT, "personaje": self.personaje, "linea": self.linea,
-             "lugares": {k: self.lugares.get(k) for k in PLACES}, "opciones": {**OPTIONS, **self.opciones},
+             "lugares": {k: self.lugares.get(k) for k in PLACES}, "opciones": self.options(),
              "ajustes": self.ajustes}
         if self.accesorios:                                  # solo si hay: las recetas anteriores no cambian
             d["accesorios"] = list(self.accesorios)
@@ -121,7 +126,10 @@ class Recipe:
 
     def problems(self) -> list[str]:
         out = [f"lugar desconocido «{k}» (hay {', '.join(PLACES)})" for k in self.lugares if k not in PLACES]
-        out += [f"opción desconocida «{k}» (hay {', '.join(OPTIONS)})" for k in self.opciones if k not in OPTIONS]
+        out += [f"opción desconocida «{k}» (hay {', '.join([*OPTIONS, *JOINT_OPTIONS])})" for k in self.opciones
+                if k not in OPTIONS and k not in JOINT_OPTIONS]
+        out += [f"opción «{k}»: tiene que ser true o false" for k in JOINT_OPTIONS
+                if k in self.opciones and not isinstance(self.opciones[k], bool)]
         out += [f"ajuste desconocido «{k}» (hay {', '.join(AJUSTES)})" for k in self.ajustes if k not in AJUSTES]
         out += self.scale_problems()
         out += self.mount_problems()
@@ -234,7 +242,25 @@ class Recipe:
         return {k: normalize_scale(v) for k, v in (self.ajustes.get("escalas") or {}).items() if not is_identity(v)}
 
     def options(self) -> dict:
-        return {**OPTIONS, **self.opciones}
+        o = {**OPTIONS, **self.opciones}
+        for k, default in JOINT_OPTIONS.items():          # solo las que se apartan del defecto (ver JOINT_OPTIONS)
+            if o.get(k, default) == default:
+                o.pop(k, None)
+        return o
+
+    def joint_on(self, lugar: str) -> bool:
+        """¿El miembro del `lugar` («brazo» | «pierna») usa la articulación (codo | rodilla) de su pieza? Sí por defecto."""
+        k = JOINT_OF_PLACE[lugar]
+        return bool(self.opciones.get(k, JOINT_OPTIONS[k]))
+
+    def apply_joint_options(self, choices: dict) -> dict:
+        """`choices` (clave de `build(parts=)` -> `PartChoice`) con los brazos / piernas pedidos SIN articulación armados
+        rígidos (`assembly.rigid_choice`). Devuelve un diccionario nuevo; las piezas del catálogo no se modifican."""
+        out = dict(choices)
+        for lugar in JOINT_OF_PLACE:
+            if lugar in out and not self.joint_on(lugar):
+                out[lugar] = rigid_choice(out[lugar])
+        return out
 
     def parts_keys(self) -> dict:
         """Lugar de la receta -> clave de `build(parts=)`: con cintura el torso es `torso_sup`."""
@@ -261,6 +287,25 @@ def recipe_params(recipe: Recipe, cat: Catalog) -> Params:
     o = recipe.options()
     return dataclasses.replace(cat.params, shoulder_detent=bool(o["clic_hombro"]), hip_detent=bool(o["clic_cadera"]),
                                torso_mirror=bool(o["torso_mirror"]))
+
+
+def articulation_points(recipe: Recipe, cat: Catalog) -> int:
+    """Puntos de articulación de la figura de la receta: cabeza, cintura (si lleva), hombros y caderas (de a dos) y, si la pieza
+    del brazo / la pierna trae codo / rodilla y la opción está activa, codos / rodillas (de a dos). Juguete simple = 6
+    (cabeza, cintura, hombros, caderas); completo = 10 (suma codos y rodillas)."""
+    n = 0
+    if recipe.lugares.get("cabeza"):
+        n += 1
+    if recipe.options()["cintura"]:
+        n += 1
+    for lugar in JOINT_OF_PLACE:
+        ref = recipe.lugares.get(lugar)
+        if not ref:
+            continue
+        n += 2
+        if recipe.joint_on(lugar) and (cat.meta(ref).articulaciones or []):
+            n += 2
+    return n
 
 
 def hand_spec(recipe: Recipe):
@@ -292,7 +337,7 @@ def load_choices(recipe: Recipe, catalog_root: str | None = None) -> tuple[Catal
     keys = recipe.parts_keys()
     for lugar, k in recipe.scales().items():              # cada pieza se escala por separado, alrededor de su unión principal
         choices[keys[lugar]] = scale_choice(choices[keys[lugar]], k)
-    return cat, choices
+    return cat, recipe.apply_joint_options(choices)
 
 
 def accessory_fit_grip(hand_agarre: dict | None, acc_meta, label: str | None) -> dict:

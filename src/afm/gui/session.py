@@ -2201,7 +2201,19 @@ class Session:
                 from ..customize import scale_choice
                 choice = scale_choice(choice, scales[place])
             out[key] = choice
-        return out
+        return self._origin_recipe_joints(out)
+
+    def _origin_recipe_joints(self, choices: dict) -> dict:
+        """Aplica a `choices` lo que pidió la receta con la que se armó la figura sin STL: un brazo o una pierna «sin
+        articulación» se arma rígido aunque su pieza de catálogo traiga la suya. Una figura que viene de un STL no cambia."""
+        if self.catalog_origin is None:
+            return choices
+        from ..recipe import Recipe
+
+        try:
+            return Recipe.from_dict(self.catalog_origin["receta"]).apply_joint_options(choices)
+        except (KeyError, ValueError, TypeError):
+            return choices
 
     def _origin_scales(self) -> dict:
         """Escalas por pieza de la receta con la que se armó la figura sin STL (vacío si la figura viene de un STL)."""

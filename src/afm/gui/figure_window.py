@@ -129,6 +129,17 @@ class FigureBuilderWindow(Gtk.Window):
         for chk, key in ((self.chk_shoulder, "clic_hombro"), (self.chk_hip, "clic_cadera")):
             chk.connect("toggled", lambda b, k=key: self.builder.options.__setitem__(k, b.get_active()))
             box.append(chk)
+        self.chk_elbow = Gtk.CheckButton(label=tr("figure_window.brazos_con_codo"))
+        self.chk_knee = Gtk.CheckButton(label=tr("figure_window.piernas_con_rodilla"))
+        self.chk_elbow.set_tooltip_text(tr("figure_window.codo_rodilla_ayuda"))
+        self.chk_knee.set_tooltip_text(tr("figure_window.codo_rodilla_ayuda"))
+        for chk, key in ((self.chk_elbow, "codo"), (self.chk_knee, "rodilla")):
+            chk.set_active(True)
+            chk.connect("toggled", self._on_joint_option, key)
+            box.append(chk)
+        self.lbl_points = Gtk.Label(xalign=0)
+        self.lbl_points.add_css_class("dim-label")
+        box.append(self.lbl_points)
         box.append(self._build_hand_section())
         box.append(self._build_scale_section())
         box.append(self._build_accessory_section())
@@ -897,7 +908,30 @@ class FigureBuilderWindow(Gtk.Window):
         self._sync_colors()
         self._sync()
 
+    def _on_joint_option(self, chk: Gtk.CheckButton, key: str) -> None:
+        if self._updating:
+            return
+        self.builder.options[key] = chk.get_active()
+        self._sync()
+
+    def _sync_joints(self) -> None:
+        """Casillas «con codo» / «con rodilla» como están en el constructor; solo se pueden tocar si la pieza elegida trae la
+        articulación. Muestra los puntos de articulación de la figura (6 = simple, 10 = completo)."""
+        b = self.builder
+        was, self._updating = self._updating, True
+        try:
+            self.chk_elbow.set_active(b.options.get("codo", True))
+            self.chk_knee.set_active(b.options.get("rodilla", True))
+        finally:
+            self._updating = was
+        self.chk_elbow.set_sensitive(b.piece_has_joint("brazo") and not self._busy)
+        self.chk_knee.set_sensitive(b.piece_has_joint("pierna") and not self._busy)
+        n = b.articulation_points()
+        self.lbl_points.set_text(tr("figure_window.puntos_de_articulacion", n=n) if n else "")
+
     def _sync(self) -> None:
+        if hasattr(self, "lbl_points"):
+            self._sync_joints()
         probs = self.builder.problems()
         self.lbl_problems.set_text((tr("common.falta") + ' ') + "; ".join(probs) if probs else tr("figure_window.listo_para_armar"))
         self.btn_build.set_sensitive(not probs and not self._busy)

@@ -160,6 +160,19 @@ def place_part(choice: PartChoice, kind: str, host_face: ContactFace, params=Non
     return PlacedPart(choice, kind, S.to_manifold(mesh), face, T, placed_port, compat)
 
 
+def rigid_choice(choice: PartChoice) -> PartChoice:
+    """Copia de la pieza SIN sus articulaciones internas (`meta.articulaciones` vacío): el miembro se arma rígido, de una
+    sola pieza, aunque el catálogo guarde la pieza con rodilla o codo. La malla, los puertos y el catálogo no se tocan.
+    Una pieza que ya no trae articulaciones se devuelve tal cual."""
+    if not (choice.meta.articulaciones or []):
+        return choice
+    import copy
+
+    meta = copy.deepcopy(choice.meta)
+    meta.articulaciones = []
+    return PartChoice(meta, choice.mesh)
+
+
 def placed_joints(pp: PlacedPart, limb: str) -> list:
     """Articulaciones internas de la pieza (`meta.articulaciones`, en el marco de la pieza) llevadas a su lugar en la figura,
     para el miembro `limb`. Es la misma transformación que aplica `pipeline.build` al colocar una pieza de catálogo."""
