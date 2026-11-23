@@ -111,6 +111,7 @@ class CatalogManagerWindow(Gtk.Window):
             row2.append(dd)
         self.chk_latest = Gtk.CheckButton(label=tr("catalog_window.solo_la_ultima_version"))
         self.chk_latest.set_tooltip_text(tr("catalog_window.como_afm_catalogo_listar_una_fila"))
+        self.chk_latest.set_active(True)                          # por defecto solo la última versión (antes de conectar «toggled»: no recarga)
         self.chk_latest.connect("toggled", lambda *_: None if self._updating else self._reload())
         row2.append(self.chk_latest)
         box.append(row2)
@@ -1290,7 +1291,7 @@ class CatalogManagerWindow(Gtk.Window):
         row.append(self.tgl_rpaint)
         row.append(self.tgl_rerase)
         row.append(self.tgl_rfill)
-        row.append(self.tgl_rorphan)
+        # «Sin origen» ya no es un botón: «Pintar» también pinta lo que el color del FBX no cubre (el usuario no distingue una cosa de la otra)
         row.append(Gtk.Label(label=tr("catalog_window.retocar_alcance")))
         self.spin_rreach = Gtk.SpinButton.new_with_range(0.05, 15.0, 0.5)
         self.spin_rreach.set_digits(1)
@@ -1375,6 +1376,8 @@ class CatalogManagerWindow(Gtk.Window):
         if not ed.session.palette_ids:
             self.lbl_status.set_text(tr("catalog_window.retocar_sin_paleta"))
             return
+        ed.session.set_paint_orphan(True)                           # «Pintar» pinta también lo que no tiene origen
+        ed.session.set_polygon(True)                                # «Polígono entero» activado por defecto
         self._reditor = ed
         self._dyaw = self._dpitch = 0.0
         self._zoom, self._pan = 1.0, (0.0, 0.0)
@@ -1387,6 +1390,7 @@ class CatalogManagerWindow(Gtk.Window):
             self.tgl_rpaint.set_active(True)
             self.chk_rmirror.set_active(False)
             self.chk_rpoly.set_active(ed.session.polygon)
+            self.spin_rradius.set_sensitive(not ed.session.polygon)
             self._rsources = [m.ref for m in self.mgr.pieces() if m.ref != meta.ref and (getattr(m, "color", None) or {}).get("retoque")]
             self.dd_rsource.set_model(Gtk.StringList.new(self._rsources or [tr("common.ninguna")]))
             self.btn_rbring.set_sensitive(bool(self._rsources))

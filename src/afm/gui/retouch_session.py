@@ -29,6 +29,7 @@ class RetouchSession:
         self.role: str | None = self._palette[0] if self._palette else None
         self.radius = float(radius)
         self.reach = DEFAULT_REACH_MM
+        self.paint_orphan = False          # «pintar» también pinta lo que la fuente de color no cubre (suma una pincelada «sin origen» por cada una normal); la ventana lo activa
         self.polygon = False               # «Polígono entero»: pintar / borrar / sin origen actúan sobre el triángulo de la pieza bajo el mouse, no sobre una bola
         self._last_tri = None
         self.truncated = False            # el último trazo se cortó porque la pieza llegó al máximo de pinceladas
@@ -83,6 +84,16 @@ class RetouchSession:
     def set_polygon(self, on: bool) -> None:
         self.polygon = bool(on)
 
+    def set_paint_orphan(self, on: bool) -> None:
+        """Con `on`, el modo «pintar» pinta a la vez lo que tiene origen y lo que no (el usuario no distingue una cosa de la otra)."""
+        self.paint_orphan = bool(on)
+
+    def _flags(self) -> tuple[bool, ...]:
+        """`huerfana` de cada pincelada que produce un punto del mouse: «pintar» con `paint_orphan` suma la pincelada normal y la «sin origen»."""
+        if self.mode == ORPHAN:
+            return (True,)
+        return (False, True) if self.mode == PAINT and self.paint_orphan else (False,)
+
     def begin_stroke(self, c, n=None, tri=None) -> int:
         """Empieza un trazo con una primera pincelada en `c` (marco del STL; `n` = normal de la superficie o `None`). Devuelve las pinceladas agregadas."""
         if self._open is not None:
@@ -103,22 +114,24 @@ class RetouchSession:
         self._open.append(s)
         return 1
 
-    def _add_polygon(self, c, n, tri, rol, orphan) -> int:
+    def _add_polygon(self, c, n, tri, rol, flags) -> int:
         """«Polígono entero»: una pincelada por cada triángulo que el mouse toca (el mismo triángulo seguido no se repite)."""
         t = tuple(tuple(float(a) for a in v) for v in tri)
         if t == self._last_tri:
             return 0
-        if len(self._strokes) >= MAX_STROKES:
+        if len(self._strokes) + len(flags) > MAX_STROKES:
             self.truncated = True
             return 0
         from ..retouch import triangle_of
 
         centre, radius = triangle_of(t)
-        s = Stroke(centre, min(max(radius, MIN_RADIUS_MM), MAX_RADIUS_MM), rol, n, huerfana=orphan, tri=t)
-        self._strokes.append(s)
-        self._open.append(s)
+        radius = min(max(radius, MIN_RADIUS_MM), MAX_RADIUS_MM)
+        for orphan in flags:
+            s = Stroke(centre, radius, rol, n, huerfana=orphan, tri=t)
+            self._strokes.append(s)
+            self._open.append(s)
         self._last_tri = t
-        return 1
+        return len(flags)
 
     def add_point(self, c, n=None, tri=None) -> int:
         """Suma un punto al trazo en curso: agrega pinceladas solo si se alejó ≥ radio·0,5 de la última (rellena el hueco si el mouse saltó)."""
@@ -127,10 +140,10 @@ class RetouchSession:
         if self.mode == FILL:
             return 0
         rol = self.role if self.mode in (PAINT, ORPHAN) else None
-        orphan = self.mode == ORPHAN
+        flags = self._flags()
         if self.polygon and tri is not None:
-            return self._add_polygon(c, n, tri, rol, orphan)
-        new = Stroke(c, self.radius, rol, n, huerfana=orphan)             # valida c, radio y normal
+            return self._add_polygon(c, n, tri, rol, flags)
+        new = Stroke(c, self.radius, rol, n, huerfana=flags[0])             # valida c, radio y normal
         step = self.radius * SPACING_FACTOR
         pts = [new]
         if self._last_c is not None:
@@ -140,16 +153,18 @@ class RetouchSession:
                 return 0
             k = int(dist // step)
             # intermedios a lo largo del segmento, cada `step` mm (la normal se repite: son puntos del mismo arrastre)
-            pts = [Stroke(tuple(self._last_c[i] + d[i] * (j * step / dist) for i in range(3)), self.radius, rol, n, huerfana=orphan)
+            pts = [Stroke(tuple(self._last_c[i] + d[i] * (j * step / dist) for i in range(3)), self.radius, rol, n)
                    for j in range(1, k)] + [new]
         added = 0
         for s in pts:
-            if len(self._strokes) >= MAX_STROKES:
+            if len(self._strokes) + len(flags) > MAX_STROKES:
                 self.truncated = True
                 break
-            self._strokes.append(s)
-            self._open.append(s)
-            added += 1
+            for orphan in flags:
+                v = s if s.huerfana == orphan else Stroke(s.c, s.r, s.rol, s.n, huerfana=orphan)
+                self._strokes.append(v)
+                self._open.append(v)
+                added += 1
         if added:
             self._last_c = new.c
         return added

@@ -1,3 +1,17 @@
+## Current Focus — Retocar color: «Pintar» incluye «Sin origen», polígono entero y última versión por defecto (2026-11-23)
+Al retocar una pieza del catálogo al usuario no le importa si lo que pinta tiene origen en el FBX o no: solo quiere que se pinte. Ahora «Pintar» pinta las dos cosas a la vez, «Polígono entero» arranca activado y el gestor del catálogo arranca con «solo la última versión» tildado.
+- `RetouchSession.paint_orphan` / `set_paint_orphan` (por defecto `False`: la API de la sesión no cambia): en modo «pintar» cada punto del mouse suma una pincelada normal **y** una «sin origen» (mismo centro, radio, rol y triángulo). Un trazo sigue siendo un paso de deshacer; el par nunca se parte en el tope `MAX_STROKES` (cada punto cuenta por 2 pinceladas). «Borrar» y «Rellenar» no cambian; el modo `ORPHAN` sigue existiendo en la sesión.
+- Ventana (`catalog_window.py`): al entrar a «Retocar color…» se activan `paint_orphan` y `polygon` (casilla «Polígono entero» marcada, radio desactivado); se quitó el botón «Sin origen» de la barra (los textos `retocar_sin_origen*` quedan en los locales). `chk_latest.set_active(True)` antes de conectar `toggled`.
+- Pruebas: `tests/test_retouch_paint_orphan.py` (6).
+
+### Todo List
+- [x] Done: sesión + ventana + pruebas (75 pasan, 14 saltadas por falta de GTK/GL en retoque/catálogo)
+- [ ] Todo: probar a mano en la ventana GTK (sin GTK en este entorno): barra sin «Sin origen», «Polígono entero» marcado al entrar, lista del catálogo con «solo la última versión» tildado al abrir
+- [ ] Todo (si hace falta): recordar el estado de «solo la última versión» entre sesiones; borrar las claves `retocar_sin_origen*` si no vuelve el botón
+
+### Latest Blockers/Discoveries
+- Los retoques ya guardados no cambian (las pinceladas viejas siguen siendo normales o «sin origen» por separado); el doble trazo solo vale para lo que se pinte desde ahora, y duplica las pinceladas por pieza (tope 20 000).
+
 ## Current Focus — Retocar color: «Polígono entero» (el pincel mínimo no pintaba nada) (2026-11-22)
 Con radio 0,05 mm (el mínimo) el pincel normal y «Sin origen» «no pintaban»: el contador de pinceladas subía pero el polígono no cambiaba. Causa: una pincelada solo cambia las muestras de la fuente de color que caen en su bola, y esas muestras están a 0,08 mm (al armar) / 0,25 mm (vista previa) y a 0,05–0,2 mm de la superficie de la pieza (otro modelado): una bola de 0,05 mm casi nunca toca una (en un cubo ideal, 12 % de las pinceladas cambian algo en la vista previa y 70 % al armar; en la cabeza de Güemes del reporte hay ~1 530 pinceladas de 0,05 mm). El resaltado cian sí mostraba el polígono (`brush_faces` siempre incluye la cara más cercana), así que prometía algo que la pincelada no hacía.
 - `Stroke.tri` (3 vértices): pincelada de **polígono**; pinta lo que cae sobre el triángulo (a ≤ `TRI_DEPTH_MM` 0,4 mm de su plano, baricéntricas ≥ −`TRI_EDGE_TOL`), no una bola. Formato `afm-retoque-4` solo si hay alguna (sin ellas se escriben los bytes de siempre). Vale para pintar, borrar y «Sin origen» (`ColorSource.paint` / `_apply_orphans`), y viaja con `transform_strokes` y el espejo.
