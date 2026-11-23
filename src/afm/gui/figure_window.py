@@ -58,6 +58,7 @@ class FigureBuilderWindow(Gtk.Window):
         self._group = None                      # [(nombre, malla, color)] de «todas las piezas juntas»
         self._cp_token = 0                      # vista previa a color en curso (un cálculo más nuevo invalida al anterior)
         self._color_one = None                  # (ref, partes de color) de la pieza sola que se ve; None = gris
+        self._cut_plane: dict | None = None     # vista del corte de «sin soportes»: {"z", "bounds"} de la figura sentada
         self._tex_parts = None                  # [TexturedPart] de la figura armada con color (GLB); None = se dibuja el STL
         self._color_w: dict[str, dict] = {}     # T48: rol -> {"btn", "ent", "reset"} del bloque «Colores»
         self._dyaw = self._dpitch = 0.0
@@ -466,7 +467,7 @@ class FigureBuilderWindow(Gtk.Window):
     def _draw_group(self):
         """Lo que dibuja la vista conjunta: las piezas (con color si ya se calculó) y, encima, el arma y el puente. Misma lista mientras
         nada cambie, para que girar la vista no vuelva a subir todo a la GPU."""
-        if not self._mount_extra:
+        if not self._mount_extra or self._cut_view():
             return self._group
         key = (id(self._group), id(self._mount_extra))
         if self._combo[:2] != key:
@@ -685,6 +686,10 @@ class FigureBuilderWindow(Gtk.Window):
         self.chk_fill_hip.set_tooltip_text(tr("generar.el_corte_plano_le_saca_a"))
         self.chk_fill_hip.connect("toggled", self._on_flat)
         box.append(self.chk_fill_hip)
+        self.chk_cut = Gtk.CheckButton(label=tr("figure_window.ver_corte_vista_previa"))
+        self.chk_cut.set_tooltip_text(tr("figure_window.ver_corte_tooltip"))
+        self.chk_cut.connect("toggled", self._on_cut_view)
+        box.append(self.chk_cut)
         note = Gtk.Label(label=tr("figure_window.sin_soportes_nota"), xalign=0, wrap=True)
         note.add_css_class("dim-label")
         box.append(note)
@@ -698,7 +703,22 @@ class FigureBuilderWindow(Gtk.Window):
         b.fill_hip = self.chk_fill_hip.get_active()
         self.row_flat.set_sensitive(b.flat and not self._busy)
         self.chk_fill_hip.set_sensitive(b.flat and not self._busy)
+        self.chk_cut.set_sensitive(b.flat and not self._busy)
+        if self.chk_cut.get_active() and self.tgl_all.get_active():
+            self._refresh_group()                                # cambió la altura del corte o se apagó «sin soportes»
         self._update_color_status()
+
+    def _cut_view(self) -> bool:
+        """¿Se está viendo el corte de «sin soportes»? (casilla encendida, «sin soportes» activo y vista conjunta)."""
+        chk = getattr(self, "chk_cut", None)
+        return bool(self.builder.flat and chk is not None and chk.get_active() and self.tgl_all.get_active())
+
+    def _on_cut_view(self, *_args) -> None:
+        """Casilla «Ver el corte en la vista previa»: pasa a la vista conjunta sentada con el plano de la cama (o vuelve a la de siempre)."""
+        if self.chk_cut.get_active() and not self.tgl_all.get_active():
+            self.tgl_all.set_active(True)                        # su `toggled` arma la vista conjunta
+            return
+        self._refresh_group()
 
     def _sync_colors(self) -> None:
         """Vuelve a armar las filas (una por rol de la línea) con los colores de ahora y los textos de estado."""
@@ -998,6 +1018,7 @@ class FigureBuilderWindow(Gtk.Window):
             self.exp_flat.set_sensitive(not self._busy)
             self.row_flat.set_sensitive(b.flat and not self._busy)
             self.chk_fill_hip.set_sensitive(b.flat and not self._busy)
+            self.chk_cut.set_sensitive(b.flat and not self._busy)
         self.exp_hand.set_sensitive(has_hand)
         self.row_overlap.set_sensitive(b.hand["union"] == "solape")
         for place in SCALE_PLACES:
@@ -1097,6 +1118,22 @@ class FigureBuilderWindow(Gtk.Window):
                 self._set_view_toggles(False)
             self._redraw()
             return
+        self._cut_plane = None
+        if self._cut_view():                         # «sin soportes»: figura sentada + plano de la cama + lo que el corte saca
+            try:
+                self._group, self._cut_plane, notes = self.builder.preview_flat()
+            except Exception as exc:                 # noqa: BLE001
+                self._group = self._pick_group = None
+                self.lbl_result.set_text(tr("figure_window.no_se_puede_ver_la_figura", exc=exc))
+                self._redraw()
+                return
+            self._pick_group = None                  # el clic y las armas trabajan sobre la figura de pie: no van con esta vista
+            if hasattr(self, "tgl_m_pick"):
+                self._set_pick_mode(None)
+                self._set_view_toggles(False)
+            self.lbl_result.set_text(tr("figure_window.vista_corte_titulo") + '\n' + "\n".join(f"• {n}" for n in notes))
+            self._redraw()
+            return
         try:
             self._group, notes = self.builder.preview()
             self._pick_group = self._group           # el color parte las piezas por color: el clic usa estas, de una sola pieza por nombre
@@ -1138,6 +1175,8 @@ class FigureBuilderWindow(Gtk.Window):
         self._color_one = None
         if self._tex_parts is not None:                           # figura armada con textura de verdad: no hay nada que calcular
             return
+        if self._cut_view():                                      # vista del corte: piezas de un color por tipo, sentadas
+            return
         if group:
             if not b.has_colored_choice():
                 return
@@ -1163,6 +1202,8 @@ class FigureBuilderWindow(Gtk.Window):
             self.lbl_result.set_text(tr("figure_window.color_vista_error", exc=error))
             return False
         if not parts:
+            return False
+        if self._cut_view():                                      # llegó tarde: la vista ya es la del corte
             return False
         if self.tgl_all.get_active():
             self._group = parts
@@ -1191,6 +1232,8 @@ class FigureBuilderWindow(Gtk.Window):
             if ride is not None:
                 marks = RP.seat_marks(self.builder.ride["asiento"], self.builder.ride["direccion"]) if self._ride_view == "caballo" else ride.marks
                 img = self.preview.render_parts(ride.parts, self._dyaw, self._dpitch, marks=marks, bounds=ride.bounds)
+            elif group is not None and self._cut_view() and self._cut_plane is not None:
+                img = self.preview.render_parts(group, self._dyaw, self._dpitch, bounds=self._cut_plane["bounds"], plane=self._cut_plane)
             elif group is not None:
                 bounds = MP.parts_bounds(self._pick_group) if self._pick_group else None      # el mismo encuadre que usa el clic
                 img = self.preview.render_parts(group, self._dyaw, self._dpitch, marks=MP.mount_marks(self.builder.mounts), bounds=bounds,

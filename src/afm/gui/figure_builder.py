@@ -875,6 +875,10 @@ class FigureBuilder:
         """Vista previa conjunta de las piezas elegidas (ver `preview_parts`)."""
         return preview_parts(self)
 
+    def preview_flat(self) -> tuple[list, dict, list[str]]:
+        """Vista previa de «Imprimir sin soportes»: figura sentada, plano de la cama y material cortado (ver `preview_flat_parts`)."""
+        return preview_flat_parts(self)
+
     def progress_stages(self) -> list:
         """Pasos esperados de «Armar y exportar» con las piezas elegidas (para la barra de progreso)."""
         from ..recipe import progress_stages
@@ -922,13 +926,14 @@ def _mirrored(mesh):
     return m
 
 
-def _place_parts(builder: "FigureBuilder") -> tuple[list, list[str]]:
+def _place_parts(builder: "FigureBuilder", pivots: dict | None = None) -> tuple[list, list[str]]:
     """Todas las piezas elegidas puestas juntas, sin generar nada (solo transformaciones rígidas, instantáneo).
 
     Devuelve ([(nombre, malla, color)], avisos). Cada pieza va en su puerto —la pelvis en la cintura del torso, la cabeza en
     el cuello, el brazo y la pierna en las tomas `hombro_izq` / `cadera_izq`, la mano en la muñeca del brazo— con sus escalas
     y el giro / solape de la mano; el otro lado sale por espejo. No incluye pasadores, holguras ni cavidades (eso lo hace
-    «Armar y exportar»): sirve para ver proporciones, uniones y escalas antes de esperar minutos."""
+    «Armar y exportar»): sirve para ver proporciones, uniones y escalas antes de esperar minutos. Si `pivots` es un diccionario se le
+    deja `{lugar: (centro, eje)}` del pasador de cada miembro (brazo, pierna), el mismo eje que usa el armado para sentar la figura."""
     from ..assembly import AssemblyError, transform_choice
     from ..hand import WristFrame, place_hand
     from ..limbs import ContactFace
@@ -978,6 +983,9 @@ def _place_parts(builder: "FigureBuilder") -> tuple[list, list[str]]:
         m = ch[place].mesh.copy()
         m.apply_transform(T)
         out.append((place, m, place, True, ch[place].meta))
+        if pivots is not None:
+            from ..pipeline import _rotation_axis
+            pivots[place] = (np.asarray(face.center, float).copy(), _rotation_axis(face))
         wrist = ch[place].meta.puertos.get("muneca") if place == "brazo" else None
         if place == "brazo" and "mano" in ch:
             if wrist is None:
@@ -990,6 +998,98 @@ def _place_parts(builder: "FigureBuilder") -> tuple[list, list[str]]:
                 hand.apply_translation(-fr.axis * builder.hand["solape"])
             out.append(("mano", hand, "mano", True, ch["mano"].meta))
     return out, notes
+
+
+PREVIEW_CUT_COLOR = (0.92, 0.18, 0.18, 1.0)      # el material que el corte plano le saca a la figura
+
+
+def preview_flat_parts(builder: "FigureBuilder") -> tuple[list, dict, list[str]]:
+    """Vista previa de «Imprimir sin soportes»: la figura sentada, el plano de la cama y lo que el corte le saca. Sin generar nada.
+
+    Parte de `_place_parts` (de pie) y hace lo que hace el armado con las piezas rígidas: las piernas giran `sit_angle` alrededor del
+    pasador de la cadera; el plano horizontal queda `flat_depth` mm sobre el punto más bajo del torso / la pelvis (la cola); todo salvo
+    brazos, manos y cabeza se corta por ese plano (lo que se va, en rojo); y cada brazo, con su mano, gira hacia adelante lo justo para apoyar
+    en el plano (con clic de hombro parte del `print_angle` de la línea; el armado lo rearma con el ángulo de apoyo). Es una aproximación:
+    no incluye pasadores, holguras, rodillas ni codos flexionados ni el relleno de muslos; el armado real puede diferir unos décimos.
+    Devuelve ([(nombre, malla, rgba)], {"z", "bounds"}, avisos)."""
+    import trimesh as tm
+
+    from ..pipeline import FLAT_ANGLE_MAX, _arm_turn_to_plane
+    from ..recipe import recipe_params
+
+    pivots: dict = {}
+    out, notes = _place_parts(builder, pivots)
+    p = recipe_params(builder.recipe(), builder.catalog())
+    depth = float(p.flat_depth if builder.flat_depth is None else builder.flat_depth)
+
+    def rot(mesh, place: str, deg: float):
+        if not deg or place not in pivots:
+            return mesh
+        c, ax = pivots[place]
+        m = mesh.copy()
+        m.apply_transform(tm.transformations.rotation_matrix(np.radians(deg), ax, c))
+        return m
+
+    seated: dict = {}                                    # nombre -> (malla del lado izquierdo, clave, ambos lados)
+    for name, mesh, key, both, _meta in out:
+        deg = 0.0
+        if key == "pierna":
+            deg = float(p.sit_angle)
+        elif key in ("brazo", "mano") and builder.options.get("clic_hombro"):
+            deg = float(p.detent.print_angle)
+        seated[name] = (rot(mesh, "pierna" if key == "pierna" else "brazo", deg), key, both)
+    body = [m for n, (m, k, _b) in seated.items() if k in ("torso", "pelvis")]
+    z_cut = float(min(m.bounds[0][2] for m in body)) + depth
+    legs = [m for m, k, _b in seated.values() if k == "pierna"]
+    if legs and "torso" in seated:                                      # hacia dónde apuntan las piernas sentadas = adelante
+        ly = np.mean([(m.bounds[0][1] + m.bounds[1][1]) / 2 for m in legs])
+        ty = (seated["torso"][0].bounds[0][1] + seated["torso"][0].bounds[1][1]) / 2
+        fwd = 1.0 if ly >= ty else -1.0
+    else:
+        fwd = 1.0
+    arm_keys = [n for n, (_m, k, _b) in seated.items() if k in ("brazo", "mano")]
+    if arm_keys and "brazo" in pivots:
+        pts = np.vstack([np.asarray(seated[n][0].vertices) for n in arm_keys])
+        if pts[:, 2].min() < z_cut - 1e-6:
+            c, ax = pivots["brazo"]
+            sgn, theta, status = _arm_turn_to_plane(pts, c, ax, z_cut, fwd)
+            if status == "no_sube":
+                notes.append(tr("figure_builder.corte_brazo_no_sube"))
+            else:
+                if status == "no_llega":
+                    notes.append(tr("figure_builder.corte_brazo_no_llega", max=f"{FLAT_ANGLE_MAX:.0f}"))
+                for n in arm_keys:
+                    seated[n] = (rot(seated[n][0], "brazo", sgn * theta), seated[n][1], seated[n][2])
+                notes.append(tr("figure_builder.corte_brazo_gira", grados=f"{theta:.0f}"))
+    above, below = (0.0, 0.0, 1.0), (0.0, 0.0, -1.0)
+    plane_o = (0.0, 0.0, z_cut)
+    parts: list = []
+    for name, (mesh, key, both) in seated.items():
+        for nm, m in ((name, mesh),) + (((f"{name}_der", _mirrored(mesh)),) if both else ()):
+            if key in ("brazo", "mano", "cabeza") or m.bounds[0][2] >= z_cut:
+                parts.append((nm, m, PREVIEW_COLORS[key]))
+                continue
+            kept, gone = m, None
+            try:
+                kept = m.slice_plane(plane_o, above, cap=True)
+                gone = m.slice_plane(plane_o, below, cap=True)
+            except Exception:                                           # noqa: BLE001  (malla abierta: se corta sin tapa)
+                try:
+                    kept = m.slice_plane(plane_o, above, cap=False)
+                    gone = m.slice_plane(plane_o, below, cap=False)
+                except Exception:                                       # noqa: BLE001
+                    notes.append(tr("figure_builder.corte_no_se_pudo", pieza=nm))
+            if kept is not None and len(kept.faces):
+                parts.append((nm, kept, PREVIEW_COLORS[key]))
+            if gone is not None and len(gone.faces):
+                parts.append((f"{nm}_corte", gone, PREVIEW_CUT_COLOR))
+    for place in ("pierna",):
+        low = [m.bounds[0][2] for m, k, _b in seated.values() if k == place]
+        if low and min(low) > z_cut + 0.05:
+            notes.append(tr("figure_builder.corte_pierna_no_toca", mm=f"{min(low) - z_cut:.1f}"))
+    lo = np.min([m.bounds[0] for _n, m, _c in parts], axis=0)
+    hi = np.max([m.bounds[1] for _n, m, _c in parts], axis=0)
+    return parts, {"z": z_cut, "bounds": np.array([lo, hi])}, notes
 
 
 def preview_parts(builder: "FigureBuilder") -> tuple[list, list[str]]:

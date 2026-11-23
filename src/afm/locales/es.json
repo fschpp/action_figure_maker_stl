@@ -1029,6 +1029,11 @@
  },
  "figure_builder": {
   "sin_soportes_resumen": "Sin soportes: corte a %{corte} mm sobre la cola; brazos girados hacia adelante: %{giro}",
+  "corte_brazo_no_sube": "el brazo no sube al girar hacia adelante: no se gira y queda por debajo del plano",
+  "corte_brazo_no_llega": "ni girando %{max}° el brazo llega al plano del corte: queda en el aire",
+  "corte_brazo_gira": "el brazo gira %{grados}° hacia adelante hasta apoyar en el plano",
+  "corte_no_se_pudo": "%{pieza}: no se pudo cortar en la vista previa; se ve entera",
+  "corte_pierna_no_toca": "las piernas quedan %{mm} mm por encima del plano: el corte no las toca y se imprimirían en el aire (bajá la altura del corte o cambiá la pose)",
   "torso": "Torso",
   "pelvis": "Pelvis",
   "brazo": "Brazo",
@@ -1093,6 +1098,9 @@
  "figure_window": {
   "sin_soportes_altura_del_corte": "Altura del corte sobre la cola (mm)",
   "sin_soportes_nota": "Es una opción de exportación: no cambia la receta. Al armar, las piezas salen aplanadas y los brazos giran hacia adelante.",
+  "ver_corte_vista_previa": "Ver el corte en la vista previa",
+  "ver_corte_tooltip": "Muestra la figura sentada, el plano de la cama a la altura del corte y, en rojo, el material que el corte le saca. Es una aproximación (sin pasadores, holguras ni rellenos): el armado real puede diferir unos décimos.",
+  "vista_corte_titulo": "Vista del corte «sin soportes» (el plano azul es la cama; en rojo, lo que se corta):",
   "receta_abierta_path_retocala_y_guardala": "Receta abierta: %{path}\nRetocala y guardala con otro nombre, o armala.",
   "carga_una_receta_guardada_piezas_opciones": "Carga una receta guardada (piezas, opciones, mano y escalas) para retocarla. Guardala con otro nombre para no pisar la original.",
   "guarda_las_piezas_elegidas_en_catalogo": "Guarda las piezas elegidas en <catálogo>/figuras/<nombre>.receta.json (se puede volver a armar con «afm armar» y cuenta como uso de cada pieza).",

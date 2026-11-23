@@ -1,3 +1,19 @@
+## Current Focus — «Armar figura desde catálogo»: ver el corte de «sin soportes» antes de armar (2026-11-23)
+En «Impresión sin soportes» no había forma de ver dónde corta el plano de la cama: había que armar (minutos) y abrir el STL. Ahora la casilla **«Ver el corte en la vista previa»** (dentro de «Impresión sin soportes», se habilita con «sin soportes» activo) pasa a la vista conjunta con la figura **sentada**, el **plano de la cama** (azul) a la altura del corte (`flat_depth` sobre el punto más bajo del torso / la pelvis) y, **en rojo**, el material que el corte le saca. Cambiar la altura del corte la redibuja en el momento.
+- `figure_builder.preview_flat_parts` / `FigureBuilder.preview_flat()`: parte de `_place_parts` (nuevo `pivots=` devuelve centro y eje del pasador de brazo y pierna, el mismo `_rotation_axis` del armado); piernas a `sit_angle`; corte con `trimesh.slice_plane(cap=True)` de todo menos brazos, manos y cabeza; cada brazo (con su mano) gira hacia adelante hasta apoyar con `pipeline._arm_turn_to_plane` (con clic de hombro parte del `print_angle` de la línea). Avisos: giro del brazo, brazo que no sube / no llega, **piernas que quedan por encima del plano** (el corte no las toca).
+- `PreviewRenderer.render_parts(..., plane={"z":…})` dibuja el plano (`_bed`, solo se vuelve a subir si cambia la altura o el encuadre); `render` y `render_textured` lo quitan.
+- Ventana: `chk_cut`, `_cut_view()`, `_on_cut_view`; en la vista del corte no se dibujan armas / marcas / color por pieza (están en pose de pie) y el clic de monturas se apaga. Textos es/en/pt (`figure_window.ver_corte_*`, `vista_corte_titulo`, `figure_builder.corte_*`).
+- Es una **aproximación**: sin pasadores, holguras, rodillas / codos flexionados ni relleno de muslos; el armado real puede diferir unos décimos.
+- Pruebas: `tests/test_flat_cut_preview.py` (7; la del renderizador necesita moderngl + GL).
+
+### Todo List
+- [x] Done: vista previa del corte + plano en el renderizador + casilla + textos + pruebas
+- [ ] Todo: probar a mano la casilla en la ventana GTK (no hay GTK en este entorno) con la figura de Güemes: mirar si las piernas tocan el plano
+- [ ] Todo (si hace falta): modelar rodilla / codo y el relleno de muslos en la vista del corte; mostrar la altura del plano en mm sobre la cama
+
+### Latest Blockers/Discoveries
+- Rama `feat/sin-soportes-brazos-con-clic` (apilado sobre el parche anterior). Con piernas rígidas a 90° el plano horizontal solo toca lo que está a `flat_depth` de la cola: si las piernas quedan más arriba no se cortan y se imprimen en el aire; la vista lo avisa.
+
 ## Current Focus — «Sin soportes» con clic en los hombros: el brazo ahora gira hasta apoyar (2026-11-23)
 Con «Clic en los hombros» el brazo estaba protegido en `flat_for_print` (girarlo después fundiría la punta del clic con el disco), así que en «Impresión sin soportes» no giraba: solo salía un aviso con el ángulo de apoyo. Ahora `afm armar` / «Armar figura desde catálogo» lo resuelven solos: si el brazo con clic cuelga bajo el plano del corte y existe un giro hacia adelante que lo apoya, se **vuelve a armar** con `DetentSpec.print_angle` = ese ángulo (el brazo sale girado y los clics siguen cayendo en la pose impresa). Vale con y sin codo / rodilla (la cadena entera gira).
 - `cli._rest_click_arms_on_plane(recipe, asm, catalog_root, flat, progress, fill_hip)`: usa `pipeline.flat_click_advice`, rearma con `recipe.assemble(..., print_angle=)` (nuevo, solo pisa ese armado; el catálogo y la receta no cambian) y conserva `flat_fill_hip`. Se llama en `run_armar` antes de validar. Si el brazo no puede apoyar (`angulo_apoyo` None) se deja como estaba y sigue el aviso de siempre.

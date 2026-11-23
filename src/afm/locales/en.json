@@ -1029,6 +1029,11 @@
  },
  "figure_builder": {
   "sin_soportes_resumen": "No supports: cut %{corte} mm above the tail; arms rotated forward: %{giro}",
+  "corte_brazo_no_sube": "the arm does not rise when turned forward: it is not turned and stays below the plane",
+  "corte_brazo_no_llega": "even turned %{max}° the arm does not reach the cut plane: it stays in the air",
+  "corte_brazo_gira": "the arm turns %{grados}° forward until it rests on the plane",
+  "corte_no_se_pudo": "%{pieza}: could not be cut in the preview; shown whole",
+  "corte_pierna_no_toca": "the legs are %{mm} mm above the plane: the cut does not touch them and they would print in the air (lower the cut height or change the pose)",
   "torso": "Torso",
   "pelvis": "Pelvis",
   "brazo": "Arm",
@@ -1093,6 +1098,9 @@
  "figure_window": {
   "sin_soportes_altura_del_corte": "Cut height above the tail (mm)",
   "sin_soportes_nota": "This is an export option: it does not change the recipe. When building, the parts come out flattened and the arms rotate forward.",
+  "ver_corte_vista_previa": "Show the cut in the preview",
+  "ver_corte_tooltip": "Shows the seated figure, the bed plane at the cut height and, in red, the material the cut removes. It is an approximation (no pins, clearances or fills): the real build may differ by a few tenths.",
+  "vista_corte_titulo": "“No supports” cut view (the blue plane is the bed; red is what gets cut):",
   "receta_abierta_path_retocala_y_guardala": "Recipe opened: %{path}\nTweak it and save it under another name, or assemble it.",
   "carga_una_receta_guardada_piezas_opciones": "Loads a saved recipe (parts, options, hand and scales) so you can tweak it. Save it under another name so you do not overwrite the original.",
   "guarda_las_piezas_elegidas_en_catalogo": "Saves the chosen parts to <catalog>/figuras/<name>.receta.json (it can be assembled again with “afm armar” and counts as a use of each part).",

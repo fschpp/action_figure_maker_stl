@@ -411,6 +411,7 @@ class PreviewRenderer:
         if off is None:
             raise RuntimeError(self.error or tr("catalog_manager.sin_vista_previa"))
         with off.ctx:                        # vuelve a poner este contexto como el actual (GTK tiene el suyo)
+            self._bed(off, None, None)       # la cama solo se dibuja en la vista conjunta de «sin soportes»
             key = (id(mesh), meta.ref if meta is not None else None, len(meta.articulaciones or []) if meta is not None else 0, id(color_parts), guides, edges)
             if self._mesh is not mesh or self._key != key:
                 off.scene.clear()
@@ -437,11 +438,34 @@ class PreviewRenderer:
             self._hover(off, hover)
             return off.render(preview_camera(view_bounds(mesh, meta), off.width / off.height, yaw_off, pitch_off, zoom, pan))
 
+    BED_NAME, BED_COLOR = "plano_cama", (0.25, 0.55, 1.0, 0.28)
+
+    def _bed(self, off, plane, bounds) -> None:
+        """Plano horizontal de la cama a la altura `plane["z"]` (vista previa de «Imprimir sin soportes»); `None` lo quita. Solo se vuelve a
+        subir a la GPU si cambia la altura o el encuadre."""
+        if plane is None:
+            if self.BED_NAME in off.scene.items:
+                off.scene.remove(self.BED_NAME)
+            self._bed_key = None
+            return
+        key = (round(float(plane["z"]), 4), tuple(np.round(np.asarray(bounds, float).ravel(), 2)))
+        if getattr(self, "_bed_key", None) == key and self.BED_NAME in off.scene.items:
+            return
+        from ..planes import Plane
+
+        b = np.asarray(bounds, float)
+        c = np.array([(b[0][0] + b[1][0]) / 2, (b[0][1] + b[1][1]) / 2, float(plane["z"])])
+        half = float(max(b[1][0] - b[0][0], b[1][1] - b[0][1])) * 0.75
+        off.scene.set_plane(self.BED_NAME, Plane(c, np.array([0.0, 0.0, 1.0]), np.array([1.0, 0.0, 0.0]), np.array([0.0, 1.0, 0.0])), half,
+                            color=self.BED_COLOR)
+        self._bed_key = key
+
     def render_parts(self, parts, yaw_off: float = 0.0, pitch_off: float = 0.0, marks=None, bounds=None,
-                     zoom: float = 1.0, pan=(0.0, 0.0), overlay=None, dot_px: float = 6.0) -> np.ndarray:
+                     zoom: float = 1.0, pan=(0.0, 0.0), overlay=None, dot_px: float = 6.0, plane=None) -> np.ndarray:
         """Imagen RGBA de varias piezas juntas, cada una con su color: `parts` = [(nombre, malla, color RGBA)]. `bounds` (2x3) fija el
         encuadre (por defecto, el de las piezas juntas). Si `parts` es el
-        mismo objeto de la llamada anterior no se vuelve a subir a la GPU (arrastrar para girar solo mueve la cámara)."""
+        mismo objeto de la llamada anterior no se vuelve a subir a la GPU (arrastrar para girar solo mueve la cámara).
+        `plane` (`{"z": mm}`): dibuja encima el plano horizontal de la cama a esa altura (el corte de «sin soportes»)."""
         off = self._ensure()
         if off is None:
             raise RuntimeError(self.error or tr("catalog_manager.sin_vista_previa"))
@@ -454,12 +478,14 @@ class PreviewRenderer:
                     off.scene.set_mesh(name, mesh, color)
                 self._mesh = parts
                 self._overlay_names = set()                          # scene.clear() ya se llevó las capas
+                self._bed_key = None
             if bounds is None:
                 lo = np.min([np.asarray(m.bounds, float)[0] for _n, m, _c in parts], axis=0)
                 hi = np.max([np.asarray(m.bounds, float)[1] for _n, m, _c in parts], axis=0)
                 bounds = np.array([lo, hi])
             self._marks(off, marks)
             self._overlay(off, overlay, dot_px)
+            self._bed(off, plane, bounds)
             return off.render(preview_camera(bounds, off.width / off.height, yaw_off, pitch_off, zoom, pan))
 
     def render_textured(self, parts, textures_on: bool = True, yaw_off: float = 0.0, pitch_off: float = 0.0, marks=None, bounds=None,
@@ -481,6 +507,8 @@ class PreviewRenderer:
                     else:
                         off.scene.set_mesh(part.name, part.mesh, self.PIECE_COLOR)
                 self._mesh = parts
+                self._bed_key = None
+            self._bed(off, None, None)
             off.scene.set_textures(textures_on)
             if bounds is None:
                 lo = np.min([np.asarray(p.mesh.bounds, float)[0] for p in parts], axis=0)

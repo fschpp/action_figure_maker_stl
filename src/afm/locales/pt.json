@@ -1029,6 +1029,11 @@
  },
  "figure_builder": {
   "sin_soportes_resumen": "Sem suportes: corte a %{corte} mm sobre a cauda; braços girados para frente: %{giro}",
+  "corte_brazo_no_sube": "o braço não sobe ao girar para frente: não é girado e fica abaixo do plano",
+  "corte_brazo_no_llega": "nem girando %{max}° o braço chega ao plano do corte: fica no ar",
+  "corte_brazo_gira": "o braço gira %{grados}° para frente até apoiar no plano",
+  "corte_no_se_pudo": "%{pieza}: não foi possível cortar na pré-visualização; aparece inteira",
+  "corte_pierna_no_toca": "as pernas ficam %{mm} mm acima do plano: o corte não as toca e seriam impressas no ar (reduza a altura do corte ou mude a pose)",
   "torso": "Torso",
   "pelvis": "Pelve",
   "brazo": "Braço",
@@ -1093,6 +1098,9 @@
  "figure_window": {
   "sin_soportes_altura_del_corte": "Altura do corte sobre a cauda (mm)",
   "sin_soportes_nota": "É uma opção de exportação: não altera a receita. Ao montar, as peças saem aplanadas e os braços giram para frente.",
+  "ver_corte_vista_previa": "Ver o corte na pré-visualização",
+  "ver_corte_tooltip": "Mostra a figura sentada, o plano da mesa na altura do corte e, em vermelho, o material que o corte retira. É uma aproximação (sem pinos, folgas nem preenchimentos): a montagem real pode diferir alguns décimos.",
+  "vista_corte_titulo": "Vista do corte «sem suportes» (o plano azul é a mesa; em vermelho, o que é cortado):",
   "receta_abierta_path_retocala_y_guardala": "Receita aberta: %{path}\nAjuste-a e salve-a com outro nome, ou monte-a.",
   "carga_una_receta_guardada_piezas_opciones": "Carrega uma receita salva (peças, opções, mão e escalas) para ajustá-la. Salve-a com outro nome para não sobrescrever a original.",
   "guarda_las_piezas_elegidas_en_catalogo": "Salva as peças escolhidas em <catálogo>/figuras/<nome>.receta.json (pode ser montada de novo com “afm armar” e conta como uso de cada peça).",
