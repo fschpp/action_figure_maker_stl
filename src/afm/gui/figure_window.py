@@ -60,6 +60,10 @@ class FigureBuilderWindow(Gtk.Window):
         self._color_one = None                  # (ref, partes de color) de la pieza sola que se ve; None = gris
         self._cut_plane: dict | None = None     # vista del corte de «sin soportes»: {"z", "bounds"} de la figura sentada
         self._tex_parts = None                  # [TexturedPart] de la figura armada con color (GLB); None = se dibuja el STL
+        self._bambu_parts = None                # [(nombre, malla, rgba)] de la vista previa de lo que saldrá en el 3MF (un color plano por triángulo)
+        self._bambu_token = 0                   # un cálculo de esa vista más nuevo invalida al anterior
+        self._bambu_timer = 0                   # id del retardo de GLib (agrupa varios clics seguidos en el selector)
+        self._bambu_guard = False               # las filas del selector se arman por código sin disparar sus avisos
         self._color_w: dict[str, dict] = {}     # T48: rol -> {"btn", "ent", "reset"} del bloque «Colores»
         self._dyaw = self._dpitch = 0.0
         self._drag0 = (0.0, 0.0)
@@ -730,7 +734,30 @@ class FigureBuilderWindow(Gtk.Window):
         note = Gtk.Label(label=tr("figure_window.bambu_nota"), xalign=0, wrap=True)
         note.add_css_class("dim-label")
         box.append(note)
+        # selector de colores: una fila por color que tiene la figura armada (se llenan en `_sync_bambu`)
+        title = Gtk.Label(label=tr("figure_window.bambu_sel_titulo"), xalign=0, margin_top=6)
+        title.add_css_class("heading")
+        box.append(title)
+        help_ = Gtk.Label(label=tr("figure_window.bambu_sel_ayuda"), xalign=0, wrap=True)
+        help_.add_css_class("dim-label")
+        box.append(help_)
+        self.box_bambu_rows = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        box.append(self.box_bambu_rows)
+        self.lbl_bambu_info = Gtk.Label(xalign=0, wrap=True)
+        self.lbl_bambu_info.add_css_class("dim-label")
+        box.append(self.lbl_bambu_info)
+        btns = Gtk.Box(spacing=6)
+        self.btn_bambu_auto = Gtk.Button(label=tr("figure_window.bambu_sel_auto"))
+        self.btn_bambu_auto.set_tooltip_text(tr("figure_window.bambu_sel_auto_tip"))
+        self.btn_bambu_auto.connect("clicked", self._on_bambu_auto)
+        btns.append(self.btn_bambu_auto)
+        self.btn_bambu_export = Gtk.Button(label=tr("figure_window.bambu_exportar_ahora"))
+        self.btn_bambu_export.set_tooltip_text(tr("figure_window.bambu_exportar_ahora_tip"))
+        self.btn_bambu_export.connect("clicked", self._on_bambu_export)
+        btns.append(self.btn_bambu_export)
+        box.append(btns)
         exp.set_child(box)
+        self._sync_bambu()
         return exp
 
     def _on_bambu(self, *_args) -> None:
@@ -740,6 +767,189 @@ class FigureBuilderWindow(Gtk.Window):
         b.bambu_min_pct = round(self.sp_bambu_min.get_value(), 1)
         self.row_bambu_n.set_sensitive(b.bambu and not self._busy)
         self.row_bambu_min.set_sensitive(b.bambu and not self._busy)
+        if hasattr(self, "box_bambu_rows"):                   # en modo automático el tope y el % mueven las casillas del selector
+            self._bambu_changed()
+
+    # ------------------------------------------------------------------ selector de colores del 3MF y su vista previa
+    def _sync_bambu(self) -> None:
+        """Vuelve a armar las filas del selector con los colores de la figura armada (una por color, del más al menos usado)."""
+        b = self.builder
+        child = self.box_bambu_rows.get_first_child()
+        while child is not None:
+            nxt = child.get_next_sibling()
+            self.box_bambu_rows.remove(child)
+            child = nxt
+        self._bambu_w = {}
+        try:
+            cands = b.bambu_candidates()
+        except Exception as exc:                              # noqa: BLE001 — el selector queda vacío y se dice por qué
+            cands = []
+            self.lbl_bambu_info.set_text(tr("figure_window.bambu_vista_error", exc=exc))
+        if not cands:
+            note = Gtk.Label(label=tr("figure_window.bambu_sel_sin_figura"), xalign=0, wrap=True)
+            note.add_css_class("dim-label")
+            self.box_bambu_rows.append(note)
+        self._bambu_guard = True
+        try:
+            for c in cands:
+                line = Gtk.Box(spacing=6)
+                chk = Gtk.CheckButton(active=c["enabled"])
+                chk.set_tooltip_text(tr("figure_window.bambu_sel_usar_tip"))
+                chk.connect("toggled", self._on_bambu_enabled, c["hex"])
+                line.append(chk)
+                btn = None
+                if hasattr(Gtk, "ColorDialogButton"):         # GTK ≥ 4.10; en una versión anterior solo queda la fila de texto
+                    btn = Gtk.ColorDialogButton(dialog=Gtk.ColorDialog())
+                    btn.set_rgba(_rgba(c["out_hex"]))
+                    btn.set_tooltip_text(tr("figure_window.bambu_sel_color_tip"))
+                    btn.connect("notify::rgba", self._on_bambu_color_changed, c["hex"])
+                    line.append(btn)
+                lbl = Gtk.Label(label=self._bambu_row_text(c), xalign=0, hexpand=True)
+                line.append(lbl)
+                reset = Gtk.Button(label="↺", visible=c["cambiado"])
+                reset.set_tooltip_text(tr("figure_window.bambu_sel_color_restablecer"))
+                reset.connect("clicked", self._on_bambu_color_reset, c["hex"])
+                line.append(reset)
+                self.box_bambu_rows.append(line)
+                self._bambu_w[c["hex"]] = {"chk": chk, "btn": btn, "lbl": lbl, "reset": reset}
+        finally:
+            self._bambu_guard = False
+        self.btn_bambu_auto.set_sensitive(bool(cands) and b.bambu_is_custom() and not self._busy)
+        self.btn_bambu_export.set_sensitive(bool(cands) and not self._busy)
+        self._bambu_view_sync()
+
+    @staticmethod
+    def _bambu_row_text(c: dict) -> str:
+        return tr("figure_window.bambu_sel_fila", nombre=", ".join(c["nombres"]) if c["nombres"] else c["hex"], hex=c["out_hex"], pct=f"{c['area_pct']:.1f}")
+
+    def _bambu_view_sync(self) -> None:
+        """El botón «Vista Bambu» solo está cuando se ve la figura armada con color y el selector tiene colores."""
+        tgl = getattr(self, "tgl_bambu", None)                 # el selector se arma antes que la barra de la vista previa
+        if tgl is None:
+            return
+        show = self._tex_parts is not None and self.builder.has_bambu_colors()
+        tgl.set_visible(show)
+        if not show and tgl.get_active():
+            tgl.set_active(False)
+
+    def _on_bambu_enabled(self, chk, hex_color: str) -> None:
+        if self._bambu_guard:
+            return
+        try:
+            self.builder.bambu_set_enabled(hex_color, chk.get_active())
+        except ValueError as exc:                             # al menos un color: se deshace la casilla
+            self.lbl_bambu_info.set_text(str(exc))
+        self._bambu_changed()
+
+    def _on_bambu_color_changed(self, btn, _p, hex_color: str) -> None:
+        if self._bambu_guard:
+            return
+        try:
+            self.builder.bambu_set_output_color(hex_color, _hex_of(btn.get_rgba()))
+        except ValueError as exc:
+            self.lbl_bambu_info.set_text(str(exc))
+            return
+        w = self._bambu_w.get(hex_color)
+        cand = next((x for x in self.builder.bambu_candidates() if x["hex"] == hex_color), None)
+        if w is not None and cand is not None:                # el texto de la fila lleva el HEX con que se escribe
+            w["lbl"].set_text(self._bambu_row_text(cand))
+            w["reset"].set_visible(cand["cambiado"])
+        self.btn_bambu_auto.set_sensitive(not self._busy)
+        self._bambu_changed(rebuild=False)                    # sin rehacer las filas: el selector de color de GTK sigue abierto en su botón
+
+    def _on_bambu_color_reset(self, _btn, hex_color: str) -> None:
+        try:
+            self.builder.bambu_set_output_color(hex_color, hex_color)
+        except ValueError as exc:
+            self.lbl_bambu_info.set_text(str(exc))
+        self._bambu_changed()
+
+    def _on_bambu_auto(self, *_args) -> None:
+        self.builder.bambu_reset()
+        self._bambu_changed()
+
+    def _bambu_changed(self, rebuild: bool = True) -> None:
+        """Cambió algo del selector: se rehacen las filas (salvo que se esté tocando un color) y, si la vista Bambu está prendida, se recalcula."""
+        if rebuild:
+            self._sync_bambu()
+        else:
+            self.btn_bambu_auto.set_sensitive(self.builder.bambu_is_custom() and not self._busy)
+        if self.tgl_bambu.get_active():
+            self._schedule_bambu_preview()
+        else:
+            self._bambu_parts = None                          # al prenderla se calcula con lo de ese momento
+
+    def _schedule_bambu_preview(self) -> None:
+        if self._bambu_timer:
+            GLib.source_remove(self._bambu_timer)
+        self._bambu_timer = GLib.timeout_add(250, self._run_bambu_preview)
+
+    def _run_bambu_preview(self) -> bool:
+        self._bambu_timer = 0
+        b = self.builder
+        if not b.has_bambu_colors():
+            return False
+        self._bambu_token += 1
+        token = self._bambu_token
+        opt = b.bambu_options(force=True)                     # una copia: el hilo no lee lo que la ventana siga cambiando
+        self.lbl_bambu_info.set_text(tr("figure_window.bambu_vista_calculando"))
+
+        def work() -> None:
+            try:
+                parts, summary = b.bambu_preview(opt)
+            except Exception as exc:                          # noqa: BLE001 — se dice en la ventana; la vista de siempre sigue
+                GLib.idle_add(self._bambu_preview_done, token, None, None, exc)
+            else:
+                GLib.idle_add(self._bambu_preview_done, token, parts, summary, None)
+
+        threading.Thread(target=work, daemon=True, name="afm-vista-bambu").start()
+        return False
+
+    def _bambu_preview_done(self, token: int, parts, summary, error) -> bool:
+        if token != self._bambu_token:                        # mientras tanto se pidió otra vista
+            return False
+        if error is not None:
+            self.lbl_bambu_info.set_text(tr("figure_window.bambu_vista_error", exc=error))
+            return False
+        self._bambu_parts = parts
+        text = tr("figure_window.bambu_vista_info", n=len(summary["colores"]), tri=summary["triangulos"])
+        if summary["fundidos"]:
+            text += " " + tr("figure_window.bambu_vista_fundidos", n=summary["fundidos"])
+        self.lbl_bambu_info.set_text(text)
+        self._redraw()
+        return False
+
+    def _on_toggle_bambu_view(self, *_args) -> None:
+        if self.tgl_bambu.get_active() and self._bambu_parts is None:
+            self._run_bambu_preview()
+        else:
+            self._redraw()
+
+    def _on_bambu_export(self, *_args) -> None:
+        """«Exportar 3MF ahora»: reescribe solo los archivos de Bambu con los colores del selector, sin volver a armar."""
+        if self._busy:
+            return
+        b = self.builder
+        self._set_busy(True)
+        self.lbl_result.set_text(tr("figure_window.bambu_exportando"))
+
+        def work() -> None:
+            try:
+                rep = b.bambu_export()
+            except Exception as exc:                          # noqa: BLE001 — se informa en la ventana
+                GLib.idle_add(self._bambu_export_done, None, exc)
+            else:
+                GLib.idle_add(self._bambu_export_done, rep, None)
+
+        threading.Thread(target=work, daemon=True, name="afm-exportar-bambu").start()
+
+    def _bambu_export_done(self, rep, error) -> bool:
+        self._set_busy(False)
+        if error is not None:
+            self.lbl_result.set_text(tr("figure_window.bambu_exportar_error", exc=error))
+        else:
+            self.lbl_result.set_text(tr("figure_window.bambu_exportado", archivos=f"{rep['3mf']}, {rep['obj']}", n=len(rep["colores"])))
+        return False
 
     def _on_flat(self, *_args) -> None:
         b = self.builder
@@ -934,6 +1144,10 @@ class FigureBuilderWindow(Gtk.Window):
         self.tgl_tex.set_tooltip_text(tr("figure_window.textura_tooltip"))
         self.tgl_tex.connect("toggled", lambda *_: self._redraw())
         row.append(self.tgl_tex)                # solo aparece cuando la figura armada trae color
+        self.tgl_bambu = Gtk.ToggleButton(label=tr("figure_window.bambu_vista"), visible=False)
+        self.tgl_bambu.set_tooltip_text(tr("figure_window.bambu_vista_tip"))
+        self.tgl_bambu.connect("toggled", self._on_toggle_bambu_view)
+        row.append(self.tgl_bambu)              # solo aparece con la figura armada y color: los colores planos que saldrán en el 3MF
         row.append(Gtk.Label(label=tr("figure_window.arrastra_para_girar"), xalign=0, hexpand=True))
         self.spinner = Gtk.Spinner()
         row.append(self.spinner)
@@ -1065,6 +1279,8 @@ class FigureBuilderWindow(Gtk.Window):
             self.exp_bambu.set_sensitive(not self._busy)
             self.row_bambu_n.set_sensitive(b.bambu and not self._busy)
             self.row_bambu_min.set_sensitive(b.bambu and not self._busy)
+            self.btn_bambu_auto.set_sensitive(b.has_bambu_colors() and b.bambu_is_custom() and not self._busy)
+            self.btn_bambu_export.set_sensitive(b.has_bambu_colors() and not self._busy)
         if hasattr(self, "exp_flat"):
             self.exp_flat.set_sensitive(not self._busy)
             self.row_flat.set_sensitive(b.flat and not self._busy)
@@ -1270,6 +1486,7 @@ class FigureBuilderWindow(Gtk.Window):
         self._color_one = None
         self._tex_parts = None
         self.tgl_tex.set_visible(False)
+        self._bambu_view_sync()
         self._dyaw = self._dpitch = 0.0
         self._redraw()
         self._start_color_preview()
@@ -1289,6 +1506,8 @@ class FigureBuilderWindow(Gtk.Window):
                 bounds = MP.parts_bounds(self._pick_group) if self._pick_group else None      # el mismo encuadre que usa el clic
                 img = self.preview.render_parts(group, self._dyaw, self._dpitch, marks=MP.mount_marks(self.builder.mounts), bounds=bounds,
                                                overlay=self._mount_overlay)
+            elif self._tex_parts is not None and self._bambu_parts and self.tgl_bambu.get_active():
+                img = self.preview.render_parts(self._bambu_parts, self._dyaw, self._dpitch)      # lo que saldrá en el 3MF: un color plano por triángulo
             elif self._tex_parts is not None:
                 img = self.preview.render_textured(self._tex_parts, self.tgl_tex.get_active(), self._dyaw, self._dpitch)
             else:
@@ -1950,5 +2169,9 @@ class FigureBuilderWindow(Gtk.Window):
         self._set_shown(parts[0].mesh, None)                         # deja `_shown` coherente y luego pasa a la vista con textura
         self._tex_parts = parts
         self.tgl_tex.set_visible(True)
+        self._bambu_parts = None                                     # figura nueva o recoloreada: la vista del 3MF se calcula de nuevo
+        self._sync_bambu()                                           # también deja a punto el botón «Vista Bambu»
+        if self.tgl_bambu.get_active():
+            self._run_bambu_preview()
         self._redraw()
         return True

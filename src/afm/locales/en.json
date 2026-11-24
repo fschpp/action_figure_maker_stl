@@ -1093,7 +1093,10 @@
   "cabalgadura_descartada": "The recipe's riding setup was discarded: %{exc}",
   "elegi_un_caballo": "Choose a horse before marking the seat.",
   "sin_lomo": "There is no horse under the point (%{x}, %{y}): the seat must sit on its back.",
-  "falta_asiento_para_comprobar": "Choose the horse and mark the seat to check the pose."
+  "falta_asiento_para_comprobar": "Choose the horse and mark the seat to check the pose.",
+  "bambu_sin_figura": "To choose the 3MF colors, build the figure (with color) first.",
+  "bambu_color_desconocido": "%{hex} is not one of the colors of the built figure.",
+  "bambu_al_menos_un_color": "At least one color must remain."
  },
  "figure_window": {
   "sin_soportes_altura_del_corte": "Cut height above the tail (mm)",
@@ -1284,7 +1287,27 @@
   "caballo_sin_comprobar": "Pose not checked yet.",
   "caballo_nota": "The figure's seated pose does not change: the horse is carved and/or a saddle is generated around the rider. The check certifies the pose geometry, not the durability of the joints.",
   "caballo_nueva_version": "New version if the id already exists",
-  "caballo_id_existe": "The id “%{id}” is already in the library: tick “New version” or use another id."
+  "caballo_id_existe": "The id “%{id}” is already in the library: tick “New version” or use another id.",
+  "bambu_sel_titulo": "Colors used in the 3MF",
+  "bambu_sel_ayuda": "Tick the colors you want to use: the ones you remove are merged into the closest remaining one. The button changes the color each one is written with (the filament you will assign) without touching the palette.",
+  "bambu_sel_sin_figura": "Build the figure (with color) to see its colors and choose which go to the 3MF.",
+  "bambu_sel_fila": "%{nombre} · %{hex} · %{pct} % of the area",
+  "bambu_sel_usar_tip": "Use this color. If you remove it, its faces move to the closest remaining color.",
+  "bambu_sel_color_tip": "Color this color is written with in the 3MF / OBJ (output only: it changes neither the palette nor the figure).",
+  "bambu_sel_color_restablecer": "Back to the figure's color",
+  "bambu_sel_auto": "Automatic",
+  "bambu_sel_auto_tip": "Chooses the colors again from the cap and the % above, and drops the output color changes.",
+  "bambu_exportar_ahora": "Export 3MF now",
+  "bambu_exportar_ahora_tip": "Rewrites only <name>_bambu.3mf / .obj / .mtl with these colors, without rebuilding the figure.",
+  "bambu_exportando": "Exporting the Bambu Studio files…",
+  "bambu_exportado": "For Bambu Studio: %{archivos} (%{n} colors).",
+  "bambu_exportar_error": "Could not export for Bambu Studio: %{exc}",
+  "bambu_vista": "Bambu view",
+  "bambu_vista_tip": "Shows the figure with the flat colors that will go into the 3MF (one color per triangle, no texture). Updates when you touch the selector.",
+  "bambu_vista_calculando": "Computing the 3MF preview…",
+  "bambu_vista_info": "3MF preview: %{n} colors, %{tri} triangles.",
+  "bambu_vista_fundidos": "%{n} colors were merged into another one.",
+  "bambu_vista_error": "Could not compute the 3MF preview: %{exc}"
  },
  "hero_wizard": {
   "el_heroe": "The hero",

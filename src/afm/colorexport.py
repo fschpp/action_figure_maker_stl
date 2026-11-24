@@ -49,6 +49,7 @@ class Colorizer:
         # Salida para Bambu Studio (`bambu.py`): `None` = apagada; un entero (tope de colores), `True` o un dict {max_colors, min_area_pct, despeckle}.
         self.bambu = BambuOptions.coerce(bambu)
         self._last_write: tuple | None = None              # T45: argumentos del último `write`, para que `recolor` reescriba los mismos archivos
+        self._bambu_col = None                             # `bambu.Collected` de las piezas de ahora (selector y vista previa); se rehace si cambian
 
     # ------------------------------------------------------------------ fuente de cada pieza
     def source_for(self, name: str, res=None):
@@ -117,7 +118,57 @@ class Colorizer:
         if info["fuente"] == "pieza" and self.piece_roles.get(_split_name(name)[0]):
             info["roles"] = list(self.piece_roles[_split_name(name)[0]])
         self.pieces[name] = (unw, bk, reg, info)
+        self._bambu_col = None
         return dict(info)
+
+    # ------------------------------------------------------------------ Bambu: colores candidatos, vista previa y escritura aparte
+    def bambu_collected(self):
+        """Color crudo y geometría de todas las piezas (`bambu.collect`), calculado una vez; `recolor` y las piezas nuevas lo invalidan."""
+        if self._bambu_col is None:
+            from .bambu import collect
+
+            self._bambu_col = collect({n: (v[0], v[1]) for n, v in self.pieces.items()}, (self.palette_report or {}).get("roles"))
+        return self._bambu_col
+
+    def bambu_candidates(self) -> list:
+        """Los colores que ofrece el selector de la salida para Bambu (`bambu.candidates`); `[]` si todavía no hay piezas."""
+        from .bambu import candidates
+
+        return candidates(self.bambu_collected()) if self.pieces else []
+
+    def bambu_preview(self, opt=None):
+        """`BambuResult` de lo que saldría con `opt` (por defecto, las opciones de la salida), sin escribir nada y con la misma orientación que el
+        último `write` (así coincide con la figura que se ve y con el 3MF)."""
+        from .bambu import BambuOptions, build_from
+
+        if not self.pieces:
+            raise ValueError("no hay piezas con color")
+        opt = BambuOptions.coerce(self.bambu if opt is None else opt) or BambuOptions()
+        return build_from(self.bambu_collected(), None if self._last_write is None else self._last_write[2], opt)
+
+    def write_bambu(self, opt=None) -> dict:
+        """Reescribe SOLO `<fig>_bambu.3mf / .obj / .mtl` con `opt` (por defecto, las opciones de la salida) en la carpeta del último `write`,
+        sin volver a armar ni tocar los PNG, el GLB ni el informe. Devuelve el informe de Bambu (`bambu.write_bambu`)."""
+        from .bambu import BambuOptions, write_bambu
+
+        if self._last_write is None or not self.pieces:
+            raise ValueError("todavía no se escribió la figura")
+        opt = BambuOptions.coerce(self.bambu if opt is None else opt) or BambuOptions()
+        outdir, fig_name, orientation = self._last_write[:3]
+        return write_bambu(outdir, fig_name, {n: (v[0], v[1]) for n, v in self.pieces.items()},
+                           (self.palette_report or {}).get("roles"), orientation, opt, col=self.bambu_collected())
+
+    def _follow_bambu_roles(self, old: dict, new: dict) -> None:
+        """Si un rol cambió de color (`recolor`), la selección manual de la salida para Bambu (`chosen` / `remap`) lo sigue (`bambu.follow_roles`)."""
+        import dataclasses
+
+        from .bambu import follow_roles
+
+        opt = self.bambu
+        if opt is None or not (opt.chosen or opt.remap):
+            return
+        chosen, remap = follow_roles(old, new, opt.chosen, opt.remap)
+        self.bambu = dataclasses.replace(opt, chosen=chosen, remap=remap)
 
     # ------------------------------------------------------------------ archivos
     @staticmethod
@@ -168,6 +219,7 @@ class Colorizer:
 
         t0 = time.perf_counter()
         used = palette.with_overrides(overrides or {})
+        old_roles = dict((self.palette_report or {}).get("roles") or {})
         luts = {}                                          # nombre -> LUT de la pieza (se calculan todas antes de tocar nada)
         for name, (_unw, bk, _reg, _info) in self.pieces.items():
             if bk.labels is not None:
@@ -188,6 +240,8 @@ class Colorizer:
         for s, lut in srcs.values():
             s.recolor(lut)
         self.palette_report = {"hash": used.digest(), "roles": {r.id: r.hex for r in used.roles}}
+        self._bambu_col = None                             # el color de las piezas cambió: los candidatos se recalculan
+        self._follow_bambu_roles(old_roles, self.palette_report["roles"])
         if overrides:
             self.palette_report["cambios"] = {str(k): used.hex_of(k) for k in sorted(overrides)}
         out: dict = {"piezas": sorted(luts), "sin_etiquetas": sorted(n for n in self.pieces if n not in luts)}
@@ -250,7 +304,7 @@ class Colorizer:
             from .bambu import write_bambu
 
             out["bambu"] = write_bambu(outdir, fig_name, {n: (v[0], v[1]) for n, v in self.pieces.items()},
-                                       (self.palette_report or {}).get("roles"), orientation, self.bambu)
+                                       (self.palette_report or {}).get("roles"), orientation, self.bambu, col=self.bambu_collected())
         out["segundos"] = round(float(sum(i["segundos"] for *_x, i in self.pieces.values())), 2)
         with open(os.path.join(outdir, out["informe"]), "w", encoding="utf-8") as fh:
             json.dump(out, fh, ensure_ascii=False, indent=2, default=float)

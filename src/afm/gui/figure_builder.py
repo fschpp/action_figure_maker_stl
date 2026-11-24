@@ -60,6 +60,8 @@ class FigureBuilder:
         self.bambu = False                                                              # salida para Bambu Studio: <fig>_bambu.3mf / .obj con un color plano por triángulo (solo con color)
         self.bambu_colors = 8                                                           # tope de colores (filamentos) de esa salida
         self.bambu_min_pct = 0.5                                                        # los colores con menos de tanto % del área se funden con el más parecido
+        self.bambu_selection: list[str] | None = None                                   # selector: HEX de los colores candidatos que se usan; None = automático (tope y % de arriba)
+        self.bambu_remap: dict[str, str] = {}                                           # selector: {HEX candidato: HEX con que se escribe} (cambia el filamento solo en la salida)
         self.fill_hip = False                                                           # con `flat`: el muslo se queda con la loncha de pelvis que saca el corte
         self.horse: str | None = None                                                   # E14: «id@versión» del caballo de la biblioteca de la línea (None = sin caballo)
         self.ride: dict = dict(RIDE_DEFAULTS)                                           # E14: asiento y ajustes de la cabalgadura (marco del caballo, mm)
@@ -739,10 +741,17 @@ class FigureBuilder:
         if pal is None:
             raise ValueError(tr("figure_builder.la_linea_no_tiene_paleta"))
         over = self.effective_overrides(cat)
+        old_roles = dict((b["colorizer"].palette_report or {}).get("roles") or {})
         try:
             out = b["colorizer"].recolor(pal, over, rewrite=True)
         except PaletteError as exc:                                              # a la paleta le falta un rol: no cambió nada
             raise ValueError(str(exc)) from exc
+        from ..bambu import follow_roles
+
+        self.bambu_selection, self.bambu_remap = follow_roles(old_roles, (b["colorizer"].palette_report or {}).get("roles") or {},
+                                                              self.bambu_selection, self.bambu_remap)      # el selector sigue al color nuevo de cada rol
+        if self.bambu and self.bambu_is_custom():                                # los archivos de Bambu, con lo que se eligió a mano
+            out["bambu"] = self.bambu_export()
         b["overrides"] = dict(over)
         self._rewrite_reports(b, over)
         glb = (out.get("salida") or {}).get("glb")
@@ -882,12 +891,127 @@ class FigureBuilder:
         """Vista previa de «Imprimir sin soportes»: figura sentada, plano de la cama y material cortado (ver `preview_flat_parts`)."""
         return preview_flat_parts(self)
 
-    def bambu_options(self) -> dict | None:
-        """Opciones de la salida para Bambu Studio (`Colorizer(bambu=)`) o `None` si la casilla está apagada. Es una opción de exportación:
-        no cambia la receta ni la geometría (no entra en `_geometry_key`)."""
-        if not self.bambu:
+    # ------------------------------------------------------------------ salida para Bambu Studio: selector de colores
+    def _bambu_colorizer(self):
+        """El `Colorizer` de la figura armada si ya tiene piezas con color; si no, `None` (no hay nada que elegir)."""
+        b = self._built
+        cz = b.get("colorizer") if b else None
+        return cz if cz is not None and getattr(cz, "pieces", None) else None
+
+    def has_bambu_colors(self) -> bool:
+        """¿Hay una figura armada con color de la que elegir los colores del 3MF?"""
+        cz = self._bambu_colorizer()
+        return cz is not None and bool(cz.bambu_candidates())
+
+    def bambu_reset(self) -> None:
+        """Vuelve al modo automático: los colores los decide el tope y el % mínimo, y se quitan los cambios de color de la salida."""
+        self.bambu_selection = None
+        self.bambu_remap = {}
+
+    def bambu_is_custom(self) -> bool:
+        """¿Hay una selección o cambios de color hechos a mano?"""
+        return self.bambu_selection is not None or bool(self.bambu_remap)
+
+    def bambu_effective_selection(self) -> list[str]:
+        """HEX de los colores que van al 3MF ahora: la selección manual (solo los que siguen siendo candidatos) o, si no hay, la automática
+        (tope y % mínimo) sobre los candidatos."""
+        from ..bambu import default_selection
+
+        cz = self._bambu_colorizer()
+        if cz is None:
+            return []
+        cands = cz.bambu_candidates()
+        if self.bambu_selection:
+            have = {c["hex"] for c in cands}
+            sel = [h for h in self.bambu_selection if h in have]
+            if sel:
+                return sel
+        return default_selection(cands, max(1, int(self.bambu_colors)), float(self.bambu_min_pct))
+
+    def bambu_candidates(self) -> list[dict]:
+        """Las filas del selector: `{hex, area_pct, caras, roles, nombres, enabled, out_hex, cambiado}`, del color más al menos usado.
+        `out_hex` es el color con que se escribe (el que se le cambió o el mismo); `nombres`, los nombres de los roles de la paleta."""
+        cz = self._bambu_colorizer()
+        if cz is None:
+            return []
+        try:
+            pal = self.catalog().palette()
+            names = {r.id: (r.nombre or r.id) for r in pal.roles} if pal is not None else {}
+        except Exception:                                      # noqa: BLE001 — paleta ilegible: las filas quedan sin nombre, solo con HEX
+            names = {}
+        on = set(self.bambu_effective_selection())
+        out = []
+        for c in cz.bambu_candidates():
+            to = self.bambu_remap.get(c["hex"], c["hex"])
+            out.append({**c, "nombres": [names.get(r, r) for r in c["roles"]], "enabled": c["hex"] in on, "out_hex": to, "cambiado": to != c["hex"]})
+        return out
+
+    def _bambu_need(self):
+        cz = self._bambu_colorizer()
+        if cz is None:
+            raise ValueError(tr("figure_builder.bambu_sin_figura"))
+        return cz
+
+    def bambu_set_enabled(self, hex_color: str, on: bool) -> None:
+        """Marca o desmarca un color candidato. Siempre queda al menos uno (`ValueError`); un HEX que no es candidato también lo es."""
+        from ..bambu import norm_hex
+
+        self._bambu_need()
+        hx = norm_hex(hex_color)
+        cands = [c["hex"] for c in self.bambu_candidates()]
+        if hx not in cands:
+            raise ValueError(tr("figure_builder.bambu_color_desconocido", hex=hx))
+        cur = set(self.bambu_effective_selection())
+        cur.add(hx) if on else cur.discard(hx)
+        if not cur:
+            raise ValueError(tr("figure_builder.bambu_al_menos_un_color"))
+        self.bambu_selection = [h for h in cands if h in cur]
+
+    def bambu_set_output_color(self, hex_color: str, out_hex: str) -> None:
+        """Cambia con qué color se escribe el candidato `hex_color` en el 3MF / OBJ (no toca la paleta ni la figura). Volver al mismo lo quita."""
+        from ..bambu import norm_hex
+
+        self._bambu_need()
+        hx, to = norm_hex(hex_color), norm_hex(out_hex)
+        if hx not in {c["hex"] for c in self.bambu_candidates()}:
+            raise ValueError(tr("figure_builder.bambu_color_desconocido", hex=hx))
+        if to == hx:
+            self.bambu_remap.pop(hx, None)
+        else:
+            self.bambu_remap[hx] = to
+
+    def bambu_options(self, force: bool = False) -> dict | None:
+        """Opciones de la salida para Bambu Studio (`Colorizer(bambu=)`) o `None` si la casilla está apagada (`force`: las da igual, para la vista
+        previa y «Exportar ahora»). Es una opción de exportación: no cambia la receta ni la geometría (no entra en `_geometry_key`).
+        Con una figura armada lleva `chosen` (lo que el selector muestra marcado, también en modo automático) y `remap`."""
+        if not self.bambu and not force:
             return None
-        return {"max_colors": max(1, int(self.bambu_colors)), "min_area_pct": float(self.bambu_min_pct)}
+        opt: dict = {"max_colors": max(1, int(self.bambu_colors)), "min_area_pct": float(self.bambu_min_pct)}
+        if self.has_bambu_colors():
+            if self.bambu_is_custom() or force:
+                opt["chosen"] = self.bambu_effective_selection()
+            have = {c["hex"] for c in self._bambu_colorizer().bambu_candidates()}
+            remap = {k: v for k, v in self.bambu_remap.items() if k in have}
+            if remap:
+                opt["remap"] = remap
+        return opt
+
+    def bambu_preview(self, opt: dict | None = None) -> tuple[list, dict]:
+        """Vista previa de lo que saldrá en el 3MF: `([(nombre, malla, rgba)], resumen)`; el resumen lleva `colores` (HEX con que se escriben),
+        `area_pct`, `triangulos` y `fundidos`. `opt`: las opciones ya copiadas (`bambu_options(force=True)`), para el hilo de la ventana. Puede
+        tardar unos segundos en una figura grande."""
+        from ..bambu import preview_parts
+
+        cz = self._bambu_need()
+        res = cz.bambu_preview(self.bambu_options(force=True) if opt is None else opt)
+        summary = {"colores": ["#%02X%02X%02X" % tuple(int(x) for x in c) for c in res.colors], "area_pct": list(res.area_pct),
+                   "triangulos": int(sum(len(p.F) for p in res.pieces)), "fundidos": int(res.merged)}
+        return preview_parts(res), summary
+
+    def bambu_export(self) -> dict:
+        """«Exportar ahora»: reescribe solo `<nombre>_bambu.3mf / .obj / .mtl` con los colores de ahora, sin volver a armar. Devuelve el informe de Bambu."""
+        cz = self._bambu_need()
+        return cz.write_bambu(self.bambu_options(force=True))
 
     def progress_stages(self) -> list:
         """Pasos esperados de «Armar y exportar» con las piezas elegidas (para la barra de progreso)."""
@@ -907,6 +1031,7 @@ class FigureBuilder:
         if missing:                                       # T48: antes de gastar minutos armando (run_armar también lo frena, pero después de armar)
             raise ValueError(tr("figure_builder.a_la_paleta_le_faltan_roles", roles="; ".join(f"{r} ({', '.join(p)})" for r, p in missing.items())))
         os.makedirs(outdir, exist_ok=True)
+        self.bambu_reset()                                # figura nueva = candidatos nuevos: la selección de antes ya no vale
         recipe_path = os.path.join(outdir, f"{self.name}.receta.json")
         self.recipe().save(recipe_path)
         keep: dict = {}

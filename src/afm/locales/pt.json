@@ -1093,7 +1093,10 @@
   "cabalgadura_descartada": "A cavalgadura da receita foi descartada: %{exc}",
   "elegi_un_caballo": "Escolha um cavalo antes de marcar o assento.",
   "sin_lomo": "Não há cavalo sob o ponto (%{x}, %{y}): o assento tem que ficar sobre o lombo.",
-  "falta_asiento_para_comprobar": "Falta escolher o cavalo e marcar o assento para verificar a pose."
+  "falta_asiento_para_comprobar": "Falta escolher o cavalo e marcar o assento para verificar a pose.",
+  "bambu_sin_figura": "Para escolher as cores do 3MF, monte primeiro a figura (com cor).",
+  "bambu_color_desconocido": "%{hex} não é uma das cores da figura montada.",
+  "bambu_al_menos_un_color": "Pelo menos uma cor deve permanecer."
  },
  "figure_window": {
   "sin_soportes_altura_del_corte": "Altura do corte sobre a cauda (mm)",
@@ -1284,7 +1287,27 @@
   "caballo_sin_comprobar": "Pose ainda não verificada.",
   "caballo_nota": "A pose sentada da figura não muda: o cavalo é entalhado e/ou se gera uma sela em volta do cavaleiro. A verificação certifica a geometria da pose, não a durabilidade das articulações.",
   "caballo_nueva_version": "Nova versão se o id já existir",
-  "caballo_id_existe": "O id «%{id}» já está na biblioteca: marque «Nova versão» ou use outro id."
+  "caballo_id_existe": "O id «%{id}» já está na biblioteca: marque «Nova versão» ou use outro id.",
+  "bambu_sel_titulo": "Cores usadas no 3MF",
+  "bambu_sel_ayuda": "Marque as cores que quer usar: as que tirar se fundem com a mais parecida das que ficam. O botão muda com que cor cada uma é escrita (o filamento que vai atribuir) sem mexer na paleta.",
+  "bambu_sel_sin_figura": "Monte a figura (com cor) para ver as cores e escolher quais vão para o 3MF.",
+  "bambu_sel_fila": "%{nombre} · %{hex} · %{pct} % da área",
+  "bambu_sel_usar_tip": "Usar esta cor. Se a tirar, as suas faces passam para a cor mais parecida das que ficam.",
+  "bambu_sel_color_tip": "Cor com que esta cor é escrita no 3MF / OBJ (só na saída: não muda a paleta nem a figura).",
+  "bambu_sel_color_restablecer": "Voltar à cor da figura",
+  "bambu_sel_auto": "Automático",
+  "bambu_sel_auto_tip": "Escolhe as cores de novo pelo limite e pela % acima, e remove as mudanças de cor da saída.",
+  "bambu_exportar_ahora": "Exportar 3MF agora",
+  "bambu_exportar_ahora_tip": "Reescreve só <nome>_bambu.3mf / .obj / .mtl com estas cores, sem montar a figura de novo.",
+  "bambu_exportando": "Exportando os arquivos para o Bambu Studio…",
+  "bambu_exportado": "Para o Bambu Studio: %{archivos} (%{n} cores).",
+  "bambu_exportar_error": "Não foi possível exportar para o Bambu Studio: %{exc}",
+  "bambu_vista": "Vista Bambu",
+  "bambu_vista_tip": "Mostra a figura com as cores lisas que irão para o 3MF (uma cor por triângulo, sem textura). Atualiza ao mexer no seletor.",
+  "bambu_vista_calculando": "Calculando a pré-visualização do 3MF…",
+  "bambu_vista_info": "Pré-visualização do 3MF: %{n} cores, %{tri} triângulos.",
+  "bambu_vista_fundidos": "%{n} cores foram fundidas com outra.",
+  "bambu_vista_error": "Não foi possível calcular a pré-visualização do 3MF: %{exc}"
  },
  "hero_wizard": {
   "el_heroe": "O herói",

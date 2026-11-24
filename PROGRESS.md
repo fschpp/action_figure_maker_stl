@@ -1,3 +1,22 @@
+## Current Focus — Selector de colores y vista previa de la salida para Bambu Studio (2026-11-23)
+En «Salida para Bambu Studio» ahora se puede **elegir qué colores van al 3MF / OBJ**, **cambiar con qué color se escribe cada uno** y **ver el resultado** (colores planos, un color por triángulo) antes de exportar. Todo es una opción de exportación: no toca la receta, la geometría ni los archivos de color (GLB / PNG / informe).
+- `bambu.py`: `Collected` + `collect` (color crudo y geometría, se calcula una vez) / `candidates` (colores de la figura, del más al menos usado, con % de área y roles de la paleta) / `default_selection` (la automática: tope y % mínimo) / `build_from` / `preview_parts` / `follow_roles`. `BambuOptions` suma `chosen` (HEX que se usan; los demás pasan al más parecido en Lab; un HEX que ya no es candidato se ignora) y `remap` (`{HEX: HEX}`, solo en la salida). Sin `chosen` y con `remap`, el modo automático se expresa como selección. `build_face_colors` queda igual.
+- `Colorizer`: `bambu_collected` (cacheado; lo invalidan `__call__` y `recolor`), `bambu_candidates`, `bambu_preview(opt)` (misma orientación que el último `write`), `write_bambu(opt)` (reescribe SOLO `_bambu.3mf/.obj/.mtl`; GLB e informe quedan byte a byte iguales) y `recolor` hace que `chosen`/`remap` sigan al color nuevo del rol.
+- `FigureBuilder`: `bambu_selection` (None = automático) y `bambu_remap`; `has_bambu_colors`, `bambu_candidates` (filas con `enabled`, `out_hex`, `cambiado`, `roles`, `nombres`), `bambu_set_enabled` (siempre queda un color), `bambu_set_output_color`, `bambu_reset`, `bambu_options(force=)`, `bambu_preview`, `bambu_export`. `generate` vuelve al automático (figura nueva = candidatos nuevos); `recolor` hace seguir la selección y reescribe los archivos de Bambu si hay selección manual.
+- Ventana: en la sección Bambu, una fila por color (casilla + botón de color de salida + «% del área» + ↺), «Automático» y «Exportar 3MF ahora»; botón **«Vista Bambu»** junto a «Textura» (solo con la figura armada con color) que dibuja los colores planos del 3MF y se recalcula en un hilo, con 250 ms de retardo, al tocar el selector. Textos es/en/pt (`figure_window.bambu_sel_*`, `bambu_vista*`, `bambu_exportar*`, `figure_builder.bambu_*`).
+- Pruebas: `tests/test_bambu_selector.py` (14, motor + `Colorizer`) y `tests/test_gui_figure_bambu_selector.py` (9, `FigureBuilder` sobre el muñeco del catálogo). Regresión en verde: test_bambu, test_gui_figure_bambu, test_gui_figure_palette, test_colorexport, test_colorexport_recolor, test_color_i18n, test_color_catalog_palette, test_i18n.
+
+### Todo List
+- [x] Done: motor + `Colorizer` + `FigureBuilder` + ventana + textos + pruebas
+- [ ] Todo: **probar la ventana a mano en GTK** (no hay GTK en este entorno: la parte de la ventana solo está revisada con `py_compile` y pyflakes): filas del selector, botón de color de salida, «Vista Bambu», «Exportar 3MF ahora»
+- [ ] Todo: abrir el 3MF / OBJ reescrito en Bambu Studio real y comprobar que cada color asigna su filamento
+- [ ] Todo (opcional): tocar el color de una fila abre el selector de GTK: si el recálculo de la vista molesta, subir el retardo de 250 ms
+
+### Latest Blockers/Discoveries
+- Rama `feat/bambu-selector-colores` sobre main. `nombres` de cada candidato trae el nombre visible del rol («Rojo») y `roles` el id («rojo»).
+- En modo automático un color con menos del % mínimo queda desmarcado (en la figura de prueba, el 5.º color con 0,07 %): es lo esperado; el selector solo muestra lo que `default_selection` ya decidía.
+- `Colorizer.write_bambu` no actualiza el bloque `bambu` de `<fig>_color_informe.json` (a propósito: «Exportar ahora» no toca nada que no sea de Bambu); el informe devuelto por la llamada sí trae los colores nuevos.
+
 ## Current Focus — Casilla «Salida para Bambu Studio» en «Armar figura desde catálogo» (2026-11-23)
 La salida `<fig>_bambu.3mf` / `.obj` (ya en main) ahora se pide desde la GUI: sección **«Salida para Bambu Studio»** (debajo de «Impresión sin soportes») con la casilla, el tope de colores (1–16, 8 por defecto) y el % de área mínimo para fundir colores (0,5). Es una opción de exportación: no cambia la receta ni la geometría (no entra en `_geometry_key`).
 - `FigureBuilder.bambu / bambu_colors / bambu_min_pct` + `bambu_options()` → `run_armar(bambu=)`; `generate` la pasa siempre. «Recolorear» rehace también los archivos de Bambu (el `Colorizer` conserva las opciones).

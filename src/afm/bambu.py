@@ -14,14 +14,20 @@ Pasos (`build_face_colors`):
     del área se funden con el más cercano (cada color de más cuesta cambios de filamento y torre de limpieza);
  3. `despeckle`: una cara que no coincide con ninguno de sus vecinos y cuyos vecinos coinciden entre sí toma su color (quita motas).
 
+Selector (opcional): `candidates` lista los colores que la figura ya tiene (del más al menos usado, con su % de área y los roles de la paleta
+que los generan); `BambuOptions.chosen` fija cuáles se usan (los demás pasan al más parecido en Lab) y `BambuOptions.remap` cambia con qué
+color se escribe cada uno (solo en la salida: el filamento que se le va a asignar). `collect` + `build_from` separan lo que no depende de las
+opciones (color crudo y geometría, se calcula una vez) de lo que sí, así la vista previa (`preview_parts`) se rehace en segundos.
+
 Convenciones: el 3MF va en mm y **Z arriba** (como los STL, con la orientación de impresión ya aplicada); el OBJ va con **Y arriba**
 (`frame.Z_UP_TO_Y_UP`), igual que `piezas_color/*.obj`. `trimesh` y `skimage` se importan dentro de las funciones que los usan (D10).
 """
 from __future__ import annotations
 
 import os
+import re
 import zipfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 
@@ -31,8 +37,17 @@ DEFAULT_MAX_COLORS = 8
 DEFAULT_MIN_AREA_PCT = 0.5
 DEFAULT_DESPECKLE = 2
 NO_LABEL = 255
+DETECT_MAX = 24                       # a lo sumo tantos colores candidatos en el selector
+_HEX_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 # 4 muestras por triángulo (coordenadas baricéntricas): el centro y un punto cerca de cada vértice
 _SAMPLES = np.array([[1 / 3, 1 / 3, 1 / 3], [0.6, 0.2, 0.2], [0.2, 0.6, 0.2], [0.2, 0.2, 0.6]], np.float64)
+
+
+def norm_hex(value) -> str:
+    """`#rrggbb` → `#RRGGBB`. Cualquier otra cosa es `ValueError`."""
+    if not isinstance(value, str) or not _HEX_RE.match(value):
+        raise ValueError(f"bambu: «{value}» no es un color #RRGGBB")
+    return value.upper()
 
 
 @dataclass
@@ -40,6 +55,8 @@ class BambuOptions:
     max_colors: int = DEFAULT_MAX_COLORS
     min_area_pct: float = DEFAULT_MIN_AREA_PCT
     despeckle: int = DEFAULT_DESPECKLE
+    chosen: tuple | None = None            # HEX de los colores candidatos que se usan (None = automático: tope y área mínima)
+    remap: dict = field(default_factory=dict)          # {HEX candidato: HEX con que se escribe} (solo en la salida)
 
     @classmethod
     def coerce(cls, value) -> "BambuOptions | None":
@@ -53,7 +70,7 @@ class BambuOptions:
         elif isinstance(value, int):
             opt = cls(max_colors=int(value))
         elif isinstance(value, dict):
-            opt = cls(**{k: value[k] for k in ("max_colors", "min_area_pct", "despeckle") if k in value})
+            opt = cls(**{k: value[k] for k in ("max_colors", "min_area_pct", "despeckle", "chosen", "remap") if k in value})
         else:
             raise ValueError(f"opciones de Bambu no válidas: {value!r}")
         if opt.max_colors < 1:
@@ -62,7 +79,15 @@ class BambuOptions:
             raise ValueError("bambu: min_area_pct debe estar entre 0 y 100")
         if opt.despeckle < 0:
             raise ValueError("bambu: despeckle debe ser ≥ 0")
-        return opt
+        chosen = opt.chosen
+        if chosen is not None:
+            if isinstance(chosen, str) or not len(chosen):
+                raise ValueError("bambu: chosen debe ser una lista de colores #RRGGBB (al menos uno)")
+            chosen = tuple(dict.fromkeys(norm_hex(h) for h in chosen))
+        if not isinstance(opt.remap, dict):
+            raise ValueError("bambu: remap debe ser {#RRGGBB: #RRGGBB}")
+        remap = {norm_hex(k): norm_hex(v) for k, v in opt.remap.items()}
+        return replace(opt, chosen=chosen, remap=remap)
 
 
 @dataclass
@@ -243,8 +268,30 @@ def _merge_vertices(V: np.ndarray, F: np.ndarray):
 
 
 # ------------------------------------------------------------------ armado
-def build_face_colors(pieces: dict, role_hex: dict | None, orientation, opt: BambuOptions) -> BambuResult:
-    """`pieces`: `{nombre: (Unwrapped, BakeResult)}` (como las guarda `Colorizer.pieces`). Un color por cara para toda la figura."""
+@dataclass
+class Collected:
+    """Lo que sale de las piezas horneadas y no depende de las opciones: color crudo y área de cada cara, y la geometría (sin orientar).
+    Se calcula una vez y alimenta al selector (`candidates`), a la vista previa (`preview_parts`) y a la escritura (`build_from`)."""
+    names: list
+    raws: list                    # (m, 3) uint8 por pieza
+    areas: list                   # (m,) mm² por pieza
+    geo: list                     # (V, F) por pieza, tal como salen del despliegue (sin la orientación de impresión)
+    exact: bool                   # el color salió de roles de la paleta (pocos colores exactos)
+    role_hex: dict | None = None  # {rol: #RRGGBB} de la paleta usada
+    _cand: tuple | None = field(default=None, repr=False)
+
+    def candidate_reduction(self):
+        """`(centros (k, 3) uint8, asignación (n,), fundidos)` con a lo sumo `DETECT_MAX` colores y sin área mínima: la lista de candidatos."""
+        if self._cand is None:
+            if not self.raws:
+                self._cand = (np.zeros((0, 3), np.uint8), np.zeros(0, np.int64), 0)
+            else:
+                self._cand = reduce_colors(np.concatenate(self.raws), np.concatenate(self.areas), DETECT_MAX, 0.0, self.exact)
+        return self._cand
+
+
+def collect(pieces: dict, role_hex: dict | None) -> Collected:
+    """`pieces`: `{nombre: (Unwrapped, BakeResult)}` (como las guarda `Colorizer.pieces`)."""
     names = sorted(pieces)
     raws, areas, geo, exact_all = [], [], [], True
     for name in names:
@@ -254,21 +301,100 @@ def build_face_colors(pieces: dict, role_hex: dict | None, orientation, opt: Bam
         V = np.asarray(unw.vertices, np.float64)
         F = np.asarray(unw.faces, np.int64)
         T = V[F]
-        area = 0.5 * np.linalg.norm(np.cross(T[:, 1] - T[:, 0], T[:, 2] - T[:, 0]), axis=1)
-        if orientation is not None:
-            O = np.asarray(orientation, float)
-            V = V @ O[:3, :3].T + O[:3, 3]
         raws.append(rgb)
-        areas.append(area)
+        areas.append(0.5 * np.linalg.norm(np.cross(T[:, 1] - T[:, 0], T[:, 2] - T[:, 0]), axis=1))
         geo.append((V, F))
-    if not names:
+    return Collected(names, raws, areas, geo, exact_all, dict(role_hex) if role_hex else None)
+
+
+def candidates(col: Collected) -> list:
+    """Los colores que ofrece el selector, del más al menos usado: `[{hex, area_pct, caras, roles}]`. `roles`: los roles de la paleta que
+    tienen exactamente ese color (vacío si el color salió de promediar una textura)."""
+    centers, assign, _ = col.candidate_reduction()
+    if not len(centers):
+        return []
+    area = np.concatenate(col.areas)
+    w = np.bincount(assign, weights=area, minlength=len(centers))
+    n = np.bincount(assign, minlength=len(centers))
+    total = float(w.sum()) or 1.0
+    by_hex: dict = {}
+    for rid, hx in (col.role_hex or {}).items():
+        try:
+            by_hex.setdefault(norm_hex(hx), []).append(str(rid))
+        except ValueError:
+            continue
+    out = []
+    for c, wi, ni in zip(centers, w, n):
+        hx = _hex(c)
+        out.append({"hex": hx, "area_pct": round(100.0 * float(wi) / total, 2), "caras": int(ni), "roles": sorted(by_hex.get(hx, []))})
+    return out
+
+
+def default_selection(cands: list, max_colors: int = DEFAULT_MAX_COLORS, min_area_pct: float = DEFAULT_MIN_AREA_PCT) -> list:
+    """La selección automática: los `max_colors` candidatos más usados que cubren al menos `min_area_pct` %. Siempre queda al menos uno."""
+    if not cands:
+        return []
+    keep = [c["hex"] for c in cands[:max(1, int(max_colors))] if c["area_pct"] >= min_area_pct]
+    return keep or [cands[0]["hex"]]
+
+
+def follow_roles(old: dict, new: dict, chosen, remap: dict):
+    """Una selección manual nombra los colores por HEX; si un rol de la paleta cambió de color (`old` → `new`: `{rol: hex}`), esos HEX pasan al
+    color nuevo del rol, así la selección no queda apuntando a un color que ya no existe. Devuelve `(chosen, remap)` ya traducidos."""
+    moved = {str(hx).upper(): str(new[rid]).upper() for rid, hx in (old or {}).items() if rid in (new or {}) and str(hx).upper() != str(new[rid]).upper()}
+    if not moved:
+        return chosen, dict(remap or {})
+    chosen2 = chosen if chosen is None else type(chosen)(dict.fromkeys(moved.get(str(h).upper(), str(h).upper()) for h in chosen))
+    return chosen2, {moved.get(str(k).upper(), str(k).upper()): v for k, v in (remap or {}).items()}
+
+
+def _apply_chosen(col: Collected, chosen) -> tuple | None:
+    """`(centros, asignación, fundidos)` usando solo los candidatos `chosen`: cada cara de un candidato que se saca pasa al más parecido (Lab)
+    de los que quedan. Un HEX que ya no es candidato se ignora; si ninguno lo es, `None` (se vuelve al modo automático)."""
+    cc, cassign, _ = col.candidate_reduction()
+    hexes = [_hex(c) for c in cc]
+    keep = [hexes.index(h) for h in chosen if h in hexes]
+    if not keep:
+        return None
+    lab = _lab(cc)
+    target = np.arange(len(cc))
+    for k in range(len(cc)):
+        if k not in keep:
+            target[k] = keep[int(np.argmin(np.linalg.norm(lab[keep] - lab[k], axis=1)))]
+    final = target[cassign]
+    w = np.bincount(final, weights=np.concatenate(col.areas), minlength=len(cc))
+    order = [g for g in np.argsort(-w, kind="stable") if w[g] > 0]
+    new_id = np.zeros(len(cc), np.int64)
+    for i, g in enumerate(order):
+        new_id[g] = i
+    return cc[order], new_id[final], len(cc) - len(order)
+
+
+def build_from(col: Collected, orientation, opt: BambuOptions) -> BambuResult:
+    """Un color por cara para toda la figura a partir de lo ya reunido (`collect`) y las opciones (tope y área mínima, o `chosen`; luego `remap`)."""
+    if not col.names:
         return BambuResult([], np.zeros((0, 3), np.uint8))
-    centers, assign, merged = reduce_colors(np.concatenate(raws), np.concatenate(areas), opt.max_colors, opt.min_area_pct, exact_all)
+    chosen = opt.chosen
+    if opt.remap and not chosen:                  # un cambio de color nombra candidatos: el modo automático se expresa entonces como selección
+        chosen = default_selection(candidates(col), opt.max_colors, opt.min_area_pct)
+    got = _apply_chosen(col, chosen) if chosen else None
+    if got is None:
+        got = reduce_colors(np.concatenate(col.raws), np.concatenate(col.areas), opt.max_colors, opt.min_area_pct, col.exact)
+    centers, assign, merged = got
+    if opt.remap:
+        centers = np.array(centers, np.uint8)
+        for i in range(len(centers)):
+            to = opt.remap.get(_hex(centers[i]))
+            if to:
+                centers[i] = [int(to[1:3], 16), int(to[3:5], 16), int(to[5:7], 16)]
     k = len(centers)
     out, smoothed, off = [], 0, 0
     w_by_color = np.zeros(k)
     n_by_color = np.zeros(k, np.int64)
-    for name, (V, F), area in zip(names, geo, areas):
+    for name, (V, F), area in zip(col.names, col.geo, col.areas):
+        if orientation is not None:
+            O = np.asarray(orientation, float)
+            V = V @ O[:3, :3].T + O[:3, 3]
         idx = assign[off:off + len(F)].copy()
         off += len(F)
         V2, F2, keep = _merge_vertices(V, F)
@@ -279,6 +405,27 @@ def build_face_colors(pieces: dict, role_hex: dict | None, orientation, opt: Bam
         out.append(BambuPiece(name, V2, F2, idx))
     total = float(w_by_color.sum()) or 1.0
     return BambuResult(out, centers, [round(100.0 * float(x) / total, 2) for x in w_by_color], [int(n) for n in n_by_color], smoothed, merged)
+
+
+def build_face_colors(pieces: dict, role_hex: dict | None, orientation, opt: BambuOptions) -> BambuResult:
+    """`pieces`: `{nombre: (Unwrapped, BakeResult)}` (como las guarda `Colorizer.pieces`). Un color por cara para toda la figura."""
+    return build_from(collect(pieces, role_hex), orientation, opt)
+
+
+def preview_parts(res: BambuResult) -> list:
+    """Vista previa de lo que saldrá en el 3MF: `[(nombre, trimesh.Trimesh, (r, g, b, 1))]`, una malla por pieza y color (el visor pinta
+    cada malla de un color liso). Las coordenadas son las de `res` (Z arriba)."""
+    import trimesh
+
+    parts = []
+    for p in res.pieces:
+        for k in np.unique(p.idx):
+            F = p.F[p.idx == k]
+            used, inv = np.unique(F, return_inverse=True)
+            mesh = trimesh.Trimesh(p.V[used], inv.reshape(-1, 3), process=False)
+            c = res.colors[int(k)]
+            parts.append((f"{p.name}#{int(k) + 1}", mesh, (c[0] / 255.0, c[1] / 255.0, c[2] / 255.0, 1.0)))
+    return parts
 
 
 # ------------------------------------------------------------------ escritura
@@ -358,14 +505,17 @@ def write_obj(outdir: str, base: str, res: BambuResult) -> tuple[str, str]:
     return f"{base}.obj", f"{base}.mtl"
 
 
-def write_bambu(outdir: str, fig_name: str, pieces: dict, role_hex: dict | None, orientation, opt: BambuOptions) -> dict:
-    """Escribe `<fig>_bambu.3mf`, `<fig>_bambu.obj` y `<fig>_bambu.mtl` en `outdir` y devuelve el informe (serializable)."""
-    res = build_face_colors(pieces, role_hex, orientation, opt)
+def write_bambu(outdir: str, fig_name: str, pieces: dict, role_hex: dict | None, orientation, opt: BambuOptions,
+                col: "Collected | None" = None) -> dict:
+    """Escribe `<fig>_bambu.3mf`, `<fig>_bambu.obj` y `<fig>_bambu.mtl` en `outdir` y devuelve el informe (serializable).
+    `col`: lo ya calculado por `collect` para esas mismas piezas (si no, se calcula acá)."""
+    res = build_from(col if col is not None else collect(pieces, role_hex), orientation, opt)
     base = f"{fig_name}_bambu"
     os.makedirs(outdir, exist_ok=True)
     write_3mf(os.path.join(outdir, f"{base}.3mf"), res, fig_name)
     obj, mtl = write_obj(outdir, base, res)
     return {"3mf": f"{base}.3mf", "obj": obj, "mtl": mtl,
             "colores": [{"hex": _hex(c), "area_pct": a, "caras": n} for c, a, n in zip(res.colors, res.area_pct, res.faces)],
-            "opciones": {"max_colores": opt.max_colors, "area_minima_pct": opt.min_area_pct, "despeckle": opt.despeckle},
+            "opciones": {"max_colores": opt.max_colors, "area_minima_pct": opt.min_area_pct, "despeckle": opt.despeckle,
+                         **({"colores_elegidos": list(opt.chosen)} if opt.chosen else {}), **({"cambios": dict(opt.remap)} if opt.remap else {})},
             "triangulos": int(sum(len(p.F) for p in res.pieces)), "caras_suavizadas": int(res.smoothed), "colores_fundidos": int(res.merged)}
