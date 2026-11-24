@@ -52,6 +52,7 @@ ID_MAX = 64                    # [P] la carpeta del índice es `<Autor>@<id>`
 
 _ID_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")                              # igual que `parts.ID_RE`
 _REF_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*@[1-9]\d*$")                    # `id@n` (la versión de una pieza empieza en 1)
+_RECIPE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")                        # nombre de `figuras/<nombre>.receta.json` (los reales llevan «_»: guemes_color_sentado)
 _REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")                     # `owner/repo`
 _USER_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$")                   # usuario de GitHub
 _SHA_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -291,7 +292,7 @@ class Pin:
 @dataclass
 class Contents:
     piezas: list = field(default_factory=list)       # `id@n`
-    recetas: list = field(default_factory=list)      # ids de personaje (`figuras/<id>.receta.json`)
+    recetas: list = field(default_factory=list)      # nombres de receta (`figuras/<nombre>.receta.json`)
     paleta: bool = False
     pines: list = field(default_factory=list)        # `Pin`; solo en `tipo: coleccion`
 
@@ -605,8 +606,8 @@ def _check_contents(p: Paquete, add) -> None:
     if len(set(c.piezas)) != len(c.piezas):
         add("", "contenido.piezas", "hay piezas repetidas")
     for i, rid in enumerate(c.recetas):
-        if not _ID_RE.match(rid):
-            add("", f"contenido.recetas[{i}]", f"«{rid}» no es un id de personaje (minúsculas, números y guiones)")
+        if not _RECIPE_RE.match(rid):
+            add("", f"contenido.recetas[{i}]", f"«{rid}» no es un nombre de receta (letras, números, «-», «_» y «.»)")
     if len(set(c.recetas)) != len(c.recetas):
         add("", "contenido.recetas", "hay recetas repetidas")
     if p.tipo == "coleccion":

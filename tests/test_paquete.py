@@ -337,7 +337,7 @@ def test_otros_problemas_del_manifiesto():
         "conflicts[0]": mutate(heroe, conflicts=["x@zzz"]),
         "etiquetas": mutate(heroe, etiquetas=["x" * 33]),
         "contenido.piezas[0]": mutate(heroe, contenido={"piezas": ["cabeza"], "recetas": [], "paleta": False}),
-        "contenido.recetas[0]": mutate(heroe, contenido={"piezas": ["a-01@1"], "recetas": ["Mal"], "paleta": False}),
+        "contenido.recetas[0]": mutate(heroe, contenido={"piezas": ["a-01@1"], "recetas": ["mal nombre"], "paleta": False}),
         "contenido": mutate(heroe, contenido={"piezas": [], "recetas": [], "paleta": False}),
     }
     for fld, d in cases.items():

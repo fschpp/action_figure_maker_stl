@@ -1,3 +1,25 @@
+## Current Focus — Catálogos en línea: D03, `afm catalogo exportar` (2026-11-24, rama feat/catalogos-online-d03 sobre main 887ee55)
+**Objetivo.** Armar el paquete `.zip` (`afm-paquete-1`, D02) desde un catálogo real: piezas sueltas, recetas (héroe completo) o la línea completa.
+**Hecho.**
+- `src/afm/exportar.py` (motor puro): `export_package` + `ExportResult`. Zip **determinista** (orden alfabético, fecha 1980-01-01, permisos 0644; mismo catálogo ⇒ mismo sha256). Lo derivado no viaja (`compat.json`, `COMPATIBILIDAD.md`, `calibracion.json`, `CATALOGO.md`, `.papelera/`, `caballos/`, `.proyecto`). Verifica el hash del STL y del archivo de color contra la ficha antes de escribir.
+- Color: modo `roles` viaja (`.color.npz` + retoque + `paleta.json`); modo `rgb` (FBX de 26–36 MB) sale **sin color** con aviso y la ficha pierde el bloque `color` (si no, `verify` marca CK307), salvo `--incluir-fbx` (tope `FBX_MAX_BYTES`). El catálogo de origen nunca se modifica.
+- Recetas: se copian tal cual; si usan `id` sin versión se fijan a `id@n` y se quita la cabalgadura (aviso). En `--linea-completa` una receta rota se omite con aviso. Un brazo con puerto `muneca` arrastra su `mano-<…>` si existe.
+- Obligatorios por D-1/D-2: `--licencia`, `--origen`, `--autor` (o `--manifiesto`); sin ellos no se exporta (cada persona responde por su contenido; sin chequeo de `.stl`/`.fbx` de terceros).
+- `src/afm/paquete_cli.py` (nuevo) enchufado en `catalog_cli`/`catalog_ops` (`exportar`: solo consola; la ventana es D21). Corrección en D02: los nombres de receta admiten mayúsculas, `_` y `.` (`guemes_color_sentado`), en `paquete.py` y el esquema JSON.
+**Medido (proceres-127.zip, 354 archivos, 45,4 MB).** `.papelera` ≈ 18 MB (no viaja). Útil: 40 STL 17,5 MB + 15 `.npz` 5,4 MB + 64 json 4,5 MB. `--linea-completa`: 116 archivos, 10,68 MB, `verify` ok; héroe `guemes_color_sentado`: 26 archivos, 1,54 MB; dos corridas dan el mismo sha256.
+**Pruebas.** `tests/test_exportar.py` (23) + `test_paquete.py`, `test_engine_portability.py`, `test_i18n.py` en verde.
+
+### Todo List
+- [x] Done: D03 (exportador, CLI, pruebas, medición D01)
+- [ ] Todo: D04 `paquete validar` (lint CK sobre el zip) y D08 endurecimiento del zip al leer
+- [ ] Todo: D05 `catalogo instalar` (inverso de exportar)
+- [ ] Todo: fijar topes de tamaño definitivos con la medición de arriba (hoy `FBX_MAX_BYTES` = 64 MB, provisorio)
+
+### Latest Blockers/Discoveries
+- `tests/test_catalog_ops.py::test_every_catalog_subcommand_is_registered_for_the_window` ya falla en main: `retoque` y `guardar-montura` no están en `catalog_ops.COMMANDS`. No es de este cambio (decidir si van a la ventana o «solo consola»).
+- `proceres-127.zip` no verifica de origen (4 piezas `cabeza-…` modo rgb sin FBX, CK307) y la receta `prueba` apunta a `cabeza-belgrano-…@2`, que ya no existe: por eso se omite en `--linea-completa`.
+- El zip exportado abre como catálogo normal (`Catalog.open(...).verify()`).
+
 ## Current Focus — Catálogos en línea: D02, manifiesto `afm-paquete-1` (2026-11-24, sobre main 1fc6d05)
 **Objetivo.** Primera tarea de `docs/PLAN_catalogos_online.md` (v0.3, D00–D34): el formato del paquete que se comparte por internet. Es motor puro, sin red ni catálogo, y es la base de D03 (exportar), D04 (lint CK), D05 (instalar) y D11 (esquema del índice).
 **Hecho.**

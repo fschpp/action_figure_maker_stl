@@ -11,12 +11,13 @@ from .catalog import Catalog, CatalogError, default_root
 from .certify import PLACE_OF_TIPO
 from .i18n import tr
 from .interface import ContractError
+from .paquete import PaqueteError
 from .ports import PortError, port_class, port_from_points
 from .recipe import RecipeError
 
 
 def add_parsers(sub) -> None:
-    c = sub.add_parser("catalogo", help="catálogo de piezas de una línea (crear, listar, verificar, importar-mano, taladrar-mano, agregar, agregar-stl, guardar-montura, cortar-muneca, usos, eliminar, estado, compat, certificar, matriz, cobertura, contrato, capacidad, paleta, color, color-girar, retoque)")
+    c = sub.add_parser("catalogo", help="catálogo de piezas de una línea (crear, listar, verificar, importar-mano, taladrar-mano, agregar, agregar-stl, guardar-montura, cortar-muneca, usos, eliminar, estado, compat, certificar, matriz, cobertura, contrato, capacidad, paleta, color, color-girar, retoque, exportar)")
     cs = c.add_subparsers(dest="catcmd", required=True)
 
     def root(p):
@@ -236,6 +237,8 @@ def add_parsers(sub) -> None:
     root(a)
     a.add_argument("ref", metavar="ID")
     a.add_argument("nuevo", choices=P.STATES)
+    from . import paquete_cli
+    paquete_cli.add_parsers(cs, root)            # exportar (D03); los demás subcomandos de paquetes cuelgan de ahí
 
 
 def _open(args) -> Catalog:
@@ -481,7 +484,7 @@ def _run_retouch(cat: Catalog, args) -> int:
 def run_catalogo(args) -> int:
     try:
         return _run(args)
-    except (CatalogError, P.PieceError, PortError, RecipeError, ContractError) as exc:
+    except (CatalogError, P.PieceError, PortError, RecipeError, ContractError, PaqueteError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
 
@@ -496,6 +499,9 @@ def _run(args) -> int:
         print(f"Catálogo «{cat.name}» creado en {cat.root} (altura {cat.height_mm:g} mm, holgura {cat.params.clearance:g} mm)")
         return 0
     cat = _open(args)
+    if cmd == "exportar":
+        from .paquete_cli import run_exportar
+        return run_exportar(cat, args)
     if cmd == "paleta":
         return _run_palette(cat, args)
     if cmd == "color":

@@ -40,6 +40,7 @@ COMMANDS: dict[str, tuple[str, bool, bool]] = {
     "capacidad": (GUI, True, True),            # «Capacidad» de la pieza y «Medir y guardar capacidad…» del menú (sin rayo de selección de tolerancia)
     "estado": (GUI, False, True),             # «Estado: … Aplicar a las elegidas» (en lote)
     "color": (CONSOLE, False, True),           # T42: versión nueva de una pieza con roles de color; el asistente de la ventana es T47
+    "exportar": (CONSOLE, False, False),       # D03 (PLAN_catalogos_online.md): paquete .zip; «Compartir → Exportar paquete…» de la ventana es D21
     "paleta": (CONSOLE, False, True),          # T39: paleta.json de la línea; la pestaña «Paleta» de la ventana es T46 (PLAN_paleta_color_linea.md)
 }
 
