@@ -1,3 +1,24 @@
+## Current Focus — Catálogos en línea: D02, manifiesto `afm-paquete-1` (2026-11-24, sobre main 1fc6d05)
+**Objetivo.** Primera tarea de `docs/PLAN_catalogos_online.md` (v0.3, D00–D34): el formato del paquete que se comparte por internet. Es motor puro, sin red ni catálogo, y es la base de D03 (exportar), D04 (lint CK), D05 (instalar) y D11 (esquema del índice).
+**Hecho.**
+- `src/afm/paquete.py` (nuevo, sin `parts`/`catalog`/`manifold3d`: una prueba lo comprueba en un proceso aparte): `Paquete` (`from_dict/to_dict/from_json/to_json/load/save`, `issues()` con `Issue(code, field, message)` y `problems()` como texto), `Author`, `Contents`, `Pin`, `RequiredReference`; `Semver` (orden de semver.org, sin contar el `+build`), `parse_range` (`>=` `>` `<=` `<` `=` `^` `~`, versiones incompletas, `*`, varios comparadores) y `parse_dependency` (`id[@rango][#owner/repo]`).
+- Lectura tolerante (§5.1 punto 8): clave desconocida ⇒ `Paquete.avisos`, no error y fuera de la igualdad; un `formato` de versión mayor ⇒ `PaqueteFormatoFuturo` («actualizá afm»); uno ajeno ⇒ `PaqueteError`. `from_dict` solo falla por estructura (clave obligatoria, tipo); el resto lo reporta `issues()` con el código del §6 que existe: CK101, CK102, CK103, CK104, CK106, CK107, CK201, CK302, CK402, CK403.
+- Campos fijados acá (el plan los dejaba a D02): `referencias_requeridas` = `[{id, nombre, sha256: [..], tamano_max}]` (D26 los usa); `contenido.pines` = `[{id, github, version, sha256}]`; `linea` es obligatoria salvo en `tipo: coleccion`; `motor` es un rango (`>=0.2.1`).
+- `src/afm/schemas/afm-paquete-1.schema.json` (JSON Schema 2020-12, claves nuevas permitidas); `pyproject.toml` lo incluye en `package-data` y suma `jsonschema` a los extras `dev`/`all` (solo lo usan las pruebas del esquema, que se saltan si falta).
+**Medido.** `tests/test_paquete.py`: 139 pruebas (ida y vuelta de héroe, colección y referencia; un caso por código CK; semver, orden y rangos; dependencias; esquema vs. código sobre 21 manifiestos rechazados; constantes del esquema = constantes de Python; regex de id = `parts.ID_RE`). Con `test_engine_portability.py` y `test_i18n.py`: 150 en verde. `pip wheel .` incluye `afm/schemas/afm-paquete-1.schema.json`.
+**No verificado.** Nada de esta tarea toca GTK. No se probó con un `paquete.json` real (todavía no hay exportador: D03).
+
+### Todo List
+- [x] Done: D02 (módulo, esquema, pruebas)
+- [ ] Todo: D03 `afm catalogo exportar` y D04 `paquete validar` (pueden ir en paralelo); D08 endurecimiento del zip
+- [ ] Todo (cliente, D00): decidir la política de contenido (`examples/` vs `THIRD_PARTY.md`), licencia por defecto y si entra `NC`, dónde vive el índice, topes de tamaño, ventana vs. pestaña, lista de categorías y umbral de strikes, `fuente` por URL
+- [ ] Todo (cliente, D01): pasar `proceres-127.zip` (o un catálogo real) para medir pesos y fijar topes
+
+### Latest Blockers/Discoveries
+- Rama `feat/catalogos-online-d02` sobre main. Quedan como **[P]** del plan, y salen de constantes de `paquete.py` fáciles de cambiar: la lista de licencias (`LICENSES`, cerrada a propósito), `CATEGORIES` (D-14), y los topes de nombre (80), descripción (280), etiquetas (16 de 32 caracteres) e id (64).
+- `Range` no tiene regla especial para prerelease (se ordena según semver): `^1.0.0` no acepta `1.0.0-rc.1` porque es menor que `1.0.0`, pero `^1.0.0-rc.1` sí acepta `1.0.0`. Si D16 necesita la regla de node-semver, se agrega ahí.
+- Una versión de pieza es `id@n` con n ≥ 1 (`parts.PieceMeta.problems` ya lo exige); el catálogo acepta `@0` en `parse_ref`, el manifiesto no.
+
 ## Current Focus — Selector de colores y vista previa de la salida para Bambu Studio (2026-11-23)
 En «Salida para Bambu Studio» ahora se puede **elegir qué colores van al 3MF / OBJ**, **cambiar con qué color se escribe cada uno** y **ver el resultado** (colores planos, un color por triángulo) antes de exportar. Todo es una opción de exportación: no toca la receta, la geometría ni los archivos de color (GLB / PNG / informe).
 - `bambu.py`: `Collected` + `collect` (color crudo y geometría, se calcula una vez) / `candidates` (colores de la figura, del más al menos usado, con % de área y roles de la paleta) / `default_selection` (la automática: tope y % mínimo) / `build_from` / `preview_parts` / `follow_roles`. `BambuOptions` suma `chosen` (HEX que se usan; los demás pasan al más parecido en Lab; un HEX que ya no es candidato se ignora) y `remap` (`{HEX: HEX}`, solo en la salida). Sin `chosen` y con `remap`, el modo automático se expresa como selección. `build_face_colors` queda igual.

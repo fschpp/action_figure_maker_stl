@@ -26,8 +26,8 @@ dependencies = [
 
 [project.optional-dependencies]
 gui = ["PyGObject", "moderngl", "pycairo", "pillow"]
-dev = ["pytest", "rtree"]     # rtree: solo para tools/medir_articulaciones.py y sus tests; el motor no lo usa
-all = ["PyGObject", "moderngl", "pycairo", "pillow", "pytest", "rtree"]
+dev = ["pytest", "rtree", "jsonschema"]     # rtree: solo para tools/medir_articulaciones.py y sus tests; jsonschema: solo para las pruebas del esquema de paquete; el motor no usa ninguno
+all = ["PyGObject", "moderngl", "pycairo", "pillow", "pytest", "rtree", "jsonschema"]
 
 [project.scripts]
 afm = "afm.cli:main"
@@ -40,7 +40,7 @@ Repository = "https://github.com/fschpp/action_figure_maker_stl"
 where = ["src"]
 
 [tool.setuptools.package-data]
-afm = ["locales/*.json"]
+afm = ["locales/*.json", "schemas/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
