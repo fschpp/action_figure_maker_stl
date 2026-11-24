@@ -1,3 +1,24 @@
+## Current Focus — Catálogos en línea: D04 `paquete validar` + D08 lector de zip endurecido (2026-11-24, rama feat/catalogos-online-d04 sobre main 6c9a9e6)
+**Objetivo.** Revisar un paquete `.zip` ajeno antes de instalarlo: lint `CK…` (§6) con archivo y qué corregir, sobre un lector de zips único (§5.7) que usarán D05 y el cliente.
+**Hecho.**
+- `src/afm/ziplector.py` (D08, motor puro): `inspect` (sin descomprimir) y `extract_all` (solo a staging). CK302 ruta con `..`/absoluta/`\\`/unidad/control, enlace simbólico, cifrado, duplicado por mayúsculas o NFC/NFD; CK301 extensión fuera de la lista (`.json .md .txt .stl .npz .png .jpg`, `LICENSE` en la raíz, `.fbx` solo con `allow_fbx`), zip anidado, método de compresión raro; CK303 cantidad (2000), tamaño por archivo (64 MB), total (512 MB) y razón de compresión (200:1 en archivos de más de 1 MB). Al extraer: `realpath` dentro del staging, modo `x` (no pisa), y se cuenta lo realmente escrito (encabezado que miente ⇒ corta).
+- `src/afm/validar.py` (D04): `validate_package` → `ValidationResult` (`ok`, `errors`, `warnings`; `estricto` vuelve error a los avisos). Evalúa CK101–CK107, CK201, CK202, CK203 (extrae a temporal y corre `Catalog.verify`), CK204, CK301–CK304, CK306, CK307, CK402, CK403. Un hallazgo de inspección corta antes de abrir nada. No modifica el zip.
+- CLI: `afm catalogo paquete validar ZIP [--estricto] [--permitir-fbx] [--sin-malla]` (0 ok, 1 errores, 2 no es un zip); registrado como `paquete` (consola) en `catalog_ops.COMMANDS`.
+**Medido.** `proceres-127` exportado con `--linea-completa` (116 archivos): validar en 1,4 s, 0 errores y 10 avisos (CK105 sin portada + versiones salteadas); con `--estricto` falla por esos avisos, como se espera.
+**Pruebas.** `tests/test_ziplector.py` (28) + `tests/test_validar.py` (un caso por código, CLI y códigos de salida); con test_exportar, test_paquete, test_i18n y test_engine_portability: 250 en verde.
+
+### Todo List
+- [x] Done: D03 (exportar), D04 (validar), D08 (lector endurecido)
+- [ ] Todo: D05 `instalar.py` (plan + aplicación atómica; usar `ziplector.extract_all`) y D06 `catalogo instalar`; D07 zips heredados
+- [ ] Todo: CK305 (licencias distintas por pieza sin CREDITOS.md): `PieceMeta` no tiene licencia por pieza, no se evalúa
+- [ ] Todo: fijar topes definitivos de `ziplector` con la medición de D01 (hoy [P]); decidir si los avisos «versiones no consecutivas» deben ser CK203 en la puerta estricta (D05 comprueba que se toleran)
+
+### Latest Blockers/Discoveries
+- `from_dict` falla por estructura si falta una clave obligatoria; el validador la traduce al código de su regla (falta `licencia` ⇒ CK101, etc.).
+- `Catalog.verify` ya detecta color/paleta ausentes: el validador los reporta como CK307/CK204 y los saca de CK203 para no duplicar (por texto del mensaje: frágil si cambia el texto de `verify`).
+- Sigue fallando en main `test_catalog_ops::test_every_catalog_subcommand_is_registered_for_the_window` (`retoque`, `guardar-montura` sin registrar): no es de este cambio.
+- `afm catalogo paquete validar proceres-127.zip` (zip heredado sin `paquete.json`) da CK102; los heredados son D07.
+
 ## Current Focus — Catálogos en línea: D03, `afm catalogo exportar` (2026-11-24, rama feat/catalogos-online-d03 sobre main 887ee55)
 **Objetivo.** Armar el paquete `.zip` (`afm-paquete-1`, D02) desde un catálogo real: piezas sueltas, recetas (héroe completo) o la línea completa.
 **Hecho.**

@@ -1,9 +1,11 @@
-"""Subcomandos de paquetes de `afm catalogo …` (plan de catálogos en línea, §5.6): por ahora `exportar` (D03).
+"""Subcomandos de paquetes de `afm catalogo …` (plan de catálogos en línea, §5.6): `exportar` (D03) y `paquete validar` (D04).
 
 Se enchufa desde `catalog_cli.add_parsers` / `_run` para no engordar ese archivo; los siguientes (`instalar`, `paquete …`, `remoto …`)
 cuelgan de acá. La lógica vive en `exportar.py`: este módulo solo lee argumentos e imprime.
 """
 from __future__ import annotations
+
+import sys
 
 from . import paquete as Q
 from .catalog import Catalog
@@ -42,6 +44,13 @@ def add_parsers(cs, root) -> None:
     a.add_argument("--licencia-archivo", default="", metavar="ARCHIVO", help="texto de la licencia (si no, LICENSE nombra la licencia y su enlace SPDX)")
     a.add_argument("--creditos", default="", metavar="ARCHIVO.md")
     a.add_argument("--portada", default="", metavar="IMAGEN", help="portada de 1280×720; se guarda como previews/portada.png")
+    pq = cs.add_parser("paquete", help="herramientas de paquetes .zip (por ahora: validar)")
+    ps = pq.add_subparsers(dest="paqcmd", required=True)
+    v = ps.add_parser("validar", help="revisar un paquete .zip (lint CK101–CK403): manifiesto, hashes, archivos, color, línea y `verify` del contenido")
+    v.add_argument("zip", metavar="paquete.zip")
+    v.add_argument("--estricto", action="store_true", help="los avisos cuentan como errores (así lo revisa el índice antes de adoptar un release)")
+    v.add_argument("--permitir-fbx", action="store_true", help="aceptar .fbx dentro del paquete (los que se exportaron con --incluir-fbx)")
+    v.add_argument("--sin-malla", action="store_true", help="no abrir el contenido como catálogo (omite CK203: rápido, pero no revisa las mallas)")
 
 
 def run_exportar(cat: Catalog, args) -> int:
@@ -64,4 +73,25 @@ def run_exportar(cat: Catalog, args) -> int:
     return 0
 
 
-__all__ = ["ExportError", "add_parsers", "run_exportar"]
+def run_validar(args) -> int:
+    """`afm catalogo paquete validar ZIP`: imprime cada hallazgo con su archivo y qué corregir. 0 = sin errores; 1 = hay errores."""
+    from .validar import validate_package
+    from .ziplector import ZipError
+
+    try:
+        res = validate_package(args.zip, estricto=args.estricto, allow_fbx=args.permitir_fbx, verify_catalog=not args.sin_malla)
+    except ZipError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    for f in res.findings:
+        print(f)
+    p = res.paquete
+    head = f"«{p.id}» {p.version}" if p else args.zip
+    if res.ok:
+        print(f"OK: {head} no tiene errores" + (f" ({len(res.warnings)} aviso(s))" if res.warnings else "") + ".")
+        return 0
+    print(f"FALLA: {head}: {len(res.errors)} error(es)" + (f", {len(res.warnings)} aviso(s)" if res.warnings else "") + ".")
+    return 1
+
+
+__all__ = ["ExportError", "add_parsers", "run_exportar", "run_validar"]
