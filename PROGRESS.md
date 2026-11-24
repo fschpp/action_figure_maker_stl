@@ -1,3 +1,21 @@
+## Current Focus — Panel de armas: la mano agarrando la empuñadura, en dibujo y sin texto (2026-11-24, rama feat/arma-mano-dibujo sobre main 281107a)
+**Objetivo.** El bloque de texto del panel «Arma (accesorio)» no se entendía. Se reemplaza por un dibujo: el puño de la mano estándar agarrando el arma.
+**Hecho.**
+- `src/afm/gui/weapon_grip_view.py` (nuevo, sin GTK): `build_view` proyecta la mano y el arma (ya en el marco del accesorio, hoja hacia arriba, vista de plano de la hoja) en polígonos 2D ordenados de atrás hacia adelante; `draw(cr, w, h, view)` los traza con cairo.
+- Se lee de un vistazo: cota del largo que sobresale; barra de la guarda frente a la barra de trazos del puño; tres insignias con pictograma y color (contacto / agarre / tamaño: verde, ámbar, rojo; la hoja se tiñe de rojo si choca); figurita de referencia con el arma al lado a la escala de la altura (% de la figura). Sin arma: puño vacío y espada fantasma de trazos.
+- Armas largas se recortan con «//» (la mano manda en la escala). El texto de los avisos queda en el tooltip del dibujo y en el desplegable «Detalles en texto» (`planos.detalles_en_texto`, es/en/pt).
+- `WeaponSession.grip_view()` (una vez por armado; mismo objeto mientras nada cambie) y `Controller.weapon_grip_view()`; la ventana redibuja solo cuando cambia el objeto.
+**Pruebas.** `tests/test_weapon_grip_view.py` (11: agrupación de avisos, medidas dibujadas, hoja de plano, puño vacío, tope de triángulos, pixeles con pycairo fuera de pantalla, sesión y controlador). Con test_weapon, test_weapon_fit, test_gui_weapon, test_weapon_travels, test_i18n: 75 en verde.
+**No verificado.** La ventana GTK (`window.py`/`planos.py`) solo compila: en este entorno no hay PyGObject funcional, así que no se la abrió. Los dibujos se vieron renderizados a PNG con pycairo sobre la mano de prueba de los tests (una bola con cilindro), no con una mano real del catálogo.
+
+### Todo List
+- [x] Done: dibujo de la mano con el arma, insignias, figurita, detalles plegados
+- [ ] Todo: mirarlo en la ventana real con una mano de la línea y ajustar tamaños/colores con el tema claro de GTK
+- [ ] Todo: si se quiere, mismo lenguaje visual para la vista de arma enfundada (`mount_preview`, `body_lines`)
+
+### Latest Blockers/Discoveries
+- Sigue fallando en main `test_catalog_ops::test_every_catalog_subcommand_is_registered_for_the_window` (no es de este cambio).
+
 ## Current Focus — Catálogos en línea: D04 `paquete validar` + D08 lector de zip endurecido (2026-11-24, rama feat/catalogos-online-d04 sobre main 6c9a9e6)
 **Objetivo.** Revisar un paquete `.zip` ajeno antes de instalarlo: lint `CK…` (§6) con archivo y qué corregir, sobre un lector de zips único (§5.7) que usarán D05 y el cliente.
 **Hecho.**

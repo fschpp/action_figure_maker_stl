@@ -3325,6 +3325,10 @@ class Controller:
     def weapon_summary(self) -> str:
         return self.weapon.summary() if self.weapon is not None else ""
 
+    def weapon_grip_view(self):
+        """El dibujo de la mano agarrando el arma (`GripView`) o None si no hay catálogo con mano con agarre."""
+        return self.weapon.grip_view() if self.weapon is not None else None
+
     def save_weapon(self, piece_id: str | None = None, new_version: bool = False) -> bool:
         """Guarda el arma preparada en el catálogo de la línea como pieza `accesorio`."""
         from ..catalog import CatalogError

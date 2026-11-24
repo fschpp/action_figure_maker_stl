@@ -651,6 +651,11 @@ class MainWindow(Gtk.ApplicationWindow):
             txt = ctrl.weapon_summary()
             if self.lbl_weapon.get_text() != txt:
                 self.lbl_weapon.set_text(txt)
+            gv = ctrl.weapon_grip_view()
+            if gv is not self._weapon_grip_shown:                    # el dibujo cambia solo cuando cambia el armado
+                self._weapon_grip_shown = gv
+                self.weapon_grip_area.set_tooltip_text(gv.tip if gv is not None and gv.tip else None)
+                self.weapon_grip_area.queue_draw()
             self._refill_project_accessories()
             if self.chk_grip_show.get_active() != ctrl.grip_show:
                 self.chk_grip_show.set_active(ctrl.grip_show)
@@ -1121,6 +1126,12 @@ class MainWindow(Gtk.ApplicationWindow):
         data = self.ctrl.joint_aim_box()
         if data is not None:
             draw_aim_box(cr, w, h, data)
+
+    def _draw_weapon_grip(self, _area, cr, w: int, h: int) -> None:
+        """La mano estándar agarrando el arma, con insignias y la figurita de referencia (`weapon_grip_view`)."""
+        from . import weapon_grip_view as GV
+
+        GV.draw(cr, w, h, self._weapon_grip_shown)
 
     def _draw_cut_aim(self, _area, cr, w: int, h: int) -> None:
         """El recuadro de la sección del corte actual con las caras del catálogo encima."""

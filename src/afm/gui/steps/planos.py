@@ -184,6 +184,10 @@ def build(win) -> None:
     sec = _collapsible(box, tr("planos.arma_accesorio"), expanded=False)
     win.btn_weapon_open = win._button(tr("planos.importar_un_arma_stl"), win._on_weapon_open)
     sec.append(win.btn_weapon_open)
+    win.weapon_grip_area = Gtk.DrawingArea(content_width=300, content_height=250, hexpand=True)    # la mano agarrando el arma
+    win.weapon_grip_area.set_draw_func(win._draw_weapon_grip)
+    win._weapon_grip_shown = None
+    sec.append(win.weapon_grip_area)
     row = Gtk.Box(spacing=6)
     row.append(Gtk.Label(label=tr("planos.largo_del_arma_mm"), xalign=0, hexpand=True))
     win.spin_weapon_len = Gtk.SpinButton.new_with_range(5.0, 400.0, 0.5)
@@ -219,7 +223,9 @@ def build(win) -> None:
     sec.append(win.btn_weapon_save)
     sec.append(win.btn_weapon_close)
     win.lbl_weapon = Gtk.Label(label="", xalign=0, wrap=True, selectable=True)
-    sec.append(win.lbl_weapon)
+    det = Gtk.Expander(label=tr("planos.detalles_en_texto"))                  # el texto queda a un clic: el dibujo es lo primero
+    det.set_child(win.lbl_weapon)
+    sec.append(det)
     _help(sec, tr("planos.importa_cualquier_stl_como_arma_de"))
 
     sec = _collapsible(box, tr("planos.accesorios_que_viajan_con_la_figura"), expanded=False)

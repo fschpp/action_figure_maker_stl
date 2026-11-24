@@ -1789,7 +1789,8 @@
   "agregar_corte_de_la_cabeza_paralelo_al": "Adicionar corte da cabeça paralelo ao piso (uma altura)",
   "corta_la_cabeza_con_un_plano": "Corta a cabeça com um plano horizontal (paralelo ao piso da figura) em vez de escolher 3 pontos. Desloca-se em paralelo com “Altura sobre o piso”, com um clique na figura ou com ↑ ↓.",
   "altura_sobre_el_piso_mm": "Altura sobre o piso (mm)",
-  "traslada_el_plano_de_corte_en_paralelo": "Desloca o plano de corte em paralelo ao piso. Também: clique na figura ou setas ↑ ↓ (Shift = 1 mm) com a ferramenta ativa."
+  "traslada_el_plano_de_corte_en_paralelo": "Desloca o plano de corte em paralelo ao piso. Também: clique na figura ou setas ↑ ↓ (Shift = 1 mm) com a ferramenta ativa.",
+  "detalles_en_texto": "Detalhes em texto"
  },
  "rail": {
   "salta_al_primer_paso_que_todavia": "Salta para o primeiro passo que ainda pede algo (○ falta · ⚠ revisar · ⟳ desatualizado · ▶ pronto para gerar).",
