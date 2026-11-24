@@ -2313,5 +2313,21 @@
   "sin_figura": "Para escolher as cores do 3MF, primeiro exporte a figura (com cor).",
   "color_desconocido": "%{hex} não é uma das cores da figura exportada.",
   "al_menos_un_color": "Tem que ficar pelo menos uma cor."
+ },
+ "weapon_sim": {
+  "mano_medidas": "Na mão padrão: sobressai %{alcance} mm do punho (%{vs_mano} × o comprimento da mão); guarda %{guarda} mm, punho %{puno} mm.",
+  "mano_figura": "A arma mede %{pct} % da altura da figura.",
+  "mano_distancia": "Distância lâmina–mão: %{gap} mm.",
+  "cuerpo_medidas": "No corpo: ocupa %{pct} % da altura; a ponta fica a %{piso} mm do chão; seu ponto mais alto está %{cabeza} mm em relação ao topo da cabeça (positivo: acima).",
+  "razonable": "Tamanho razoável.",
+  "choca_mano": "a lâmina ou a guarda entram na mão (%{mm3} mm³ em comum)",
+  "guarda_chica": "a guarda (%{guarda} mm) é mais estreita que o punho (%{puno} mm): quase não aparece ao fechar a mão",
+  "corta_vs_mano": "sobressai só %{alcance} mm do punho (a mão mede %{mano} mm): quase não aparece",
+  "corta_vs_figura": "mede %{pct} % da altura da figura: fica minúscula",
+  "larga_vs_figura": "mede %{pct} % da altura da figura: fica desmedida",
+  "torcida": "o corpo da arma se afasta %{grados}° do eixo do punho: fica torta na mão",
+  "atraviesa_piso": "a ponta atravessa o chão %{mm} mm",
+  "punta_cerca_piso": "a ponta fica a apenas %{mm} mm do chão: raspa ou arrasta",
+  "choca_miembro": "colide com «%{pieza}» (%{mm3} mm³ em comum)"
  }
 }

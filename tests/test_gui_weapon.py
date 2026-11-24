@@ -159,3 +159,19 @@ def test_weapon_uses_the_catalog_already_open_in_the_window(cat_hand, sword_stl)
     assert c.weapon.catalog is not None and c.weapon.hand.ref == "mano-agarre-01@1"
     assert c.weapon.length_mm == pytest.approx(0.40 * 127.0, rel=0.01)
     assert c.accessory_pieces() == []                                                 # todavía no se guardó ninguna arma
+
+
+def test_summary_includes_the_hand_simulation(ctrl, sword_stl):
+    """Con el arma armada, el resumen dice cuánto sobresale del puño de la mano estándar (y la simulación se calcula una sola vez por armado)."""
+    path, pts = sword_stl
+    assert ctrl.open_weapon(path) is True
+    shown = np.asarray(pts, float) * ctrl.weapon.scale
+    ctrl.weapon.set_cut(shown)
+    sim = ctrl.weapon.hand_sim()
+    assert sim is not None and sim.reach_mm > 0
+    assert ctrl.weapon.hand_sim() is sim                                            # cacheada
+    assert "En la mano estándar" in ctrl.weapon_summary()
+    hand_mesh, weapon_in_hand = ctrl.weapon.hand_scene()
+    assert hand_mesh.is_watertight is not None and weapon_in_hand.volume > 0
+    ctrl.weapon.set_length(20.0)                                                    # otro tamaño: se vuelve a simular
+    assert ctrl.weapon.hand_sim() is not sim

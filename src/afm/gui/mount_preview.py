@@ -37,6 +37,7 @@ class MountPreview:
     text: str                                  # qué mostrar: el aviso si no sale, o las notas del puente
     parts: list = field(default_factory=list)  # [(nombre, malla, rgba)] para sumar a la vista conjunta
     avisos: list = field(default_factory=list)
+    size_problem: bool = False                 # el arma enfundada sale chica, grande o choca (ver `weapon_fit.simulate_on_body`)
 
 
 @dataclass
@@ -81,8 +82,18 @@ def mount_preview(builder, index: int, parts=None) -> MountPreview:
     out = [(f"montura_arma_{index}", S.to_trimesh(mb.lazo.weapon), WEAPON_COLOR),
            (f"montura_puente_{index}", S.to_trimesh(MT.mount_solid(mb.lazo)), BRIDGE_COLOR)]
     ab = mb.info.get("abertura_mm") or [0, 0]
+    from .. import weapon_fit as WF
+    from .weapon_sim import body_lines
+
+    try:                                                   # el tamaño del arma enfundada frente a la figura (solo informa; no bloquea nada)
+        fit = WF.simulate_on_body(out[0][1], parts, spec.lado)
+        size_lines = body_lines(fit)
+        bad_fit = fit.level != WF.LEVEL_OK
+    except WF.FitError:
+        size_lines, bad_fit = [], False
     head = tr("figure_window.pv_sale", w=f"{ab[0]:g}", t=f"{ab[1]:g}", alto=f"{mb.info.get('alto_sobre_superficie_mm', 0):g}")
-    return MountPreview(True, "\n".join([head] + [f"- {a}" for a in avisos]), out, avisos)
+    return MountPreview(True, "\n".join([head] + [f"- {a}" for a in avisos] + size_lines), out, avisos,
+                        size_problem=bad_fit)
 
 
 def _need_mm(builder, spec) -> float:

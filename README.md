@@ -86,6 +86,16 @@ catálogo abierto) y sección «Accesorios que viajan con la figura» (casillas 
 aparte en `piezas/<figura>_<id>.stl` (acostada, lista para imprimir) y TAMBIÉN dentro de `<figura>_ensamblada.stl`, a la derecha de la figura y a
 la altura de su cama, con 10 mm de separación; no va en el puño. Los `.proyecto` y las recetas la guardan como referencia al catálogo (ruta + id@versión + sha256).
 
+¿El arma salió chica o grande? Simulación de tamaño (`src/afm/weapon_fit.py`, sin imprimir nada): en la ventana, el resumen de «Arma (accesorio)»
+suma cuánto sobresale del puño de la mano estándar (y cuánto de la altura de la figura ocupa), la guarda frente al puño, si toca la mano y si sale
+torcida; la vista previa de una montura suma cuánto de la altura ocupa el arma enfundada, a qué altura del piso queda la punta, cuánto asoma sobre
+la cabeza y si choca con los miembros de ese lado. Son avisos orientativos (una espada de la línea mide ≈ 0,40 × la altura): no bloquean nada. Por
+línea de comandos:
+
+```bash
+afm simular-arma RUTA excalibur-01 [--mano REF] [--out carpeta]   # --out escribe arma_en_mano.stl (mano y arma juntas) para mirarla en el visor
+```
+
 En el catálogo, la mano con agarre es una pieza `mano` y el arma una pieza `accesorio`; el agarre (Ø del taladro, canal, vástago, dentado…) va en
 `mecanismo.agarre` de cada una y `afm catalogo verificar` lo comprueba. La compatibilidad es barata (solo metadatos): Ø del taladro, vástago,
 dentado que retiene, deformación de la lengüeta, hombro del dentado contra el largo del canal y contorno de apoyo.

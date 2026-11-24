@@ -428,6 +428,33 @@ def run_montura_mapa(recipe_path: str, outdir: str, catalog_root: str | None = N
     return {**summary, "archivos": ["mapa.ply", "mapa.json", "mapa.md"]}
 
 
+def run_simular_arma(catalog_root: str, arma: str, hand_ref: str | None = None, out: str | None = None) -> dict:
+    """`afm simular-arma`: el accesorio `arma` del catálogo puesto en el puño de la mano estándar con agarre de la línea.
+
+    Devuelve las medidas y los avisos de `weapon_fit.simulate_in_hand` (con la altura de la línea como referencia). Con `out` escribe
+    además `<out>/arma_en_mano.stl` (mano y arma juntas, en el marco de la mano) para mirarla en el visor o en el slicer."""
+    import trimesh
+
+    from . import weapon_fit as WF
+    from .catalog import Catalog
+
+    cat = Catalog.open(catalog_root)
+    _meta, acc = cat.load(arma)
+    hand_meta, hand_mesh, fit = WF.load_hand_with_grip(cat, hand_ref)
+    sim = WF.simulate_in_hand(acc, hand_mesh, fit, cat.height_mm)
+    res = {"arma": arma, "mano": hand_meta.ref, "nivel": sim.level, "alcance_mm": round(sim.reach_mm, 2), "guarda_mm": round(sim.guard_mm, 2),
+           "puno_mm": round(sim.fist_mm, 2), "largo_mano_mm": round(sim.hand_len_mm, 2), "alcance_vs_mano": round(sim.reach_vs_hand, 2),
+           "alcance_vs_figura": None if sim.reach_vs_figure is None else round(sim.reach_vs_figure, 3), "torcida_grados": round(sim.tilt_deg, 1),
+           "solape_mm3": round(sim.overlap_mm3, 2), "distancia_mm": None if sim.gap_mm is None else round(sim.gap_mm, 2),
+           "avisos": [{"codigo": c, **v} for c, v in sim.notes], "_sim": sim}
+    if out:
+        os.makedirs(out, exist_ok=True)
+        path = os.path.join(out, "arma_en_mano.stl")
+        trimesh.util.concatenate([hand_mesh, sim.weapon]).export(path)
+        res["archivo"] = path
+    return res
+
+
 def run_extract_hand(stl_path: str, project: Project, points, out_dir: str, name: str = "mano",
                      invert: bool = False, progress=print) -> dict:
     """Corta la mano de la figura por el plano de muñeca (3 puntos en el marco de trabajo de la GUI) y la guarda
@@ -587,6 +614,11 @@ def main(argv=None) -> int:
     mm.add_argument("--arma", default=None, metavar="ID[@V]", help="accesorio cuya hoja da el espesor (por defecto una hoja de 0,8 mm)")
     mm.add_argument("--holgura", type=float, default=0.25, metavar="MM", help="juego hoja–hueco del puente")
     mm.add_argument("--out", default="out/mapa", help="carpeta de salida (mapa.ply, mapa.json y mapa.md)")
+    sa = sub.add_parser("simular-arma", help="simula un arma del catálogo en la mano estándar de la línea: cuánto sobresale, la guarda frente al puño, si toca la mano")
+    sa.add_argument("catalogo", metavar="RUTA", help="catálogo de piezas de la línea")
+    sa.add_argument("arma", metavar="ID[@V]", help="accesorio (arma con la empuñadura de la línea) a simular")
+    sa.add_argument("--mano", default=None, metavar="ID[@V]", help="mano con agarre (por defecto, la más reciente del catálogo)")
+    sa.add_argument("--out", default=None, help="carpeta donde escribir arma_en_mano.stl (mano y arma juntas)")
     dp = sub.add_parser("desde-patron", help="proyecto de un héroe nuevo a partir de una figura patrón que ya funciona (copia sus planos y vuelve a dibujar las siluetas)")
     dp.add_argument("patron", help="proyecto de la figura patrón (p. ej. Güemes)")
     dp.add_argument("stl", help="STL del héroe nuevo")
@@ -656,6 +688,22 @@ def main(argv=None) -> int:
     if args.cmd == "caballo":
         from .horse_cli import run_caballo
         return run_caballo(args)
+    if args.cmd == "simular-arma":
+        from .catalog import CatalogError
+        from .gui.weapon_sim import hand_lines
+        from .weapon import WeaponError
+        from .weapon_fit import FitError
+
+        try:
+            res = run_simular_arma(args.catalogo, args.arma, args.mano, args.out)
+        except (CatalogError, WeaponError, FitError, OSError, ValueError) as exc:
+            print(f"ERROR (simular-arma): {exc}", file=sys.stderr)
+            return 2
+        print(f"{res['arma']} en {res['mano']}:")
+        print("\n".join(hand_lines(res.pop("_sim"))))
+        if "archivo" in res:
+            print("Archivo:", res["archivo"])
+        return 0
     if args.cmd == "desde-patron":
         return _run_desde_patron(args)
     if args.cmd == "ajustar-cintura-muneca":

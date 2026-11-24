@@ -135,3 +135,16 @@ def test_el_espesor_de_la_hoja_entra_en_lo_que_necesita(b):
     j = b.add_mount(ARMA, "pelvis", "izq", (11, 0, 30), (0, 0, -1), holgura=0.45)
     assert PV._need_mm(b, b.mounts[j]) - PV._need_mm(b, b.mounts[i]) == pytest.approx(2 * 0.2)       # 2 × la diferencia de holgura
     assert MM.needed_height(0.8) > 2.0
+
+
+
+def test_el_tamano_del_arma_enfundada_llega_al_texto(b):
+    """La vista previa de la montura suma cuánto de la altura ocupa el arma y dónde queda su punta (`weapon_fit.simulate_on_body`)."""
+    parts, _ = b.preview()
+    a = _flank_anchor(parts)
+    i = b.add_mount(ARMA, "pelvis", a.lado, a.ancla, (0, 0, -1))
+    pv = PV.mount_preview(b, i, parts)
+    assert pv.ok, pv.text
+    assert "En el cuerpo:" in pv.text and "% de la altura" in pv.text
+    # la espada de prueba mide ≈ 36 mm frente a una figura de ≈ 100 mm: es chica y el aviso sale (en rojo en la ventana)
+    assert pv.size_problem == ("corta_vs_figura" in pv.text or "diminuta" in pv.text or "choca" in pv.text or "piso" in pv.text)

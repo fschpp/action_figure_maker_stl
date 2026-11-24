@@ -27,6 +27,8 @@ class WeaponSession:
         self.catalog: Catalog | None = None
         self.hand = None                                  # pieza `mano` con agarre de la que sale la empuñadura
         self._scaled: trimesh.Trimesh | None = None
+        self.hand_sim_error: str = ""                      # por qué no se pudo simular el arma en la mano
+        self._fit_cache: tuple | None = None              # (clave, HandSim | mensaje de error): la simulación en la mano estándar
 
     # ------------------------------------------------------------ catálogo y carga
     def set_catalog(self, root: str, hand_ref: str | None = None) -> None:
@@ -99,6 +101,7 @@ class WeaponSession:
     # ------------------------------------------------------------ resultado
     def _rebuild(self) -> None:
         self.build, self.error = None, ""
+        self._fit_cache = None
         if self.raw is None or self.spec is None:
             return
         if len(self.spec.cut_points) != 3:
@@ -134,6 +137,38 @@ class WeaponSession:
         m.apply_transform(self.build.to_mesh_frame)
         return m
 
+    def hand_sim(self):
+        """`HandSim` del arma armada puesta en el puño de la mano estándar de la línea (None si todavía no hay arma o mano).
+
+        Se calcula una vez por armado (se borra en `_rebuild`). Si no se puede simular, el motivo queda en `hand_sim_error`."""
+        from .. import solids as S
+        from .. import weapon_fit as WF
+
+        self.hand_sim_error = ""
+        if self.build is None or self.catalog is None or self.hand is None:
+            return None
+        if self._fit_cache is None:
+            try:
+                _meta, hand_mesh, fit = WF.load_hand_with_grip(self.catalog, self.hand.ref)
+                sim = WF.simulate_in_hand(S.to_printable_trimesh(self.build.mesh), hand_mesh, fit, self.catalog.height_mm)
+                self._fit_cache = (sim, "")
+            except (WF.FitError, W.WeaponError) as exc:
+                self._fit_cache = (None, str(exc))
+            except Exception as exc:                          # noqa: BLE001 — una booleana que falla no tiene que tumbar la ventana
+                self._fit_cache = (None, str(exc))
+        self.hand_sim_error = self._fit_cache[1]
+        return self._fit_cache[0]
+
+    def hand_scene(self):
+        """(mano, arma en la mano) en el marco de la mano estándar, para dibujarlas juntas; None si no hay simulación."""
+        sim = self.hand_sim()
+        if sim is None:
+            return None
+        from .. import weapon_fit as WF
+
+        _meta, hand_mesh, _fit = WF.load_hand_with_grip(self.catalog, self.hand.ref)
+        return hand_mesh, sim.weapon
+
     def summary(self) -> str:
         if self.raw is None:
             return ""
@@ -144,6 +179,11 @@ class WeaponSession:
             i = self.build.info
             lines.append(tr("weapon_session.resultado_v_v2_v3_mm_se", v=f"{i['dimensiones_mm'][0]:g}", v2=f"{i['dimensiones_mm'][1]:g}", v3=f"{i['dimensiones_mm'][2]:g}", volumen_mantenido_pct=f"{i['volumen_mantenido_pct']:g}", seccion_corte_mm2=f"{i['seccion_corte_mm2']:g}", giro_grados=f"{i['giro_grados']:g}"))
             lines += [tr("common.aviso_w", w=w) for w in i["avisos"]]
+            sim = self.hand_sim()
+            if sim is not None:
+                from .weapon_sim import hand_lines
+
+                lines += hand_lines(sim)
         elif self.error:
             lines.append(self.error[0].upper() + self.error[1:])
         return "\n".join(lines)

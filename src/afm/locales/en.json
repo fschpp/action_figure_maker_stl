@@ -2313,5 +2313,21 @@
   "sin_figura": "To choose the 3MF colours, export the figure (with colour) first.",
   "color_desconocido": "%{hex} is not one of the colours of the exported figure.",
   "al_menos_un_color": "At least one colour must remain."
+ },
+ "weapon_sim": {
+  "mano_medidas": "In the standard hand: it sticks out %{alcance} mm from the fist (%{vs_mano} × the hand length); guard %{guarda} mm, fist %{puno} mm.",
+  "mano_figura": "The weapon is %{pct} % of the figure's height.",
+  "mano_distancia": "Blade–hand distance: %{gap} mm.",
+  "cuerpo_medidas": "On the body: it takes up %{pct} % of the height; the tip is %{piso} mm above the floor; its highest point is %{cabeza} mm relative to the top of the head (positive: above it).",
+  "razonable": "Reasonable size.",
+  "choca_mano": "the blade or the guard goes into the hand (%{mm3} mm³ in common)",
+  "guarda_chica": "the guard (%{guarda} mm) is narrower than the fist (%{puno} mm): it will barely show when the hand closes",
+  "corta_vs_mano": "it sticks out only %{alcance} mm from the fist (the hand is %{mano} mm): it will barely show",
+  "corta_vs_figura": "it is %{pct} % of the figure's height: it comes out tiny",
+  "larga_vs_figura": "it is %{pct} % of the figure's height: it comes out oversized",
+  "torcida": "the body of the weapon deviates %{grados}° from the fist axis: it comes out crooked in the hand",
+  "atraviesa_piso": "the tip goes through the floor by %{mm} mm",
+  "punta_cerca_piso": "the tip is only %{mm} mm from the floor: it scrapes or drags",
+  "choca_miembro": "it collides with «%{pieza}» (%{mm3} mm³ in common)"
  }
 }

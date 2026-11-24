@@ -2313,5 +2313,21 @@
   "sin_figura": "Para elegir los colores del 3MF primero exportá la figura (con color).",
   "color_desconocido": "%{hex} no es uno de los colores de la figura exportada.",
   "al_menos_un_color": "Tiene que quedar al menos un color."
+ },
+ "weapon_sim": {
+  "mano_medidas": "En la mano estándar: sobresale %{alcance} mm del puño (%{vs_mano} × el largo de la mano); guarda %{guarda} mm, puño %{puno} mm.",
+  "mano_figura": "El arma mide el %{pct} % de la altura de la figura.",
+  "mano_distancia": "Distancia hoja–mano: %{gap} mm.",
+  "cuerpo_medidas": "En el cuerpo: ocupa el %{pct} % de la altura; la punta queda a %{piso} mm del piso; su punto más alto está %{cabeza} mm respecto del tope de la cabeza (positivo: por encima).",
+  "razonable": "Tamaño razonable.",
+  "choca_mano": "la hoja o la guarda entran en la mano (%{mm3} mm³ en común)",
+  "guarda_chica": "la guarda (%{guarda} mm) es más angosta que el puño (%{puno} mm): casi no se ve al cerrar la mano",
+  "corta_vs_mano": "sobresale solo %{alcance} mm del puño (la mano mide %{mano} mm): casi no se ve",
+  "corta_vs_figura": "mide el %{pct} % de la altura de la figura: sale diminuta",
+  "larga_vs_figura": "mide el %{pct} % de la altura de la figura: sale desmedida",
+  "torcida": "el cuerpo del arma se aparta %{grados}° del eje del puño: sale torcida de la mano",
+  "atraviesa_piso": "la punta atraviesa el piso %{mm} mm",
+  "punta_cerca_piso": "la punta queda a solo %{mm} mm del piso: roza o arrastra",
+  "choca_miembro": "choca con «%{pieza}» (%{mm3} mm³ en común)"
  }
 }

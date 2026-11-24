@@ -461,7 +461,7 @@ class FigureBuilderWindow(Gtk.Window):
             bad = True
         if pv is not None:
             lines.append(pv.text)
-            bad = bad or not pv.ok or bool(pv.avisos)
+            bad = bad or not pv.ok or bool(pv.avisos) or pv.size_problem
         if zm is not None:
             lines.append(zm.text)
         self.lbl_mount_preview.set_text("\n".join(lines))
