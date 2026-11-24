@@ -32,6 +32,16 @@ from .ui_consts import HEAD_ADJUST_ATTR, TRIM_OPS as _TRIM_OPS  # noqa: E402
 from .widgets import no_scroll_change as _no_scroll_change  # noqa: E402
 from .viewcube import ViewCube, interpolate_view, view_angles  # noqa: E402
 
+
+def _rgba(hex_text: str) -> Gdk.RGBA:
+    c = Gdk.RGBA()
+    c.parse(hex_text)
+    return c
+
+
+def _hex_of(rgba: Gdk.RGBA) -> str:
+    return "#{:02X}{:02X}{:02X}".format(*(int(round(max(0.0, min(1.0, v)) * 255)) for v in (rgba.red, rgba.green, rgba.blue)))
+
 DRAG_THRESHOLD_PX = 4.0
 # flechas -> (derecha, arriba) sobre la cara de contacto vista de frente
 _ARROWS = {Gdk.KEY_Left: (-1, 0), Gdk.KEY_Right: (1, 0), Gdk.KEY_Up: (0, 1), Gdk.KEY_Down: (0, -1)}
@@ -592,6 +602,7 @@ class MainWindow(Gtk.ApplicationWindow):
                     spin.set_value(ctrl.get_param(key))
             self._sync_param_marks()
             self._refresh_color()
+            self._refresh_bambu()
             # la altura se sincroniza solo cuando cambia en el proyecto (abrir proyecto, aplicar): lo tipeado no se pisa
             ref = ctrl.session.project.params.ref_height
             if abs(ref - self._shown_height) > 1e-9:
@@ -2366,6 +2377,183 @@ class MainWindow(Gtk.ApplicationWindow):
         rows = "\n".join(tr("color.panel_fila", pieza=n, pct=f"{p:.0f}", estado=e) for n, p, e in ctrl.color_report_rows())
         if self.lbl_color_report.get_text() != rows:
             self.lbl_color_report.set_text(rows)
+
+    # ------------------------------------------------------------------ salida para Bambu Studio (3MF / OBJ de color plano; sin catálogo)
+    def _refresh_bambu(self) -> None:
+        """Sincroniza la sección «Salida para Bambu Studio» con `ctrl.bambu` (se llama dentro de `_refresh`). Las filas del selector solo se rehacen
+        si cambian los colores de la figura; lo demás (marcas, color de salida, textos) se actualiza en su lugar, para no cerrar el selector de color."""
+        ctrl = self.ctrl
+        b = ctrl.bambu
+        free = not ctrl.busy
+        if self.chk_bambu.get_active() != b.enabled:
+            self.chk_bambu.set_active(b.enabled)
+        if int(self.sp_bambu_n.get_value()) != int(b.colors):
+            self.sp_bambu_n.set_value(int(b.colors))
+        if abs(self.sp_bambu_min.get_value() - float(b.min_pct)) > 1e-9:
+            self.sp_bambu_min.set_value(float(b.min_pct))
+        for w in (self.chk_bambu, self.sp_bambu_n, self.sp_bambu_min):
+            w.set_sensitive(free)
+        try:
+            cands = b.candidates() if b.has_colors() else []
+        except Exception as exc:                              # noqa: BLE001 — el selector queda vacío y se dice por qué
+            cands = []
+            self.lbl_bambu_info.set_text(tr("figure_window.bambu_vista_error", exc=exc))
+        sig = tuple((c["hex"], tuple(c["nombres"])) for c in cands)
+        if sig != self._bambu_sig:
+            self._bambu_sig = sig
+            self._rebuild_bambu_rows(cands)
+        else:
+            self._bambu_guard_set(cands)
+        have = bool(cands)
+        self.btn_bambu_auto.set_sensitive(have and b.is_custom() and free)
+        self.btn_bambu_export.set_sensitive(have and free)
+        self.chk_bambu_view.set_sensitive(have and free)
+        if self.chk_bambu_view.get_active() != (ctrl.show_bambu and have):
+            self.chk_bambu_view.set_active(ctrl.show_bambu and have)
+
+    @staticmethod
+    def _bambu_row_text(c: dict) -> str:
+        return tr("figure_window.bambu_sel_fila", nombre=", ".join(c["nombres"]) if c["nombres"] else c["hex"], hex=c["out_hex"], pct=f"{c['area_pct']:.1f}")
+
+    def _rebuild_bambu_rows(self, cands: list) -> None:
+        box = self.box_bambu_rows
+        while (child := box.get_first_child()) is not None:
+            box.remove(child)
+        self._bambu_w = {}
+        if not cands:
+            note = Gtk.Label(label=tr("generar.bambu_sel_sin_figura"), xalign=0, wrap=True)
+            note.add_css_class("dim-label")
+            box.append(note)
+            return
+        for c in cands:
+            line = Gtk.Box(spacing=6)
+            chk = Gtk.CheckButton(active=c["enabled"])
+            chk.set_tooltip_text(tr("figure_window.bambu_sel_usar_tip"))
+            chk.connect("toggled", lambda w, h=c["hex"]: None if self._updating else self._on_bambu_enabled(w, h))
+            line.append(chk)
+            btn = None
+            if hasattr(Gtk, "ColorDialogButton"):             # GTK ≥ 4.10; en una versión anterior solo queda la fila de texto
+                btn = Gtk.ColorDialogButton(dialog=Gtk.ColorDialog())
+                btn.set_rgba(_rgba(c["out_hex"]))
+                btn.set_tooltip_text(tr("figure_window.bambu_sel_color_tip"))
+                btn.connect("notify::rgba", lambda w, _p, h=c["hex"]: None if self._updating else self._on_bambu_color(w, h))
+                line.append(btn)
+            lbl = Gtk.Label(label=self._bambu_row_text(c), xalign=0, hexpand=True)
+            line.append(lbl)
+            reset = Gtk.Button(label="↺", visible=c["cambiado"])
+            reset.set_tooltip_text(tr("figure_window.bambu_sel_color_restablecer"))
+            reset.connect("clicked", lambda _w, h=c["hex"]: self._on_bambu_color_reset(h))
+            line.append(reset)
+            box.append(line)
+            self._bambu_w[c["hex"]] = {"chk": chk, "btn": btn, "lbl": lbl, "reset": reset}
+
+    def _bambu_guard_set(self, cands: list) -> None:
+        """Pone las filas existentes al día (marca, color de salida, texto, ↺) sin rehacerlas."""
+        for c in cands:
+            w = self._bambu_w.get(c["hex"])
+            if w is None:
+                continue
+            if w["chk"].get_active() != c["enabled"]:
+                w["chk"].set_active(c["enabled"])
+            if w["btn"] is not None and _hex_of(w["btn"].get_rgba()) != c["out_hex"]:
+                w["btn"].set_rgba(_rgba(c["out_hex"]))
+            text = self._bambu_row_text(c)
+            if w["lbl"].get_text() != text:
+                w["lbl"].set_text(text)
+            w["reset"].set_visible(c["cambiado"])
+
+    def _on_bambu_settings(self) -> None:
+        self.ctrl.set_bambu(enabled=self.chk_bambu.get_active(), colors=int(self.sp_bambu_n.get_value()),
+                            min_pct=round(self.sp_bambu_min.get_value(), 1))
+        if self.ctrl.show_bambu:                                  # en modo automático el tope y el % mueven las casillas del selector
+            self._schedule_bambu_preview()
+
+    def _bambu_changed(self) -> None:
+        """Cambió el selector: la vista (si está prendida) se recalcula tras una pausa corta; si no, se calcula al prenderla."""
+        self.ctrl.bambu_changed()
+        if self.ctrl.show_bambu:
+            self._schedule_bambu_preview()
+
+    def _on_bambu_enabled(self, chk, hex_color: str) -> None:
+        try:
+            self.ctrl.bambu.set_enabled(hex_color, chk.get_active())
+        except ValueError as exc:                                 # p. ej. no puede quedar sin colores: se vuelve a marcar
+            self.ctrl._changed(str(exc), scene=False)
+        self._bambu_changed()
+
+    def _on_bambu_color(self, btn, hex_color: str) -> None:
+        try:
+            self.ctrl.bambu.set_output_color(hex_color, _hex_of(btn.get_rgba()))
+        except ValueError as exc:
+            self.ctrl._changed(str(exc), scene=False)
+        self._bambu_changed()
+
+    def _on_bambu_color_reset(self, hex_color: str) -> None:
+        try:
+            self.ctrl.bambu.set_output_color(hex_color, hex_color)
+        except ValueError as exc:
+            self.ctrl._changed(str(exc), scene=False)
+        self._bambu_changed()
+
+    def _on_bambu_auto(self) -> None:
+        self.ctrl.bambu.reset()
+        self._bambu_changed()
+
+    def _on_bambu_view(self, on: bool) -> None:
+        ctrl = self.ctrl
+        if not on:
+            ctrl.set_show_bambu(False)
+            return
+        ctrl.show_bambu = True
+        if ctrl.bambu_view_parts() is None:
+            self._run_bambu_preview()                             # al prender se calcula con lo de ese momento
+        else:
+            ctrl._changed()
+
+    def _schedule_bambu_preview(self) -> None:
+        if self._bambu_timer:
+            GLib.source_remove(self._bambu_timer)
+        self._bambu_timer = GLib.timeout_add(250, self._run_bambu_preview)
+
+    def _run_bambu_preview(self) -> bool:
+        """Calcula en un hilo la vista previa del 3MF (en una figura grande tarda); el último pedido es el que vale."""
+        self._bambu_timer = 0
+        ctrl = self.ctrl
+        job = ctrl.begin_bambu_preview()
+        if job is None:
+            ctrl.show_bambu = False
+            ctrl._changed()                                       # el motivo ya quedó en el estado; la casilla «Vista Bambu» se desmarca
+            return False
+        token, work = job
+        self.lbl_bambu_info.set_text(tr("figure_window.bambu_vista_calculando"))
+
+        def run() -> None:
+            try:
+                parts, summary = work()
+            except Exception as exc:                              # noqa: BLE001 — se informa en el estado
+                GLib.idle_add(self._bambu_preview_done, token, None, None, exc)
+            else:
+                GLib.idle_add(self._bambu_preview_done, token, parts, summary, None)
+
+        threading.Thread(target=run, daemon=True, name="afm-vista-bambu").start()
+        return False
+
+    def _bambu_preview_done(self, token: int, parts, summary, error) -> bool:
+        self.ctrl.finish_bambu_preview(token, parts, summary, error)
+        return False
+
+    def _on_bambu_export(self) -> None:
+        """«Exportar 3MF ahora»: reescribe solo los archivos de Bambu del último export con los colores del selector."""
+        job = self.ctrl.begin_export_bambu()
+        if job is None:
+            return
+
+        def done(rep, err) -> None:
+            self.ctrl.finish_export_bambu(rep, err)
+            if err is not None:
+                self._error(err)
+
+        self._run_task(tr("figure_window.bambu_exportando"), job, done, tr("generar.bambu_exportado_listo"))
 
     def _refill_project_accessories(self) -> None:
         """Una casilla por accesorio del catálogo, marcada con cómo se lleva con la mano pegada; solo se rehace si algo cambió."""

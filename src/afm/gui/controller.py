@@ -35,6 +35,7 @@ from .polygon_editor import EDGE_PX, VERTEX_PX, PolygonDraft, ray_plane_uv
 from ..progress import TaskCancelled
 from .history import History
 from ..fbxio import FbxError
+from .bambu_choice import BambuChoice
 from .session import ColorSourceError, Session, color_rows, json_sig
 from ..messages import fill_hip_message   # noqa: F401  (se mantiene importable desde aquí; vive fuera de gui/ para que la CLI y el motor no dependan de la GUI)
 
@@ -295,6 +296,11 @@ class Controller:
         self.weapon_active = False                   # el visor muestra el arma en lugar de la figura
         self.weapon_catalog = ""                     # carpeta del catálogo de la línea para armas y accesorios del proyecto
         self.color_report: dict | None = None        # `files["color"]` del último export con color (None = sin color o sin exportar)
+        self.bambu = BambuChoice(lambda: self.session.colorizer, self._bambu_role_names)   # salida para Bambu Studio (casilla, tope, selector); sin catálogo
+        self.show_bambu = False                      # el visor dibuja los colores planos que saldrán en el 3MF (vista previa; no cambia la geometría)
+        self._bambu_view: tuple | None = None        # (Colorizer, [(nombre, malla, rgba)]) de esa vista; solo vale mientras el Colorizer sea el de la sesión
+        self._bambu_token = 0                        # un cálculo de la vista más nuevo invalida al anterior (hilo de la ventana)
+        self.bambu_report: dict | None = None        # informe de Bambu del último export / «Exportar 3MF ahora» (None = no se escribió)
         self._grip_fit_cache: tuple = (None, None)   # ((ruta, mtime), GripFit | None) de la mano pegada
         self._grip_prop_cache: tuple = (None, None)  # (clave, malla en el mundo)
         self._grip_prop_error = ""
@@ -4866,7 +4872,8 @@ class Controller:
         self._changed(tr("controller.exportando_las_piezas_puede_tardar"), scene=False)
         sess, angle = self.session, self.overhang_angle
         self.progress_stages = self.session.progress_plan("export", orient=orient, flat=flat)
-        return lambda progress=None: sess.export(outdir, orient=orient, max_angle=angle, flat=flat, progress=progress)
+        bambu = self.bambu.options()                      # None con la casilla apagada; con ella, el tope, el % y lo elegido a mano
+        return lambda progress=None: sess.export(outdir, orient=orient, max_angle=angle, flat=flat, progress=progress, bambu=bambu)
 
     def finish_export(self, info: dict | None, outdir: str, error: Exception | None = None) -> dict | None:
         self.busy = False
@@ -4875,6 +4882,9 @@ class Controller:
             return None
         files = info["archivos"]
         self.color_report = files.get("color")
+        self.bambu_report = (self.color_report or {}).get("bambu")
+        was_viewing = self.show_bambu
+        self.show_bambu, self._bambu_view = False, None       # piezas nuevas: la vista del 3MF se calcula de nuevo
         msg = tr("controller.exportado_en_outdir_ensamblada_n_piezas", outdir=outdir, n=len(files['piezas']))
         ori = files.get("orientacion")
         if ori:
@@ -4892,8 +4902,126 @@ class Controller:
             msg += ' ' + tr("controller.color_exportado_n_piezas", n=len(self.color_report.get("piezas", {})))
         elif omitted:
             msg += ' ' + tr("controller.color_omitido_motivo", motivo=omitted)
-        self._changed(msg, scene=False)
+        if self.bambu_report:
+            msg += ' ' + tr("controller.bambu_exportado", archivos=f"{self.bambu_report['3mf']}, {self.bambu_report['obj']}", n=len(self.bambu_report["colores"]))
+        elif info.get("bambu_omitido"):
+            msg += ' ' + tr("controller.bambu_sin_color")
+        self._changed(msg, scene=was_viewing)                 # solo se repinta si el visor mostraba la vista del 3MF
         return info
+
+    # ---------------------------------------------------------------- salida para Bambu Studio (3MF / OBJ de color plano)
+    def _bambu_role_names(self) -> dict:
+        """`{id de rol: nombre}` de la paleta de la línea abierta (las filas del selector); falla sin línea o sin paleta (`BambuChoice` lo tolera)."""
+        from ..colorpiece import line_palette
+
+        pal, _linea = line_palette(self.session.catalog_root)
+        return {r.id: (r.nombre or r.id) for r in pal.roles} if pal is not None else {}
+
+    def set_bambu(self, enabled: bool | None = None, colors: int | None = None, min_pct: float | None = None) -> None:
+        """Casilla, tope de colores y % mínimo de la salida para Bambu Studio (no tocan el proyecto, la receta ni la geometría)."""
+        b = self.bambu
+        if enabled is not None:
+            b.enabled = bool(enabled)
+        if colors is not None:
+            b.colors = max(1, int(colors))
+        if min_pct is not None:
+            b.min_pct = max(0.0, min(99.9, float(min_pct)))
+        self._bambu_view = None                                  # el tope y el % mueven la selección automática: la vista se calcula de nuevo
+        self._changed(scene=False)
+
+    def bambu_view_parts(self):
+        """`[(nombre, malla, rgba)]` de la vista previa del 3MF si es de las piezas de ahora; None si no hay o quedó vieja."""
+        cz, v = self.session.colorizer, self._bambu_view
+        return v[1] if (v is not None and cz is not None and v[0] is cz) else None
+
+    def bambu_view_active(self) -> bool:
+        return bool(self.show_bambu and self.bambu_view_parts())
+
+    def begin_bambu_preview(self):
+        """Prepara el cálculo de la vista previa (puede tardar en una figura grande) y devuelve ``(token, job)``: ``job()`` da ``(partes, resumen)`` y es
+        apto para un hilo; con lo que dé hay que llamar `finish_bambu_preview(token, ...)` desde el hilo de la interfaz. None si no hay colores."""
+        cz = self.session.colorizer
+        if cz is None or not self.bambu.has_colors():
+            self._changed(tr("bambu_choice.sin_figura"), scene=False)
+            return None
+        self._bambu_token += 1
+        opt = self.bambu.options(force=True)                     # una copia: el hilo no lee lo que la ventana siga cambiando
+        return self._bambu_token, (lambda: self.bambu.preview(opt))
+
+    def finish_bambu_preview(self, token: int, parts, summary, error=None) -> bool:
+        if token != self._bambu_token:                           # mientras tanto se pidió otra vista
+            return False
+        cz = self.session.colorizer
+        if error is not None or cz is None:
+            self.show_bambu, self._bambu_view = False, None
+            self._changed(tr("figure_window.bambu_vista_error", exc=error if error is not None else tr("bambu_choice.sin_figura")))
+            return False
+        self._bambu_view = (cz, parts)
+        text = tr("figure_window.bambu_vista_info", n=len(summary["colores"]), tri=summary["triangulos"])
+        if summary["fundidos"]:
+            text += " " + tr("figure_window.bambu_vista_fundidos", n=summary["fundidos"])
+        self._changed(text)
+        return True
+
+    def set_show_bambu(self, on: bool) -> bool:
+        """Enciende o apaga la vista previa de los colores del 3MF en el visor principal (sin hilos: la ventana usa `begin_bambu_preview`)."""
+        if not on:
+            self.show_bambu = False
+            self._changed(tr("controller.bambu_vista_apagada"))
+            return True
+        job = self.begin_bambu_preview()
+        if job is None:
+            self.show_bambu = False
+            return False
+        token, work = job
+        try:
+            parts, summary = work()
+        except Exception as exc:                                 # noqa: BLE001 — se informa en el estado
+            self.show_bambu = False
+            self.finish_bambu_preview(token, None, None, exc)
+            return False
+        self.show_bambu = True
+        return self.finish_bambu_preview(token, parts, summary)
+
+    def bambu_changed(self) -> None:
+        """Cambió el selector: la vista (si está prendida) se recalcula; si no, se descarta para calcularla con lo de ese momento."""
+        self._bambu_view = None
+        self._changed(scene=True)
+
+    def begin_export_bambu(self):
+        """«Exportar 3MF ahora»: devuelve el trabajo ``job(progress=None) -> dict`` (apto para un hilo) que reescribe solo `<fig>_bambu.3mf / .obj / .mtl`
+        del último export con los colores de ahora; después hay que llamar `finish_export_bambu`. None (con el motivo en `message`) si no se puede."""
+        if self.busy:
+            return None
+        if self.session.colorizer is None or not self.bambu.has_colors():
+            self._changed(tr("bambu_choice.sin_figura"), scene=False)
+            return None
+        self.busy = True
+        self._changed(tr("figure_window.bambu_exportando"), scene=False)
+        b = self.bambu
+        opt = b.options(force=True)                              # una copia: el hilo no lee lo que la ventana siga cambiando
+        return lambda progress=None: b.export(opt)
+
+    def finish_export_bambu(self, rep: dict | None, error: Exception | None = None) -> dict | None:
+        self.busy = False
+        if error is not None:
+            self._changed(tr("figure_window.bambu_exportar_error", exc=error), scene=False)
+            return None
+        self.bambu_report = rep
+        self._changed(tr("figure_window.bambu_exportado", archivos=f"{rep['3mf']}, {rep['obj']}", n=len(rep["colores"])), scene=False)
+        return rep
+
+    def export_bambu(self) -> dict | None:
+        """Sin hilos: pruebas y uso programático."""
+        job = self.begin_export_bambu()
+        if job is None:
+            return None
+        try:
+            rep = job()
+        except Exception:
+            self.busy = False
+            raise
+        return self.finish_export_bambu(rep)
 
     def export(self, outdir: str, orient: bool = True, flat: bool = False) -> dict | None:
         """Escribe las piezas, el ensamblado, el informe y el proyecto en `outdir` (sin hilos: pruebas y uso programático)."""
@@ -4917,6 +5045,12 @@ class Controller:
         if sess.work is None:
             scene.clear()
             return
+        parts = self.bambu_view_parts() if self.show_bambu else None
+        if parts:                                                    # vista previa del 3MF: colores planos en lugar de la figura gris
+            self._sync_bambu(scene, parts)
+            return
+        for key in [k for k in scene.items if k.startswith("bambu:")]:
+            scene.remove(key)
         if self.pose_active():
             self._sync_pose(scene)
             return
@@ -5073,6 +5207,12 @@ class Controller:
     def outcome_free(self) -> bool:
         """True mientras no hay una figura generada con estas piezas (después se ve la generada, no la previa)."""
         return self.session.outcome is None
+
+    def _sync_bambu(self, scene, parts) -> None:
+        """Lo que saldrá en el 3MF: la figura entera (sin recorte ni espejo), un color liso por malla."""
+        scene.clear()
+        for name, mesh, rgba in parts:
+            scene.set_mesh(f"bambu:{name}", mesh, color=tuple(rgba))
 
     def _sync_pose(self, scene) -> None:
         """Vista previa de la pose: torso generado + miembros girados al ángulo elegido (rojo = interfiere)."""

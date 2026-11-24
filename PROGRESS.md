@@ -3076,3 +3076,9 @@ No existe una «cara interna del muslo» detectable en Güemes (el borde interno
 **Medido** (`cabeza-sanmartin-01@2`): polígonos con origen 59,8 % → 80,7 %; huérfanos 40,2 % → 19,3 %; 1 M de consultas 1,3 s → 3,2 s. El `.color.npz` no cambia.
 **No hecho:** identificar qué son las capas superpuestas del FBX; el pincel normal de `paint` también filtra por normal (descarta ≈ 11 % de las muestras de cada esfera): no se tocó.
 
+
+## Salida para Bambu Studio en la interfaz principal (rama feat/bambu-interfaz-principal)
+- [x] `gui/bambu_choice.py`, `Session.export(bambu=)` + `Session.colorizer`, estado y vista previa en `Controller`, widgets en Generar, textos es/en/pt.
+- [x] `tests/test_gui_bambu_main.py` (27 pruebas; 26 pasaron, la 27.ª era un error de la prueba, corregido).
+- [ ] Pendiente: prueba de humo de la ventana bajo Xvfb (filas del selector, «Vista Bambu», manejadores `_on_bambu_*`), regresión de Bambu/color, refactor de la lógica duplicada con `FigureBuilder`.
+- Descubierto: la vista previa del visor principal sale en pose sentada (marco de las piezas), no en el marco de trabajo.

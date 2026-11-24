@@ -1025,7 +1025,10 @@
   "color_lado_original": "lado original",
   "color_resumen": "Cor de %{fbx} · texel %{texel} mm · tolerância %{eps} mm · preenchimento: %{relleno} · %{lado}.",
   "color_exportado_n_piezas": "Cor: %{n} peças.",
-  "color_omitido_motivo": "Cor omitida (%{motivo})."
+  "color_omitido_motivo": "Cor omitida (%{motivo}).",
+  "bambu_exportado": "Para o Bambu Studio: %{archivos} (%{n} cores).",
+  "bambu_sin_color": "Para o Bambu Studio: não foi gerado, a figura não tem cor (ative uma cor em Parâmetros).",
+  "bambu_vista_apagada": "Vista do 3MF desligada."
  },
  "figure_builder": {
   "sin_soportes_resumen": "Sem suportes: corte a %{corte} mm sobre a cauda; braços girados para frente: %{giro}",
@@ -1626,7 +1629,25 @@
   "estas_opciones_se_aplican_al_exportar": "Estas opções se aplicam ao exportar com o botão “Exportar” da barra superior (sai da figura já gerada).",
   "apoyar_las_piezas_en_la_cama": "Apoiar as peças na mesa ao exportar (na pose de quadril, cabeça para cima)",
   "modificar_para_imprimir_sin_soportes_aplan": "Modificar para imprimir sem suportes (aplana pernas e base; os braços giram para frente)",
-  "rellenar_los_muslos_hasta_la_pelvis": "Preencher as coxas até a pelve recortada"
+  "rellenar_los_muslos_hasta_la_pelvis": "Preencher as coxas até a pelve recortada",
+  "bambu_titulo": "Saída para o Bambu Studio",
+  "bambu_activar": "Exportar também um 3MF / OBJ de cor plana para o Bambu Studio",
+  "bambu_activar_tip": "Além das peças, deixa <nome>_bambu.3mf e <nome>_bambu.obj com UMA cor plana por triângulo (sem textura): o Bambu Studio os lê sem os erros do GLB com textura. A figura precisa ter cor.",
+  "bambu_colores": "Cores (filamentos) no máximo",
+  "bambu_colores_tip": "Se a figura usa mais cores, elas são reduzidas a este número para a figura inteira de uma vez. Cada cor a mais soma trocas de filamento e torre de limpeza.",
+  "bambu_min": "Fundir cores que cobrem menos de (% da área)",
+  "bambu_min_tip": "Uma cor que cobre menos que isto se funde com a mais parecida.",
+  "bambu_nota": "A figura precisa ter cor (veja «Cor» em Parâmetros). No Bambu Studio abra o .obj ou o .3mf e atribua cada cor a um filamento. Não muda a receita nem a geometria.",
+  "bambu_sel_titulo": "Cores usadas no 3MF",
+  "bambu_sel_ayuda": "Marque as cores que quer usar: as que você tirar se fundem com a mais parecida das que ficam. O botão muda com que cor cada uma é escrita (o filamento que você vai atribuir) sem mexer na paleta. As cores aparecem depois de «Exportar» com cor.",
+  "bambu_sel_sin_figura": "Exporte a figura com cor para ver suas cores e escolher quais vão para o 3MF.",
+  "bambu_vista": "Vista Bambu",
+  "bambu_vista_tip": "Mostra a figura exportada com as cores planas que sairão no 3MF (uma cor por triângulo, sem textura). Atualiza ao mexer no seletor.",
+  "bambu_sel_auto": "Automático",
+  "bambu_sel_auto_tip": "Escolhe de novo as cores conforme o limite e a % acima, e remove as trocas de cor da saída.",
+  "bambu_exportar_ahora": "Exportar 3MF agora",
+  "bambu_exportar_ahora_tip": "Reescreve só <nome>_bambu.3mf / .obj / .mtl com estas cores na pasta do último «Exportar», sem exportar o resto de novo.",
+  "bambu_exportado_listo": "Arquivos para o Bambu Studio escritos"
  },
  "miembros": {
   "silueta_del_miembro": "Silhueta do membro",
@@ -2287,5 +2308,10 @@
   "fit_leyenda": "Cores: vermelho = problema, âmbar = aviso, verde-azulado = parede aberta pelo entalhe.",
   "medidas": "Cavalo: comprimento %{largo} mm · altura do dorso %{dorso} mm · altura total %{total} mm.",
   "medidas_aviso": "Escala? O dorso mede %{ratio}× a figura (%{fig} mm) e o habitual é entre 0,6 e 0,9: revise a escala do cavalo."
+ },
+ "bambu_choice": {
+  "sin_figura": "Para escolher as cores do 3MF, primeiro exporte a figura (com cor).",
+  "color_desconocido": "%{hex} não é uma das cores da figura exportada.",
+  "al_menos_un_color": "Tem que ficar pelo menos uma cor."
  }
 }

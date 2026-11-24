@@ -136,15 +136,16 @@ class Colorizer:
 
         return candidates(self.bambu_collected()) if self.pieces else []
 
-    def bambu_preview(self, opt=None):
-        """`BambuResult` de lo que saldría con `opt` (por defecto, las opciones de la salida), sin escribir nada y con la misma orientación que el
-        último `write` (así coincide con la figura que se ve y con el 3MF)."""
+    def bambu_preview(self, opt=None, oriented: bool = True):
+        """`BambuResult` de lo que saldría con `opt` (por defecto, las opciones de la salida), sin escribir nada. Con `oriented` (lo normal) lleva la
+        misma orientación que el último `write` (coincide con el 3MF y con la vista del armador); con `oriented=False` queda en el marco de las
+        piezas, sin la orientación de impresión (el visor principal dibuja así la figura)."""
         from .bambu import BambuOptions, build_from
 
         if not self.pieces:
             raise ValueError("no hay piezas con color")
         opt = BambuOptions.coerce(self.bambu if opt is None else opt) or BambuOptions()
-        return build_from(self.bambu_collected(), None if self._last_write is None else self._last_write[2], opt)
+        return build_from(self.bambu_collected(), None if (self._last_write is None or not oriented) else self._last_write[2], opt)
 
     def write_bambu(self, opt=None) -> dict:
         """Reescribe SOLO `<fig>_bambu.3mf / .obj / .mtl` con `opt` (por defecto, las opciones de la salida) en la carpeta del último `write`,

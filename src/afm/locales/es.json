@@ -1025,7 +1025,10 @@
   "color_lado_original": "lado original",
   "color_resumen": "Color desde %{fbx} · texel %{texel} mm · tolerancia %{eps} mm · relleno: %{relleno} · %{lado}.",
   "color_exportado_n_piezas": "Color: %{n} piezas.",
-  "color_omitido_motivo": "Color omitido (%{motivo})."
+  "color_omitido_motivo": "Color omitido (%{motivo}).",
+  "bambu_exportado": "Para Bambu Studio: %{archivos} (%{n} colores).",
+  "bambu_sin_color": "Para Bambu Studio: no se generó, la figura no tiene color (activá un color en Parámetros).",
+  "bambu_vista_apagada": "Vista del 3MF apagada."
  },
  "figure_builder": {
   "sin_soportes_resumen": "Sin soportes: corte a %{corte} mm sobre la cola; brazos girados hacia adelante: %{giro}",
@@ -1626,7 +1629,25 @@
   "estas_opciones_se_aplican_al_exportar": "Estas opciones se aplican al exportar con el botón «Exportar» de la barra superior (sale de la figura ya generada).",
   "apoyar_las_piezas_en_la_cama": "Apoyar las piezas en la cama al exportar (en la pose de cadera, cabeza arriba)",
   "modificar_para_imprimir_sin_soportes_aplan": "Modificar para imprimir sin soportes (aplana piernas y cola; los brazos giran hacia adelante)",
-  "rellenar_los_muslos_hasta_la_pelvis": "Rellenar los muslos hasta la pelvis recortada"
+  "rellenar_los_muslos_hasta_la_pelvis": "Rellenar los muslos hasta la pelvis recortada",
+  "bambu_titulo": "Salida para Bambu Studio",
+  "bambu_activar": "Exportar también un 3MF / OBJ de color plano para Bambu Studio",
+  "bambu_activar_tip": "Además de las piezas, deja <nombre>_bambu.3mf y <nombre>_bambu.obj con UN color plano por triángulo (sin textura): Bambu Studio los lee sin los errores del GLB con textura. Necesita que la figura tenga color.",
+  "bambu_colores": "Colores (filamentos) como máximo",
+  "bambu_colores_tip": "Si la figura usa más colores, se reducen a este número para toda la figura a la vez. Cada color de más suma cambios de filamento y torre de limpieza.",
+  "bambu_min": "Fundir colores que cubren menos de (% del área)",
+  "bambu_min_tip": "Un color que cubre menos que esto se funde con el más parecido.",
+  "bambu_nota": "Necesita que la figura tenga color (ver «Color» en Parámetros). En Bambu Studio abrí el .obj o el .3mf y asigná cada color a un filamento. No cambia la receta ni la geometría.",
+  "bambu_sel_titulo": "Colores que se usan en el 3MF",
+  "bambu_sel_ayuda": "Marcá los colores que querés usar: los que saques se funden con el más parecido de los que quedan. El botón cambia con qué color se escribe cada uno (el filamento que le vas a asignar) sin tocar la paleta. Los colores aparecen después de «Exportar» con color.",
+  "bambu_sel_sin_figura": "Exportá la figura con color para ver sus colores y elegir cuáles van al 3MF.",
+  "bambu_vista": "Vista Bambu",
+  "bambu_vista_tip": "Muestra la figura exportada con los colores planos que saldrán en el 3MF (un color por triángulo, sin textura). Se actualiza al tocar el selector.",
+  "bambu_sel_auto": "Automático",
+  "bambu_sel_auto_tip": "Vuelve a elegir los colores según el tope y el % de arriba, y quita los cambios de color de la salida.",
+  "bambu_exportar_ahora": "Exportar 3MF ahora",
+  "bambu_exportar_ahora_tip": "Reescribe solo <nombre>_bambu.3mf / .obj / .mtl con estos colores en la carpeta del último «Exportar», sin volver a exportar lo demás.",
+  "bambu_exportado_listo": "Archivos para Bambu Studio escritos"
  },
  "miembros": {
   "silueta_del_miembro": "Silueta del miembro",
@@ -2287,5 +2308,10 @@
   "fit_leyenda": "Colores: rojo = problema, ámbar = aviso, verde azulado = pared que abrió el tallado.",
   "medidas": "Caballo: largo %{largo} mm · alto del dorso %{dorso} mm · alto total %{total} mm.",
   "medidas_aviso": "¿Escala? El dorso mide %{ratio}× la figura (%{fig} mm) y lo habitual es entre 0,6 y 0,9: revisá la escala del caballo."
+ },
+ "bambu_choice": {
+  "sin_figura": "Para elegir los colores del 3MF primero exportá la figura (con color).",
+  "color_desconocido": "%{hex} no es uno de los colores de la figura exportada.",
+  "al_menos_un_color": "Tiene que quedar al menos un color."
  }
 }

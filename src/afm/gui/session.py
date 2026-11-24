@@ -136,6 +136,14 @@ class Session:
         self.edit_side = "left"                      # «left»: se editan los miembros +X; «right»: los del −X, sobre la figura espejada
         self._left_limbs: list | None = None         # miembros del lado izquierdo mientras se edita el derecho
         self._left_outcome: BuildOutcome | None = None
+        self._export_cz: tuple | None = None         # (outcome, Colorizer) del último export con color: de ahí salen el selector y la vista del 3MF
+
+    @property
+    def colorizer(self):
+        """El `Colorizer` del último `export` con color, con sus piezas ya horneadas, mientras la figura generada sea la misma; si no, `None`
+        (cualquier cambio que invalide el resultado, `outcome = None`, deja de ofrecer esos colores)."""
+        ce = self._export_cz
+        return ce[1] if ce is not None and self.outcome is not None and ce[0] is self.outcome else None
 
     # ------------------------------------------------------------------ carga
     def load(self, path: str, crown_z: float | None = None, progress=None) -> meshio.LoadReport:
@@ -2679,7 +2687,9 @@ class Session:
         return self.outcome
 
     def export(self, outdir: str, name: str | None = None, orient: bool = False, max_angle: float = 45.0,
-               flat: bool = False, progress=None) -> dict:
+               flat: bool = False, progress=None, bambu=None) -> dict:
+        """`bambu`: opciones de la salida para Bambu Studio (`<nombre>_bambu.3mf / .obj / .mtl`; un dict `{max_colors, min_area_pct, chosen, remap}`,
+        `True` o `None` = sin salida de Bambu). Necesita que la figura tenga color: sin él no se escribe y `info["bambu_omitido"]` lo dice."""
         if self.outcome is None:
             raise ValueError(tr("session.primero_genera_la_figura"))
         name = name or (os.path.splitext(os.path.basename(self.stl_path or "figura"))[0])
@@ -2689,6 +2699,14 @@ class Session:
         items = load_project_items(self.project, progress=progress)              # las armas viajan con la figura
         colorize, color_info = self.make_colorizer(progress)                    # None sin `project.color`: la llamada queda como siempre
         extra = {"colorize": colorize} if colorize is not None else {}
+        self._export_cz = None                                                  # el export de antes ya no vale: se rehace abajo
+        bambu_opt = None
+        if bambu is not None and bambu is not False:
+            from ..bambu import BambuOptions
+
+            bambu_opt = BambuOptions.coerce(bambu)
+            if colorize is not None:
+                colorize.bambu = bambu_opt
         files = P.export(self.outcome.result, outdir, name, orient=orient, max_angle=max_angle,
                          flat=self.project.params.flat_depth if flat else None, params=self.project.params,
                          progress=progress, extras=[i["mesh"] for i in items], **extra)
@@ -2702,6 +2720,10 @@ class Session:
             info["accesorios"] = acc_info
         if color_info is not None:
             info["color"] = {**color_info, **({"salida": files["color"]} if "color" in files else {})}
+        if colorize is not None and getattr(colorize, "pieces", None):
+            self._export_cz = (self.outcome, colorize)                          # el selector y la vista del 3MF salen de estas piezas
+        if bambu_opt is not None and colorize is None:
+            info["bambu_omitido"] = "sin_color"                                 # pidió el 3MF pero la figura no tiene color: no hay qué escribir
         with open(os.path.join(outdir, f"{name}_informe.json"), "w") as f:
             json.dump(info, f, indent=2, default=float)
         self.save_project(os.path.join(outdir, f"{name}.proyecto"))

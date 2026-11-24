@@ -1025,7 +1025,10 @@
   "color_lado_original": "original side",
   "color_resumen": "Color from %{fbx} · texel %{texel} mm · tolerance %{eps} mm · fill: %{relleno} · %{lado}.",
   "color_exportado_n_piezas": "Color: %{n} pieces.",
-  "color_omitido_motivo": "Color skipped (%{motivo})."
+  "color_omitido_motivo": "Color skipped (%{motivo}).",
+  "bambu_exportado": "For Bambu Studio: %{archivos} (%{n} colours).",
+  "bambu_sin_color": "For Bambu Studio: not generated, the figure has no colour (turn on a colour in Parameters).",
+  "bambu_vista_apagada": "3MF view off."
  },
  "figure_builder": {
   "sin_soportes_resumen": "No supports: cut %{corte} mm above the tail; arms rotated forward: %{giro}",
@@ -1626,7 +1629,25 @@
   "estas_opciones_se_aplican_al_exportar": "These options are applied when exporting with the “Export” button in the top bar (it comes from the already generated figure).",
   "apoyar_las_piezas_en_la_cama": "Rest the parts on the bed when exporting (in the hip pose, head up)",
   "modificar_para_imprimir_sin_soportes_aplan": "Modify for printing without supports (flattens legs and tail; arms rotate forward)",
-  "rellenar_los_muslos_hasta_la_pelvis": "Fill the thighs up to the trimmed pelvis"
+  "rellenar_los_muslos_hasta_la_pelvis": "Fill the thighs up to the trimmed pelvis",
+  "bambu_titulo": "Output for Bambu Studio",
+  "bambu_activar": "Also export a flat-colour 3MF / OBJ for Bambu Studio",
+  "bambu_activar_tip": "Besides the parts, writes <name>_bambu.3mf and <name>_bambu.obj with ONE flat colour per triangle (no texture): Bambu Studio reads them without the errors of the textured GLB. The figure needs colour.",
+  "bambu_colores": "Colours (filaments) at most",
+  "bambu_colores_tip": "If the figure uses more colours they are reduced to this number for the whole figure at once. Every extra colour adds filament changes and purge tower.",
+  "bambu_min": "Merge colours covering less than (% of area)",
+  "bambu_min_tip": "A colour that covers less than this is merged with the most similar one.",
+  "bambu_nota": "The figure needs colour (see «Colour» in Parameters). In Bambu Studio open the .obj or the .3mf and assign each colour to a filament. It does not change the recipe or the geometry.",
+  "bambu_sel_titulo": "Colours used in the 3MF",
+  "bambu_sel_ayuda": "Tick the colours you want to use: the ones you remove are merged with the most similar of those that remain. The button changes the colour each one is written with (the filament you will assign) without touching the palette. The colours show up after «Export» with colour.",
+  "bambu_sel_sin_figura": "Export the figure with colour to see its colours and choose which ones go into the 3MF.",
+  "bambu_vista": "Bambu view",
+  "bambu_vista_tip": "Shows the exported figure with the flat colours that will go into the 3MF (one colour per triangle, no texture). It updates when you touch the selector.",
+  "bambu_sel_auto": "Automatic",
+  "bambu_sel_auto_tip": "Picks the colours again from the cap and % above, and removes the output colour changes.",
+  "bambu_exportar_ahora": "Export 3MF now",
+  "bambu_exportar_ahora_tip": "Rewrites only <name>_bambu.3mf / .obj / .mtl with these colours in the folder of the last «Export», without exporting everything else again.",
+  "bambu_exportado_listo": "Files for Bambu Studio written"
  },
  "miembros": {
   "silueta_del_miembro": "Limb outline",
@@ -2287,5 +2308,10 @@
   "fit_leyenda": "Colors: red = problem, amber = warning, teal = wall opened by the carving.",
   "medidas": "Horse: length %{largo} mm · back height %{dorso} mm · total height %{total} mm.",
   "medidas_aviso": "Scale? The back is %{ratio}× the figure (%{fig} mm) and 0.6–0.9 is usual: check the horse's scale."
+ },
+ "bambu_choice": {
+  "sin_figura": "To choose the 3MF colours, export the figure (with colour) first.",
+  "color_desconocido": "%{hex} is not one of the colours of the exported figure.",
+  "al_menos_un_color": "At least one colour must remain."
  }
 }
