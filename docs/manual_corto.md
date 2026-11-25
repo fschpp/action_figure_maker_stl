@@ -56,7 +56,8 @@ Guardá el proyecto (`.proyecto`) antes de generar: así se retoma una figura si
 
 ```bash
 afm build figura.stl figura.proyecto --out out/figura --orient   # igual que Generar + Exportar
-afm probe --out out/probetas                                      # placa de probetas de articulación
+afm probe --out out/probetas                                      # placa de probetas (con número en relieve) + .3mf + probetas.json
+afm probe-resultado out/probetas/probetas.json 7 --perfil mi_linea  # la celda 7 ganó: guardarla en el perfil
 afm demo                                                          # figura sintética de ejemplo
 afm --version
 ```

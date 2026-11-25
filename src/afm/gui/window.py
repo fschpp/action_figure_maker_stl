@@ -2299,10 +2299,31 @@ class MainWindow(Gtk.ApplicationWindow):
                 self.ctrl.finish_export_probes(info, outdir, which, err)
                 if err is not None:
                     self._error(err)
+                else:
+                    self._probe_refresh()
 
             self._run_task(tr("window.generando_las_probetas"), job, done, tr("window.probetas_generadas"))
 
         dlg.select_folder(self, None, finished)
+
+    def _probe_refresh(self) -> None:
+        """Pone la tabla y la lista de celdas de la tirada de probetas actual (generada o cargada)."""
+        choices = self.ctrl.probe_choices() or [tr("parametros.sin_tirada_de_probetas")]
+        self.dd_probe_cell.set_model(Gtk.StringList.new(choices))
+        self.dd_probe_cell.set_selected(0)
+        self.lbl_probe_table.set_text(self.ctrl.probe_table)
+        self.btn_probe_use.set_sensitive(self.ctrl.probe_manifest is not None)
+
+    def _on_probe_use(self) -> None:
+        if self.ctrl.probe_manifest is not None:
+            self.ctrl.apply_probe_choice(self.dd_probe_cell.get_selected())
+
+    def _on_probe_load(self) -> None:
+        def loaded(path: str) -> None:
+            self.ctrl.load_probe_manifest(path)
+            self._probe_refresh()
+
+        self._pick_file(tr("parametros.cargar_tirada_anterior"), ["*.json"], tr("window.tirada_de_probetas_json"), loaded)
 
     def _on_head_replacement(self, *_):
         self._pick_file(tr("window.cabeza_de_reemplazo_stl"), ["*.stl"], tr("window.archivos_stl"), self.ctrl.set_head_replacement)

@@ -659,6 +659,14 @@ def main(argv=None) -> int:
     pr.add_argument("--hoja", default=None, help="solo montura: ancho,espesor de la hoja de prueba (mm); por defecto 4,0.8")
     pr.add_argument("--pared", type=float, default=None, help="solo montura: pared del puente (mm); por defecto min_wall")
     pr.add_argument("--axiales", default=None, help="solo bisagra: holguras axiales a probar, p. ej. 0.25,0.35,0.45")
+    pr.add_argument("--pasador", default="hombro", choices=("hombro", "cadera"),
+                    help="solo hongo: de cuál pasador se parte (Ø de vástago, cabeza y largo del hombro o de la cadera)")
+    pq = sub.add_parser("probe-resultado", help="pasar a un perfil la celda ganadora de una tirada de probetas (el número en relieve)")
+    pq.add_argument("manifiesto", help="probetas.json de la carpeta donde se generaron (o la carpeta)")
+    pq.add_argument("celda", type=int, help="número de la celda elegida (el que lleva en relieve y en probetas.txt)")
+    pq.add_argument("--perfil", required=True, help="nombre del perfil donde guardar (se crea con los valores de fábrica si no existe)")
+    pq.add_argument("--archivo", default=None, help="solo clic: la placa (el .stl) de la celda, si hay varias")
+    pq.add_argument("--directorio", default=None, help="carpeta de perfiles (por defecto ~/.config/afm/perfiles)")
     ag = sub.add_parser("agarre", help="taladrar un agujero de agarre en la mano estándar y generar espadas de prueba con empuñadura dentada (snap-fit)")
     ag.add_argument("mano", help="STL de la mano estándar (`afm extraer-mano`); el .mano.json de al lado es opcional")
     ag.add_argument("--out", default="out/agarre")
@@ -712,6 +720,22 @@ def main(argv=None) -> int:
         return _run_desde_patron(args)
     if args.cmd == "ajustar-cintura-muneca":
         return _run_ajustar_cm(args)
+    if args.cmd == "probe-resultado":
+        from . import profile as PF
+        from .params import Params
+        try:
+            manifest = PF.load_probe_manifest(args.manifiesto)
+            try:
+                base = PF.load_profile(args.perfil, args.directorio)
+            except FileNotFoundError:
+                base = Params()
+            params, resumen = PF.apply_probe_cell(base, manifest, args.celda, args.archivo)
+        except (OSError, ValueError, KeyError) as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
+        path = PF.save_profile(args.perfil, params, args.directorio)
+        print(f"Celda {args.celda}: {resumen}\nPerfil «{args.perfil}» guardado en {path}")
+        return 0
     os.makedirs(args.out, exist_ok=True)
     if args.cmd == "montura-mapa":
         from .catalog import CatalogError
@@ -824,11 +848,16 @@ def main(argv=None) -> int:
         fl = lambda t: [float(x) for x in t.split(",")] if t else None
         files, text = probes.probe_files(
             args.tipo, clearances=fl(args.clearances), deltas=fl(args.deltas), axiales=fl(args.axiales),
-            boquilla=args.boquilla, gaps=fl(args.gaps), espesores=fl(args.espesores), hoja=fl(args.hoja), pared=args.pared)
+            boquilla=args.boquilla, gaps=fl(args.gaps), espesores=fl(args.espesores), hoja=fl(args.hoja), pared=args.pared,
+            pasador=args.pasador)
         for name, data in files.items():
             with open(os.path.join(args.out, name), "wb") as f:
                 f.write(data)
         print(text)
+        print(f"\nArchivos en {args.out}: " + ", ".join(sorted(files)))
+        if "probetas.json" in files:
+            print("Cada pieza lleva su número en relieve (el de la tabla); el .3mf trae un objeto con nombre por celda. "
+                  "Cuando elijas la ganadora: afm probe-resultado " + os.path.join(args.out, "probetas.json") + " NÚMERO --perfil NOMBRE")
         return 0
     if args.cmd == "demo":
         stl = os.path.join(args.out, "muneco.stl")

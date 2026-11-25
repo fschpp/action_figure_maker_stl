@@ -44,6 +44,23 @@ def test_probes_and_result(tmp_path):
     assert p.clearance == 0.4 and p.shoulder_pin.shaft_d == 3.9 and p.hip_pin.shaft_d == 5.0
 
 
+def test_probe_batch_pick_number_and_apply(tmp_path):
+    """Ciclo completo sin tocar los parámetros a mano: generar -> (imprimir) -> volver a cargar el .json -> elegir el número."""
+    c = Controller()
+    out = c.export_probes(str(tmp_path / "p"), which="hip", clearances=[0.4, 0.5], shaft_deltas=[0.0])
+    assert out["celdas"] == 2 and os.path.getsize(out["tres_mf"]) > 1000 and os.path.exists(out["manifiesto"])
+    assert c.probe_choices()[1].startswith("#2 · holgura 0.5 mm")
+    assert "#2: holgura 0.5 mm" in c.probe_table
+    d = Controller()                                         # otra sesión, días después: se recarga la carpeta
+    assert d.probe_choices() == [] and d.apply_probe_choice(0) is False
+    assert d.load_probe_manifest(str(tmp_path / "p")) is True
+    assert d.probe_choices() == c.probe_choices() and d.probe_table == c.probe_table
+    assert d.apply_probe_choice(1) is True
+    q = d.session.project.params
+    assert q.clearance == 0.5 and q.hip_pin.shaft_d == 5.0 and "celda 2" in d.message
+    assert d.load_probe_manifest(str(tmp_path / "no_existe")) is False
+
+
 def test_hinge_params_are_editable_and_used_by_the_next_joint(tmp_path):
     """El Ø del bulón y la lengüeta de rodilla/codo se cambian desde Parámetros (figuras delgadas necesitan una
     bisagra más chica que la de la referencia)."""

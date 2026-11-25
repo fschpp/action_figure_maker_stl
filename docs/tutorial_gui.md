@@ -298,7 +298,16 @@ Cómo se usa la lista (son unos 45 parámetros, en grupos plegables: Generales, 
 - Pasá el puntero sobre la etiqueta para ver la explicación del parámetro.
 
 - **Perfil de línea:** escribí un nombre y **Guardar** para dejar estos parámetros en `~/.config/afm/perfiles/`; en la próxima figura elegí el perfil y **Cargar**. Las siluetas y los planos no se tocan.
-- **Probetas:** elegí el pasador (cadera u hombro) y **Generar probetas de articulación…**; se escribe `probetas.stl` (una placa con varias articulaciones, cada una con otra holgura y otro Ø de vástago) y `probetas.txt` con la tabla en el orden de la grilla. Imprimilas con tu impresora, elegí la de menor fricción que sostenga la pose, cargá esos valores en Parámetros y guardalos en el perfil.
+- **Probetas:** elegí el pasador (cadera, hombro o la bisagra de rodilla/codo) y **Generar probetas de articulación…**. En la carpeta quedan:
+  `probetas.stl` (la placa), `probetas.3mf` (la misma placa con **un objeto con nombre por celda**: en Bambu Studio / Orca la lista de objetos dice
+  «#7: holgura 0.4 mm, vástago Ø4.1 mm»), `probetas.txt` (la tabla) y `probetas.json` (lo que lee el programa para el paso siguiente).
+  **Cada celda lleva su número en relieve** delante del bloque (se lee desde arriba, igual que en la cama del laminador) y es el mismo número
+  de la tabla. La pieza que hay que mover termina en un **mango en T** (hongo) o en una **palanca** (bisagra): se agarra con dos dedos y
+  gira sin necesidad de pinzas. La bisagra se imprime con el yugo apoyado en la cama y la palanca hacia arriba, sin soportes; la palanca gira hacia el frente (el lado del número), de 0° a 90°.
+  Imprimilas y probalas; con la mejor, en la misma sección: **elegí su número** en «Resultado de la prueba» → **Usar esta celda** (pasa la holgura y el Ø
+  de vástago —o el bulón y la holgura axial— a los parámetros) → guardá el perfil. Si cerraste el programa mientras se imprimía, **Cargar una tirada
+  anterior (probetas.json)…** vuelve a poner la tabla y la lista. Lo mismo por consola: `afm probe-resultado out/probetas/probetas.json 7 --perfil mi_linea`.
+  Ojo: la holgura radial es una sola para toda la figura, así que la de la bisagra y la del hongo se pisan; probá cada una y quedate con la más justa que gire en todas.
 
 ### 7.2c Rodilla y codo (bisagras)
 

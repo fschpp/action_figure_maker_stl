@@ -141,6 +141,21 @@ def build(win) -> None:
     sec = _collapsible(box, tr("parametros.probetas_de_articulacion"), expanded=False)
     win.dd_probe = Gtk.DropDown.new_from_strings([tr("common.pasador_de_cadera"), tr("common.pasador_de_hombro"), tr("parametros.bisagra_de_rodilla_codo")])
     sec.append(win.dd_probe)
+    _help(sec, tr("parametros.probetas_ayuda"))
     sec.append(win._button(tr("parametros.generar_probetas_de_articulacion"), lambda *_: win._on_probes()))
+    # tabla número -> valores y paso de retroalimentación: elegir el número ganador y pasarlo a los parámetros
+    win.lbl_probe_table = Gtk.Label(label="", xalign=0, wrap=True, selectable=True)
+    win.lbl_probe_table.add_css_class("monospace")
+    sec.append(win.lbl_probe_table)
+    sec.append(Gtk.Label(label=tr("parametros.probetas_resultado"), xalign=0, wrap=True))
+    row = Gtk.Box(spacing=6)
+    win.dd_probe_cell = Gtk.DropDown.new_from_strings([tr("parametros.sin_tirada_de_probetas")])
+    win.dd_probe_cell.set_hexpand(True)
+    row.append(win.dd_probe_cell)
+    win.btn_probe_use = win._button(tr("parametros.usar_esta_celda"), lambda *_: win._on_probe_use())
+    win.btn_probe_use.set_sensitive(False)
+    row.append(win.btn_probe_use)
+    sec.append(row)
+    sec.append(win._button(tr("parametros.cargar_tirada_anterior"), lambda *_: win._on_probe_load()))
 
     # ---------------------------------------------------------- Generar

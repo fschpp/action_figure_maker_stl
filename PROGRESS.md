@@ -1,3 +1,25 @@
+## Current Focus — Probetas de articulación: rótulos, mangos y paso de resultados (2026-11-25, sobre main deaa6d3)
+**Objetivo.** Que las probetas se puedan usar sin adivinar: saber qué celda es cuál al arrastrar el STL a Bambu Studio, poder mover la pieza de prueba con los dedos y devolverle al programa cuál ganó.
+**Hecho.**
+- `probes.py`: número en relieve (fuente de puntos 5×7, `text_solid` / `number_plaque`) sobre una plaqueta pegada al frente de cada bloque (hongo, bisagra, clic); es el mismo `#n` de `probetas.txt`. Hongo: mango en T (poste + barra de 13 mm) en el miembro. Bisagra: celda dada vuelta para imprimir (el yugo apoya en la cama; antes colgaba 4 mm y pedía soportes), vástago alargado con palanca en T que gira hacia el frente (−Y) sin tocar el yugo de 0° a 90°.
+- `probe_files` (única implementación: CLI, ventana y web) ahora también escribe `probetas.3mf` (un objeto con NOMBRE por celda, para la lista de objetos del laminador) y `probetas.json` (valores por celda); acepta `pasador` («hombro»/«cadera») y `params` (los del proyecto abierto).
+- `profile.py`: `load_probe_manifest`, `probe_cell`, `apply_probe_cell` (hongo → holgura + Ø vástago del pasador de la tirada; bisagra → holgura radial/axial + Ø bulón; clic → `DetentSpec`). CLI: `afm probe --pasador` y `afm probe-resultado probetas.json N --perfil X`.
+- GUI (Parámetros ▸ Probetas): ayuda de 4 pasos, tabla número→valores, lista «Resultado de la prueba» + «Usar esta celda», «Cargar una tirada anterior (probetas.json)…». Controller: `probe_choices`, `apply_probe_choice`, `load_probe_manifest`. Textos es/en/pt; docs (tutorial §7.2b, manual corto).
+- Pruebas: `tests/test_probes.py` (+8: fuente, plaqueta, mango gira libre, bisagra sobre la cama, palanca sin choque, 3MF/json/tabla), `test_profile.py` (+5), `test_gui_params.py` (ciclo generar → recargar → elegir), `test_webapi.py` (archivos nuevos).
+**No verificado.** Ventana GTK real (sin typelibs de GTK4 aquí; solo compilé `window.py`/`parametros.py`); abrir `probetas.3mf` en Bambu Studio (se ve bien en trimesh, falta confirmar nombres en la lista de objetos y que conserve las posiciones); impresión física del mango y de la palanca.
+
+### Todo List
+- [x] Done: números en relieve, mango T (hongo), bisagra sobre la cama con palanca, 3MF con nombres, `probetas.json`, flujo de resultado (GUI y CLI)
+- [/] In Progress: ninguno
+- [ ] Todo: probar en la ventana real el bloque «Probetas» (tabla larga, lista de celdas) y el 3MF en Bambu Studio
+- [ ] Todo: imprimir una tirada de cadera y ver si el mango en T y la plaqueta salen bien con boquilla 0,4 y 0,8 (relieve de 0,6 mm)
+- [ ] Todo: clic y montura: sin mango propio (el clic ya traía palanca); la montura sigue con puntos (no entra en el `.json` ni en el perfil)
+
+### Latest Blockers/Discoveries
+- La holgura radial es UNA sola en `Params` (`clearance`): elegir la celda de la bisagra pisa la del hongo y al revés.
+- Al dar vuelta la bisagra (z → top − z) el sentido libre de giro pasa a ser negativo (0° a −90° sobre +X); las pruebas lo fijan.
+- Generar una placa lleva ~25 s (hongo) y ~30 s (bisagra), igual que antes; clic ~16 s por celda (9 celdas × 3 placas): no cambió.
+
 ## Current Focus — Agarre de la mano: elección manual en lugar de la búsqueda automática (2026-11-24, sobre main 924708e)
 **Objetivo.** En la sección «Agarre para accesorios» el taladro de la mano ya no se busca solo: el usuario elige 3 puntos sobre la mano (plano de la empuñadura), el centro del círculo sobre ese plano y, opcional, el centro al final de la mano (inclina el eje). Se dibuja el plano, el cilindro y la mano con el cilindro restado.
 **Hecho.**

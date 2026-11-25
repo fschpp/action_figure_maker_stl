@@ -582,7 +582,7 @@
   "perfil_name_guardado_en_path": "Perfil «%{name}» guardado en %{path}.",
   "perfil_name_cargado_holgura_clearance_mm": "Perfil «%{name}» cargado (holgura %{clearance} mm). Hay que generar de nuevo.",
   "generando_las_probetas_puede_tardar": "Generando las probetas… puede tardar.",
-  "probetas_celdas_articulaciones_pasador_de": "Probetas (%{celdas} articulaciones, pasador de %{kind}) en %{outdir}. Imprimilas, cargá en «Parámetros» la combinación elegida y guardala en el perfil.",
+  "probetas_celdas_articulaciones_pasador_de": "Probetas (%{celdas} articulaciones, pasador de %{kind}) en %{outdir}. Cada pieza lleva su número en relieve (el de la tabla). Imprimilas, elegí en «Parámetros» el número de la mejor y usala.",
   "probetas_holgura_clearance_mm_y_vastago": "Probetas: holgura %{clearance} mm y vástago Ø%{shaft_d} mm. Hay que generar de nuevo.",
   "2_a_silueta_de_name_sobre": "2.ª silueta de «%{name}» (sobre el plano «%{name2}»)",
   "what_clic_cerca_de_un_vertice": "%{what}: arrastrá un vértice para moverlo (o clic para elegirlo y otro clic para soltarlo); clic sobre un borde agrega un vértice; Retroceso borra el elegido; Esc termina.",
@@ -1062,7 +1062,11 @@
   "taladro_manual_bore_d_mm": "Taladro Ø%{bore_d} mm · largo %{length} mm · pared mín. %{wall_min} mm · el dentado apoya en ≈ %{support_deg}° del contorno",
   "mano_guardada_en_el_catalogo": "Mano con agarre guardada en el catálogo como %{ref} (versión nueva de %{from_ref}). Las armas y el armado la usan desde ahí.",
   "no_se_pudo_guardar_la_mano_en_el_catalogo": "No se pudo guardar la mano en el catálogo: %{e}",
-  "esa_mano_no_es_del_catalogo": "Esa mano salió de un STL suelto, no de una mano del catálogo: guardala como archivo o taladrá la mano del catálogo."
+  "esa_mano_no_es_del_catalogo": "Esa mano salió de un STL suelto, no de una mano del catálogo: guardala como archivo o taladrá la mano del catálogo.",
+  "no_se_pudo_leer_la_tirada_de_probetas": "No se pudo leer la tirada de probetas: %{error}",
+  "tirada_de_probetas_cargada": "Tirada de probetas cargada (%{celdas} celdas). Elegí el número de la que quedó mejor.",
+  "no_hay_una_tirada_de_probetas_para_elegir": "Primero generá o cargá una tirada de probetas.",
+  "probetas_celda_elegida": "Probetas: celda %{n} → %{detalle}. Quedó en los parámetros; guardá el perfil para conservarla."
  },
  "figure_builder": {
   "sin_soportes_resumen": "Sin soportes: corte a %{corte} mm sobre la cola; brazos girados hacia adelante: %{giro}",
@@ -1728,7 +1732,12 @@
   "generar_probetas_de_articulacion": "Generar probetas de articulación…",
   "sin_perfiles": "(sin perfiles)",
   "inclinacion_del_plano_de_costado": "Inclinación del plano de costado (°)",
-  "angulo_del_plano_visto_de_costado": "Ángulo del plano visto de costado (+ = sube hacia +Y). 0 = plano recto: el eje no se mueve y conserva su altura; lo que se corre es el plano."
+  "angulo_del_plano_visto_de_costado": "Ángulo del plano visto de costado (+ = sube hacia +Y). 0 = plano recto: el eje no se mueve y conserva su altura; lo que se corre es el plano.",
+  "probetas_ayuda": "1) Generá las probetas. 2) Imprimilas: cada pieza lleva su número en relieve (el mismo de la tabla) y probetas.3mf trae un objeto con nombre por celda para la lista de objetos del laminador. 3) Probalas: la pieza con mango tiene que girar sin trabarse y sin bailar. 4) Elegí abajo el número de la mejor y «Usar esta celda»; después guardá el perfil.",
+  "probetas_resultado": "Resultado de la prueba: ¿qué número quedó mejor?",
+  "usar_esta_celda": "Usar esta celda",
+  "cargar_tirada_anterior": "Cargar una tirada anterior (probetas.json)…",
+  "sin_tirada_de_probetas": "(sin tirada: generá o cargá una)"
  },
  "plane_panel": {
   "planos_del_proyecto": "Planos del proyecto",
@@ -2100,7 +2109,8 @@
   "agarre_centro_del_taladro": "centro del taladro",
   "agarre_centro_al_final": "centro al final de la mano",
   "agarre_aviso_titulo": "Aviso: el taladro no cumple las medidas recomendadas",
-  "agarre_aviso_sigue": "Se continúa con tu elección manual: lo que ves en pantalla manda sobre la medición automática. Revisá el resultado antes de imprimir."
+  "agarre_aviso_sigue": "Se continúa con tu elección manual: lo que ves en pantalla manda sobre la medición automática. Revisá el resultado antes de imprimir.",
+  "tirada_de_probetas_json": "Tirada de probetas (probetas.json)"
  },
  "color": {
   "ayuda_desde": "FBX con la textura de color de la misma figura (modo B): además de los STL, deja piezas_color/ (OBJ+MTL+PNG por pieza) y <nombre>_ensamblada.glb. Los STL no cambian",

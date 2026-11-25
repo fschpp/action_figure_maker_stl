@@ -249,6 +249,8 @@ class Controller:
         self.hidden: set[str] = set()                # ids de planos ocultos
         self.show_groups: dict[str, bool] = {g: False for g in SHOW_GROUPS}   # interruptores generales (planos / pines / contornos)
         self.busy = False                            # generando la figura (la ventana bloquea la edición)
+        self.probe_manifest: dict | None = None      # última tirada de probetas generada o cargada (`probetas.json`)
+        self.probe_table: str = ""                   # su tabla (número -> valores), para mostrarla en la ventana
         self.generated_once = False                  # ya se generó una figura en esta sesión (para avisar cuando deja de valer)
         self._saved_text: str | None = None          # estado del proyecto al abrir / guardar por última vez (para el «*» de cambios sin guardar)
         self.history = History()                     # deshacer / rehacer global por instantáneas del proyecto (ver history.py)
@@ -1406,8 +1408,9 @@ class Controller:
         return True
 
     def begin_export_probes(self, outdir: str, which: str = "hip", clearances=None, shaft_deltas=None):
-        """Valida y devuelve el trabajo pesado ``job(progress=None) -> dict`` que escribe la placa de probetas
-        (`probetas.stl` + `probetas.txt`), apto para un hilo; después hay que llamar `finish_export_probes`.
+        """Valida y devuelve el trabajo pesado ``job(progress=None) -> dict`` que escribe la tirada de probetas
+        (`probetas.stl`, `probetas.3mf`, `probetas.txt` y `probetas.json`), apto para un hilo; después hay que llamar
+        `finish_export_probes`. Cada celda lleva su número en relieve y es el mismo de la tabla y del `.json`.
         `which`: «hip» (cadera), «shoulder» (hombro) o «hinge» (bisagra de rodilla/codo) a variar."""
         if self.busy:
             return None
@@ -1416,29 +1419,26 @@ class Controller:
         p = self.session.project.params
 
         def job(progress=None) -> dict:
+            import json
             import os
-            from .. import probes, solids as S
+            from .. import probes
             kw = {}
             if clearances is not None:
                 kw["clearances"] = clearances
-            if which == "hinge":      # rodilla / codo: `shaft_deltas` varía el Ø del bulón
-                if shaft_deltas is not None:
-                    kw["pin_deltas"] = shaft_deltas
-                cells = probes.hinge_probe_cells(p, **kw)
-                mesh, text = probes.build_hinge_probe(p, cells), probes.hinge_labels_text(cells)
+            if shaft_deltas is not None:      # hongo: Ø del vástago; bisagra: Ø del bulón
+                kw["deltas"] = shaft_deltas
+            if which == "hinge":
+                files, text = probes.probe_files("bisagra", params=p, **kw)
             else:
-                base = p.hip_pin if which == "hip" else p.shoulder_pin
-                if shaft_deltas is not None:
-                    kw["shaft_deltas"] = shaft_deltas
-                cells = probes.probe_cells(p, base=base, **kw)
-                mesh, text = probes.build_probe(p, cells), probes.labels_text(cells)
+                files, text = probes.probe_files("hongo", params=p, pasador="cadera" if which == "hip" else "hombro", **kw)
             os.makedirs(outdir, exist_ok=True)
-            stl = os.path.join(outdir, "probetas.stl")
-            S.to_trimesh(mesh).export(stl)
-            txt = os.path.join(outdir, "probetas.txt")
-            with open(txt, "w") as f:
-                f.write(text + "\n")
-            return {"stl": stl, "tabla": txt, "celdas": len(cells)}
+            for name, data in files.items():
+                with open(os.path.join(outdir, name), "wb") as f:
+                    f.write(data)
+            manifest = json.loads(files["probetas.json"].decode("utf-8"))
+            return {"stl": os.path.join(outdir, "probetas.stl"), "tabla": os.path.join(outdir, "probetas.txt"),
+                    "tres_mf": os.path.join(outdir, "probetas.3mf"), "manifiesto": os.path.join(outdir, "probetas.json"),
+                    "celdas": len(manifest["celdas"]), "datos": manifest, "texto": text}
 
         return job
 
@@ -1448,6 +1448,8 @@ class Controller:
         if error is not None:
             self._changed(tr("controller.fallo_la_generacion_de_probetas_error", error=error), scene=False)
             return None
+        self.probe_manifest = info["datos"]                  # para «usar esta celda» sin releer el archivo
+        self.probe_table = info["texto"]
         kind = {"hip": "cadera", "shoulder": "hombro", "hinge": tr("controller.bisagra_de_rodilla_codo")}.get(which, which)
         self._changed(tr("controller.probetas_celdas_articulaciones_pasador_de", celdas=info['celdas'], kind=kind, outdir=outdir),
                       scene=False)
@@ -1464,6 +1466,56 @@ class Controller:
             self.busy = False
             raise
         return self.finish_export_probes(info, outdir, which)
+
+    def load_probe_manifest(self, path: str) -> bool:
+        """Carga el `probetas.json` de una tirada anterior (o la carpeta que lo contiene): imprimir lleva horas y la ventana
+        pudo haberse cerrado, así que el resultado se vuelve a cargar de la carpeta."""
+        from .. import profile
+        try:
+            self.probe_manifest = profile.load_probe_manifest(path)
+        except (OSError, ValueError) as exc:
+            self._changed(tr("controller.no_se_pudo_leer_la_tirada_de_probetas", error=exc), scene=False)
+            return False
+        self.probe_table = ""
+        try:
+            import os
+            d = path if os.path.isdir(path) else os.path.dirname(path)
+            for name in ("probetas.txt",):
+                with open(os.path.join(d, name), encoding="utf-8") as fh:
+                    self.probe_table = fh.read().rstrip()
+        except OSError:
+            pass
+        self._changed(tr("controller.tirada_de_probetas_cargada", celdas=len(self.probe_manifest["celdas"])), scene=False)
+        return True
+
+    def probe_choices(self) -> list[str]:
+        """Una línea por celda de la tirada actual («#7 · holgura 0.4 mm, vástago Ø4.1 mm»), en el orden de la tabla."""
+        from .. import profile
+        m = self.probe_manifest
+        if not m:
+            return []
+        multi = len({c.get("archivo") for c in m["celdas"]}) > 1
+        return [f"#{c['n']}" + (f" ({c['archivo']})" if multi and c.get("archivo") else "") + " · "
+                + profile.probe_cell_summary(m, c) for c in m["celdas"]]
+
+    def apply_probe_choice(self, index: int) -> bool:
+        """Usa la celda `index` de `probe_choices()` como valores de la figura: queda en los parámetros del proyecto (para
+        conservarla en una línea hay que guardar el perfil)."""
+        from .. import profile
+        m = self.probe_manifest
+        if not m or not (0 <= index < len(m["celdas"])):
+            self._changed(tr("controller.no_hay_una_tirada_de_probetas_para_elegir"), scene=False)
+            return False
+        cell = m["celdas"][index]
+        try:
+            params, resumen = profile.apply_probe_cell(self.session.project.params, m, cell["n"], cell.get("archivo"))
+        except ValueError as exc:
+            self._changed(str(exc), scene=False)
+            return False
+        self.session.project.params = params
+        self.session.outcome = None
+        self._changed(tr("controller.probetas_celda_elegida", n=cell["n"], detalle=resumen), scene=False)
+        return True
 
     def apply_probe_result(self, clearance: float, shaft_d: float, which: str = "both") -> None:
         """Guarda en los parámetros la combinación holgura / Ø de vástago elegida con las probetas."""

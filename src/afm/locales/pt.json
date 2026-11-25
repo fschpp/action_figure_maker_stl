@@ -582,7 +582,7 @@
   "perfil_name_guardado_en_path": "Perfil “%{name}” salvo em %{path}.",
   "perfil_name_cargado_holgura_clearance_mm": "Perfil “%{name}” carregado (folga %{clearance} mm). É preciso gerar de novo.",
   "generando_las_probetas_puede_tardar": "Gerando os corpos de prova… pode demorar.",
-  "probetas_celdas_articulaciones_pasador_de": "Corpos de prova (%{celdas} articulações, pino de %{kind}) em %{outdir}. Imprima-os, carregue em “Parâmetros” a combinação escolhida e salve-a no perfil.",
+  "probetas_celdas_articulaciones_pasador_de": "Corpos de prova (%{celdas} articulações, pino de %{kind}) em %{outdir}. Cada peça tem seu número em relevo (o da tabela). Imprima-os, escolha em “Parâmetros” o número do melhor e use-o.",
   "probetas_holgura_clearance_mm_y_vastago": "Corpos de prova: folga %{clearance} mm e haste Ø%{shaft_d} mm. É preciso gerar de novo.",
   "2_a_silueta_de_name_sobre": "2.ª silhueta de “%{name}” (sobre o plano “%{name2}”)",
   "what_clic_cerca_de_un_vertice": "%{what}: arraste um vértice para movê-lo (ou clique para escolhê-lo e outro clique para soltá-lo); clique sobre uma aresta adiciona um vértice; Backspace apaga o escolhido; Esc termina.",
@@ -1062,7 +1062,11 @@
   "taladro_manual_bore_d_mm": "Furo Ø%{bore_d} mm · comprimento %{length} mm · parede mín. %{wall_min} mm · o dentado apoia em ≈ %{support_deg}° do contorno",
   "mano_guardada_en_el_catalogo": "Mão com pegada salva no catálogo como %{ref} (nova versão de %{from_ref}). As armas e a montagem a usam a partir daí.",
   "no_se_pudo_guardar_la_mano_en_el_catalogo": "Não foi possível salvar a mão no catálogo: %{e}",
-  "esa_mano_no_es_del_catalogo": "Essa mão veio de um STL solto, não de uma mão do catálogo: salve-a como arquivo ou fure a mão do catálogo."
+  "esa_mano_no_es_del_catalogo": "Essa mão veio de um STL solto, não de uma mão do catálogo: salve-a como arquivo ou fure a mão do catálogo.",
+  "no_se_pudo_leer_la_tirada_de_probetas": "Não foi possível ler a série de corpos de prova: %{error}",
+  "tirada_de_probetas_cargada": "Série de corpos de prova carregada (%{celdas} células). Escolha o número do melhor.",
+  "no_hay_una_tirada_de_probetas_para_elegir": "Gere ou carregue primeiro uma série de corpos de prova.",
+  "probetas_celda_elegida": "Corpos de prova: célula %{n} → %{detalle}. Ficou nos parâmetros; salve o perfil para guardá-la."
  },
  "figure_builder": {
   "sin_soportes_resumen": "Sem suportes: corte a %{corte} mm sobre a cauda; braços girados para frente: %{giro}",
@@ -1728,7 +1732,12 @@
   "generar_probetas_de_articulacion": "Gerar corpos de prova de articulação…",
   "sin_perfiles": "(sem perfis)",
   "inclinacion_del_plano_de_costado": "Inclinação do plano de lado (°)",
-  "angulo_del_plano_visto_de_costado": "Ângulo do plano visto de lado (+ = sobe para +Y). 0 = plano reto: o eixo não se move e mantém a altura; o que se desloca é o plano."
+  "angulo_del_plano_visto_de_costado": "Ângulo do plano visto de lado (+ = sobe para +Y). 0 = plano reto: o eixo não se move e mantém a altura; o que se desloca é o plano.",
+  "probetas_ayuda": "1) Gere os corpos de prova. 2) Imprima-os: cada peça tem seu número em relevo (o mesmo da tabela) e probetas.3mf traz um objeto com nome por célula para a lista de objetos do fatiador. 3) Teste: a peça com a alça deve girar sem travar e sem folga. 4) Escolha abaixo o número do melhor e “Usar esta célula”; depois salve o perfil.",
+  "probetas_resultado": "Resultado do teste: qual número ficou melhor?",
+  "usar_esta_celda": "Usar esta célula",
+  "cargar_tirada_anterior": "Carregar uma série anterior (probetas.json)…",
+  "sin_tirada_de_probetas": "(sem série: gere ou carregue uma)"
  },
  "plane_panel": {
   "planos_del_proyecto": "Planos do projeto",
@@ -2100,7 +2109,8 @@
   "agarre_centro_del_taladro": "centro do furo",
   "agarre_centro_al_final": "centro no fim da mão",
   "agarre_aviso_titulo": "Aviso: o furo não cumpre as medidas recomendadas",
-  "agarre_aviso_sigue": "Continuando com a sua escolha manual: o que você vê na tela prevalece sobre a medição automática. Confira o resultado antes de imprimir."
+  "agarre_aviso_sigue": "Continuando com a sua escolha manual: o que você vê na tela prevalece sobre a medição automática. Confira o resultado antes de imprimir.",
+  "tirada_de_probetas_json": "Série de corpos de prova (probetas.json)"
  },
  "color": {
   "ayuda_desde": "FBX com a textura de cor da mesma figura (modo B): além dos STL, grava piezas_color/ (OBJ+MTL+PNG por peça) e <nome>_ensamblada.glb. Os STL não mudam",

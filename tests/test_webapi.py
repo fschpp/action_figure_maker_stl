@@ -276,7 +276,7 @@ def test_make_test_coupons_zip_matches_the_cli(tmp_path):
     from afm import cli
     s = EngineSession()
     r = s.make_test_coupons("hongo", clearances=[0.4], deltas=[0.0])
-    assert r["archivos"] == ["probetas.stl", "probetas.txt"] and r["texto"]
+    assert r["archivos"] == ["probetas.3mf", "probetas.json", "probetas.stl", "probetas.txt"] and r["texto"]
     z = zipfile.ZipFile(io.BytesIO(r["zip"]))
     assert cli.main(["probe", "--out", str(tmp_path), "--clearances", "0.4", "--deltas", "0"]) == 0
     assert z.read("probetas.stl") == (tmp_path / "probetas.stl").read_bytes()
