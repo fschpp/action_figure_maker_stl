@@ -1,3 +1,23 @@
+## Current Focus — Catálogos en línea: D07 zips heredados (2026-11-25, rama feat/catalogos-online-d07 sobre main 8efad2d)
+**Objetivo.** Que los `catalogo.zip` que ya circulan (carpeta de catálogo comprimida a mano, sin `paquete.json`) se instalen con el mismo plan y la misma atomicidad que un paquete.
+**Hecho.**
+- `instalar.detect_legacy`: `linea.json` en la raíz o a un nivel (`catalogo/linea.json`); `None` si trae `paquete.json` o no hay línea; error claro si hay más de una línea o un paquete metido dentro de una carpeta.
+- `instalar.prepare_legacy` / `plan_install_legacy`: se conserva solo lo del catálogo (`linea.json`, `paleta.json`, `piezas/<tipo>/<id>@<n>.{pieza.json,stl,color.npz,retoque.json}`, recetas de `figuras/` **o de la `recetas/` de los catálogos viejos**, que se normaliza a `figuras/`; `.fbx` con `--permitir-fbx`). Lo demás (`compat.json`, `COMPATIBILIDAD.md`, `calibracion.json`, `CATALOGO.md`, `.papelera/`, `caballos/`, `.proyecto`, rutas hostiles…) **no se extrae** y se lista como descartado; el ruido de macOS (`__MACOSX`, `.DS_Store`) se ignora sin nombrarlo. Lo conservado pasa por `ziplector.inspect(only=…)` y `Catalog.verify`; después sale de `export_package(linea_completa=True)` (mismo manifiesto, mismos hashes, determinista ⇒ reinstalar el mismo zip es «nada que hacer») y entra por `plan_install`/`apply` como cualquier paquete. Sin `--permitir-fbx` las piezas rgb salen sin color, con aviso (igual que `exportar`).
+- `ziplector.inspect(..., only=)` (aditivo): lo que no se va a extraer no cuenta para los topes (un zip con GB de FBX descartables no falla por tamaño).
+- Licencia, origen y autor **no se inventan**: `--licencia`, `--origen`, `--autor` (y `--id`, `--version-paquete`); si faltan, el CLI los pregunta y, sin respuesta (no interactivo), sale con 2 sin escribir. `paquetes.json` guarda `heredado_sha256` (el del zip original; `sha256` es el del paquete convertido).
+**Pruebas.** `tests/test_instalar_heredado.py` (14): `catalogo/ejemplo` con y sin carpeta contenedora y con derivados mezclados ⇒ todas las piezas **idénticas byte por byte**, la receta pasa de `recetas/` a `figuras/`; reinstalar; paquete convertido válido y determinista; falta de licencia/origen/autor/SPDX inválido; hostiles que no llegan a disco; duplicados por mayúsculas; STL alterado; FBX con y sin `--permitir-fbx`; CLI con opciones, con preguntas, sin respuesta y `--simular`. `test_ziplector.py` +1 (`only`).
+
+### Todo List
+- [x] Done: D03, D04, D08, D05, D06, D07 (código y pruebas)
+- [ ] Todo: **«Listo cuando» de D07 con el `proceres-127.zip` real del cliente**: no estaba disponible acá; se probó con `catalogo/ejemplo`. Correr `afm catalogo instalar proceres-127.zip --licencia … --origen propia --autor … --simular` y luego sin `--simular` en una carpeta nueva (con y sin `--permitir-fbx`)
+- [ ] Todo: CK305 (licencias distintas por pieza sin CREDITOS.md): `PieceMeta` no tiene licencia por pieza, no se evalúa
+- [ ] Todo: fijar topes definitivos de `ziplector` con la medición de D01 (hoy [P]; D01 necesita el `proceres-127.zip` real)
+- [ ] Decidir: «versiones no consecutivas» como CK203 en `--estricto` (hoy es error; recomendación: que no lo sea, ver entrada de D05)
+
+### Latest Blockers/Discoveries
+- `catalogo/ejemplo` usa `recetas/` y no `figuras/`: ningún código del motor lee `recetas/`; solo el importador heredado la normaliza. Conviene decidir si se migra el ejemplo.
+- Un zip heredado con mallas rotas o hashes que no coinciden se rechaza entero (no se instala «lo que se pueda»): el mensaje cita las primeras tres pieza(s).
+
 ## Current Focus — Catálogos en línea: D05 `instalar.py` + D06 `afm catalogo instalar` (2026-11-25, rama feat/catalogos-online-d05 sobre main 14f2b6d)
 **Objetivo.** Instalar un paquete `.zip` `afm-paquete-1` en un catálogo con un plan visible antes de escribir y un resultado todo-o-nada (§5.3, §5.4).
 **Hecho.**

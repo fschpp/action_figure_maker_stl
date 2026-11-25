@@ -54,6 +54,11 @@ def add_parsers(cs, root) -> None:
     i.add_argument("--si", action="store_true", help="no pedir confirmación")
     i.add_argument("--aceptar-cambio-origen", action="store_true", help="confirmar que un paquete ya instalado cambia de repo de origen")
     i.add_argument("--permitir-fbx", action="store_true", help="aceptar .fbx dentro del paquete")
+    i.add_argument("--licencia", default="", metavar="SPDX", help="solo zips heredados (sin paquete.json): licencia del contenido, p. ej. CC-BY-4.0")
+    i.add_argument("--origen", default="", choices=["", *Q.ORIGINS], help="solo zips heredados: origen del contenido")
+    i.add_argument("--autor", action="append", default=[], metavar="NOMBRE[:github]", help="solo zips heredados (repetible)")
+    i.add_argument("--id", default="", help="solo zips heredados: id del paquete (por defecto el nombre de la línea)")
+    i.add_argument("--version-paquete", default="", metavar="X.Y.Z", help="solo zips heredados (por defecto 1.0.0)")
     pq = cs.add_parser("paquete", help="herramientas de paquetes .zip (por ahora: validar)")
     ps = pq.add_subparsers(dest="paqcmd", required=True)
     v = ps.add_parser("validar", help="revisar un paquete .zip (lint CK101–CK403): manifiesto, hashes, archivos, color, línea y `verify` del contenido")
@@ -104,35 +109,76 @@ def run_validar(args) -> int:
     return 1
 
 
+def _ask(prompt: str) -> str:
+    try:
+        return input(prompt).strip()
+    except EOFError:
+        return ""
+
+
+def _legacy_info(args) -> dict | None:
+    """Datos que un zip heredado no trae y solo quien instala puede dar (licencia, origen, autor): de las opciones o, si faltan, se preguntan."""
+    lic, origen, autores = args.licencia, args.origen, list(args.autor)
+    if not lic:
+        lic = _ask(f"Licencia del contenido (SPDX, p. ej. CC-BY-4.0; válidas: {', '.join(Q.LICENSES[:4])}…): ")
+    if not origen:
+        origen = _ask(f"Origen del contenido ({', '.join(Q.ORIGINS)}): ")
+    if not autores:
+        autores = [a for a in [_ask("Autor (nombre o nombre:usuario-github): ")] if a]
+    if not (lic and origen and autores):
+        print("ERROR: este zip no trae paquete.json: hace falta indicar --licencia, --origen y --autor (cada persona responde por su contenido)", file=sys.stderr)
+        return None
+    return {"licencia": lic, "origen": origen, "autores": autores, "id": args.id, "version": args.version_paquete}
+
+
 def run_instalar(args) -> int:
     """`afm catalogo instalar ZIP`: plan → confirmación → instalación atómica. 0 = instalado (o nada que hacer / simulado sin errores); 1 = el
-    plan tiene errores o se canceló; 2 = no es un zip o un paquete legible."""
+    plan tiene errores o se canceló; 2 = no es un zip o un paquete legible. Un zip heredado (sin `paquete.json`, D07) se convierte antes."""
     import os
+    import tempfile
 
     from . import instalar as I
     from .ziplector import ZipError
 
-    try:
-        pkg = I.peek_package(args.zip)
-        if args.en:
-            root = args.en
-        else:
-            if not pkg.linea:
-                print("ERROR: el paquete no declara una línea: indicá el catálogo con --en", file=sys.stderr)
-                return 2
-            root = I.explicit_root(pkg.linea["nombre"])
-            if os.environ.get("AFM_CATALOGO"):
-                print(f"AVISO: $AFM_CATALOGO está definida ({os.environ['AFM_CATALOGO']}) y se ignora al instalar; se usa {root}. Elegí otra ruta con --en.")
-        plan = I.plan_install(args.zip, root, como_linea=args.como_linea, allow_fbx=args.permitir_fbx)
-    except (ZipError, I.InstallError) as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
-        return 2
+    with tempfile.TemporaryDirectory(prefix="afm-instalar-") as work:
+        try:
+            legacy = I.detect_legacy(args.zip)
+            if legacy is not None:
+                info = _legacy_info(args)
+                if info is None:
+                    return 2
+                conv = I.prepare_legacy(args.zip, os.path.join(work, "heredado.zip"), allow_fbx=args.permitir_fbx, **info)
+                pkg = conv.paquete
+            else:
+                pkg = I.peek_package(args.zip)
+            if args.en:
+                root = args.en
+            else:
+                if not pkg.linea:
+                    print("ERROR: el paquete no declara una línea: indicá el catálogo con --en", file=sys.stderr)
+                    return 2
+                root = I.explicit_root(pkg.linea["nombre"])
+                if os.environ.get("AFM_CATALOGO"):
+                    print(f"AVISO: $AFM_CATALOGO está definida ({os.environ['AFM_CATALOGO']}) y se ignora al instalar; se usa {root}. Elegí otra ruta con --en.")
+            if legacy is not None:
+                plan = I.plan_install(conv.path, root, como_linea=args.como_linea, allow_fbx=args.permitir_fbx)
+                plan.descartados, plan.heredado_sha256 = conv.descartados, conv.original_sha256
+                plan.issues = [I.Issue(I.WARNING, "zip heredado", a) for a in conv.avisos] + plan.issues
+            else:
+                plan = I.plan_install(args.zip, root, como_linea=args.como_linea, allow_fbx=args.permitir_fbx)
+        except (ZipError, I.InstallError) as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
+        return _install_plan(args, plan, I)
+
+
+def _install_plan(args, plan, I) -> int:
     for line in plan.describe():
         print(line)
     if not plan.ok:
         print(f"FALLA: no se puede instalar: {len(plan.errors)} error(es).")
         if plan.sugerir_linea and not args.como_linea:
-            print(f"Sugerencia: instalarlo como línea nueva con `--como-linea` (o `--en RUTA` con una carpeta nueva).")
+            print("Sugerencia: instalarlo como línea nueva con `--como-linea` (o `--en RUTA` con una carpeta nueva).")
         return 1
     if args.simular:
         print("Simulación: no se escribió nada.")
@@ -145,11 +191,7 @@ def run_instalar(args) -> int:
         print("ERROR: el paquete cambia de origen respecto de lo instalado; confirmalo con --aceptar-cambio-origen.", file=sys.stderr)
         return 1
     if not args.si:
-        try:
-            ans = input("¿Instalar? [s/N] ").strip().lower()
-        except EOFError:
-            ans = ""
-        if ans not in ("s", "si", "sí", "y", "yes"):
+        if _ask("¿Instalar? [s/N] ").lower() not in ("s", "si", "sí", "y", "yes"):
             print("Cancelado: no se escribió nada.")
             return 1
     try:

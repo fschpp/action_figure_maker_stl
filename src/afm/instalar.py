@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import os
+import posixpath
 import re
 import shutil
 import tempfile
@@ -87,6 +88,8 @@ class InstallPlan:
     sugerir_linea: bool = False           # no encaja en este catálogo: se puede instalar como línea nueva
     registro_previo: dict | None = None
     allow_fbx: bool = False
+    descartados: list = field(default_factory=list)    # D07: archivos del zip heredado que no se instalan (derivados, otros)
+    heredado_sha256: str = ""                          # D07: sha256 del zip original (el del plan es el del paquete convertido)
 
     @property
     def errors(self) -> list:
@@ -128,6 +131,9 @@ class InstallPlan:
                 out.append(f"{label} que ya están (se omiten, {len(skip)}): " + ", ".join(i.name for i in skip))
         if self.roles_nuevos:
             out.append("Roles de paleta a agregar: " + ", ".join(f"{r.id} ({r.hex})" for r in self.roles_nuevos))
+        if self.descartados:
+            shown = ", ".join(self.descartados[:6]) + (f" y {len(self.descartados) - 6} más" if len(self.descartados) > 6 else "")
+            out.append(f"Del zip heredado no se instalan {len(self.descartados)} archivo(s) (derivados que se recalculan, o ajenos al catálogo): {shown}")
         out += [str(i) for i in self.issues]
         return out
 
@@ -579,6 +585,8 @@ def apply(plan: InstallPlan, *, confirmar_origen: bool = False, now: datetime | 
             "fecha": when, "licencia": pkg.licencia, "autores": [a.to_dict() for a in pkg.autores], "origen": pkg.origen,
             "conflicts": list(pkg.conflicts), "refs": merged_refs,
         }
+        if plan.heredado_sha256:
+            reg["paquetes"][pkg.id]["heredado_sha256"] = plan.heredado_sha256
         journal.write(os.path.join(root, REGISTRY_FILE), _dump(reg))            # al final: es lo que da la instalación por hecha
     except BaseException:
         journal.rollback()
@@ -626,5 +634,136 @@ def _verify_staging(staging: str, line_bytes: bytes, palette: Palette | None, av
             os.remove(p)
 
 
+# ------------------------------------------------------------------------------------------------------------ D07 · zips heredados
+
+_LEGACY_PIECE = re.compile(r"^piezas/[a-z_]+/[a-z0-9]+(?:-[a-z0-9]+)*@[1-9]\d*\.(?:stl|pieza\.json|color\.npz|retoque\.json)$")
+_LEGACY_FBX = re.compile(r"^piezas/[a-z_]+/[a-z0-9]+(?:-[a-z0-9]+)*@[1-9]\d*\.fbx$")
+_LEGACY_RECIPE = re.compile(r"^(?:figuras|recetas)/[A-Za-z0-9][A-Za-z0-9_.-]*\.receta\.json$")
+_LEGACY_NOISE = re.compile(r"(^|/)(__MACOSX|\.DS_Store|Thumbs\.db)(/|$)")
+LEGACY_LINE_MAX = 1024 * 1024                  # `linea.json` de más de 1 MB no es una línea
+
+
+@dataclass
+class LegacyZip:
+    prefix: str                                # «» (catálogo en la raíz) o «carpeta/»
+    linea: dict                                # el `linea.json` del zip
+
+
+@dataclass
+class LegacyResult:
+    path: str                                  # el paquete `afm-paquete-1` convertido
+    paquete: Q.Paquete
+    descartados: list                          # rutas (relativas al catálogo) que no se instalan
+    avisos: list
+    original_sha256: str
+
+
+def detect_legacy(zip_path: str) -> LegacyZip | None:
+    """¿Es un `catalogo.zip` heredado (una carpeta de catálogo comprimida a mano, sin `paquete.json`)? Busca `linea.json` en la raíz o a un
+    nivel. `None` si trae `paquete.json` en la raíz o no hay `linea.json`; `InstallError` si es ambiguo (varias líneas, o un paquete metido
+    dentro de una carpeta)."""
+    with Z.open_zip(zip_path) as zf:
+        infos = [i for i in zf.infolist() if not i.filename.endswith("/") and not _LEGACY_NOISE.search(i.filename)]
+        names = [i.filename for i in infos]
+        if Q.MANIFEST_FILE in names:
+            return None
+        lines = [n for n in names if re.fullmatch(r"(?:[^/]+/)?linea\.json", n)]
+        if not lines:
+            return None
+        if len(lines) > 1:
+            raise InstallError("el zip trae más de una línea (" + ", ".join(lines) + "): un zip heredado es el catálogo de una sola línea")
+        prefix = lines[0][:-len("linea.json")]
+        if prefix and prefix + Q.MANIFEST_FILE in names:
+            raise InstallError(f"el paquete está dentro de la carpeta «{prefix}»: {Q.MANIFEST_FILE} tiene que estar en la raíz del zip")
+        zi = zf.getinfo(lines[0])
+        if zi.file_size > LEGACY_LINE_MAX:
+            raise InstallError(f"«{lines[0]}» pesa demasiado para ser una línea")
+        try:
+            line = json.loads(zf.read(lines[0]).decode("utf-8"))
+        except (ValueError, UnicodeDecodeError) as exc:
+            raise InstallError(f"«{lines[0]}» no se puede leer: {exc}") from None
+        if not isinstance(line, dict) or line.get("formato") != "afm-linea-1":
+            raise InstallError(f"«{lines[0]}»: formato {line.get('formato') if isinstance(line, dict) else line!r}, se esperaba 'afm-linea-1'")
+        return LegacyZip(prefix, line)
+
+
+def prepare_legacy(zip_path: str, out_zip: str, *, licencia: str, origen: str, autores, id: str = "", nombre: str = "", version: str = "",
+                   descripcion: str = "", categorias=(), etiquetas=(), allow_fbx: bool = False) -> LegacyResult:
+    """Convierte un zip heredado en un paquete `afm-paquete-1` (`out_zip`) para que entre por el mismo camino que cualquier otro.
+
+    Se conserva lo que es del catálogo: `linea.json`, `paleta.json`, `piezas/<tipo>/<id>@<n>.{pieza.json,stl,color.npz,retoque.json}`
+    (y `.fbx` con `allow_fbx`) y las recetas (`figuras/` o la `recetas/` de catálogos viejos, que se normaliza a `figuras/`). Lo demás
+    (`compat.json`, `COMPATIBILIDAD.md`, `calibracion.json`, `CATALOGO.md`, `.papelera/`, `caballos/`, `.proyecto`…) son derivados o ajenos:
+    **no se instala** y queda en `descartados`. Lo que se conserva pasa por `ziplector` (rutas, enlaces, bombas) y por `Catalog.verify`
+    antes de armar el paquete, que sale de `exportar.export_package` (línea completa, todas las versiones). La licencia, el origen y el autor
+    los da quien instala: el zip viejo no los trae y la app no los inventa."""
+    from .exportar import ExportError, export_package
+
+    leg = detect_legacy(zip_path)
+    if leg is None:
+        raise InstallError(f"«{zip_path}» no es un zip heredado (trae {Q.MANIFEST_FILE} o no trae linea.json)")
+    pre = leg.prefix
+    keep, dropped, avisos = [], [], []
+    with Z.open_zip(zip_path) as zf:
+        for zi in zf.infolist():
+            name = zi.filename
+            if name.endswith("/") or _LEGACY_NOISE.search(name):
+                continue
+            rel = name[len(pre):] if name.startswith(pre) else None
+            if rel is not None and (rel in ("linea.json", "paleta.json") or _LEGACY_PIECE.match(rel) or _LEGACY_RECIPE.match(rel)
+                                    or (allow_fbx and _LEGACY_FBX.match(rel))):
+                keep.append(name)
+            else:
+                dropped.append(rel if rel is not None else name)
+        insp = Z.inspect(zf, allow_fbx=allow_fbx, only=set(keep))
+        if insp.findings:
+            raise InstallError("el zip no pasa la inspección: " + "; ".join(str(f) for f in insp.findings[:3]))
+        tmp = tempfile.mkdtemp(prefix=".heredado-")
+        try:
+            Z.extract_all(zf, tmp, insp)
+            root = os.path.join(tmp, *pre.rstrip("/").split("/")) if pre else tmp
+            old = os.path.join(root, "recetas")                         # catálogos viejos: `recetas/` en vez de `figuras/`
+            if os.path.isdir(old):
+                os.makedirs(os.path.join(root, "figuras"), exist_ok=True)
+                for f in sorted(os.listdir(old)):
+                    dst = os.path.join(root, "figuras", f)
+                    if os.path.exists(dst):
+                        raise InstallError(f"el zip trae «{f}» en recetas/ y en figuras/")
+                    os.replace(os.path.join(old, f), dst)
+                avisos.append("las recetas estaban en recetas/: se instalan en figuras/")
+            try:
+                cat = Catalog.open(root)
+                rep = cat.verify()
+            except CatalogError as exc:
+                raise InstallError(f"el catálogo del zip no abre: {exc}") from None
+            problems = [x for x in rep.problems if allow_fbx or "falta el FBX de color" not in x]      # sin --permitir-fbx el FBX no viaja y la pieza sale sin color
+            if problems:
+                raise InstallError("el catálogo del zip no pasa `verificar`: " + "; ".join(problems[:3]) + (f" (+{len(problems) - 3})" if len(problems) > 3 else ""))
+            fbx_off = [d for d in dropped if _LEGACY_FBX.match(d)]
+            if fbx_off:
+                avisos.append(f"{len(fbx_off)} FBX de color no se incluyen (usá --permitir-fbx): esas piezas quedan sin color")
+            try:
+                res = export_package(cat, out_zip, linea_completa=True, incluir_fbx=allow_fbx, id=id, nombre=nombre, version=version,
+                                     descripcion=descripcion, tipo="linea", autores=list(autores or ()), licencia=licencia, origen=origen,
+                                     categorias=list(categorias), etiquetas=list(etiquetas), overwrite=True)
+            except ExportError as exc:
+                raise InstallError(str(exc)) from None
+            avisos += res.avisos
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+    return LegacyResult(path=out_zip, paquete=res.paquete, descartados=sorted(dropped), avisos=avisos, original_sha256=P.sha256_file(zip_path))
+
+
+def plan_install_legacy(zip_path: str, root: str, workdir: str, *, como_linea: bool = False, allow_fbx: bool = False, **info) -> InstallPlan:
+    """Plan de instalar un zip heredado: lo convierte en `workdir/heredado.zip` (que tiene que vivir hasta el `apply`) y planifica ese paquete.
+    `info`: `licencia`, `origen`, `autores` (obligatorios) y `id`, `nombre`, `version`, `descripcion`, `categorias`, `etiquetas`."""
+    conv = prepare_legacy(zip_path, os.path.join(workdir, "heredado.zip"), allow_fbx=allow_fbx, **info)
+    plan = plan_install(conv.path, root, como_linea=como_linea, allow_fbx=allow_fbx)
+    plan.descartados = conv.descartados
+    plan.heredado_sha256 = conv.original_sha256
+    plan.issues = [Issue(WARNING, "zip heredado", a) for a in conv.avisos] + plan.issues
+    return plan
+
+
 __all__ = ["InstallError", "Issue", "Item", "InstallPlan", "InstallResult", "plan_install", "apply", "peek_package", "explicit_root",
-           "load_registry", "tree_digest", "REGISTRY_FILE", "REGISTRY_FORMAT"]
+           "load_registry", "tree_digest", "detect_legacy", "prepare_legacy", "plan_install_legacy", "LegacyZip", "LegacyResult", "REGISTRY_FILE", "REGISTRY_FORMAT"]

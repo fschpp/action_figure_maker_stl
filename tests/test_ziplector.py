@@ -144,3 +144,16 @@ def test_not_a_zip(tmp_path):
     (tmp_path / "x.zip").write_text("no soy un zip")
     with pytest.raises(Z.ZipError):
         Z.open_zip(str(tmp_path / "x.zip"))
+
+
+def test_only_revisa_solo_lo_pedido_y_no_cuenta_lo_demas(tmp_path):
+    """`only` (D07): lo que no se va a extraer no cuenta para los topes ni genera hallazgos."""
+    path = tmp_path / "x.zip"
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("linea.json", "{}")
+        z.writestr("derivado.exe", b"x")
+        z.writestr("../fuera.txt", b"x")
+    with zipfile.ZipFile(path) as z:
+        assert {f.code for f in Z.inspect(z).findings} == {"CK301", "CK302"}
+        res = Z.inspect(z, only={"linea.json"}, max_files=1)
+        assert res.ok and [e.name for e in res.entries] == ["linea.json"]

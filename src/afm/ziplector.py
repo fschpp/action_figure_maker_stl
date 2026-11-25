@@ -73,11 +73,14 @@ def _fold(name: str) -> str:
 
 
 def inspect(zf: zipfile.ZipFile, *, allow_fbx: bool = False, max_files: int = MAX_FILES, max_file_bytes: int = MAX_FILE_BYTES,
-            max_total_bytes: int = MAX_TOTAL_BYTES, max_ratio: int = MAX_RATIO) -> Inspection:
-    """Revisa todas las entradas sin descomprimir nada. Los tamaños son los **declarados**; `extract_all` vuelve a comprobarlos al escribir."""
+            max_total_bytes: int = MAX_TOTAL_BYTES, max_ratio: int = MAX_RATIO, only=None) -> Inspection:
+    """Revisa todas las entradas sin descomprimir nada. Los tamaños son los **declarados**; `extract_all` vuelve a comprobarlos al escribir.
+
+    `only` (conjunto de nombres): revisa solo esas entradas; las demás no se cuentan ni se miran porque nunca se van a extraer (lo usa el
+    importador de zips heredados, que descarta lo derivado antes de aplicar los topes)."""
     out = Inspection()
     seen: dict[str, str] = {}
-    infos = zf.infolist()
+    infos = [i for i in zf.infolist() if only is None or i.filename in only]
     files = [i for i in infos if not i.filename.endswith("/")]
     if len(files) > max_files:
         out.findings.append(ZipFinding("CK303", "(zip)", f"trae {len(files)} archivos y el tope es {max_files}", "dividí el contenido en paquetes más chicos"))
