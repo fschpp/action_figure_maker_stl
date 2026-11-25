@@ -630,6 +630,7 @@ class MainWindow(Gtk.ApplicationWindow):
             gate((self.btn_save, self.btn_save_as), ctrl.blocked("save"))
             gate(self.btn_grip, ctrl.blocked("grip"))
             gate(self.btn_grip_hand, ctrl.blocked("grip_hand"))
+            gate(self.btn_grip_catalog, ctrl.blocked("grip_catalog"))
             gate(self.btn_grip_plate, ctrl.blocked("grip_plate"))
             txt = ctrl.grip_summary()
             if self.lbl_grip.get_text() != txt:           # no pisar la selección del texto en cada refresco
@@ -2724,6 +2725,9 @@ class MainWindow(Gtk.ApplicationWindow):
 
     def _on_grip_save_hand(self, *_):
         self._save_as(tr("window.guardar_mano_con_agarre"), f"{self._grip_stem()}_agarre.stl", self.ctrl.save_grip_hand)
+
+    def _on_grip_save_catalog(self, *_):
+        self.ctrl.save_grip_catalog()
 
     def _on_grip_save_plate(self, *_):
         self._save_as(tr("window.guardar_placa_de_espadas_de_prueba"), f"{self._grip_stem()}_espadas_prueba.stl", self.ctrl.save_grip_plate)

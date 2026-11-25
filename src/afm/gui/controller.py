@@ -301,6 +301,8 @@ class Controller:
         self.grip_barbs: tuple[float, ...] = DEFAULT_BARBS
         self.grip_preview_on = False                 # previsualizar el agarre elegido en la mano pegada, sin taladrar ni guardar
         self._grip_preview: dict | None = None       # última previsualización: key, mano taladrada (local), ajuste, nº de canales, error
+        self.grip_catalog: tuple | None = None             # (raíz, ref) de la mano del catálogo de la que salió `self.grip` (None: de un STL suelto)
+        self._grip_pending_cat: tuple | None = None
         self.grip_pending_warning: str = ""              # aviso de una elección manual aceptada igual (anillo abierto, pared fina): la ventana lo muestra una vez
         self._grip_warned_key = None
         self.grip_preview_catalog: tuple | None = None   # (raíz, ref) de la mano del catálogo a previsualizar cuando no hay mano pegada
@@ -3347,6 +3349,7 @@ class Controller:
         if not self.grip_manual_ready:
             self._changed(tr("controller.primero_elegi_el_plano_y_el_centro"), scene=False)
             return None
+        self._grip_pending_cat = self.grip_preview_catalog if path == self.grip_catalog_stl_path() else None
         self.busy = True
         self.progress_prefix = tr("controller.taladrando_la_mano")
         self._changed(tr("controller.taladrando_la_mano_estandar_con_el_plano"), scene=False)
@@ -3364,7 +3367,7 @@ class Controller:
         if error is not None:
             self._changed(tr("controller.no_se_pudo_taladrar_la_mano", error=error), scene=False)
             return False
-        self.grip = result
+        self.grip, self.grip_catalog = result, self._grip_pending_cat
         if getattr(result, "warnings", None):
             self.grip_pending_warning = "\n".join(result.warnings)
         self._changed(self.grip_summary(), scene=False)
@@ -4022,6 +4025,25 @@ class Controller:
             return False
         write_grip_hand(self.grip, path)
         self._changed(tr("controller.mano_con_agarre_guardada_v_eje", v=path.split('/')[-1]), scene=False)
+        return True
+
+    def save_grip_catalog(self) -> bool:
+        """Guarda la mano taladrada en el catálogo del que salió, como versión nueva de esa pieza `mano` (con el plano y el centro elegidos a
+        mano, si fue una elección manual). Después las armas y el armado la toman de ahí."""
+        from ..catalog import Catalog, CatalogError
+        from ..props import GripError, save_grip_to_catalog
+
+        why = self.blocked("grip_catalog")
+        if why:
+            self._changed(why, scene=False)
+            return False
+        root, ref = self.grip_catalog
+        try:
+            meta, warns = save_grip_to_catalog(Catalog.open(root), ref, self.grip)
+        except (CatalogError, GripError, OSError) as e:
+            self._changed(tr("controller.no_se_pudo_guardar_la_mano_en_el_catalogo", e=e), scene=False)
+            return False
+        self._changed(tr("controller.mano_guardada_en_el_catalogo", ref=meta.ref, from_ref=ref) + "".join(f" AVISO: {w}" for w in warns), scene=False)
         return True
 
     def save_grip_plate(self, path: str) -> bool:
@@ -5242,6 +5264,14 @@ class Controller:
             return None if self.grip_manual_ready else tr("controller.primero_elegi_el_plano_y_el_centro")
         if what == "grip_plate":
             return None if self.grip is not None else tr("controller.primero_taladra_una_mano_estandar_stl")
+        if what == "grip_catalog":
+            if self.busy:
+                return self._WAIT
+            if self.grip is None:
+                return tr("controller.primero_taladra_una_mano_estandar_stl")
+            if self.grip_stale:
+                return tr("controller.el_agarre_quedo_desactualizado_volve_a")
+            return None if self.grip_catalog is not None else tr("controller.esa_mano_no_es_del_catalogo")
         if what == "grip_hand":
             if self.grip is None:
                 return tr("controller.primero_taladra_una_mano_estandar_stl")

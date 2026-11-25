@@ -1059,7 +1059,10 @@
   "la_eleccion_del_plano_o_del_centro_cambio": "El plano o el centro cambió: volvé a taladrar para guardar la mano.",
   "calculando_el_taladro_del_agarre": "Calculando el taladro del agarre…",
   "previsualizacion_agarre_manual_lista": "Previsualización del agarre lista (pared mínima %{wall} mm, largo del canal %{length} mm).",
-  "taladro_manual_bore_d_mm": "Taladro Ø%{bore_d} mm · largo %{length} mm · pared mín. %{wall_min} mm · el dentado apoya en ≈ %{support_deg}° del contorno"
+  "taladro_manual_bore_d_mm": "Taladro Ø%{bore_d} mm · largo %{length} mm · pared mín. %{wall_min} mm · el dentado apoya en ≈ %{support_deg}° del contorno",
+  "mano_guardada_en_el_catalogo": "Mano con agarre guardada en el catálogo como %{ref} (versión nueva de %{from_ref}). Las armas y el armado la usan desde ahí.",
+  "no_se_pudo_guardar_la_mano_en_el_catalogo": "No se pudo guardar la mano en el catálogo: %{e}",
+  "esa_mano_no_es_del_catalogo": "Esa mano salió de un STL suelto, no de una mano del catálogo: guardala como archivo o taladrá la mano del catálogo."
  },
  "figure_builder": {
   "sin_soportes_resumen": "Sin soportes: corte a %{corte} mm sobre la cola; brazos girados hacia adelante: %{giro}",
@@ -1824,7 +1827,7 @@
   "corta_la_cabeza_con_un_plano": "Corta la cabeza con un plano horizontal (paralelo al piso de la figura) en vez de elegir 3 puntos. Se traslada en paralelo con «Altura sobre el piso», con un clic sobre la figura o con ↑ ↓.",
   "altura_sobre_el_piso_mm": "Altura sobre el piso (mm)",
   "traslada_el_plano_de_corte_en_paralelo": "Traslada el plano de corte en paralelo al piso. También: clic sobre la figura o flechas ↑ ↓ (Mayús = 1 mm) con la herramienta activa.",
-  "ver_la_mano_estandar_sobre_el_mango": "Ver la mano estándar sobre el mango",
+  "ver_la_mano_estandar_sobre_el_mango": "Ver la mano con agarre sobre el mango",
   "el_canal_es_una_de_las": "Canal: la mano tiene hasta 4 direcciones posibles para el agujero; el 1 es el de paredes más gruesas (el de siempre). La inclinación fina llega a ±15° y se rechaza si el anillo queda con menos pared que el mínimo.",
   "previsualizar_el_agarre_sin_taladrar": "Previsualizar el agarre sin taladrar (en la mano pegada)",
   "agarre_elegir_plano": "1) Elegir el plano (3 puntos sobre la mano)",
@@ -1833,7 +1836,8 @@
   "agarre_quitar_final": "Quitar el desplazamiento del final",
   "agarre_borrar": "Borrar la elección (plano y centro)",
   "agarre_ayuda_manual": "Se elige a mano: 1) tres puntos sobre la mano fijan el plano de la empuñadura (la cara de entrada, igual que el plano de un arma); 2) un clic marca el centro del círculo sobre ese plano, de donde sale el cilindro que se resta de la mano; 3) opcional: el centro puede desplazarse al final de la mano (el eje se inclina). Hace falta «Previsualizar el agarre» para ver la mano y elegir.",
-  "agarre_nada_que_quitar": "No hay nada que quitar."
+  "agarre_nada_que_quitar": "No hay nada que quitar.",
+  "guardar_la_mano_en_el_catalogo": "Guardar la mano taladrada en el catálogo"
  },
  "rail": {
   "salta_al_primer_paso_que_todavia": "Salta al primer paso que todavía pide algo (○ falta · ⚠ revisar · ⟳ desactualizado · ▶ listo para generar).",

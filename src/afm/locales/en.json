@@ -1059,7 +1059,10 @@
   "la_eleccion_del_plano_o_del_centro_cambio": "The plane or center changed: drill again to save the hand.",
   "calculando_el_taladro_del_agarre": "Computing the grip bore…",
   "previsualizacion_agarre_manual_lista": "Grip preview ready (minimum wall %{wall} mm, channel length %{length} mm).",
-  "taladro_manual_bore_d_mm": "Bore Ø%{bore_d} mm · length %{length} mm · min. wall %{wall_min} mm · the teeth rest at ≈ %{support_deg}° of the contour"
+  "taladro_manual_bore_d_mm": "Bore Ø%{bore_d} mm · length %{length} mm · min. wall %{wall_min} mm · the teeth rest at ≈ %{support_deg}° of the contour",
+  "mano_guardada_en_el_catalogo": "Hand with grip saved to the catalog as %{ref} (new version of %{from_ref}). Weapons and assembly use it from there.",
+  "no_se_pudo_guardar_la_mano_en_el_catalogo": "Could not save the hand to the catalog: %{e}",
+  "esa_mano_no_es_del_catalogo": "That hand came from a loose STL, not from a catalog hand: save it as a file or drill the catalog hand."
  },
  "figure_builder": {
   "sin_soportes_resumen": "No supports: cut %{corte} mm above the tail; arms rotated forward: %{giro}",
@@ -1824,7 +1827,7 @@
   "corta_la_cabeza_con_un_plano": "Cuts the head with a horizontal plane (parallel to the figure’s floor) instead of picking 3 points. It moves in parallel with “Height above the floor”, with a click on the figure or with ↑ ↓.",
   "altura_sobre_el_piso_mm": "Height above the floor (mm)",
   "traslada_el_plano_de_corte_en_paralelo": "Moves the cut plane parallel to the floor. Also: click on the figure or ↑ ↓ arrows (Shift = 1 mm) with the tool active.",
-  "ver_la_mano_estandar_sobre_el_mango": "Show the standard hand on the handle",
+  "ver_la_mano_estandar_sobre_el_mango": "Show the hand with grip on the handle",
   "el_canal_es_una_de_las": "Channel: the hand has up to 4 possible hole directions; 1 is the one with the thickest walls (the usual one). The fine tilt goes up to ±15° and is rejected if the ring is left thinner than the minimum wall.",
   "previsualizar_el_agarre_sin_taladrar": "Preview the grip without boring (on the attached hand)",
   "agarre_elegir_plano": "1) Pick the plane (3 points on the hand)",
@@ -1833,7 +1836,8 @@
   "agarre_quitar_final": "Remove the far-end offset",
   "agarre_borrar": "Clear the selection (plane and center)",
   "agarre_ayuda_manual": "Chosen by hand: 1) three points on the hand set the grip plane (the entry face, like a weapon's plane); 2) one click marks the circle center on that plane, where the cylinder subtracted from the hand starts; 3) optional: the center can be moved to the far end of the hand (the axis tilts). “Preview the grip” must be on to see the hand and pick.",
-  "agarre_nada_que_quitar": "Nothing to remove."
+  "agarre_nada_que_quitar": "Nothing to remove.",
+  "guardar_la_mano_en_el_catalogo": "Save the drilled hand to the catalog"
  },
  "rail": {
   "salta_al_primer_paso_que_todavia": "Jumps to the first step that still asks for something (○ missing · ⚠ review · ⟳ out of date · ▶ ready to generate).",

@@ -1059,7 +1059,10 @@
   "la_eleccion_del_plano_o_del_centro_cambio": "O plano ou o centro mudou: fure de novo para salvar a mão.",
   "calculando_el_taladro_del_agarre": "Calculando o furo da empunhadura…",
   "previsualizacion_agarre_manual_lista": "Pré-visualização da empunhadura pronta (parede mínima %{wall} mm, comprimento do canal %{length} mm).",
-  "taladro_manual_bore_d_mm": "Furo Ø%{bore_d} mm · comprimento %{length} mm · parede mín. %{wall_min} mm · o dentado apoia em ≈ %{support_deg}° do contorno"
+  "taladro_manual_bore_d_mm": "Furo Ø%{bore_d} mm · comprimento %{length} mm · parede mín. %{wall_min} mm · o dentado apoia em ≈ %{support_deg}° do contorno",
+  "mano_guardada_en_el_catalogo": "Mão com pegada salva no catálogo como %{ref} (nova versão de %{from_ref}). As armas e a montagem a usam a partir daí.",
+  "no_se_pudo_guardar_la_mano_en_el_catalogo": "Não foi possível salvar a mão no catálogo: %{e}",
+  "esa_mano_no_es_del_catalogo": "Essa mão veio de um STL solto, não de uma mão do catálogo: salve-a como arquivo ou fure a mão do catálogo."
  },
  "figure_builder": {
   "sin_soportes_resumen": "Sem suportes: corte a %{corte} mm sobre a cauda; braços girados para frente: %{giro}",
@@ -1824,7 +1827,7 @@
   "corta_la_cabeza_con_un_plano": "Corta a cabeça com um plano horizontal (paralelo ao piso da figura) em vez de escolher 3 pontos. Desloca-se em paralelo com “Altura sobre o piso”, com um clique na figura ou com ↑ ↓.",
   "altura_sobre_el_piso_mm": "Altura sobre o piso (mm)",
   "traslada_el_plano_de_corte_en_paralelo": "Desloca o plano de corte em paralelo ao piso. Também: clique na figura ou setas ↑ ↓ (Shift = 1 mm) com a ferramenta ativa.",
-  "ver_la_mano_estandar_sobre_el_mango": "Mostrar a mão padrão no cabo",
+  "ver_la_mano_estandar_sobre_el_mango": "Ver a mão com pegada sobre o cabo",
   "el_canal_es_una_de_las": "Canal: a mão tem até 4 direções possíveis para o furo; o 1 é o de paredes mais grossas (o de sempre). A inclinação fina vai até ±15° e é rejeitada se o anel ficar com menos parede que o mínimo.",
   "previsualizar_el_agarre_sin_taladrar": "Pré-visualizar a pegada sem furar (na mão colada)",
   "agarre_elegir_plano": "1) Escolher o plano (3 pontos na mão)",
@@ -1833,7 +1836,8 @@
   "agarre_quitar_final": "Remover o deslocamento do fim",
   "agarre_borrar": "Apagar a escolha (plano e centro)",
   "agarre_ayuda_manual": "Escolha manual: 1) três pontos na mão fixam o plano da empunhadura (a face de entrada, como o plano de uma arma); 2) um clique marca o centro do círculo nesse plano, de onde sai o cilindro subtraído da mão; 3) opcional: o centro pode ser deslocado para o fim da mão (o eixo se inclina). É preciso ativar «Pré-visualizar a empunhadura» para ver a mão e escolher.",
-  "agarre_nada_que_quitar": "Nada a remover."
+  "agarre_nada_que_quitar": "Nada a remover.",
+  "guardar_la_mano_en_el_catalogo": "Salvar a mão furada no catálogo"
  },
  "rail": {
   "salta_al_primer_paso_que_todavia": "Salta para o primeiro passo que ainda pede algo (○ falta · ⚠ revisar · ⟳ desatualizado · ▶ pronto para gerar).",

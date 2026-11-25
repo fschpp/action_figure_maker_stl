@@ -87,3 +87,39 @@ def test_la_consola(cat_lisa, capsys):
     assert main(["catalogo", "taladrar-mano", cat_lisa.root, "--mano", "mano-lisa-01@1", "--taladro", "2.4"]) == 0
     assert "mano-lisa-01@2" in capsys.readouterr().out
     assert main(["catalogo", "taladrar-mano", cat_lisa.root, "--mano", "no-existe-01"]) == 2
+
+
+def test_guarda_en_el_catalogo_una_mano_ya_taladrada_con_la_eleccion_manual(cat_lisa, tmp_path):
+    """La mano taladrada en la pestaña «Planos» (plano y centro a mano) vuelve al catálogo como versión nueva de la misma pieza."""
+    from afm import props as P
+
+    old, mesh = cat_lisa.load("mano-lisa-01@1")
+    stl = tmp_path / "mano.stl"
+    mesh.export(str(stl))
+    res = _fake_compute_grip(str(stl), P.GripSpec(bore_d=5.0))
+    res.meta["agarre"]["eleccion"] = {"manual": {"puntos_plano": [[0, 0, 0], [1, 0, 0], [0, 1, 0]], "centro": [0, 0, 3]}}
+    meta, warns = P.save_grip_to_catalog(cat_lisa, "mano-lisa-01@1", res)
+    assert meta.ref == "mano-lisa-01@2" and cat_lisa.versions("mano-lisa-01") == [1, 2]
+    new = Catalog.open(cat_lisa.root).meta("mano-lisa-01@2")
+    assert new.mecanismo["agarre"]["diametro_taladro_mm"] == pytest.approx(5.0)
+    assert new.nombre == old.nombre and "mano-lisa-01@1" in new.origen["nota"]
+    from afm import weapon as W
+
+    assert W.line_hand(Catalog.open(cat_lisa.root)).ref == "mano-lisa-01@2"        # las armas toman la versión nueva
+
+
+def test_el_boton_guarda_la_mano_del_catalogo_taladrada_en_la_sesion(cat_lisa, tmp_path):
+    from afm import props as P
+    from afm.gui.controller import Controller
+
+    _old, mesh = cat_lisa.load("mano-lisa-01@1")
+    stl = tmp_path / "mano.stl"
+    mesh.export(str(stl))
+    ctrl = Controller()
+    assert ctrl.blocked("grip_catalog")                                   # sin taladro hecho no se puede guardar
+    ctrl.grip = _fake_compute_grip(str(stl), ctrl.grip_spec)
+    assert ctrl.blocked("grip_catalog")                                   # salió de un STL suelto: no hay mano del catálogo a la que volver
+    ctrl.grip_catalog = (cat_lisa.root, "mano-lisa-01@1")
+    assert ctrl.blocked("grip_catalog") is None
+    assert ctrl.save_grip_catalog() and cat_lisa.versions("mano-lisa-01") == [1, 2]
+    assert P.GripSpec  # noqa: B015
