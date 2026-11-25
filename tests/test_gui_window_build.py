@@ -220,7 +220,8 @@ def test_trim_size_row_follows_shape_and_profile_is_first_in_params():
                 return p
             res["profile_before_params"] = None
             page = win.tabs.get_nth_page(5)
-            box = page.get_child().get_child()
+            sc = page.get_last_child()                         # la página lleva el diagrama fijo arriba y, debajo, el scroll
+            box = sc.get_child().get_child()
             kids = []
             c = box.get_first_child()
             while c is not None:

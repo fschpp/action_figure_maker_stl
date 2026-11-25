@@ -66,6 +66,9 @@ _CSS = b"""
             border-radius: 4px; padding: 6px 8px; }
 .afm-banner { background: alpha(#f5c211, 0.30); padding: 6px 10px; border-bottom: 1px solid alpha(currentColor, 0.2); }
 .afm-modified { font-weight: 700; }
+.afm-diagram { border: 1px solid alpha(currentColor, 0.25); border-radius: 6px; margin: 6px 10px 0 10px; padding: 4px 8px; }
+.afm-param-group { border: 1px solid alpha(currentColor, 0.2); border-radius: 6px; padding: 0 6px; }
+.afm-param-group > title { padding: 2px 0; }
 .afm-help-icon { opacity: 0.75; }
 .afm-help-text { font-size: 0.9em; opacity: 0.9; }
 .afm-task { font-weight: 600; }
@@ -458,14 +461,19 @@ class MainWindow(Gtk.ApplicationWindow):
             self.lbl_jprev.set_text(ctrl.no_joint_text() if ctrl.loaded and ctrl.session.catalog_only()
                                     else tr("window.agrega_la_rodilla_o_el_codo"))
 
-    def _tab_page(self, title: str) -> Gtk.Box:
-        """Agrega una pestaña con scroll propio y devuelve la caja donde van sus secciones."""
+    def _tab_page(self, title: str, header: Gtk.Widget | None = None) -> Gtk.Box:
+        """Agrega una pestaña con scroll propio y devuelve la caja donde van sus secciones. `header` queda fijo sobre el scroll."""
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         for side in ("start", "end", "top", "bottom"):
             getattr(box, f"set_margin_{side}")(10)
         scroller = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, vexpand=True)
         scroller.set_child(box)
-        self.tabs.append_page(scroller, Gtk.Label(label=title))
+        page: Gtk.Widget = scroller
+        if header is not None:
+            page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+            page.append(header)
+            page.append(scroller)
+        self.tabs.append_page(page, Gtk.Label(label=title))
         return box
 
     def _tab_for_mode(self) -> int | None:
@@ -525,6 +533,10 @@ class MainWindow(Gtk.ApplicationWindow):
         lbl = Gtk.Label(label=short, xalign=0, hexpand=True, wrap=True)
         if hint:
             lbl.set_tooltip_text(hint)
+        click = Gtk.GestureClick()                                          # clic en la etiqueta: el diagrama anima el parámetro
+        click.connect("pressed", lambda *_, k=key: self.param_diagram.animate(k))
+        lbl.add_controller(click)
+        lbl.set_cursor_from_name("pointer")
         row.append(lbl)
         reset = Gtk.Button(icon_name="document-revert-symbolic", visible=False, valign=Gtk.Align.CENTER)
         reset.add_css_class("flat")
@@ -532,6 +544,7 @@ class MainWindow(Gtk.ApplicationWindow):
         row.append(reset)
         if PM.is_boolean(key):
             sw = Gtk.Switch(valign=Gtk.Align.CENTER)
+            self._diagram_on_focus(sw, key)
             sw.set_active(self.ctrl.get_param(key) >= 0.5)
             sw.connect("notify::active", lambda w, _p, k=key: None if self._updating else self.ctrl.set_param(k, 1.0 if w.get_active() else 0.0))
             row.append(sw)
@@ -539,12 +552,21 @@ class MainWindow(Gtk.ApplicationWindow):
         else:
             spin = Gtk.SpinButton.new_with_range(lo, hi, step)
             spin.set_digits(digits)
+            spin.set_width_chars(6)
+            self.param_size_group.add_widget(spin)                          # todos los campos con el mismo ancho, como en un cuadro CAD
+            self._diagram_on_focus(spin, key)
             spin.set_value(self.ctrl.get_param(key))
             spin.connect("value-changed", lambda b, k=key: None if self._updating else self.ctrl.set_param(k, b.get_value()))
             row.append(spin)
             self.param_spins[key] = spin
         self.param_rows[key] = {"row": row, "label": lbl, "reset": reset, "text": label}
         return row
+
+    def _diagram_on_focus(self, widget: Gtk.Widget, key: str) -> None:
+        """Al enfocar el control de un parámetro el diagrama pasa a su escena y lo resalta."""
+        fc = Gtk.EventControllerFocus()
+        fc.connect("enter", lambda *_: self.param_diagram.set_active(key))
+        widget.add_controller(fc)
 
     def _sync_param_marks(self) -> None:
         """Marca en negrita los parámetros modificados, muestra su «restaurar» (con el valor por defecto) y el resumen."""
@@ -563,6 +585,8 @@ class MainWindow(Gtk.ApplicationWindow):
                 info["label"].remove_css_class("afm-modified")
         self.lbl_param_modified.set_text(tr("window.mods_modificado_s_respecto_de_los", mods=mods) if mods else tr("window.todos_con_su_valor_por_defecto"))
         self.btn_param_reset_all.set_sensitive(bool(mods) and not ctrl.busy)
+        if getattr(self, "param_diagram", None) is not None:
+            self.param_diagram.refresh()
 
     def _on_param_search(self, text: str) -> None:
         """Filtra las filas por palabras (sin mayúsculas ni acentos); mientras se busca, los grupos con resultados se abren."""

@@ -2397,5 +2397,29 @@
   "atraviesa_piso": "la punta atraviesa el piso %{mm} mm",
   "punta_cerca_piso": "la punta queda a solo %{mm} mm del piso: roza o arrastra",
   "choca_miembro": "choca con «%{pieza}» (%{mm3} mm³ en común)"
+ },
+ "diagrama": {
+  "t_pasador_hombro": "Pasador de hombro (corte por el eje)",
+  "t_pasador_cadera": "Pasador de cadera (corte por el eje)",
+  "t_pasador_cintura": "Pasador de cintura (corte por el eje)",
+  "t_pasador_mano": "Pasador de mano (corte por el eje)",
+  "t_cara": "Cara de contacto cuerpo / miembro",
+  "t_sentada": "Pose sentada (vista de costado)",
+  "t_angulo_impresion": "Ángulo de impresión del clic",
+  "t_espejo": "Torso espejado (vista de frente)",
+  "t_sin_soportes": "Corte contra la cama (sin soportes)",
+  "t_giro_cintura": "Giro de la cintura (vista desde arriba)",
+  "t_disco_clic": "Disco del clic",
+  "t_lengueta_clic": "Lengüeta del clic",
+  "t_bisagra_cara": "Bisagra (vista a lo largo del eje)",
+  "t_bisagra_corte": "Bisagra (corte por el eje)",
+  "p_cuerpo": "cuerpo",
+  "p_pared": "pared",
+  "p_pasador": "pasador",
+  "clic_apagado": "clic apagado",
+  "espejo": "espejo",
+  "propio": "propio",
+  "cuello": "cuello",
+  "disco": "disco"
  }
 }

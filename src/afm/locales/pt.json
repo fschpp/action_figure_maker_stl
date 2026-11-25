@@ -2397,5 +2397,29 @@
   "atraviesa_piso": "a ponta atravessa o chão %{mm} mm",
   "punta_cerca_piso": "a ponta fica a apenas %{mm} mm do chão: raspa ou arrasta",
   "choca_miembro": "colide com «%{pieza}» (%{mm3} mm³ em comum)"
+ },
+ "diagrama": {
+  "t_pasador_hombro": "Pino do ombro (corte pelo eixo)",
+  "t_pasador_cadera": "Pino do quadril (corte pelo eixo)",
+  "t_pasador_cintura": "Pino da cintura (corte pelo eixo)",
+  "t_pasador_mano": "Pino da mão (corte pelo eixo)",
+  "t_cara": "Face de contato corpo / membro",
+  "t_sentada": "Pose sentada (vista lateral)",
+  "t_angulo_impresion": "Ângulo de impressão do clique",
+  "t_espejo": "Tronco espelhado (vista frontal)",
+  "t_sin_soportes": "Corte contra a mesa (sem suportes)",
+  "t_giro_cintura": "Giro da cintura (vista de cima)",
+  "t_disco_clic": "Disco do clique",
+  "t_lengueta_clic": "Lingueta do clique",
+  "t_bisagra_cara": "Dobradiça (ao longo do eixo)",
+  "t_bisagra_corte": "Dobradiça (corte pelo eixo)",
+  "p_cuerpo": "corpo",
+  "p_pared": "parede",
+  "p_pasador": "pino",
+  "clic_apagado": "clique desligado",
+  "espejo": "espelho",
+  "propio": "próprio",
+  "cuello": "pescoço",
+  "disco": "disco"
  }
 }

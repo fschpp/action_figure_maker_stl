@@ -2397,5 +2397,29 @@
   "atraviesa_piso": "the tip goes through the floor by %{mm} mm",
   "punta_cerca_piso": "the tip is only %{mm} mm from the floor: it scrapes or drags",
   "choca_miembro": "it collides with «%{pieza}» (%{mm3} mm³ in common)"
+ },
+ "diagrama": {
+  "t_pasador_hombro": "Shoulder pin (axial section)",
+  "t_pasador_cadera": "Hip pin (axial section)",
+  "t_pasador_cintura": "Waist pin (axial section)",
+  "t_pasador_mano": "Hand pin (axial section)",
+  "t_cara": "Body / limb contact face",
+  "t_sentada": "Sitting pose (side view)",
+  "t_angulo_impresion": "Click print angle",
+  "t_espejo": "Mirrored torso (front view)",
+  "t_sin_soportes": "Cut against the bed (no supports)",
+  "t_giro_cintura": "Waist twist (top view)",
+  "t_disco_clic": "Click disc",
+  "t_lengueta_clic": "Click finger",
+  "t_bisagra_cara": "Hinge (along the axis)",
+  "t_bisagra_corte": "Hinge (axial section)",
+  "p_cuerpo": "body",
+  "p_pared": "wall",
+  "p_pasador": "pin",
+  "clic_apagado": "click off",
+  "espejo": "mirror",
+  "propio": "own",
+  "cuello": "neck",
+  "disco": "disc"
  }
 }

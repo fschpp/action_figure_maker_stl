@@ -9,6 +9,7 @@ from gi.repository import Gtk  # noqa: E402
 
 from .. import param_meta as PM
 from ..controller import Controller, JOINT_PREVIEW_FLEX_MAX, JOINT_PREVIEW_FLEX_MIN, PARAM_FIELDS
+from ..param_diagram_view import ParamDiagramView
 from ..session import Session
 from ..widgets import collapsible as _collapsible
 from ..widgets import help_note as _help
@@ -16,7 +17,9 @@ from ..widgets import help_note as _help
 
 def build(win) -> None:
     """Agrega la pestaña «Parámetros» a `win.tabs` (win = la `MainWindow`)."""
-    box = win._tab_page(tr("common.parametros"))
+    win.param_size_group = Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL)
+    win.param_diagram = ParamDiagramView(win.ctrl.get_param)             # cabecera fija con el dibujo acotado del parámetro activo
+    box = win._tab_page(tr("common.parametros"), header=win.param_diagram)
     sec = _collapsible(box, tr("parametros.altura_de_la_figura"))
     row = Gtk.Box(spacing=6)
     lbl = Gtk.Label(label=tr("parametros.pies_coronilla_mm"), xalign=0, hexpand=True)
@@ -63,6 +66,7 @@ def build(win) -> None:
         expanded = name == PM.PARAM_GROUPS[0]
         groups[name] = _collapsible(sec, loc(name), expanded=expanded, sub=True)
         win.param_group_exp[name] = (groups[name].get_parent(), expanded)
+        groups[name].get_parent().add_css_class("afm-param-group")
     win.param_spins: dict[str, object] = {}
     win.param_rows: dict[str, dict] = {}
     for key, label, lo, hi, step, digits in PARAM_FIELDS:
