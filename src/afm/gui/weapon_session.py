@@ -29,8 +29,6 @@ class WeaponSession:
         self._scaled: trimesh.Trimesh | None = None
         self.hand_sim_error: str = ""                      # por qué no se pudo simular el arma en la mano
         self._fit_cache: tuple | None = None              # (clave, HandSim | mensaje de error): la simulación en la mano estándar
-        self._hand_assets_cache: tuple | None = None      # (ficha, malla, GripFit) de la mano de la línea (se carga una vez por mano)
-        self._view_cache = None                           # `weapon_grip_view.GripView` del armado actual
 
     # ------------------------------------------------------------ catálogo y carga
     def set_catalog(self, root: str, hand_ref: str | None = None) -> None:
@@ -41,7 +39,6 @@ class WeaponSession:
             raise W.WeaponError(tr("weapon_session.no_se_pudo_abrir_el_catalogo", root=root, exc=exc)) from exc
         self.hand = W.line_hand(cat, hand_ref)            # WeaponError si no hay ninguna mano con agarre
         self.catalog = cat
-        self._hand_assets_cache = None
         self._rebuild()
 
     @property
@@ -105,7 +102,6 @@ class WeaponSession:
     def _rebuild(self) -> None:
         self.build, self.error = None, ""
         self._fit_cache = None
-        self._view_cache = None
         if self.raw is None or self.spec is None:
             return
         if len(self.spec.cut_points) != 3:
@@ -153,7 +149,7 @@ class WeaponSession:
             return None
         if self._fit_cache is None:
             try:
-                _meta, hand_mesh, fit = self._hand_assets()
+                _meta, hand_mesh, fit = WF.load_hand_with_grip(self.catalog, self.hand.ref)
                 sim = WF.simulate_in_hand(S.to_printable_trimesh(self.build.mesh), hand_mesh, fit, self.catalog.height_mm)
                 self._fit_cache = (sim, "")
             except (WF.FitError, W.WeaponError) as exc:
@@ -168,39 +164,10 @@ class WeaponSession:
         sim = self.hand_sim()
         if sim is None:
             return None
-        _meta, hand_mesh, _fit = self._hand_assets()
-        return hand_mesh, sim.weapon
-
-    def _hand_assets(self):
-        """(ficha, malla local, `GripFit`) de la mano con agarre de la línea; se carga una vez."""
         from .. import weapon_fit as WF
 
-        if self._hand_assets_cache is None:
-            self._hand_assets_cache = WF.load_hand_with_grip(self.catalog, self.hand.ref)
-        return self._hand_assets_cache
-
-    def grip_view(self):
-        """El dibujo de la mano agarrando el arma (`weapon_grip_view.GripView`): con arma armada, con el arma en el puño; sin ella,
-        el puño vacío a la espera. None si todavía no hay catálogo con una mano con agarre. Se calcula una vez por armado: el mismo
-        objeto mientras nada cambie (la ventana lo compara por identidad para decidir si redibuja)."""
-        if self.catalog is None or self.hand is None:
-            return None
-        if self._view_cache is None:
-            from . import weapon_grip_view as GV
-            from .weapon_sim import hand_lines
-
-            try:
-                _meta, hand_mesh, fit = self._hand_assets()
-            except Exception:                             # noqa: BLE001 — sin la mano no hay dibujo, pero la ventana sigue
-                return None
-            sim = self.hand_sim() if self.build is not None else None
-            warns = len(self.build.info["avisos"]) if self.build is not None else 0
-            if sim is not None:
-                tip = "\n".join(hand_lines(sim) + [tr("common.aviso_w", w=w) for w in self.build.info["avisos"]])
-            else:
-                tip = self.error or self.hand_sim_error
-            self._view_cache = GV.build_view(hand_mesh, fit, sim, warns, tip)
-        return self._view_cache
+        _meta, hand_mesh, _fit = WF.load_hand_with_grip(self.catalog, self.hand.ref)
+        return hand_mesh, sim.weapon
 
     def summary(self) -> str:
         if self.raw is None:
