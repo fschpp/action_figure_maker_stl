@@ -2094,7 +2094,9 @@
   "usar_la_del_catalogo": "Usar a do catálogo",
   "agarre_plano_de_la_empunadura": "plano da empunhadura",
   "agarre_centro_del_taladro": "centro do furo",
-  "agarre_centro_al_final": "centro no fim da mão"
+  "agarre_centro_al_final": "centro no fim da mão",
+  "agarre_aviso_titulo": "Aviso: o furo não cumpre as medidas recomendadas",
+  "agarre_aviso_sigue": "Continuando com a sua escolha manual: o que você vê na tela prevalece sobre a medição automática. Confira o resultado antes de imprimir."
  },
  "color": {
   "ayuda_desde": "FBX com a textura de cor da mesma figura (modo B): além dos STL, grava piezas_color/ (OBJ+MTL+PNG por peça) e <nome>_ensamblada.glb. Os STL não mudam",

@@ -2672,11 +2672,20 @@ class MainWindow(Gtk.ApplicationWindow):
             ctrl.finish_grip_preview(res, err)
             if err is not None:
                 self._error(err)
-            elif ctrl.grip_preview_stale:                          # se cambió la elección mientras se calculaba
-                self._grip_preview_soon()
+            else:
+                self._show_grip_warning()
+                if ctrl.grip_preview_stale:                        # se cambió la elección mientras se calculaba
+                    self._grip_preview_soon()
 
         self._run_task(tr("window.previsualizando_el_agarre"), job, done, tr("window.agarre_previsualizado"))
         return False
+
+    def _show_grip_warning(self) -> None:
+        """Elección manual que rompe el anillo o deja la pared fina: se avisa y se sigue igual (lo que el usuario ve manda)."""
+        txt = self.ctrl.pop_grip_warning()
+        if txt:
+            Gtk.AlertDialog(message=tr("window.agarre_aviso_titulo"), detail=txt + "\n\n" + tr("window.agarre_aviso_sigue"),
+                            buttons=[tr("common.cerrar")], default_button=0).show(self)
 
     def _grip_task(self, path: str) -> None:
         """Busca el canal y taladra la mano en un hilo (tarda hasta un minuto y la interfaz no debe congelarse)."""
@@ -2688,6 +2697,8 @@ class MainWindow(Gtk.ApplicationWindow):
             self.ctrl.finish_grip(res, err)
             if err is not None:
                 self._error(err)
+            else:
+                self._show_grip_warning()
 
         self._run_task(tr("window.taladrando_la_mano_estandar"), job, done, tr("window.mano_taladrada"))
 

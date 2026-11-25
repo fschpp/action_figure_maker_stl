@@ -98,3 +98,22 @@ def test_axis_aligned_bore_in_the_example_fist_is_not_reported_as_open():
     # los límites físicos siguen valiendo: un taladro demasiado ancho para el puño sí deja una pared fina o abre el anillo
     with pytest.raises(P.GripError):
         P.carve_grip(hand, P.GripSpec(bore_d=6.0), ch, require_cut=True)
+
+
+def test_manual_bore_that_opens_the_ring_warns_instead_of_failing():
+    """Elección manual: el usuario ve el taladro en pantalla y decide; el anillo abierto o la pared fina son un aviso, no un error."""
+    import os
+
+    path = os.path.join(os.path.dirname(__file__), "..", "catalogo", "ejemplo", "piezas", "mano", "mano-muneco-01@1.stl")
+    m = trimesh.load(path)
+    hand = S.to_manifold(m)
+    c0, (lo, hi) = m.centroid, m.bounds
+    top = float(hi[2])
+    pts = ((hi[0] - 0.5, c0[1], top), (c0[0], hi[1] - 0.5, top), (lo[0] + 0.5, c0[1], top))
+    ch = P.manual_channel(hand, P.ManualGrip(pts, (c0[0], c0[1], top)))
+    warns: list = []
+    out, fit = P.carve_grip(hand, P.GripSpec(bore_d=6.0), ch, require_cut=True, warnings=warns)
+    assert warns and out.volume() < hand.volume()
+    ok: list = []
+    P.carve_grip(hand, P.GripSpec(bore_d=2.4), ch, require_cut=True, warnings=ok)
+    assert ok == []                                                    # un taladro sano no avisa nada

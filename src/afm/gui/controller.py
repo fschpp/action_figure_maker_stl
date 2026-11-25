@@ -301,6 +301,8 @@ class Controller:
         self.grip_barbs: tuple[float, ...] = DEFAULT_BARBS
         self.grip_preview_on = False                 # previsualizar el agarre elegido en la mano pegada, sin taladrar ni guardar
         self._grip_preview: dict | None = None       # última previsualización: key, mano taladrada (local), ajuste, nº de canales, error
+        self.grip_pending_warning: str = ""              # aviso de una elección manual aceptada igual (anillo abierto, pared fina): la ventana lo muestra una vez
+        self._grip_warned_key = None
         self.grip_preview_catalog: tuple | None = None   # (raíz, ref) de la mano del catálogo a previsualizar cuando no hay mano pegada
         self._grip_cat_mesh: tuple | None = None         # (raíz, ref, malla) de esa mano sin taladrar, para mostrarla mientras se calcula
         self.grip_manual = None                      # props.ManualGrip: plano de 3 puntos + centro (+ centro al final), en el marco local de la mano
@@ -3363,6 +3365,8 @@ class Controller:
             self._changed(tr("controller.no_se_pudo_taladrar_la_mano", error=error), scene=False)
             return False
         self.grip = result
+        if getattr(result, "warnings", None):
+            self.grip_pending_warning = "\n".join(result.warnings)
         self._changed(self.grip_summary(), scene=False)
         return True
 
@@ -3548,8 +3552,9 @@ class Controller:
             try:
                 say(tr("controller.previsualizando_el_agarre"))
                 ch = manual_channel(hand, manual)
-                carved, fit = carve_grip(hand, spec, ch, require_cut=True)
-                out["hand"], out["fit"] = S.to_trimesh(carved), fit
+                warns: list = []                                  # elección manual: avisa y sigue, lo que se ve manda
+                carved, fit = carve_grip(hand, spec, ch, require_cut=True, warnings=warns)
+                out["hand"], out["fit"], out["warnings"] = S.to_trimesh(carved), fit, warns
                 out["prop_error"] = ""
                 try:                                          # la espada de prueba puede no caber con estos vástago/lengüeta/largo
                     from dataclasses import replace
@@ -3576,9 +3581,23 @@ class Controller:
             self._changed(tr("controller.no_se_puede_previsualizar_el_agarre", error=result["error"]), scene=True)
             return False
         f = result["fit"]
+        self._note_grip_warning(result.get("warnings"), result["key"])
         self._changed(tr("controller.previsualizacion_agarre_manual_lista", wall=f"{f.wall_min:.2f}", length=f"{f.length:.1f}")
                       + (" " + tr("controller.no_se_puede_dibujar_la_espada", grip_prop_error=result["prop_error"]) if result["prop_error"] else ""))
         return True
+
+    def _note_grip_warning(self, warnings, key) -> None:
+        """Deja pendiente el aviso de una elección manual aceptada igual; una sola vez por elección (no en cada recálculo)."""
+        if warnings and key != self._grip_warned_key:
+            self._grip_warned_key = key
+            self.grip_pending_warning = "\n".join(warnings)
+        elif not warnings:
+            self._grip_warned_key = None
+
+    def pop_grip_warning(self) -> str:
+        """Aviso pendiente para mostrar en un diálogo (y lo borra); "" si no hay."""
+        txt, self.grip_pending_warning = self.grip_pending_warning, ""
+        return txt
 
     def grip_preview_meshes(self, hfit):
         """(mano taladrada, espada de prueba) en el mundo para la previsualización vigente, o None si no hay una válida

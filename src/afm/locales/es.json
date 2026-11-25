@@ -2094,7 +2094,9 @@
   "usar_la_del_catalogo": "Usar la del catálogo",
   "agarre_plano_de_la_empunadura": "plano de la empuñadura",
   "agarre_centro_del_taladro": "centro del taladro",
-  "agarre_centro_al_final": "centro al final de la mano"
+  "agarre_centro_al_final": "centro al final de la mano",
+  "agarre_aviso_titulo": "Aviso: el taladro no cumple las medidas recomendadas",
+  "agarre_aviso_sigue": "Se continúa con tu elección manual: lo que ves en pantalla manda sobre la medición automática. Revisá el resultado antes de imprimir."
  },
  "color": {
   "ayuda_desde": "FBX con la textura de color de la misma figura (modo B): además de los STL, deja piezas_color/ (OBJ+MTL+PNG por pieza) y <nombre>_ensamblada.glb. Los STL no cambian",

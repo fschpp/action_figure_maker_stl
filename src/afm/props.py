@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 
 import numpy as np
 import trimesh
@@ -445,8 +445,11 @@ def _wall_min(img: np.ndarray, cell, pitch: float) -> float:
 
 
 def carve_grip(hand: S.Manifold, spec: GripSpec | None = None, channel: HandChannel | None = None,
-               pitch: float = 0.05, require_cut: bool = False) -> tuple[S.Manifold, GripFit]:
-    """Taladra la mano con un agujero recto de `spec.bore_d` por su canal natural y verifica el anillo restante."""
+               pitch: float = 0.05, require_cut: bool = False, warnings: list | None = None) -> tuple[S.Manifold, GripFit]:
+    """Taladra la mano con un agujero recto de `spec.bore_d` por su canal natural y verifica el anillo restante.
+
+    Con `warnings` (una lista) el anillo abierto y la pared fina no detienen el taladro: se agregan como avisos y se sigue. Es lo que usa la
+    elección manual (plano y centro marcados a ojo sobre la mano): lo que el usuario ve manda sobre la medición automática."""
     spec = spec or GripSpec()
     ch = channel or find_channel(hand, spec.bore_d)
     d, c = np.asarray(ch.axis, float), np.asarray(ch.center, float)
@@ -463,10 +466,16 @@ def carve_grip(hand: S.Manifold, spec: GripSpec | None = None, channel: HandChan
     cell = np.array([(c @ a - lo[0]) / pitch, (c @ b - lo[1]) / pitch])
     wall_min = _wall_min(img, cell, pitch)
     if wall_min <= 0.0:
-        raise GripError(f"el taladro de Ø{spec.bore_d:g} mm abre el anillo de material de la mano (ya no hay agujero cerrado)")
-    if wall_min < spec.min_wall:
-        raise GripError(f"con un taladro de Ø{spec.bore_d:g} mm el anillo de la mano queda con una pared de {wall_min:.2f} mm "
-                        f"(mínimo {spec.min_wall:g}): probá un diámetro menor")
+        msg = f"el taladro de Ø{spec.bore_d:g} mm abre el anillo de material de la mano (ya no hay agujero cerrado)"
+        if warnings is None:
+            raise GripError(msg)
+        warnings.append(msg)
+    elif wall_min < spec.min_wall:
+        msg = (f"con un taladro de Ø{spec.bore_d:g} mm el anillo de la mano queda con una pared de {wall_min:.2f} mm "
+               f"(mínimo {spec.min_wall:g}): probá un diámetro menor")
+        if warnings is None:
+            raise GripError(msg)
+        warnings.append(msg)
     rel = pts - c
     t = rel @ d
     q = rel - np.outer(t, d)
@@ -587,6 +596,7 @@ class GripResult:
     channel: HandChannel
     fit: GripFit
     spec: GripSpec
+    warnings: list = field(default_factory=list)    # avisos de una elección manual que se aceptó igual (anillo abierto, pared fina)
 
 
 MAX_TILT_DEG = 15.0          # inclinación fina máxima del eje respecto del canal elegido (la pared mínima la limita antes si hace falta)
@@ -624,14 +634,15 @@ def compute_grip(hand_path: str, spec: GripSpec | None = None, progress=None, ca
             except HandError as exc:
                 raise GripError(f"inclinar {inclinar:g}°: {exc}") from exc
     say(f"taladrando Ø{spec.bore_d:g} mm")
-    carved, fit = carve_grip(hand, spec, ch, require_cut=manual is not None)
+    warns: list = []
+    carved, fit = carve_grip(hand, spec, ch, require_cut=manual is not None, warnings=warns if manual is not None else None)
     meta = dict(meta or {"formato": H.HAND_FORMAT})
     meta["agarre"] = {**fit.to_dict(), "canal_natural_mm": round(ch.free_d, 3), "especificacion": asdict(spec)}
     if manual is not None:
         meta["agarre"]["eleccion"] = {"manual": manual.to_dict()}
     elif canal != 1 or inclinar:
         meta["agarre"]["eleccion"] = {"canal": canal, "inclinar_grados": inclinar, "azimut_grados": azimut}
-    return GripResult(source=hand_path, hand=carved, meta=meta, channel=ch, fit=fit, spec=spec)
+    return GripResult(source=hand_path, hand=carved, meta=meta, channel=ch, fit=fit, spec=spec, warnings=warns)
 
 
 def grip_variants(spec: GripSpec, barbs=DEFAULT_BARBS) -> list[dict]:

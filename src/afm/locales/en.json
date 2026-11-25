@@ -2094,7 +2094,9 @@
   "usar_la_del_catalogo": "Use the catalog's",
   "agarre_plano_de_la_empunadura": "grip plane",
   "agarre_centro_del_taladro": "bore center",
-  "agarre_centro_al_final": "center at the far end of the hand"
+  "agarre_centro_al_final": "center at the far end of the hand",
+  "agarre_aviso_titulo": "Warning: the bore does not meet the recommended measurements",
+  "agarre_aviso_sigue": "Continuing with your manual choice: what you see on screen takes precedence over the automatic measurement. Check the result before printing."
  },
  "color": {
   "ayuda_desde": "FBX with the colour texture of the same figure (mode B): besides the STLs it writes piezas_color/ (OBJ+MTL+PNG per part) and <name>_ensamblada.glb. The STLs do not change",
