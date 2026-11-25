@@ -1033,7 +1033,12 @@
   "inclinacion_fina_del_eje": "Fine axis tilt (°)",
   "hacia_que_lado_se_inclina": "Tilt direction (°)",
   "canal_n_inclinado_hacia": "Channel %{canal}, tilted %{inclinar}° toward %{azimut}°.",
-  "el_canal_o_la_inclinacion_cambio": "The channel or tilt changed: bore again to save the hand with that choice. Weapons already saved in the catalog go stale with a different axis."
+  "el_canal_o_la_inclinacion_cambio": "The channel or tilt changed: bore again to save the hand with that choice. Weapons already saved in the catalog go stale with a different axis.",
+  "para_previsualizar_el_agarre_pega_una_mano": "To preview the grip, first attach a replacement hand (STL) to the figure.",
+  "previsualizando_el_agarre": "Previewing the grip",
+  "buscando_canales_y_calculando_agarre": "Finding the hand's channels and computing the chosen grip… (channels are computed once per hand).",
+  "previsualizacion_agarre_lista": "Preview: channel %{canal} of %{n}, tilted %{inclinar}° toward %{azimut}° · minimum wall %{wall} mm · length %{length} mm. Nothing was bored or saved.",
+  "no_se_puede_previsualizar_el_agarre": "This grip cannot be previewed: %{error}"
  },
  "figure_builder": {
   "sin_soportes_resumen": "No supports: cut %{corte} mm above the tail; arms rotated forward: %{giro}",
@@ -1796,7 +1801,8 @@
   "altura_sobre_el_piso_mm": "Height above the floor (mm)",
   "traslada_el_plano_de_corte_en_paralelo": "Moves the cut plane parallel to the floor. Also: click on the figure or ↑ ↓ arrows (Shift = 1 mm) with the tool active.",
   "ver_la_mano_estandar_sobre_el_mango": "Show the standard hand on the handle",
-  "el_canal_es_una_de_las": "Channel: the hand has up to 4 possible hole directions; 1 is the one with the thickest walls (the usual one). The fine tilt goes up to ±15° and is rejected if the ring is left thinner than the minimum wall."
+  "el_canal_es_una_de_las": "Channel: the hand has up to 4 possible hole directions; 1 is the one with the thickest walls (the usual one). The fine tilt goes up to ±15° and is rejected if the ring is left thinner than the minimum wall.",
+  "previsualizar_el_agarre_sin_taladrar": "Preview the grip without boring (on the attached hand)"
  },
  "rail": {
   "salta_al_primer_paso_que_todavia": "Jumps to the first step that still asks for something (○ missing · ⚠ review · ⟳ out of date · ▶ ready to generate).",
@@ -2049,7 +2055,9 @@
   "dibuja_o_edita_la_3_a_silueta": "Draw or edit the 3rd outline: the top view. Use it when the limb overlaps another part in the side and front views",
   "quitar_la_3_a_silueta_de_name": "Remove the 3rd outline of “%{name}”",
   "editar_3_a_silueta": "Edit 3rd outline",
-  "dibujar_3_a_silueta": "Draw 3rd outline"
+  "dibujar_3_a_silueta": "Draw 3rd outline",
+  "previsualizando_el_agarre": "Previewing the grip",
+  "agarre_previsualizado": "Grip previewed"
  },
  "color": {
   "ayuda_desde": "FBX with the colour texture of the same figure (mode B): besides the STLs it writes piezas_color/ (OBJ+MTL+PNG per part) and <name>_ensamblada.glb. The STLs do not change",

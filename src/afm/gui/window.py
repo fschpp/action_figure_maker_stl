@@ -662,6 +662,10 @@ class MainWindow(Gtk.ApplicationWindow):
             for key, spin in self.grip_axis_spins.items():
                 if abs(spin.get_value() - getattr(ctrl, key)) > 1e-9:
                     spin.set_value(getattr(ctrl, key))
+            if self.chk_grip_preview.get_active() != ctrl.grip_preview_on:
+                self.chk_grip_preview.set_active(ctrl.grip_preview_on)
+            if ctrl.grip_preview_stale and not getattr(self, "_grip_pv_timer", 0):
+                self._grip_preview_soon()                          # cambió el canal, la inclinación, el Ø o la mano
             gate(self.btn_open, ctrl.blocked("open"))      # no se cambia de archivo en medio de una tarea
             has_sym = ctrl.session.project.symmetry is not None
             gate((self.btn_arm, self.btn_leg, self.btn_neck, self.btn_waist, self.btn_hand, self.btn_hand_stl),
@@ -2586,6 +2590,44 @@ class MainWindow(Gtk.ApplicationWindow):
 
     def _on_grip_pick(self, *_):
         self._pick_file(tr("window.mano_estandar_stl"), ["*.stl"], tr("window.archivos_stl"), self._grip_task)
+
+    def _on_grip_preview_toggled(self, btn) -> None:
+        if self._updating:
+            return
+        if not self.ctrl.set_grip_preview(btn.get_active()):
+            self._updating = True
+            btn.set_active(False)
+            self._updating = False
+            return
+        self._grip_preview_soon()
+
+    def _grip_preview_soon(self) -> None:
+        """Recalcula la previsualización poco después del último cambio (los controles se mueven en ráfaga)."""
+        if getattr(self, "_grip_pv_timer", 0):
+            GLib.source_remove(self._grip_pv_timer)
+        self._grip_pv_timer = GLib.timeout_add(500, self._grip_preview_run)
+
+    def _grip_preview_run(self) -> bool:
+        self._grip_pv_timer = 0
+        ctrl = self.ctrl
+        if not ctrl.grip_preview_stale:
+            return False
+        if ctrl.busy or self._task is not None:                  # otra tarea en curso: se reintenta cuando termine
+            self._grip_pv_timer = GLib.timeout_add(700, self._grip_preview_run)
+            return False
+        job = ctrl.begin_grip_preview()
+        if job is None:
+            return False
+
+        def done(res, err) -> None:
+            ctrl.finish_grip_preview(res, err)
+            if err is not None:
+                self._error(err)
+            elif ctrl.grip_preview_stale:                          # se cambió la elección mientras se calculaba
+                self._grip_preview_soon()
+
+        self._run_task(tr("window.previsualizando_el_agarre"), job, done, tr("window.agarre_previsualizado"))
+        return False
 
     def _grip_task(self, path: str) -> None:
         """Busca el canal y taladra la mano en un hilo (tarda hasta un minuto y la interfaz no debe congelarse)."""

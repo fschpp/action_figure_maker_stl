@@ -765,3 +765,39 @@ def test_grip_axis_choice_limits_and_stale(ctrl):
     ctrl.set_grip_axis("grip_channel", 1)
     ctrl.set_grip_axis("grip_tilt", 0.0)
     assert not ctrl.grip_axis_stale
+
+
+def test_grip_preview_runs_without_drilling(ctrl, tmp_path, monkeypatch):
+    """La previsualización calcula el taladro en memoria con la elección vigente; no escribe nada y se invalida al cambiarla."""
+    from afm import hand as H
+    from afm import props as P
+    from tests.test_props import _ch, _ring
+
+    hand, _ = _ring()
+    path = str(tmp_path / "mano.stl")
+    H.save_standard_hand(path, hand, {"formato": H.HAND_FORMAT})
+    before = sorted(p.name for p in tmp_path.iterdir())
+    loaded_hand, _meta = H.load_standard_hand(path)
+    monkeypatch.setattr(P, "find_channel_options", lambda h, bore, **k: [_ch(loaded_hand, bore)])
+    ctrl.session.project.hand = H.HandSpec(path=path)
+
+    assert not ctrl.grip_preview_stale                      # apagada: nada que recalcular
+    assert ctrl.set_grip_preview(True) and ctrl.grip_preview_stale
+    job = ctrl.begin_grip_preview()
+    res = job()
+    ctrl.finish_grip_preview(res)
+    assert not res["error"], res["error"]
+    assert res["fit"].wall_min >= ctrl.grip_spec.min_wall if hasattr(ctrl.grip_spec, "min_wall") else res["fit"].wall_min > 0
+    assert not ctrl.grip_preview_stale and not ctrl.busy
+    meshes = ctrl.grip_preview_meshes({"matrix": np.eye(4)})          # mano taladrada + espada de prueba, en el mundo
+    assert meshes is not None and meshes[0].is_watertight
+    assert (meshes[1] is None) == bool(res["prop_error"])             # sin espada solo si no cabe, y entonces se avisa
+    assert "prop_error" in res
+    assert sorted(p.name for p in tmp_path.iterdir()) == before          # nada guardado
+    ctrl.set_grip_axis("grip_channel", 2)                    # elegir otro canal invalida lo calculado
+    assert ctrl.grip_preview_stale
+    res = ctrl.begin_grip_preview()()
+    assert "solo tiene 1 canales" in res["error"]
+    ctrl.finish_grip_preview(res)
+    assert not ctrl.grip_preview_stale                       # con error y la misma clave no se reintenta en bucle
+    assert ctrl.set_grip_preview(False)

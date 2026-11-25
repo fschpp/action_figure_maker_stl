@@ -1033,7 +1033,12 @@
   "inclinacion_fina_del_eje": "Inclinação fina do eixo (°)",
   "hacia_que_lado_se_inclina": "Para que lado inclina (°)",
   "canal_n_inclinado_hacia": "Canal %{canal}, inclinado %{inclinar}° para %{azimut}°.",
-  "el_canal_o_la_inclinacion_cambio": "O canal ou a inclinação mudaram: fure de novo para salvar a mão com essa escolha. As armas já salvas no catálogo ficam antigas com outro eixo."
+  "el_canal_o_la_inclinacion_cambio": "O canal ou a inclinação mudaram: fure de novo para salvar a mão com essa escolha. As armas já salvas no catálogo ficam antigas com outro eixo.",
+  "para_previsualizar_el_agarre_pega_una_mano": "Para pré-visualizar a pegada, cole primeiro uma mão de substituição (STL) na figura.",
+  "previsualizando_el_agarre": "Pré-visualizando a pegada",
+  "buscando_canales_y_calculando_agarre": "Procurando os canais da mão e calculando a pegada escolhida… (os canais são calculados uma vez por mão).",
+  "previsualizacion_agarre_lista": "Pré-visualização: canal %{canal} de %{n}, inclinado %{inclinar}° para %{azimut}° · parede mínima %{wall} mm · comprimento %{length} mm. Nada foi furado nem salvo.",
+  "no_se_puede_previsualizar_el_agarre": "Não dá para pré-visualizar essa pegada: %{error}"
  },
  "figure_builder": {
   "sin_soportes_resumen": "Sem suportes: corte a %{corte} mm sobre a cauda; braços girados para frente: %{giro}",
@@ -1796,7 +1801,8 @@
   "altura_sobre_el_piso_mm": "Altura sobre o piso (mm)",
   "traslada_el_plano_de_corte_en_paralelo": "Desloca o plano de corte em paralelo ao piso. Também: clique na figura ou setas ↑ ↓ (Shift = 1 mm) com a ferramenta ativa.",
   "ver_la_mano_estandar_sobre_el_mango": "Mostrar a mão padrão no cabo",
-  "el_canal_es_una_de_las": "Canal: a mão tem até 4 direções possíveis para o furo; o 1 é o de paredes mais grossas (o de sempre). A inclinação fina vai até ±15° e é rejeitada se o anel ficar com menos parede que o mínimo."
+  "el_canal_es_una_de_las": "Canal: a mão tem até 4 direções possíveis para o furo; o 1 é o de paredes mais grossas (o de sempre). A inclinação fina vai até ±15° e é rejeitada se o anel ficar com menos parede que o mínimo.",
+  "previsualizar_el_agarre_sin_taladrar": "Pré-visualizar a pegada sem furar (na mão colada)"
  },
  "rail": {
   "salta_al_primer_paso_que_todavia": "Salta para o primeiro passo que ainda pede algo (○ falta · ⚠ revisar · ⟳ desatualizado · ▶ pronto para gerar).",
@@ -2049,7 +2055,9 @@
   "dibuja_o_edita_la_3_a_silueta": "Desenha ou edita a 3.ª silhueta: a vista de cima. Serve quando o membro se sobrepõe a outra parte nas vistas lateral e frontal",
   "quitar_la_3_a_silueta_de_name": "Remover a 3.ª silhueta de “%{name}”",
   "editar_3_a_silueta": "Editar 3.ª silhueta",
-  "dibujar_3_a_silueta": "Desenhar 3.ª silhueta"
+  "dibujar_3_a_silueta": "Desenhar 3.ª silhueta",
+  "previsualizando_el_agarre": "Pré-visualizando a pegada",
+  "agarre_previsualizado": "Pegada pré-visualizada"
  },
  "color": {
   "ayuda_desde": "FBX com a textura de cor da mesma figura (modo B): além dos STL, grava piezas_color/ (OBJ+MTL+PNG por peça) e <nome>_ensamblada.glb. Os STL não mudam",

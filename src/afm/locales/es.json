@@ -1033,7 +1033,12 @@
   "inclinacion_fina_del_eje": "Inclinación fina del eje (°)",
   "hacia_que_lado_se_inclina": "Hacia qué lado se inclina (°)",
   "canal_n_inclinado_hacia": "Canal %{canal}, inclinado %{inclinar}° hacia %{azimut}°.",
-  "el_canal_o_la_inclinacion_cambio": "El canal o la inclinación cambiaron: volvé a taladrar para guardar la mano con esa elección. Las armas ya guardadas en el catálogo quedan viejas con otro eje."
+  "el_canal_o_la_inclinacion_cambio": "El canal o la inclinación cambiaron: volvé a taladrar para guardar la mano con esa elección. Las armas ya guardadas en el catálogo quedan viejas con otro eje.",
+  "para_previsualizar_el_agarre_pega_una_mano": "Para previsualizar el agarre, pegá primero una mano de reemplazo (STL) a la figura.",
+  "previsualizando_el_agarre": "Previsualizando el agarre",
+  "buscando_canales_y_calculando_agarre": "Buscando los canales de la mano y calculando el agarre elegido… (los canales se calculan una vez por mano).",
+  "previsualizacion_agarre_lista": "Previsualización: canal %{canal} de %{n}, inclinado %{inclinar}° hacia %{azimut}° · pared mínima %{wall} mm · largo %{length} mm. Nada se taladró ni se guardó.",
+  "no_se_puede_previsualizar_el_agarre": "No se puede previsualizar ese agarre: %{error}"
  },
  "figure_builder": {
   "sin_soportes_resumen": "Sin soportes: corte a %{corte} mm sobre la cola; brazos girados hacia adelante: %{giro}",
@@ -1796,7 +1801,8 @@
   "altura_sobre_el_piso_mm": "Altura sobre el piso (mm)",
   "traslada_el_plano_de_corte_en_paralelo": "Traslada el plano de corte en paralelo al piso. También: clic sobre la figura o flechas ↑ ↓ (Mayús = 1 mm) con la herramienta activa.",
   "ver_la_mano_estandar_sobre_el_mango": "Ver la mano estándar sobre el mango",
-  "el_canal_es_una_de_las": "Canal: la mano tiene hasta 4 direcciones posibles para el agujero; el 1 es el de paredes más gruesas (el de siempre). La inclinación fina llega a ±15° y se rechaza si el anillo queda con menos pared que el mínimo."
+  "el_canal_es_una_de_las": "Canal: la mano tiene hasta 4 direcciones posibles para el agujero; el 1 es el de paredes más gruesas (el de siempre). La inclinación fina llega a ±15° y se rechaza si el anillo queda con menos pared que el mínimo.",
+  "previsualizar_el_agarre_sin_taladrar": "Previsualizar el agarre sin taladrar (en la mano pegada)"
  },
  "rail": {
   "salta_al_primer_paso_que_todavia": "Salta al primer paso que todavía pide algo (○ falta · ⚠ revisar · ⟳ desactualizado · ▶ listo para generar).",
@@ -2049,7 +2055,9 @@
   "dibuja_o_edita_la_3_a_silueta": "Dibuja o edita la 3.ª silueta: la vista desde arriba. Sirve cuando el miembro se solapa con otra parte en las vistas de costado y de frente",
   "quitar_la_3_a_silueta_de_name": "Quitar la 3.ª silueta de «%{name}»",
   "editar_3_a_silueta": "Editar 3.ª silueta",
-  "dibujar_3_a_silueta": "Dibujar 3.ª silueta"
+  "dibujar_3_a_silueta": "Dibujar 3.ª silueta",
+  "previsualizando_el_agarre": "Previsualizando el agarre",
+  "agarre_previsualizado": "Agarre previsualizado"
  },
  "color": {
   "ayuda_desde": "FBX con la textura de color de la misma figura (modo B): además de los STL, deja piezas_color/ (OBJ+MTL+PNG por pieza) y <nombre>_ensamblada.glb. Los STL no cambian",

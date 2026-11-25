@@ -299,6 +299,9 @@ class Controller:
         from ..props import DEFAULT_BARBS, GripSpec
         self.grip_spec = GripSpec()                  # agarre para accesorios: valores a usar (se editan en la sección «Agarre»)
         self.grip_barbs: tuple[float, ...] = DEFAULT_BARBS
+        self.grip_preview_on = False                 # previsualizar el agarre elegido en la mano pegada, sin taladrar ni guardar
+        self._grip_preview: dict | None = None       # última previsualización: key, mano taladrada (local), ajuste, nº de canales, error
+        self._grip_channels: tuple | None = None     # (clave de la mano, canales candidatos): se buscan una vez por mano
         self.grip_channel = 1                        # canal candidato de la mano (1 = el más robusto, el de siempre)
         self.grip_tilt = 0.0                         # inclinación fina del eje (°, ±15) y hacia qué lado (°)
         self.grip_azimuth = 0.0
@@ -3226,6 +3229,129 @@ class Controller:
         self._changed()
         return True
 
+    # ------------------------------------------------------------------ previsualizar el agarre antes de taladrar
+    def _grip_preview_key(self):
+        """Clave de lo que se pidió previsualizar (mano pegada + elección + Ø), o None sin mano pegada."""
+        import os
+
+        spec = self.session.project.hand if self.loaded else None
+        if spec is None:
+            return None
+        try:
+            mt = os.stat(spec.path).st_mtime_ns
+        except OSError:
+            return None
+        return (spec.path, mt, self.grip_channel, round(self.grip_tilt, 6), round(self.grip_azimuth, 6), self.grip_spec.bore_d)
+
+    @property
+    def grip_preview_stale(self) -> bool:
+        """Hay que recalcular la previsualización: se pidió y no coincide con lo elegido ahora."""
+        if not self.grip_preview_on or self.session.project.hand is None:
+            return False
+        pv = self._grip_preview
+        return pv is None or pv["key"] != self._grip_preview_key()
+
+    def set_grip_preview(self, on: bool) -> bool:
+        """Activa o apaga la previsualización del agarre (la calcula `begin_grip_preview`, en un hilo)."""
+        if on and self.session.project.hand is None:
+            self.grip_preview_on = False
+            self._changed(tr("controller.para_previsualizar_el_agarre_pega_una_mano"), scene=False)
+            return False
+        self.grip_preview_on = bool(on)
+        self._changed()
+        return True
+
+    def begin_grip_preview(self):
+        """Trabajo pesado ``job(progress=None) -> dict`` (canales de la mano, taladro simulado en memoria y ajuste de la
+        elección actual); None si no hace falta o hay otra tarea. Después hay que llamar `finish_grip_preview`."""
+        key = self._grip_preview_key()
+        if self.busy or key is None or not self.grip_preview_on:
+            return None
+        self.busy = True
+        self.progress_prefix = tr("controller.previsualizando_el_agarre")
+        self._changed(tr("controller.buscando_canales_y_calculando_agarre"), scene=False)
+        spec, canal, tilt, az = self.grip_spec, self.grip_channel, self.grip_tilt, self.grip_azimuth
+        barbs = self.grip_barbs
+        cached = self._grip_channels
+        hand_key = (key[0], key[1], spec.bore_d)
+
+        def job(progress=None):
+            from .. import hand as H
+            from ..props import GripError, carve_grip, channel_along, find_channel_options, tilt_axis
+            from ..hand import HandError
+
+            say = progress or (lambda text: None)
+            hand, _ = H.load_standard_hand(key[0])
+            opts = cached[1] if cached and cached[0] == hand_key else None
+            out = {"key": key, "hand_key": hand_key, "error": ""}
+            try:
+                if opts is None:
+                    say(tr("controller.previsualizando_el_agarre"))
+                    opts = find_channel_options(hand, spec.bore_d)
+                out["channels"] = opts
+                if canal > len(opts):
+                    raise GripError(f"la mano solo tiene {len(opts)} canales candidatos (se pidió el {canal})")
+                ch = opts[canal - 1]
+                if tilt:
+                    ch = channel_along(hand, tilt_axis(ch.axis, tilt, az), spec.bore_d)
+                carved, fit = carve_grip(hand, spec, ch)
+                out["hand"], out["fit"] = S.to_trimesh(carved), fit
+                out["prop_error"] = ""
+                try:                                          # la espada de prueba puede no caber con estos vástago/lengüeta/largo
+                    from dataclasses import replace
+
+                    from ..props import make_prop
+
+                    make_prop(replace(spec, bore_d=fit.bore_d, barb_d=barbs[len(barbs) // 2]), fit.length)
+                except GripError as exc:
+                    out["prop_error"] = str(exc)
+            except (GripError, HandError) as exc:
+                out["error"] = str(exc)
+            return out
+
+        return job
+
+    def finish_grip_preview(self, result, error: Exception | None = None) -> bool:
+        self.busy = False
+        if error is not None:                                # con la clave actual: así no se reintenta en bucle lo que falla
+            self._grip_preview = {"key": self._grip_preview_key(), "error": str(error)}
+            self._changed(tr("controller.no_se_puede_previsualizar_el_agarre", error=error), scene=True)
+            return False
+        if "channels" in result:
+            self._grip_channels = (result["hand_key"], result["channels"])
+        self._grip_preview = result
+        if result["error"]:
+            self._changed(tr("controller.no_se_puede_previsualizar_el_agarre", error=result["error"]), scene=True)
+            return False
+        f = result["fit"]
+        self._changed(tr("controller.previsualizacion_agarre_lista", canal=self.grip_channel, n=len(result["channels"]),
+                         inclinar=f"{self.grip_tilt:g}", azimut=f"{self.grip_azimuth:g}", wall=f"{f.wall_min:.2f}", length=f"{f.length:.1f}")
+                      + (" " + tr("controller.no_se_puede_dibujar_la_espada", grip_prop_error=result["prop_error"]) if result["prop_error"] else ""))
+        return True
+
+    def grip_preview_meshes(self, hfit):
+        """(mano taladrada, espada de prueba) en el mundo para la previsualización vigente, o None si no hay una válida
+        para la elección actual. Es lo que se dibuja en lugar de la mano pegada."""
+        pv = self._grip_preview
+        if not self.grip_preview_on or pv is None or pv["error"] or hfit is None or "matrix" not in hfit:
+            return None
+        if pv["key"] != self._grip_preview_key():
+            return None
+        from dataclasses import replace
+
+        from ..props import GripError, make_prop, prop_to_hand_matrix
+
+        fit, m = pv["fit"], hfit["matrix"]
+        hand = pv["hand"].copy()
+        hand.apply_transform(m)
+        spec = replace(self.grip_spec, bore_d=fit.bore_d, barb_d=self.grip_barbs[len(self.grip_barbs) // 2])
+        try:
+            prop = S.to_trimesh(make_prop(spec, fit.length))
+        except GripError:
+            return hand, None
+        prop.apply_transform(m @ prop_to_hand_matrix(fit))
+        return hand, prop
+
     def grip_prop_preview(self, hfit):
         """Malla (mundo) de la espada de prueba en el puño de la mano pegada, o None. `hfit` es `hand_fit()`: trae la matriz
         mano → mundo con el giro y la unión ya aplicados. Usa el dentado del medio de la lista y el vástago/ranura/lengüeta
@@ -5138,9 +5264,11 @@ class Controller:
             scene.remove("voladizos")
             drawn = [("figura", base, _MIRROR_COLOR)]
         if hfit is not None:
-            scene.set_mesh("mano:reemplazo", hfit["hand"], color=_REPLACEMENT_HAND_COLOR, clip_x=clip)
-            drawn.append(("mano:reemplazo", hfit["hand"], _MIRROR_COLOR))
-            acc = self.grip_prop_preview(hfit)             # sin espejo: la espada va en una sola mano
+            pv = self.grip_preview_meshes(hfit)              # previsualización del agarre (sin taladrar): mano taladrada en memoria + espada
+            shown = hfit["hand"] if pv is None else pv[0]
+            scene.set_mesh("mano:reemplazo", shown, color=_REPLACEMENT_HAND_COLOR, clip_x=clip)
+            drawn.append(("mano:reemplazo", shown, _MIRROR_COLOR))
+            acc = self.grip_prop_preview(hfit) if pv is None else pv[1]             # sin espejo: la espada va en una sola mano
             if acc is not None:
                 scene.set_mesh("accesorio:agarre", acc, color=_ACCESSORY_COLOR, clip_x=clip)
             else:

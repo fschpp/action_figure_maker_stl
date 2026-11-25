@@ -175,6 +175,9 @@ def build(win) -> None:
         win.grip_axis_spins[key] = spin
         row.append(spin)
         sec.append(row)
+    win.chk_grip_preview = Gtk.CheckButton(label=tr("planos.previsualizar_el_agarre_sin_taladrar"))
+    win.chk_grip_preview.connect("toggled", win._on_grip_preview_toggled)
+    sec.append(win.chk_grip_preview)
     _help(sec, tr("planos.el_canal_es_una_de_las"))
     row = Gtk.Box(spacing=6)
     row.append(Gtk.Label(label=tr("planos.de_los_dentados_a_probar_mm"), xalign=0, hexpand=True))
