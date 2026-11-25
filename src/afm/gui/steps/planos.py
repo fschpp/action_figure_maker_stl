@@ -8,7 +8,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk  # noqa: E402
 
 from ...head import REPLACEMENT_UPS
-from ..controller import GRIP_AXIS_FIELDS, GRIP_FIELDS
+from ..controller import GRIP_FIELDS
 from ..ui_consts import HEAD_ADJUST_DEFAULTS
 from ..ui_consts import HEAD_ADJUST_FIELDS
 from ..widgets import collapsible as _collapsible
@@ -151,6 +151,17 @@ def build(win) -> None:
     _help(sec, tr("planos.elegi_el_stl_de_la_mano"))
 
     sec = _collapsible(box, tr("planos.agarre_para_accesorios"), expanded=False)
+    win.chk_grip_preview = Gtk.CheckButton(label=tr("planos.previsualizar_el_agarre_sin_taladrar"))
+    win.chk_grip_preview.connect("toggled", win._on_grip_preview_toggled)
+    sec.append(win.chk_grip_preview)
+    _help(sec, tr("planos.agarre_ayuda_manual"))
+    win.btn_grip_plane = win._button(tr("planos.agarre_elegir_plano"), win._on_grip_plane)
+    win.btn_grip_center = win._button(tr("planos.agarre_elegir_centro"), win._on_grip_center)
+    win.btn_grip_end = win._button(tr("planos.agarre_elegir_final"), win._on_grip_end)
+    win.btn_grip_end_clear = win._button(tr("planos.agarre_quitar_final"), win._on_grip_end_clear)
+    win.btn_grip_clear = win._button(tr("planos.agarre_borrar"), win._on_grip_clear)
+    for b in (win.btn_grip_plane, win.btn_grip_center, win.btn_grip_end, win.btn_grip_end_clear, win.btn_grip_clear):
+        sec.append(b)
     win.btn_grip = win._button(tr("planos.taladrar_una_mano_estandar_stl"), win._on_grip_pick)
     sec.append(win.btn_grip)
     win.grip_spins: dict[str, Gtk.SpinButton] = {}
@@ -164,21 +175,6 @@ def build(win) -> None:
         win.grip_spins[key] = spin
         row.append(spin)
         sec.append(row)
-    win.grip_axis_spins: dict[str, Gtk.SpinButton] = {}
-    for key, label, lo, hi, step, digits in GRIP_AXIS_FIELDS:
-        row = Gtk.Box(spacing=6)
-        row.append(Gtk.Label(label=label, xalign=0, hexpand=True))
-        spin = Gtk.SpinButton.new_with_range(lo, hi, step)
-        spin.set_digits(digits)
-        spin.set_value(getattr(win.ctrl, key))
-        spin.connect("value-changed", lambda b, k=key: None if win._updating else win.ctrl.set_grip_axis(k, b.get_value()))
-        win.grip_axis_spins[key] = spin
-        row.append(spin)
-        sec.append(row)
-    win.chk_grip_preview = Gtk.CheckButton(label=tr("planos.previsualizar_el_agarre_sin_taladrar"))
-    win.chk_grip_preview.connect("toggled", win._on_grip_preview_toggled)
-    sec.append(win.chk_grip_preview)
-    _help(sec, tr("planos.el_canal_es_una_de_las"))
     row = Gtk.Box(spacing=6)
     row.append(Gtk.Label(label=tr("planos.de_los_dentados_a_probar_mm"), xalign=0, hexpand=True))
     win.ent_grip_barbs = Gtk.Entry(text=", ".join(f"{b:g}" for b in win.ctrl.grip_barbs), width_chars=12)

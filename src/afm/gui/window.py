@@ -47,6 +47,7 @@ DRAG_THRESHOLD_PX = 4.0
 _ARROWS = {Gdk.KEY_Left: (-1, 0), Gdk.KEY_Right: (1, 0), Gdk.KEY_Up: (0, 1), Gdk.KEY_Down: (0, -1)}
 _MODE_TITLES = {Mode.VIEW: "", Mode.CROWN: lz("window.marcando_coronilla"), Mode.SYMMETRY: lz("window.plano_de_simetria"),
                 Mode.LIMB_PLANE: lz("window.plano_de_un_miembro"), Mode.NECK_PLANE: lz("window.plano_del_cuello"), Mode.HEAD_CUT_PLANE: lz("window.corte_de_la_base_de_la"), Mode.WEAPON_CUT_PLANE: lz("window.corte_del_mango_del_arma"), Mode.WAIST_PLANE: lz("window.plano_de_la_cintura"), Mode.HAND_EXTRACT: lz("window.muneca_extraer_mano"), Mode.HAND_PLACE: lz("window.muneca_pegar_mano_estandar"), Mode.POLYGON: lz("window.dibujando_silueta"),
+                Mode.GRIP_PLANE: lz("window.agarre_plano_de_la_empunadura"), Mode.GRIP_CENTER: lz("window.agarre_centro_del_taladro"), Mode.GRIP_END: lz("window.agarre_centro_al_final"),
                 Mode.PIN: lz("window.colocando_pasador"), Mode.TRIM_PICK: lz("window.colocando_recorte"),
                 Mode.JOINT_PLANE: lz("window.plano_de_articulacion"), Mode.JOINT_AXIS: lz("window.colocando_eje_de_bisagra"),
                 Mode.JOINT_LINES: lz("window.codo_con_2_lineas_de_frente"), Mode.JOINT_SIDE: lz("window.guias_de_la_articulacion_de_costado"),
@@ -659,9 +660,12 @@ class MainWindow(Gtk.ApplicationWindow):
             for key, spin in self.grip_spins.items():
                 if abs(spin.get_value() - getattr(ctrl.grip_spec, key)) > 1e-9:
                     spin.set_value(getattr(ctrl.grip_spec, key))
-            for key, spin in self.grip_axis_spins.items():
-                if abs(spin.get_value() - getattr(ctrl, key)) > 1e-9:
-                    spin.set_value(getattr(ctrl, key))
+            can_pick = ctrl.grip_preview_on and not ctrl.busy
+            gate(self.btn_grip_plane, None if can_pick else tr("controller.activa_previsualizar_el_agarre_para_elegir"))
+            gate(self.btn_grip_center, None if can_pick and ctrl.grip_manual is not None else tr("controller.primero_elegi_el_plano_del_agarre"))
+            gate(self.btn_grip_end, None if can_pick and ctrl.grip_manual_ready else tr("controller.primero_elegi_el_centro_del_agarre"))
+            gate(self.btn_grip_end_clear, None if ctrl.grip_manual is not None and ctrl.grip_manual.end_center is not None else tr("planos.agarre_nada_que_quitar"))
+            gate(self.btn_grip_clear, None if ctrl.grip_manual is not None else tr("planos.agarre_nada_que_quitar"))
             if self.chk_grip_preview.get_active() != ctrl.grip_preview_on:
                 self.chk_grip_preview.set_active(ctrl.grip_preview_on)
             if ctrl.grip_preview_stale and not getattr(self, "_grip_pv_timer", 0):
@@ -2587,6 +2591,21 @@ class MainWindow(Gtk.ApplicationWindow):
             chk.set_sensitive(not ctrl.busy)
             chk.connect("toggled", lambda b, r=m.ref: None if self._updating else self.ctrl.set_project_accessory(r, b.get_active()))
             self.box_proj_acc.append(chk)
+
+    def _on_grip_plane(self, *_):
+        self.ctrl.start_grip_plane()
+
+    def _on_grip_center(self, *_):
+        self.ctrl.start_grip_center()
+
+    def _on_grip_end(self, *_):
+        self.ctrl.start_grip_end()
+
+    def _on_grip_end_clear(self, *_):
+        self.ctrl.clear_grip_end()
+
+    def _on_grip_clear(self, *_):
+        self.ctrl.clear_grip_manual()
 
     def _on_grip_pick(self, *_):
         self._pick_file(tr("window.mano_estandar_stl"), ["*.stl"], tr("window.archivos_stl"), self._grip_task)

@@ -10,6 +10,7 @@ simetría, ``work`` coincide con ``figure``.
 from __future__ import annotations
 from ..i18n import tr, lz, loc
 
+import json
 import os
 import re
 from dataclasses import dataclass
@@ -74,6 +75,9 @@ class Mode(Enum):
     WAIST_PIN = "pasador_cintura"   # vista de costado: un clic (o flechas) pone el pasador de la cintura adelante / atrás sobre la cara
     FLOOR_CUT = "corte_paralelo_piso"   # plano paralelo al piso (cabeza o cintura): un clic sobre la figura (o flechas) fija su altura
     FLAT_PLANE = "plano_sin_soportes"   # figura generada sentada, vista Derecha: un clic (o flechas) fija la altura del corte plano
+    GRIP_PLANE = "agarre_plano"         # 3 clics sobre la mano: plano de la empuñadura (cara de entrada del taladro)
+    GRIP_CENTER = "agarre_centro"       # un clic sobre la mano: centro del círculo del taladro (se proyecta a ese plano)
+    GRIP_END = "agarre_final"           # un clic opcional hacia el final de la mano: desplaza el centro del círculo (inclina el eje)
 
 DRAFT_PX = 6.0                               # grosor en pantalla (px) del borrador de silueta (el que se propone o se está dibujando)
 DRAFT_COLOR = (1.0, 0.0, 0.85, 1.0)          # magenta fosforescente: contrasta con la figura gris y con los amarillos/celestes de las siluetas ya guardadas
@@ -170,14 +174,6 @@ GRIP_FIELDS = (
     ("shaft_d", lz("controller.de_la_empunadura_mm"), 1.2, 3.0, 0.1, 1),
     ("slit_w", lz("controller.ranura_entre_lenguetas_mm"), 0.3, 1.5, 0.1, 1),
     ("finger_len", lz("common.largo_de_la_lengueta_mm"), 3.0, 14.0, 0.5, 1),
-)
-
-
-# Elección del eje de agarre (`props.compute_grip`): (atributo, rótulo, mínimo, máximo, paso, decimales)
-GRIP_AXIS_FIELDS = (
-    ("grip_channel", lz("controller.canal_de_agarre"), 1, 4, 1, 0),
-    ("grip_tilt", lz("controller.inclinacion_fina_del_eje"), -15.0, 15.0, 1.0, 0),
-    ("grip_azimuth", lz("controller.hacia_que_lado_se_inclina"), 0.0, 359.0, 15.0, 0),
 )
 
 
@@ -303,10 +299,10 @@ class Controller:
         self._grip_preview: dict | None = None       # última previsualización: key, mano taladrada (local), ajuste, nº de canales, error
         self.grip_preview_catalog: tuple | None = None   # (raíz, ref) de la mano del catálogo a previsualizar cuando no hay mano pegada
         self._grip_cat_mesh: tuple | None = None         # (raíz, ref, malla) de esa mano sin taladrar, para mostrarla mientras se calcula
-        self._grip_channels: tuple | None = None     # (clave de la mano, canales candidatos): se buscan una vez por mano
-        self.grip_channel = 1                        # canal candidato de la mano (1 = el más robusto, el de siempre)
-        self.grip_tilt = 0.0                         # inclinación fina del eje (°, ±15) y hacia qué lado (°)
-        self.grip_azimuth = 0.0
+        self.grip_manual = None                      # props.ManualGrip: plano de 3 puntos + centro (+ centro al final), en el marco local de la mano
+        self._grip_pick_m: np.ndarray | None = None  # 4×4 marco local de la mano → mundo, mientras se eligen los puntos
+        self._grip_marks_cache: tuple = (None, None)  # (clave, líneas en el mundo) del plano y el cilindro dibujados
+        self._grip_src_cache: tuple = (None, None)   # (clave de la mano, malla local sin taladrar) para elegir puntos y dibujar el cilindro
         self.grip = None                             # props.GripResult de la última mano taladrada (None = ninguna)
         self.grip_show = False                       # dibujar una espada de prueba en la mano pegada de la figura
         self.weapon = None                           # weapon_session.WeaponSession del arma que se está importando (None = ninguna)
@@ -1163,8 +1159,8 @@ class Controller:
             self.show_joint_preview = False          # al terminar la herramienta vuelve la figura (la simulación solo acompaña al ajuste)
         self.mode, self.pending, self.pending_kind = Mode.VIEW, [], None
         self._hand_path_pending = None
-        if was in (Mode.HEAD_CUT_PLANE, Mode.WEAPON_CUT_PLANE):
-            self._rebuild_picker()           # durante el corte el picker apuntaba a la cabeza de reemplazo / al arma
+        if was in (Mode.HEAD_CUT_PLANE, Mode.WEAPON_CUT_PLANE, Mode.GRIP_PLANE, Mode.GRIP_CENTER, Mode.GRIP_END):
+            self._rebuild_picker()           # durante el corte el picker apuntaba a la cabeza de reemplazo / al arma / a la mano
         self.clear_hover()
         self._vertex_drag = None
         self.draft, self.edit_limb, self.edit_cross, self.edit_cross2 = None, None, False, False
@@ -2834,7 +2830,8 @@ class Controller:
         """True en los modos en que se eligen puntos sobre la figura (planos de 3 puntos, guías de 4)."""
         return (self.picker is not None and not self.busy and
                 self.mode in (Mode.SYMMETRY, Mode.LIMB_PLANE, Mode.NECK_PLANE, Mode.HEAD_CUT_PLANE, Mode.WEAPON_CUT_PLANE, Mode.WAIST_PLANE, Mode.HAND_EXTRACT,
-                              Mode.HAND_PLACE, Mode.JOINT_PLANE, Mode.JOINT_LINES, Mode.JOINT_SIDE, Mode.JOINT_AXIS))
+                              Mode.HAND_PLACE, Mode.JOINT_PLANE, Mode.JOINT_LINES, Mode.JOINT_SIDE, Mode.JOINT_AXIS,
+                              Mode.GRIP_PLANE, Mode.GRIP_CENTER, Mode.GRIP_END))
 
     def update_hover(self, px: float, py: float, width: float, height: float) -> bool:
         """Marca (en rojo) el vértice de la figura que el puntero tiene cerca; lo suelta al alejarse. Devuelve True si
@@ -2900,6 +2897,10 @@ class Controller:
             self._finish_joint_axis(hit)
         elif self.mode == Mode.FLOOR_CUT:
             self._finish_floor_cut_pick(hit)
+        elif self.mode == Mode.GRIP_CENTER:
+            self._finish_grip_center(hit)
+        elif self.mode == Mode.GRIP_END:
+            self._finish_grip_end(hit)
         else:
             self.pending.append(hit.point.copy())
             need = 4 if self.mode in (Mode.JOINT_LINES, Mode.JOINT_SIDE) else 3
@@ -2930,6 +2931,8 @@ class Controller:
                 self._finish_hand_place()
             elif self.mode == Mode.JOINT_PLANE:
                 self._finish_joint_plane()
+            elif self.mode == Mode.GRIP_PLANE:
+                self._finish_grip_plane()
             else:
                 self._finish_limb_plane()
         return hit
@@ -3099,23 +3102,149 @@ class Controller:
         self._changed(scene=False)
         return True
 
-    def set_grip_axis(self, key: str, value: float) -> bool:
-        """Canal (1–4), inclinación fina (°) o lado de la inclinación (°) del agarre; se aplican al volver a taladrar."""
-        spec = next((f for f in GRIP_AXIS_FIELDS if f[0] == key), None)
-        if spec is None or not (spec[2] <= value <= spec[3]):
+    # ---- elección manual del taladro: plano (3 puntos) → centro del círculo → (opcional) centro al final de la mano
+    def _grip_source_key(self):
+        return self._grip_preview_source()
+
+    def _grip_source_mesh(self):
+        """Malla local (sin taladrar) de la mano que se ve en el visor para el agarre, o None. Cacheada por mano."""
+        key = self._grip_source_key()
+        if key is None:
+            return None
+        if self._grip_src_cache[0] == key:
+            return self._grip_src_cache[1]
+        try:
+            if key[0] == "pegada":
+                from .. import hand as H
+
+                mesh = S.to_trimesh(H.load_standard_hand(key[1])[0])
+            else:
+                from ..catalog import Catalog
+
+                mesh = Catalog.open(key[1]).load(key[2])[1]
+        except Exception:                                      # noqa: BLE001 — sin la malla no se puede elegir
+            return None
+        self._grip_src_cache = (key, mesh)
+        return mesh
+
+    def _grip_local_to_world(self) -> np.ndarray | None:
+        """4×4 del marco local de la mano al mundo (identidad si va sola en el visor); None si no hay mano visible."""
+        key = self._grip_source_key()
+        if key is None:
+            return None
+        if key[0] == "catalogo":
+            return np.eye(4)
+        hfit = self.hand_fit()
+        if hfit is None or "matrix" not in hfit:
+            return None
+        return np.asarray(hfit["matrix"], float)
+
+    def _start_grip_pick(self, mode: Mode, message: str) -> bool:
+        from .picking import Picker
+
+        if self.busy:
             return False
-        setattr(self, key, int(round(value)) if key == "grip_channel" else float(value))
-        self._changed(scene=False)
+        if not self.grip_preview_on:
+            self._changed(tr("controller.activa_previsualizar_el_agarre_para_elegir"), scene=False)
+            return False
+        mesh, m = self._grip_source_mesh(), self._grip_local_to_world()
+        if mesh is None or m is None:
+            self._changed(tr("controller.no_hay_una_mano_visible_para_elegir"), scene=False)
+            return False
+        self.cancel(quiet=True)
+        world = mesh.copy()
+        world.apply_transform(m)
+        self._grip_pick_m = m
+        self.mode = mode
+        self.picker = Picker(world)                           # los clics caen sobre la mano, no sobre la figura
+        self._changed(message)
         return True
+
+    def start_grip_plane(self) -> bool:
+        """Paso 1: 3 clics sobre la mano fijan el plano de la empuñadura (la cara de entrada del taladro)."""
+        return self._start_grip_pick(Mode.GRIP_PLANE, tr("controller.agarre_paso_1_elegi_3_puntos"))
+
+    def start_grip_center(self) -> bool:
+        """Paso 2: un clic sobre la mano pone el centro del círculo (se proyecta al plano del paso 1)."""
+        if self.grip_manual is None:
+            self._changed(tr("controller.primero_elegi_el_plano_del_agarre"), scene=False)
+            return False
+        return self._start_grip_pick(Mode.GRIP_CENTER, tr("controller.agarre_paso_2_elegi_el_centro"))
+
+    def start_grip_end(self) -> bool:
+        """Paso 3 (opcional): un clic hacia el final de la mano desplaza el centro del círculo y inclina el eje."""
+        if self.grip_manual is None or self.grip_manual.center is None:
+            self._changed(tr("controller.primero_elegi_el_centro_del_agarre"), scene=False)
+            return False
+        return self._start_grip_pick(Mode.GRIP_END, tr("controller.agarre_paso_3_elegi_el_centro"))
+
+    def _grip_to_local(self, pts) -> list:
+        inv = np.linalg.inv(self._grip_pick_m if self._grip_pick_m is not None else np.eye(4))
+        a = np.asarray(pts, float).reshape(-1, 3)
+        return [tuple(float(x) for x in (inv @ np.append(p, 1.0))[:3]) for p in a]
+
+    def _finish_grip_plane(self) -> None:
+        from ..props import GripError, ManualGrip, plane_from_points
+
+        pts, self.pending = self.pending, []
+        local = self._grip_to_local(pts)
+        try:
+            plane_from_points(local)
+        except GripError as e:
+            self._changed(tr("controller.no_sirve_e_elegi_3_puntos", e=e))
+            return
+        self.grip_manual = ManualGrip(tuple(local))                     # un plano nuevo borra el centro anterior
+        self.cancel(quiet=True)
+        self._changed(tr("controller.agarre_plano_listo_ahora_elegi_el_centro"))
+
+    def _finish_grip_center(self, hit: PickResult) -> None:
+        from dataclasses import replace
+
+        loc = self._grip_to_local(hit.point)[0]
+        self.grip_manual = replace(self.grip_manual, center=loc, end_center=None)
+        self.cancel(quiet=True)
+        self._changed(tr("controller.agarre_centro_listo_se_muestra_el_taladro"))
+
+    def _finish_grip_end(self, hit: PickResult) -> None:
+        from dataclasses import replace
+
+        loc = self._grip_to_local(hit.point)[0]
+        try:
+            from ..props import manual_channel
+
+            mesh = self._grip_source_mesh()
+            manual_channel(S.to_manifold(mesh), replace(self.grip_manual, end_center=loc))      # solo valida la inclinación
+        except Exception as e:                                # noqa: BLE001 — se informa al usuario
+            self._changed(tr("controller.no_sirve_e_elegi_3_puntos", e=e))
+            return
+        self.grip_manual = replace(self.grip_manual, end_center=loc)
+        self.cancel(quiet=True)
+        self._changed(tr("controller.agarre_final_listo_el_eje_se_inclino"))
+
+    def clear_grip_end(self) -> None:
+        from dataclasses import replace
+
+        if self.grip_manual is not None and self.grip_manual.end_center is not None:
+            self.grip_manual = replace(self.grip_manual, end_center=None)
+            self._changed(tr("controller.agarre_final_quitado"))
+
+    def clear_grip_manual(self) -> None:
+        self.grip_manual = None
+        self._grip_preview = None
+        self._changed(tr("controller.agarre_eleccion_borrada"))
+
+    @property
+    def grip_manual_ready(self) -> bool:
+        return self.grip_manual is not None and self.grip_manual.complete
 
     @property
     def grip_axis_stale(self) -> bool:
-        """La elección de canal o inclinación pedida ya no es la de la mano taladrada."""
+        """La elección manual pedida ya no es la de la mano taladrada."""
         if self.grip is None:
             return False
-        ch = (self.grip.meta.get("agarre") or {}).get("eleccion") or {"canal": 1, "inclinar_grados": 0.0, "azimut_grados": 0.0}
-        return (int(ch["canal"]) != self.grip_channel or abs(float(ch["inclinar_grados"]) - self.grip_tilt) > 1e-9
-                or (self.grip_tilt != 0.0 and abs(float(ch["azimut_grados"]) - self.grip_azimuth) > 1e-9))
+        ch = (self.grip.meta.get("agarre") or {}).get("eleccion") or {}
+        mine = None if not self.grip_manual_ready else self.grip_manual.to_dict()
+        return ch.get("manual") != (None if mine is None else json.loads(json.dumps(mine)))
 
     def set_grip_barbs(self, text: str) -> bool:
         from ..props import parse_barbs
@@ -3134,20 +3263,22 @@ class Controller:
         return self.grip is not None and abs(self.grip.spec.bore_d - self.grip_spec.bore_d) > 1e-9
 
     def begin_grip(self, path: str):
-        """Valida y devuelve el trabajo pesado ``job(progress=None) -> GripResult`` (busca el canal y taladra la mano estándar
-        de `path`), apto para un hilo; después hay que llamar `finish_grip`."""
+        """Valida y devuelve el trabajo pesado ``job(progress=None) -> GripResult`` (taladra la mano estándar de `path` por el plano y el
+        centro elegidos a mano), apto para un hilo; después hay que llamar `finish_grip`."""
         if self.busy:
+            return None
+        if not self.grip_manual_ready:
+            self._changed(tr("controller.primero_elegi_el_plano_y_el_centro"), scene=False)
             return None
         self.busy = True
         self.progress_prefix = tr("controller.taladrando_la_mano")
-        self._changed(tr("controller.taladrando_la_mano_estandar_busca_el"), scene=False)
-        spec = self.grip_spec
-        canal, inclinar, azimut = self.grip_channel, self.grip_tilt, self.grip_azimuth
+        self._changed(tr("controller.taladrando_la_mano_estandar_con_el_plano"), scene=False)
+        spec, manual = self.grip_spec, self.grip_manual
 
         def job(progress=None):
             from ..props import compute_grip
 
-            return compute_grip(path, spec, progress, canal=canal, inclinar=inclinar, azimut=azimut)
+            return compute_grip(path, spec, progress, manual=manual)
 
         return job
 
@@ -3181,17 +3312,20 @@ class Controller:
         if g is None:
             return tr("controller.no_se_puede_dibujar_la_espada", grip_prop_error=self._grip_prop_error) if self.grip_show and self._grip_prop_error else ""
         f = g.fit
-        lines = [tr("controller.taladro_bore_d_mm_canal_natural", bore_d=f"{f.bore_d:g}", free_d=f"{g.channel.free_d:.1f}", length=f"{f.length:.1f}", wall_min=f"{f.wall_min:.1f}", support_deg=f"{f.support_deg:.0f}")]
+        if g.channel.free_d > 0.0:
+            lines = [tr("controller.taladro_bore_d_mm_canal_natural", bore_d=f"{f.bore_d:g}", free_d=f"{g.channel.free_d:.1f}", length=f"{f.length:.1f}", wall_min=f"{f.wall_min:.1f}", support_deg=f"{f.support_deg:.0f}")]
+        else:                                                    # elección manual: no hay canal natural que informar
+            lines = [tr("controller.taladro_manual_bore_d_mm", bore_d=f"{f.bore_d:g}", length=f"{f.length:.1f}", wall_min=f"{f.wall_min:.1f}", support_deg=f"{f.support_deg:.0f}")]
         lines += [tr("controller.dentado_dentado_mm_interferencia_interfere", dentado_mm=f"{v['dentado_mm']:g}", interferencia_mm=f"{v['interferencia_mm']:.2f}", deformacion_pct=f"{v['deformacion_pct']:.2f}") for v in grip_variants(g.spec, self.grip_barbs)]
         if f.support_deg < 270:
             lines.append(tr("controller.aviso_el_hombro_apoya_solo_en"))
-        ch = (g.meta.get("agarre") or {}).get("eleccion")
-        if ch:
-            lines.append(tr("controller.canal_n_inclinado_hacia", canal=ch["canal"], inclinar=f"{ch['inclinar_grados']:g}", azimut=f"{ch['azimut_grados']:g}"))
+        ch = (g.meta.get("agarre") or {}).get("eleccion") or {}
+        if ch.get("manual"):
+            lines.append(tr("controller.eleccion_manual_plano_y_centro") + (" " + tr("controller.con_el_centro_desplazado_al_final") if ch["manual"].get("centro_final") else ""))
         if self.grip_stale:
             lines.append(tr("controller.el_del_taladro_cambio_volve_a"))
         if self.grip_axis_stale:
-            lines.append(tr("controller.el_canal_o_la_inclinacion_cambio"))
+            lines.append(tr("controller.la_eleccion_del_plano_o_del_centro_cambio"))
         if self.grip_show and self._grip_prop_error:
             lines.append(tr("controller.no_se_puede_dibujar_la_espada", grip_prop_error=self._grip_prop_error))
         return "\n".join(lines)
@@ -3249,9 +3383,9 @@ class Controller:
     def _grip_preview_key(self):
         """Clave de lo que se pidió previsualizar (mano + elección + Ø), o None sin mano."""
         src = self._grip_preview_source()
-        if src is None:
+        if src is None or not self.grip_manual_ready:        # sin plano y centro elegidos solo se ve la mano, sin taladrar
             return None
-        return src + (self.grip_channel, round(self.grip_tilt, 6), round(self.grip_azimuth, 6), self.grip_spec.bore_d)
+        return src + (json.dumps(self.grip_manual.to_dict(), sort_keys=True), self.grip_spec.bore_d)
 
     def grip_preview_catalog_hand(self):
         """(raíz, ref) de la mano más reciente del catálogo abierto, o None si no hay catálogo o no tiene manos."""
@@ -3301,15 +3435,13 @@ class Controller:
             return None
         self.busy = True
         self.progress_prefix = tr("controller.previsualizando_el_agarre")
-        self._changed(tr("controller.buscando_canales_y_calculando_agarre"), scene=False)
-        spec, canal, tilt, az = self.grip_spec, self.grip_channel, self.grip_tilt, self.grip_azimuth
+        self._changed(tr("controller.calculando_el_taladro_del_agarre"), scene=False)
+        spec, manual = self.grip_spec, self.grip_manual
         barbs = self.grip_barbs
-        cached = self._grip_channels
-        hand_key = key[:3] + (spec.bore_d,)
 
         def job(progress=None):
             from .. import hand as H
-            from ..props import GripError, carve_grip, channel_along, find_channel_options, tilt_axis
+            from ..props import GripError, carve_grip, manual_channel
             from ..hand import HandError
 
             say = progress or (lambda text: None)
@@ -3320,19 +3452,11 @@ class Controller:
 
                 _meta, mesh = Catalog.open(key[1]).load(key[2])
                 hand = S.to_manifold(mesh)
-            opts = cached[1] if cached and cached[0] == hand_key else None
-            out = {"key": key, "hand_key": hand_key, "error": ""}
+            out = {"key": key, "error": ""}
             try:
-                if opts is None:
-                    say(tr("controller.previsualizando_el_agarre"))
-                    opts = find_channel_options(hand, spec.bore_d)
-                out["channels"] = opts
-                if canal > len(opts):
-                    raise GripError(f"la mano solo tiene {len(opts)} canales candidatos (se pidió el {canal})")
-                ch = opts[canal - 1]
-                if tilt:
-                    ch = channel_along(hand, tilt_axis(ch.axis, tilt, az), spec.bore_d)
-                carved, fit = carve_grip(hand, spec, ch)
+                say(tr("controller.previsualizando_el_agarre"))
+                ch = manual_channel(hand, manual)
+                carved, fit = carve_grip(hand, spec, ch, require_cut=True)
                 out["hand"], out["fit"] = S.to_trimesh(carved), fit
                 out["prop_error"] = ""
                 try:                                          # la espada de prueba puede no caber con estos vástago/lengüeta/largo
@@ -3355,15 +3479,12 @@ class Controller:
             self._grip_preview = {"key": self._grip_preview_key(), "error": str(error)}
             self._changed(tr("controller.no_se_puede_previsualizar_el_agarre", error=error), scene=True)
             return False
-        if "channels" in result:
-            self._grip_channels = (result["hand_key"], result["channels"])
         self._grip_preview = result
         if result["error"]:
             self._changed(tr("controller.no_se_puede_previsualizar_el_agarre", error=result["error"]), scene=True)
             return False
         f = result["fit"]
-        self._changed(tr("controller.previsualizacion_agarre_lista", canal=self.grip_channel, n=len(result["channels"]),
-                         inclinar=f"{self.grip_tilt:g}", azimut=f"{self.grip_azimuth:g}", wall=f"{f.wall_min:.2f}", length=f"{f.length:.1f}")
+        self._changed(tr("controller.previsualizacion_agarre_manual_lista", wall=f"{f.wall_min:.2f}", length=f"{f.length:.1f}")
                       + (" " + tr("controller.no_se_puede_dibujar_la_espada", grip_prop_error=result["prop_error"]) if result["prop_error"] else ""))
         return True
 
@@ -4979,7 +5100,9 @@ class Controller:
             return (tr("controller.la_figura_generada_quedo_desactualizada_ge")
                     if self.generated_once else tr("controller.genera_la_figura_primero_pestana_generar"))
         if what == "grip":
-            return self._WAIT if self.busy else None
+            if self.busy:
+                return self._WAIT
+            return None if self.grip_manual_ready else tr("controller.primero_elegi_el_plano_y_el_centro")
         if what == "grip_plate":
             return None if self.grip is not None else tr("controller.primero_taladra_una_mano_estandar_stl")
         if what == "grip_hand":
@@ -5248,6 +5371,70 @@ class Controller:
     # ---------------------------------------------------------------- escena
     def _sync_grip_standalone(self, scene) -> bool:
         """Previsualización del agarre con la mano del catálogo, sola en el visor (sin mano pegada). False si no corresponde."""
+        if not self._sync_grip_standalone_meshes(scene):
+            return False
+        self._sync_grip_marks(scene)
+        if self.hover_vertex is not None and self.hover_active():
+            scene.set_points("hover:vertice", self.hover_vertex[None], (1.0, 0.0, 0.0, 1.0), 18.0, on_top=True)
+        else:
+            scene.remove("hover:vertice")
+        if self.pending:
+            pts = np.array(self.pending)
+            scene.set_points("pendientes", pts, (1.0, 0.25, 0.25, 1.0), 14.0, on_top=True)
+            scene.set_lines("pendientes:lineas", pts, (1.0, 0.25, 0.25, 1.0), closed=len(pts) == 3, on_top=True)
+        else:
+            scene.remove("pendientes")
+            scene.remove("pendientes:lineas")
+        return True
+
+    def _sync_grip_marks(self, scene) -> None:
+        """Presentación de la operación: el plano elegido (triángulo verde), el cilindro que se resta de la mano (naranja: dos
+        círculos y cuatro generatrices) y el centro del final si se desplazó (punto naranja)."""
+        names = ("agarre:plano", "agarre:cilindro", "agarre:final")
+        gm = self.grip_manual
+        m = self._grip_local_to_world() if (self.grip_preview_on and gm is not None) else None
+        mesh = self._grip_source_mesh() if m is not None else None
+        if m is None or mesh is None:
+            for k in names:
+                scene.remove(k)
+            return
+        key = (self._grip_source_key(), json.dumps(gm.to_dict(), sort_keys=True), self.grip_spec.bore_d, m.tobytes())
+        if self._grip_marks_cache[0] != key:
+            from ..props import GripError, _ref_up, manual_channel
+
+            w = lambda P: (m @ np.c_[np.asarray(P, float).reshape(-1, 3), np.ones(len(np.asarray(P).reshape(-1, 3)))].T).T[:, :3]
+            out = {"plano": w(gm.points), "cilindro": None, "final": None}
+            if gm.complete:
+                try:
+                    ch = manual_channel(mesh, gm)
+                except GripError:
+                    ch = None
+                if ch is not None:
+                    d, c = np.asarray(ch.axis, float), np.asarray(ch.center, float)
+                    length = float(((np.asarray(mesh.vertices, float) - c) @ d).max()) + 1.0
+                    ref, up = _ref_up(d)
+                    a = np.linspace(0.0, 2 * np.pi, 40)
+                    r = self.grip_spec.bore_d / 2
+                    ring = lambda o: o + r * (np.cos(a)[:, None] * ref + np.sin(a)[:, None] * up)
+                    c0, c1 = c - d * 1.0, c + d * length
+                    gen = [np.array([c0 + r * (np.cos(t) * ref + np.sin(t) * up), c1 + r * (np.cos(t) * ref + np.sin(t) * up)])
+                           for t in (0.0, np.pi / 2, np.pi, 3 * np.pi / 2)]
+                    out["cilindro"] = [w(ring(c0)), w(ring(c1))] + [w(g) for g in gen]
+                    if gm.end_center is not None:
+                        out["final"] = w(c1)
+            self._grip_marks_cache = (key, out)
+        out = self._grip_marks_cache[1]
+        scene.set_lines("agarre:plano", out["plano"], (0.2, 0.9, 0.4, 1.0), closed=True, on_top=True)
+        if out["cilindro"] is not None:
+            scene.set_lines("agarre:cilindro", out["cilindro"], (1.0, 0.6, 0.1, 1.0), on_top=True)
+        else:
+            scene.remove("agarre:cilindro")
+        if out["final"] is not None:
+            scene.set_points("agarre:final", out["final"], (1.0, 0.6, 0.1, 1.0), 14.0, on_top=True)
+        else:
+            scene.remove("agarre:final")
+
+    def _sync_grip_standalone_meshes(self, scene) -> bool:
         if not self.grip_preview_standalone:
             return False
         scene.clear()
@@ -5374,6 +5561,7 @@ class Controller:
         for key in [k for k in scene.items if k.startswith("plano:") and not k.endswith(":borde")]:
             if key not in wanted:
                 scene.remove(key)
+        self._sync_grip_marks(scene)
         if self.hover_vertex is not None and self.hover_active():
             scene.set_points("hover:vertice", self.hover_vertex[None], (1.0, 0.0, 0.0, 1.0), 18.0, on_top=True)
         else:

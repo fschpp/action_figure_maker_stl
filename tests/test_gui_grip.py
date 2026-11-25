@@ -12,14 +12,22 @@ from afm.gui.controller import GRIP_FIELDS, Controller
 
 
 @pytest.fixture()
-def hand_stl(tmp_path, monkeypatch):
-    """Mano de juguete (toro con agujero Ø2,4) y búsqueda de canal gruesa: el toro es mucho más grande que una mano."""
-    t = trimesh.creation.torus(major_radius=4.4, minor_radius=3.2, major_sections=48, minor_sections=24)
+def hand_stl(tmp_path):
+    """Mano de juguete: toro en el plano XY con un agujero de Ø2,0 (eje Z); es mucho más grande que una mano."""
+    t = trimesh.creation.torus(major_radius=4.4, minor_radius=3.4, major_sections=48, minor_sections=24)
     path = str(tmp_path / "mano_toro.stl")
     t.export(path)
-    real = P.find_channel
-    monkeypatch.setattr(P, "find_channel", lambda hand, bore_d=2.4, **kw: real(hand, bore_d, pitch=0.2, n_dirs=150, refine=False))
     return path
+
+
+# elección manual sobre el toro: 3 puntos de la cara de arriba (z = 3,4) y el centro del agujero
+TORUS_PLANE = ((4.4, 0.0, 3.4), (0.0, 4.4, 3.4), (-4.4, 0.0, 3.4))
+TORUS_CENTER = (0.0, 0.0, 3.4)
+
+
+def _manual(c, end_center=None):
+    c.grip_manual = P.ManualGrip(TORUS_PLANE, TORUS_CENTER, end_center)
+    return c
 
 
 def _short_fingers(c):
@@ -50,6 +58,8 @@ def test_set_grip_barbs():
 
 def test_two_step_task_and_busy_flag(hand_stl):
     c = Controller()
+    assert c.begin_grip(hand_stl) is None and "Primero elegí el plano" in c.message      # sin elección manual no se taladra
+    _manual(c)
     job = c.begin_grip(hand_stl)
     assert job is not None and c.busy
     assert c.begin_grip(hand_stl) is None                       # no se lanzan dos tareas a la vez
@@ -60,7 +70,7 @@ def test_two_step_task_and_busy_flag(hand_stl):
 
 
 def test_error_frees_the_controller(tmp_path):
-    c = Controller()
+    c = _manual(Controller())
     bad = tmp_path / "vacio.stl"
     bad.write_text("no es una malla")
     assert c.run_grip(str(bad)) is None
@@ -68,7 +78,7 @@ def test_error_frees_the_controller(tmp_path):
 
 
 def test_save_hand_and_plate(hand_stl, tmp_path):
-    c = Controller()
+    c = _manual(Controller())
     assert c.save_grip_hand(str(tmp_path / "x.stl")) is False   # todavía no hay mano taladrada
     assert c.run_grip(hand_stl) is not None
     _short_fingers(c)
@@ -76,6 +86,7 @@ def test_save_hand_and_plate(hand_stl, tmp_path):
     assert c.save_grip_hand(out_hand) and c.save_grip_plate(out_plate)
     meta = json.load(open(os.path.splitext(out_hand)[0] + ".mano.json"))
     assert meta["formato"] == "afm-mano-1" and meta["agarre"]["diametro_taladro_mm"] == 2.4
+    assert meta["agarre"]["eleccion"]["manual"]["puntos_plano"] == [list(p) for p in TORUS_PLANE]
     assert len(trimesh.load(out_plate).split(only_watertight=False)) == len(c.grip_barbs)
     from afm.hand import load_standard_hand                      # la mano con agarre sigue siendo una mano estándar válida
     hand, m = load_standard_hand(out_hand)
@@ -83,7 +94,7 @@ def test_save_hand_and_plate(hand_stl, tmp_path):
 
 
 def test_stale_bore_blocks_saving_the_hand_but_not_the_plate(hand_stl, tmp_path):
-    c = Controller()
+    c = _manual(Controller())
     c.run_grip(hand_stl)
     _short_fingers(c)
     c.set_grip_param("bore_d", 2.0)
@@ -93,7 +104,7 @@ def test_stale_bore_blocks_saving_the_hand_but_not_the_plate(hand_stl, tmp_path)
 
 
 def test_plate_reports_bad_spec(hand_stl, tmp_path):
-    c = Controller()
+    c = _manual(Controller())
     c.run_grip(hand_stl)
     _short_fingers(c)
     c.set_grip_barbs("2.3")                                      # no supera el taladro: no retiene
@@ -192,3 +203,89 @@ def test_bad_spec_reports_instead_of_drawing(placed):
     placed.set_grip_show(True)                                     # lengüeta de 8 mm en un canal de 6: no entra
     assert placed.grip_prop_preview(placed.hand_fit()) is None
     assert "lengüetas" in placed.grip_summary()
+
+
+# ---------------------------------------------------------------- elección manual con clics sobre la mano pegada
+@pytest.fixture()
+def placed_hand(placed):
+    """La mano estándar (esfera de prueba) pegada a la figura, con la previsualización del agarre encendida."""
+    assert placed.set_grip_preview(True)
+    return placed
+
+
+def _hand_pts(c):
+    """3 puntos de un plano sobre la mano pegada, en el mundo (la cara de abajo de la esfera, tocando su superficie)."""
+    m = c.hand_fit()["matrix"]
+    local = [(3.0, 0.0, 0.0), (0.0, 3.0, 0.0), (-3.0, 0.0, 0.0)]
+    return [(m @ np.append(p, 1.0))[:3] for p in local], m
+
+
+def test_picking_needs_the_preview_on(placed):
+    assert placed.start_grip_plane() is False and "Previsualizar el agarre" in placed.message
+
+
+def test_plane_then_center_then_end(placed_hand):
+    c = placed_hand
+    assert c.start_grip_center() is False and "plano" in c.message              # el orden es plano → centro → final
+    assert c.start_grip_plane() and c.mode.name == "GRIP_PLANE" and c.picker is not None
+    pts, m = _hand_pts(c)
+    feed(c, pts)
+    assert c.mode.name == "VIEW" and c.grip_manual is not None and c.grip_manual.center is None
+    # los puntos se guardan en el marco LOCAL de la mano (invertida la matriz con la que se dibuja)
+    assert np.allclose(np.array(c.grip_manual.points), [(3.0, 0.0, 0.0), (0.0, 3.0, 0.0), (-3.0, 0.0, 0.0)], atol=1e-6)
+    assert not c.grip_manual_ready and c.begin_grip("x.stl") is None
+    assert c.start_grip_center()
+    feed(c, [(m @ np.array([0.0, 0.0, 0.0, 1.0]))[:3]])
+    assert c.grip_manual_ready and c.grip_manual.end_center is None
+    assert c.start_grip_end()
+    feed(c, [(m @ np.array([0.5, 0.0, 3.0, 1.0]))[:3]])
+    assert c.grip_manual.end_center is not None
+    c.clear_grip_end()
+    assert c.grip_manual.end_center is None
+    c.clear_grip_manual()
+    assert c.grip_manual is None
+
+
+def test_collinear_points_are_refused(placed_hand):
+    c = placed_hand
+    assert c.start_grip_plane()
+    m = c.hand_fit()["matrix"]
+    feed(c, [(m @ np.append(p, 1.0))[:3] for p in [(0, 0, 0), (1, 0, 0), (2, 0, 0)]])
+    assert c.grip_manual is None and "alineados" in c.message
+
+
+def test_a_new_plane_clears_the_center(placed_hand):
+    c = placed_hand
+    c.grip_manual = P.ManualGrip(((3, 0, 0), (0, 3, 0), (-3, 0, 0)), (0, 0, 0), (0.5, 0, 3))
+    assert c.start_grip_plane()
+    pts, _ = _hand_pts(c)
+    feed(c, pts)
+    assert c.grip_manual.center is None and c.grip_manual.end_center is None
+
+
+def test_preview_key_needs_the_manual_choice_and_sync_draws_the_cylinder(placed_hand):
+    c = placed_hand
+    assert c._grip_preview_key() is None and not c.grip_preview_stale             # sin elección: solo se ve la mano
+    scene = FakeScene()
+    c.sync(scene)
+    assert "agarre:cilindro" not in scene.items
+    c.grip_manual = P.ManualGrip(((3, 0, 0), (0, 3, 0), (-3, 0, 0)), (0.0, 0.0, 0.0))
+    assert c._grip_preview_key() is not None and c.grip_preview_stale
+    c.sync(scene)
+    assert "agarre:plano" in scene.items and "agarre:cilindro" in scene.items
+    assert "agarre:final" not in scene.items
+    c.clear_grip_manual()
+    c.sync(scene)
+    assert "agarre:cilindro" not in scene.items and "agarre:plano" not in scene.items
+
+
+def test_preview_job_carves_with_the_manual_choice(placed_hand):
+    c = placed_hand
+    c.set_grip_param("bore_d", 2.0)
+    c.grip_manual = P.ManualGrip(((3, 0, 0), (0, 3, 0), (-3, 0, 0)), (0.0, 0.0, 0.0))
+    job = c.begin_grip_preview()
+    assert job is not None
+    res = job()
+    c.finish_grip_preview(res, None)
+    # la esfera de prueba no tiene un anillo cerrado alrededor del agujero: se informa en vez de dibujar algo falso
+    assert res["error"] == "" or "anillo" in res["error"] or "pared" in res["error"]

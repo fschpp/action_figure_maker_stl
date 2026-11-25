@@ -37,6 +37,9 @@ MODE_HELP: dict[Mode, tuple[str, tuple[str, ...]]] = {
     Mode.TRIM_PICK: (lz("mode_bar.clic_sobre_la_figura_centro_del"), ("cancel",)),
     Mode.FLOOR_CUT: (lz("mode_bar.clic_sobre_la_figura_o_altura_del"), ("done",)),
     Mode.FLAT_PLANE: (lz("mode_bar.clic_o_altura_del_corte_con"), ("done",)),
+    Mode.GRIP_PLANE: (lz("mode_bar.agarre_plano"), ("undo_point", "cancel")),
+    Mode.GRIP_CENTER: (lz("mode_bar.agarre_centro"), ("cancel",)),
+    Mode.GRIP_END: (lz("mode_bar.agarre_final"), ("cancel",)),
 }
 
 ACTION_LABELS = {"undo_point": (lz("mode_bar.quitar_ultimo"), lz("mode_bar.quita_el_ultimo_punto_o_vertice")),

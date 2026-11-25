@@ -300,6 +300,73 @@ def find_channel(hand: S.Manifold, bore_d: float = 2.4, pitch: float = 0.12, n_d
     return HandChannel(axis=d, center=c, free_d=2 * r)
 
 
+# ------------------------------------------------------------------ canal manual (3 puntos + centro)
+MAX_MANUAL_TILT_DEG = 25.0   # inclinación máxima del eje cuando se desplaza el centro al final de la mano
+
+
+@dataclass(frozen=True)
+class ManualGrip:
+    """Elección manual del taladro, en el marco local de la mano: 3 puntos del plano de la empuñadura, centro del círculo
+    sobre ese plano y, opcional, el centro del círculo al final de la mano (inclina el eje)."""
+    points: tuple                # 3 puntos (x, y, z) sobre la mano que definen el plano
+    center: tuple | None = None  # punto elegido sobre la mano; se proyecta al plano
+    end_center: tuple | None = None   # opcional: punto elegido hacia el final de la mano; se proyecta a su plano paralelo
+
+    @property
+    def complete(self) -> bool:
+        return len(self.points) == 3 and self.center is not None
+
+    def to_dict(self) -> dict:
+        d = {"puntos_plano": [list(map(float, p)) for p in self.points], "centro": None if self.center is None else list(map(float, self.center))}
+        if self.end_center is not None:
+            d["centro_final"] = list(map(float, self.end_center))
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "ManualGrip":
+        pts = tuple(tuple(map(float, p)) for p in d["puntos_plano"])
+        c = d.get("centro")
+        e = d.get("centro_final")
+        return cls(pts, None if c is None else tuple(map(float, c)), None if e is None else tuple(map(float, e)))
+
+
+def plane_from_points(points) -> tuple[np.ndarray, np.ndarray]:
+    """(normal unitaria, origen = centroide) del plano por 3 puntos; GripError si están alineados o repetidos."""
+    p = np.asarray(points, float).reshape(3, 3)
+    n = np.cross(p[1] - p[0], p[2] - p[0])
+    nn = float(np.linalg.norm(n))
+    if nn < 1e-9 * max(1.0, float(np.ptp(p, axis=0).max()) ** 2):
+        raise GripError("los 3 puntos están alineados o repetidos: elegí 3 puntos que no estén en línea")
+    return n / nn, p.mean(axis=0)
+
+
+def manual_channel(hand: S.Manifold, manual: ManualGrip) -> HandChannel:
+    """Eje y centro del taladro elegidos a mano. El eje es la normal del plano de los 3 puntos, orientada hacia el interior de la
+    mano (el plano es la cara de entrada: la guarda del accesorio apoya ahí). Con `end_center` el eje va del centro al punto elegido
+    en el plano paralelo que toca el final de la mano (inclinación limitada a `MAX_MANUAL_TILT_DEG`)."""
+    if not manual.complete:
+        raise GripError("falta elegir el plano (3 puntos) y el centro del círculo")
+    n, o = plane_from_points(manual.points)
+    verts = np.asarray(hand.vertices if hasattr(hand, "vertices") else S.to_trimesh(hand).vertices, float)   # Manifold o Trimesh
+    if float((verts.mean(axis=0) - o) @ n) < 0.0:
+        n = -n
+    c = np.asarray(manual.center, float)
+    c = c - float((c - o) @ n) * n                              # el centro se proyecta al plano elegido
+    axis = n
+    if manual.end_center is not None:
+        t_end = float(((verts - c) @ n).max())                  # hasta dónde llega la mano a lo largo del eje
+        if t_end <= 1e-6:
+            raise GripError("el plano elegido deja la mano del otro lado: elegí los 3 puntos sobre la cara de entrada")
+        e = np.asarray(manual.end_center, float)
+        e = e - (float((e - c) @ n) - t_end) * n                # el punto final se proyecta al plano del final de la mano
+        v = e - c
+        axis = v / np.linalg.norm(v)
+        tilt = float(np.degrees(np.arccos(np.clip(axis @ n, -1.0, 1.0))))
+        if tilt > MAX_MANUAL_TILT_DEG:
+            raise GripError(f"el centro del final inclina el eje {tilt:.0f}° (máximo {MAX_MANUAL_TILT_DEG:g}°): acercalo al eje del plano")
+    return HandChannel(axis=axis, center=c, free_d=0.0)
+
+
 # ------------------------------------------------------------------ taladro
 def _ref_up(d: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     ref = np.cross(d, [0, 0, 1.0])
@@ -335,7 +402,7 @@ def _wall_min(img: np.ndarray, cell, pitch: float) -> float:
 
 
 def carve_grip(hand: S.Manifold, spec: GripSpec | None = None, channel: HandChannel | None = None,
-               pitch: float = 0.05) -> tuple[S.Manifold, GripFit]:
+               pitch: float = 0.05, require_cut: bool = False) -> tuple[S.Manifold, GripFit]:
     """Taladra la mano con un agujero recto de `spec.bore_d` por su canal natural y verifica el anillo restante."""
     spec = spec or GripSpec()
     ch = channel or find_channel(hand, spec.bore_d)
@@ -343,6 +410,8 @@ def carve_grip(hand: S.Manifold, spec: GripSpec | None = None, channel: HandChan
     length = 60.0
     bore = S.cylinder_along(c, d, spec.bore_d / 2, length, spec.segments, start=-length / 2)
     out = S.difference(hand, bore)
+    if require_cut and out.volume() > hand.volume() - 1e-3:      # elección manual: el cilindro tiene que sacarle material a la mano
+        raise GripError("el cilindro no atraviesa la mano: elegí un centro sobre la mano (dentro de su silueta)")
     if len(out.decompose()) != 1:
         raise GripError(f"el taladro de Ø{spec.bore_d:g} mm parte la mano en {len(out.decompose())} piezas")
     pts, pitch = _solid_points(out, pitch)
@@ -480,8 +549,9 @@ MAX_TILT_DEG = 15.0          # inclinación fina máxima del eje respecto del ca
 
 
 def compute_grip(hand_path: str, spec: GripSpec | None = None, progress=None, canal: int = 1, inclinar: float = 0.0,
-                 azimut: float = 0.0) -> GripResult:
-    """Carga la mano estándar, busca su canal y la taladra. No escribe nada (ver `write_grip_hand`).
+                 azimut: float = 0.0, manual: ManualGrip | None = None) -> GripResult:
+    """Carga la mano estándar, busca su canal (o usa la elección `manual`: plano de 3 puntos + centro) y la taladra. No escribe
+    nada (ver `write_grip_hand`).
 
     `canal` (1 = el más robusto, el de siempre) elige entre los canales candidatos de `find_channel_options`; `inclinar` (°, hasta
     `MAX_TILT_DEG`) y `azimut` (°) lo inclinan. `carve_grip` rechaza el resultado si la pared queda por debajo de `spec.min_wall`."""
@@ -494,8 +564,10 @@ def compute_grip(hand_path: str, spec: GripSpec | None = None, progress=None, ca
     if abs(inclinar) > MAX_TILT_DEG:
         raise GripError(f"la inclinación fina llega a ±{MAX_TILT_DEG:g}° (se pidió {inclinar:g}°): elegí otro canal para cambios mayores")
     hand, meta = H.load_standard_hand(hand_path)
-    say("buscando el canal de la mano")
-    if canal == 1 and not inclinar:
+    if manual is not None:                                   # elección manual: plano de 3 puntos + centro (sin búsqueda automática)
+        ch = manual_channel(hand, manual)
+    elif canal == 1 and not inclinar:
+        say("buscando el canal de la mano")
         ch = find_channel(hand, spec.bore_d)
     else:
         opts = find_channel_options(hand, spec.bore_d, n_best=max(4, canal))
@@ -508,10 +580,12 @@ def compute_grip(hand_path: str, spec: GripSpec | None = None, progress=None, ca
             except HandError as exc:
                 raise GripError(f"inclinar {inclinar:g}°: {exc}") from exc
     say(f"taladrando Ø{spec.bore_d:g} mm")
-    carved, fit = carve_grip(hand, spec, ch)
+    carved, fit = carve_grip(hand, spec, ch, require_cut=manual is not None)
     meta = dict(meta or {"formato": H.HAND_FORMAT})
     meta["agarre"] = {**fit.to_dict(), "canal_natural_mm": round(ch.free_d, 3), "especificacion": asdict(spec)}
-    if canal != 1 or inclinar:
+    if manual is not None:
+        meta["agarre"]["eleccion"] = {"manual": manual.to_dict()}
+    elif canal != 1 or inclinar:
         meta["agarre"]["eleccion"] = {"canal": canal, "inclinar_grados": inclinar, "azimut_grados": azimut}
     return GripResult(source=hand_path, hand=carved, meta=meta, channel=ch, fit=fit, spec=spec)
 

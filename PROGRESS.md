@@ -1,3 +1,19 @@
+## Current Focus — Agarre de la mano: elección manual en lugar de la búsqueda automática (2026-11-24, sobre main 924708e)
+**Objetivo.** En la sección «Agarre para accesorios» el taladro de la mano ya no se busca solo: el usuario elige 3 puntos sobre la mano (plano de la empuñadura), el centro del círculo sobre ese plano y, opcional, el centro al final de la mano (inclina el eje). Se dibuja el plano, el cilindro y la mano con el cilindro restado.
+**Hecho.**
+- `props.py`: `ManualGrip`, `plane_from_points`, `manual_channel` (eje = normal del plano hacia el interior de la mano; con centro final, inclinación ≤ 25°), `carve_grip(require_cut)` y `compute_grip(manual=)`. El automático (`find_channel*`) sigue para la CLI y el catálogo.
+- GUI: modos `GRIP_PLANE` / `GRIP_CENTER` / `GRIP_END`, 5 botones nuevos, barra de modo, textos es/en/pt; se quitan canal/inclinación/lado. La previsualización solo taladra con plano y centro elegidos.
+- Tests: `tests/test_props_manual.py` y casos nuevos en `tests/test_gui_grip.py` (37 en verde con test_i18n).
+**No verificado.** Ventana GTK/GL real (sin PyGObject aquí); suite completa no corrida por pedido (falla ya en main: `test_catalog_import::test_parse_builds_the_arguments_of_catalog_ops`).
+
+### Todo List
+- [x] Done: motor manual, controlador, GUI, textos, tests
+- [ ] Todo: probar en ventana real con una mano pegada y con la del catálogo
+- [ ] Todo: decidir si `afm agarre` (CLI) también pasa a manual (`--plano`, `--centro`)
+
+### Latest Blockers/Discoveries
+- «Desplazar el centro al final de la mano» se interpretó como un segundo centro en el plano paralelo del final (inclina el eje); un cilindro pasante recto no cambia con solo mover su centro.
+
 ## Current Focus — Panel de armas: la mano estándar en 3D sobre el mango, en el visor principal (2026-11-24, sobre main 6f4df59)
 **Objetivo.** El dibujo 2D del panel (insignias, figurita) no gustó: se revierte (`6f4df59`) y la mano estándar de la línea se muestra renderizada en el visor 3D, puesta en el mango del arma armada.
 **Hecho.**
