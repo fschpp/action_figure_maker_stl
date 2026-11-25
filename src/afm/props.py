@@ -126,6 +126,13 @@ def _silhouette(pts: np.ndarray, d: np.ndarray, pitch: float):
     return img, lo, a, b
 
 
+def _seal_pinholes(img: np.ndarray) -> np.ndarray:
+    """Cierra las rendijas de 1–2 píxeles de la silueta. Los vóxeles se proyectan con el mismo paso que la cuadrícula: con un eje
+    alineado a X/Y/Z (lo normal al elegir un plano de frente, de costado o de arriba) el redondeo deja filas y columnas vacías de
+    un píxel que unen el agujero con el exterior y lo hacen parecer abierto aunque el anillo de material esté cerrado."""
+    return ndimage.binary_closing(img, structure=np.ones((3, 3), bool), border_value=0)
+
+
 def _enclosed_hole(img: np.ndarray, pitch: float):
     """(radio, celda) del mayor círculo libre que no toca el borde de la silueta; None si no hay agujero cerrado."""
     lab, _ = ndimage.label(~img, structure=_EIGHT)         # 8 vecinos: un contacto en diagonal NO cierra el agujero
@@ -452,6 +459,7 @@ def carve_grip(hand: S.Manifold, spec: GripSpec | None = None, channel: HandChan
         raise GripError(f"el taladro de Ø{spec.bore_d:g} mm parte la mano en {len(out.decompose())} piezas")
     pts, pitch = _solid_points(out, pitch)
     img, lo, a, b = _silhouette(pts, d, pitch)
+    img = _seal_pinholes(img)
     cell = np.array([(c @ a - lo[0]) / pitch, (c @ b - lo[1]) / pitch])
     wall_min = _wall_min(img, cell, pitch)
     if wall_min <= 0.0:

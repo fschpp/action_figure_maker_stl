@@ -78,3 +78,23 @@ def test_ray_plane_point_hits_the_plane_and_refuses_edge_on_rays():
     assert np.allclose(hit, [1.0, 2.0, 2.0])
     assert P.ray_plane_point([0.0, 0.0, 10.0], [1.0, 0.0, 0.0], n, o) is None            # paralelo al plano
     assert P.ray_plane_point([0.0, 0.0, 0.0], [0.0, 0.0, -1.0], n, o) is None            # el plano queda detrás
+
+
+def test_axis_aligned_bore_in_the_example_fist_is_not_reported_as_open():
+    """Con el eje alineado a Z (plano elegido sobre la cara de arriba) la silueta proyectada tenía rayas vacías de 1 px que
+    unían el agujero con el exterior: «abre el anillo» aunque el taladro estuviera centrado en un puño macizo."""
+    import os
+
+    path = os.path.join(os.path.dirname(__file__), "..", "catalogo", "ejemplo", "piezas", "mano", "mano-muneco-01@1.stl")
+    m = trimesh.load(path)
+    hand = S.to_manifold(m)
+    c0, (lo, hi) = m.centroid, m.bounds
+    top = float(hi[2])
+    pts = ((hi[0] - 0.5, c0[1], top), (c0[0], hi[1] - 0.5, top), (lo[0] + 0.5, c0[1], top))
+    ch = P.manual_channel(hand, P.ManualGrip(pts, (c0[0], c0[1], top)))
+    assert np.allclose(np.abs(ch.axis), [0.0, 0.0, 1.0])                  # el caso del bug: eje exactamente alineado
+    out, fit = P.carve_grip(hand, P.GripSpec(bore_d=2.4), ch, require_cut=True)
+    assert fit.wall_min > 1.0 and out.volume() < hand.volume()
+    # los límites físicos siguen valiendo: un taladro demasiado ancho para el puño sí deja una pared fina o abre el anillo
+    with pytest.raises(P.GripError):
+        P.carve_grip(hand, P.GripSpec(bore_d=6.0), ch, require_cut=True)
