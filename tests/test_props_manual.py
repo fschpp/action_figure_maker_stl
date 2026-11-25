@@ -70,3 +70,11 @@ def test_compute_grip_manual_records_the_choice(torus, tmp_path):
     res = P.compute_grip(path, P.GripSpec(), manual=manual)
     assert res.meta["agarre"]["eleccion"]["manual"] == manual.to_dict()
     assert res.channel.free_d == 0.0 and np.allclose(res.fit.axis, [0, 0, -1], atol=1e-9)
+
+
+def test_ray_plane_point_hits_the_plane_and_refuses_edge_on_rays():
+    n, o = np.array([0.0, 0.0, 1.0]), np.array([0.0, 0.0, 2.0])
+    hit = P.ray_plane_point([1.0, 2.0, 10.0], [0.0, 0.0, -1.0], n, o)
+    assert np.allclose(hit, [1.0, 2.0, 2.0])
+    assert P.ray_plane_point([0.0, 0.0, 10.0], [1.0, 0.0, 0.0], n, o) is None            # paralelo al plano
+    assert P.ray_plane_point([0.0, 0.0, 0.0], [0.0, 0.0, -1.0], n, o) is None            # el plano queda detrás

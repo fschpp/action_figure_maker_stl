@@ -2831,7 +2831,7 @@ class Controller:
         return (self.picker is not None and not self.busy and
                 self.mode in (Mode.SYMMETRY, Mode.LIMB_PLANE, Mode.NECK_PLANE, Mode.HEAD_CUT_PLANE, Mode.WEAPON_CUT_PLANE, Mode.WAIST_PLANE, Mode.HAND_EXTRACT,
                               Mode.HAND_PLACE, Mode.JOINT_PLANE, Mode.JOINT_LINES, Mode.JOINT_SIDE, Mode.JOINT_AXIS,
-                              Mode.GRIP_PLANE, Mode.GRIP_CENTER, Mode.GRIP_END))
+                              Mode.GRIP_PLANE))                    # el centro y el final del agarre son puntos del plano: sin imán a vértices
 
     def update_hover(self, px: float, py: float, width: float, height: float) -> bool:
         """Marca (en rojo) el vértice de la figura que el puntero tiene cerca; lo suelta al alejarse. Devuelve True si
@@ -2879,6 +2879,9 @@ class Controller:
         if self.mode == Mode.FLAT_PLANE:
             self._click_flat_plane(px, py, width, height)
             return None
+        if self.mode in (Mode.GRIP_CENTER, Mode.GRIP_END) and self.picker is not None:
+            self._click_grip_point(px, py, width, height)
+            return None
         if self.picker is None or self.mode == Mode.VIEW:
             return None
         hit = self.picker.pick_pixel(self.camera, px, py, width, height)
@@ -2897,10 +2900,6 @@ class Controller:
             self._finish_joint_axis(hit)
         elif self.mode == Mode.FLOOR_CUT:
             self._finish_floor_cut_pick(hit)
-        elif self.mode == Mode.GRIP_CENTER:
-            self._finish_grip_center(hit)
-        elif self.mode == Mode.GRIP_END:
-            self._finish_grip_end(hit)
         else:
             self.pending.append(hit.point.copy())
             need = 4 if self.mode in (Mode.JOINT_LINES, Mode.JOINT_SIDE) else 3
@@ -3197,18 +3196,48 @@ class Controller:
         self.cancel(quiet=True)
         self._changed(tr("controller.agarre_plano_listo_ahora_elegi_el_centro"))
 
-    def _finish_grip_center(self, hit: PickResult) -> None:
+    def _grip_click_local(self, px: float, py: float, width: float, height: float, end: bool):
+        """Punto (marco local de la mano) donde el rayo del clic corta el plano del paso; None (con aviso) si no lo corta.
+
+        Paso 2: el plano de los 3 puntos. Paso 3: el plano paralelo que toca el final de la mano. En ambos el punto es del PLANO,
+        no de la figura: no hace falta que el clic toque la mano (el que corta la malla es el cilindro, no el centro)."""
+        from ..props import GripError, manual_end_plane, manual_plane, ray_plane_point
+
+        mesh = self._grip_source_mesh()
+        if mesh is None or self.grip_manual is None or self._grip_pick_m is None:
+            return None
+        try:
+            n, o = manual_end_plane(mesh, self.grip_manual) if end else manual_plane(mesh, self.grip_manual)
+        except GripError as e:
+            self._changed(tr("controller.no_sirve_e_elegi_3_puntos", e=e), scene=False)
+            return None
+        origin, direction = self.camera.ray(px, py, width, height)
+        inv = np.linalg.inv(self._grip_pick_m)
+        o_loc = (inv @ np.append(origin, 1.0))[:3]
+        d_loc = inv[:3, :3] @ direction
+        hit = ray_plane_point(o_loc, d_loc / np.linalg.norm(d_loc), n, o)
+        if hit is None:
+            self._changed(tr("controller.el_clic_no_cae_sobre_el_plano_del_agarre"), scene=False)
+            return None
+        return tuple(float(x) for x in hit)
+
+    def _click_grip_point(self, px: float, py: float, width: float, height: float) -> None:
+        end = self.mode == Mode.GRIP_END
+        loc = self._grip_click_local(px, py, width, height, end)
+        if loc is None:
+            return
+        self._finish_grip_end(loc) if end else self._finish_grip_center(loc)
+
+    def _finish_grip_center(self, loc: tuple) -> None:
         from dataclasses import replace
 
-        loc = self._grip_to_local(hit.point)[0]
         self.grip_manual = replace(self.grip_manual, center=loc, end_center=None)
         self.cancel(quiet=True)
         self._changed(tr("controller.agarre_centro_listo_se_muestra_el_taladro"))
 
-    def _finish_grip_end(self, hit: PickResult) -> None:
+    def _finish_grip_end(self, loc: tuple) -> None:
         from dataclasses import replace
 
-        loc = self._grip_to_local(hit.point)[0]
         try:
             from ..props import manual_channel
 

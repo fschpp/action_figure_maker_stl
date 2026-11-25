@@ -224,6 +224,17 @@ def test_picking_needs_the_preview_on(placed):
     assert placed.start_grip_plane() is False and "Previsualizar el agarre" in placed.message
 
 
+def _click_world(c, world_pt, w=800, h=600):
+    """Clic real: el píxel donde la cámara ve `world_pt` (sin simular el picker)."""
+    px, py = c.camera.project(np.asarray(world_pt, float), w, h)[0, :2]
+    return c.click(float(px), float(py), w, h)
+
+
+def _look_along_plane_normal(c, n_world):
+    """Pone la cámara de frente al plano elegido (si no, el rayo puede ser casi paralelo a él)."""
+    c.camera.look_along(n_world, target=c.camera.target)
+
+
 def test_plane_then_center_then_end(placed_hand):
     c = placed_hand
     assert c.start_grip_center() is False and "plano" in c.message              # el orden es plano → centro → final
@@ -235,10 +246,11 @@ def test_plane_then_center_then_end(placed_hand):
     assert np.allclose(np.array(c.grip_manual.points), [(3.0, 0.0, 0.0), (0.0, 3.0, 0.0), (-3.0, 0.0, 0.0)], atol=1e-6)
     assert not c.grip_manual_ready and c.begin_grip("x.stl") is None
     assert c.start_grip_center()
-    feed(c, [(m @ np.array([0.0, 0.0, 0.0, 1.0]))[:3]])
+    _look_along_plane_normal(c, m[:3, :3] @ np.array([0.0, 0.0, 1.0]))      # el centro es un clic sobre el plano, no sobre la malla
+    _click_world(c, (m @ np.array([0.0, 0.0, 0.0, 1.0]))[:3])
     assert c.grip_manual_ready and c.grip_manual.end_center is None
     assert c.start_grip_end()
-    feed(c, [(m @ np.array([0.5, 0.0, 3.0, 1.0]))[:3]])
+    _click_world(c, (m @ np.array([0.5, 0.0, 3.0, 1.0]))[:3])
     assert c.grip_manual.end_center is not None
     c.clear_grip_end()
     assert c.grip_manual.end_center is None
@@ -289,3 +301,77 @@ def test_preview_job_carves_with_the_manual_choice(placed_hand):
     c.finish_grip_preview(res, None)
     # la esfera de prueba no tiene un anillo cerrado alrededor del agujero: se informa en vez de dibujar algo falso
     assert res["error"] == "" or "anillo" in res["error"] or "pared" in res["error"]
+
+
+# ---------------------------------------------------------------- el centro es un punto del PLANO, no de la figura
+def _plane_ready(c):
+    """Plano elegido sobre la mano pegada y modo «centro» activo; devuelve (matriz local→mundo, normal del plano en el mundo)."""
+    assert c.start_grip_plane()
+    pts, m = _hand_pts(c)
+    feed(c, pts)
+    assert c.start_grip_center()
+    n_local = np.array([0.0, 0.0, 1.0])
+    return m, m[:3, :3] @ n_local
+
+
+def test_center_can_be_outside_the_mesh(placed_hand):
+    """Un clic sobre el plano pero FUERA de la silueta de la mano (la malla no está ahí) sí vale como centro."""
+    c = placed_hand
+    m, n_world = _plane_ready(c)
+    mesh = c._grip_source_mesh()
+    outside_local = np.array([mesh.bounds[1][0] + 5.0, 0.0, 0.0])           # 5 mm más allá de la mano, sobre el plano z = 0
+    # el plano de los 3 puntos de _hand_pts pasa por z = 0 (local): el punto tiene que estar sobre ese plano
+    assert not mesh.contains([outside_local])[0]
+    world = (m @ np.append(outside_local, 1.0))[:3]
+    assert c.picker.pick_pixel is not None
+    c.picker.pick_pixel = lambda *a, **k: (_ for _ in ()).throw(AssertionError("el centro no debe pasar por la malla"))
+    _look_along_plane_normal(c, n_world)
+    c.click(*c.camera.project(world, 800, 600)[0, :2], 800, 600)
+    assert c.grip_manual.center is not None, c.message
+    assert np.allclose(c.grip_manual.center, outside_local, atol=0.05)       # quedó donde se hizo clic, en el plano
+    assert c.mode.name == "VIEW"
+
+
+def test_center_is_projected_exactly_on_the_plane(placed_hand):
+    c = placed_hand
+    m, n_world = _plane_ready(c)
+    _look_along_plane_normal(c, n_world)
+    c.click(400.0, 300.0, 800, 600)
+    assert c.grip_manual.center is not None, c.message
+    n, o = P.plane_from_points(c.grip_manual.points)
+    assert abs(float((np.asarray(c.grip_manual.center) - o) @ n)) < 1e-6
+
+
+def test_center_click_edge_on_to_the_plane_is_refused_with_a_message(placed_hand):
+    c = placed_hand
+    m, n_world = _plane_ready(c)
+    # mirando el plano de canto el rayo es casi paralelo a él: no hay punto fiable
+    t = np.cross(n_world, [0.0, 0.0, 1.0])
+    t = t / np.linalg.norm(t) if np.linalg.norm(t) > 1e-6 else np.array([1.0, 0.0, 0.0])
+    _look_along_plane_normal(c, t)
+    c.click(400.0, 300.0, 800, 600)
+    assert c.grip_manual.center is None and "plano" in c.message
+    assert c.mode.name == "GRIP_CENTER"                                      # sigue esperando un clic válido
+
+
+def test_end_center_is_a_point_of_the_end_plane_not_of_the_mesh(placed_hand):
+    c = placed_hand
+    m, n_world = _plane_ready(c)
+    _look_along_plane_normal(c, n_world)
+    c.click(400.0, 300.0, 800, 600)
+    assert c.grip_manual_ready
+    assert c.start_grip_end()
+    mesh = c._grip_source_mesh()
+    n, p_end = P.manual_end_plane(mesh, c.grip_manual)
+    near_axis = p_end + np.array([0.4, 0.0, 0.0])                           # poco inclinado respecto del eje
+    world = (m @ np.append(near_axis, 1.0))[:3]
+    c.picker.pick_pixel = lambda *a, **k: (_ for _ in ()).throw(AssertionError("el final no debe pasar por la malla"))
+    c.click(*c.camera.project(world, 800, 600)[0, :2], 800, 600)
+    assert c.grip_manual.end_center is not None, c.message
+    assert abs(float((np.asarray(c.grip_manual.end_center) - p_end) @ n)) < 0.05
+
+
+def test_hover_does_not_snap_to_vertices_while_choosing_the_center(placed_hand):
+    c = placed_hand
+    _plane_ready(c)
+    assert not c.hover_active()

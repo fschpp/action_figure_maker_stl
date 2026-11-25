@@ -309,8 +309,8 @@ class ManualGrip:
     """Elección manual del taladro, en el marco local de la mano: 3 puntos del plano de la empuñadura, centro del círculo
     sobre ese plano y, opcional, el centro del círculo al final de la mano (inclina el eje)."""
     points: tuple                # 3 puntos (x, y, z) sobre la mano que definen el plano
-    center: tuple | None = None  # punto elegido sobre la mano; se proyecta al plano
-    end_center: tuple | None = None   # opcional: punto elegido hacia el final de la mano; se proyecta a su plano paralelo
+    center: tuple | None = None  # punto elegido sobre el plano de los 3 puntos (puede quedar fuera de la mano)
+    end_center: tuple | None = None   # opcional: punto del plano paralelo que toca el final de la mano (puede quedar fuera de ella)
 
     @property
     def complete(self) -> bool:
@@ -340,23 +340,59 @@ def plane_from_points(points) -> tuple[np.ndarray, np.ndarray]:
     return n / nn, p.mean(axis=0)
 
 
+def _hand_vertices(hand) -> np.ndarray:
+    return np.asarray(hand.vertices if hasattr(hand, "vertices") else S.to_trimesh(hand).vertices, float)   # Manifold o Trimesh
+
+
+def manual_plane(hand, manual: ManualGrip) -> tuple[np.ndarray, np.ndarray]:
+    """(normal, origen) del plano de la empuñadura, con la normal orientada hacia el interior de la mano."""
+    n, o = plane_from_points(manual.points)
+    if float((_hand_vertices(hand).mean(axis=0) - o) @ n) < 0.0:
+        n = -n
+    return n, o
+
+
+def manual_end_plane(hand, manual: ManualGrip) -> tuple[np.ndarray, np.ndarray]:
+    """(normal, punto) del plano paralelo al de la empuñadura que toca el final de la mano, medido desde el centro elegido.
+    El centro del final es un punto de ESE plano: no hace falta que caiga sobre la mano."""
+    if manual.center is None:
+        raise GripError("falta elegir el centro del círculo")
+    n, o = manual_plane(hand, manual)
+    c = np.asarray(manual.center, float)
+    c = c - float((c - o) @ n) * n
+    t_end = float(((_hand_vertices(hand) - c) @ n).max())          # hasta dónde llega la mano a lo largo del eje
+    if t_end <= 1e-6:
+        raise GripError("el plano elegido deja la mano del otro lado: elegí los 3 puntos sobre la cara de entrada")
+    return n, c + t_end * n
+
+
+def ray_plane_point(origin, direction, normal, point, min_cos: float = 0.02) -> np.ndarray | None:
+    """Punto donde el rayo corta el plano (normal, punto), o None si es casi paralelo (plano de canto) o queda detrás."""
+    o, d, n = (np.asarray(x, float) for x in (origin, direction, normal))
+    denom = float(d @ n)
+    if abs(denom) < min_cos * float(np.linalg.norm(d)) * float(np.linalg.norm(n)):
+        return None
+    t = float((np.asarray(point, float) - o) @ n) / denom
+    if t <= 0:
+        return None
+    return o + t * d
+
+
 def manual_channel(hand: S.Manifold, manual: ManualGrip) -> HandChannel:
     """Eje y centro del taladro elegidos a mano. El eje es la normal del plano de los 3 puntos, orientada hacia el interior de la
     mano (el plano es la cara de entrada: la guarda del accesorio apoya ahí). Con `end_center` el eje va del centro al punto elegido
-    en el plano paralelo que toca el final de la mano (inclinación limitada a `MAX_MANUAL_TILT_DEG`)."""
+    en el plano paralelo que toca el final de la mano (inclinación limitada a `MAX_MANUAL_TILT_DEG`).
+
+    El centro es un punto del plano elegido, no de la mano: puede quedar fuera de la silueta; el que corta la malla es el cilindro."""
     if not manual.complete:
         raise GripError("falta elegir el plano (3 puntos) y el centro del círculo")
-    n, o = plane_from_points(manual.points)
-    verts = np.asarray(hand.vertices if hasattr(hand, "vertices") else S.to_trimesh(hand).vertices, float)   # Manifold o Trimesh
-    if float((verts.mean(axis=0) - o) @ n) < 0.0:
-        n = -n
+    n, o = manual_plane(hand, manual)
     c = np.asarray(manual.center, float)
     c = c - float((c - o) @ n) * n                              # el centro se proyecta al plano elegido
     axis = n
     if manual.end_center is not None:
-        t_end = float(((verts - c) @ n).max())                  # hasta dónde llega la mano a lo largo del eje
-        if t_end <= 1e-6:
-            raise GripError("el plano elegido deja la mano del otro lado: elegí los 3 puntos sobre la cara de entrada")
+        _, p_end = manual_end_plane(hand, manual)
+        t_end = float((p_end - c) @ n)
         e = np.asarray(manual.end_center, float)
         e = e - (float((e - c) @ n) - t_end) * n                # el punto final se proyecta al plano del final de la mano
         v = e - c
@@ -411,7 +447,7 @@ def carve_grip(hand: S.Manifold, spec: GripSpec | None = None, channel: HandChan
     bore = S.cylinder_along(c, d, spec.bore_d / 2, length, spec.segments, start=-length / 2)
     out = S.difference(hand, bore)
     if require_cut and out.volume() > hand.volume() - 1e-3:      # elección manual: el cilindro tiene que sacarle material a la mano
-        raise GripError("el cilindro no atraviesa la mano: elegí un centro sobre la mano (dentro de su silueta)")
+        raise GripError("el cilindro no atraviesa la mano: acercá el centro del círculo para que el cilindro corte la mano")
     if len(out.decompose()) != 1:
         raise GripError(f"el taladro de Ø{spec.bore_d:g} mm parte la mano en {len(out.decompose())} piezas")
     pts, pitch = _solid_points(out, pitch)
