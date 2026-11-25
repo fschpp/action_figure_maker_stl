@@ -2594,12 +2594,38 @@ class MainWindow(Gtk.ApplicationWindow):
     def _on_grip_preview_toggled(self, btn) -> None:
         if self._updating:
             return
-        if not self.ctrl.set_grip_preview(btn.get_active()):
+        ctrl = self.ctrl
+        if not btn.get_active():
+            ctrl.set_grip_preview(False)
+            return
+        if ctrl.loaded and ctrl.session.project.hand is not None:      # hay mano pegada: se previsualiza en ella
+            ctrl.set_grip_preview(True)
+            self._grip_preview_soon()
+            return
+        cat = ctrl.grip_preview_catalog_hand()                          # sin mano pegada: ofrecer la del catálogo
+        if cat is None:
             self._updating = True
             btn.set_active(False)
             self._updating = False
+            ctrl.set_grip_preview(True)                                 # deja el aviso de qué falta en el estado
             return
-        self._grip_preview_soon()
+        dlg = Gtk.AlertDialog(message=tr("window.no_hay_una_mano_pegada_a_la_figura"),
+                              detail=tr("window.tomo_la_mano_del_catalogo_ref_para", ref=cat[1]),
+                              buttons=[tr("common.cancelar"), tr("window.usar_la_del_catalogo")], cancel_button=0, default_button=1)
+
+        def answered(d, res) -> None:
+            try:
+                ok = d.choose_finish(res) == 1
+            except GLib.Error:
+                ok = False
+            if ok and ctrl.set_grip_preview(True, catalog_hand=cat):
+                self._grip_preview_soon()
+            else:
+                self._updating = True
+                btn.set_active(False)
+                self._updating = False
+
+        dlg.choose(self, None, answered)
 
     def _grip_preview_soon(self) -> None:
         """Recalcula la previsualización poco después del último cambio (los controles se mueven en ráfaga)."""

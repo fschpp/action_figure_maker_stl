@@ -1034,7 +1034,7 @@
   "hacia_que_lado_se_inclina": "Tilt direction (°)",
   "canal_n_inclinado_hacia": "Channel %{canal}, tilted %{inclinar}° toward %{azimut}°.",
   "el_canal_o_la_inclinacion_cambio": "The channel or tilt changed: bore again to save the hand with that choice. Weapons already saved in the catalog go stale with a different axis.",
-  "para_previsualizar_el_agarre_pega_una_mano": "To preview the grip, first attach a replacement hand (STL) to the figure.",
+  "para_previsualizar_el_agarre_pega_una_mano": "To preview the grip, attach a replacement hand (STL) to the figure or open a catalog with a hand.",
   "previsualizando_el_agarre": "Previewing the grip",
   "buscando_canales_y_calculando_agarre": "Finding the hand's channels and computing the chosen grip… (channels are computed once per hand).",
   "previsualizacion_agarre_lista": "Preview: channel %{canal} of %{n}, tilted %{inclinar}° toward %{azimut}° · minimum wall %{wall} mm · length %{length} mm. Nothing was bored or saved.",
@@ -2057,7 +2057,10 @@
   "editar_3_a_silueta": "Edit 3rd outline",
   "dibujar_3_a_silueta": "Draw 3rd outline",
   "previsualizando_el_agarre": "Previewing the grip",
-  "agarre_previsualizado": "Grip previewed"
+  "agarre_previsualizado": "Grip previewed",
+  "no_hay_una_mano_pegada_a_la_figura": "No hand is attached to the figure",
+  "tomo_la_mano_del_catalogo_ref_para": "Take the catalog's hand (%{ref}) to preview the grip? It is shown alone in the viewer; it is not attached to the figure and the catalog is not modified.",
+  "usar_la_del_catalogo": "Use the catalog's"
  },
  "color": {
   "ayuda_desde": "FBX with the colour texture of the same figure (mode B): besides the STLs it writes piezas_color/ (OBJ+MTL+PNG per part) and <name>_ensamblada.glb. The STLs do not change",

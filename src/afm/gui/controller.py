@@ -301,6 +301,8 @@ class Controller:
         self.grip_barbs: tuple[float, ...] = DEFAULT_BARBS
         self.grip_preview_on = False                 # previsualizar el agarre elegido en la mano pegada, sin taladrar ni guardar
         self._grip_preview: dict | None = None       # última previsualización: key, mano taladrada (local), ajuste, nº de canales, error
+        self.grip_preview_catalog: tuple | None = None   # (raíz, ref) de la mano del catálogo a previsualizar cuando no hay mano pegada
+        self._grip_cat_mesh: tuple | None = None         # (raíz, ref, malla) de esa mano sin taladrar, para mostrarla mientras se calcula
         self._grip_channels: tuple | None = None     # (clave de la mano, canales candidatos): se buscan una vez por mano
         self.grip_channel = 1                        # canal candidato de la mano (1 = el más robusto, el de siempre)
         self.grip_tilt = 0.0                         # inclinación fina del eje (°, ±15) y hacia qué lado (°)
@@ -3230,33 +3232,63 @@ class Controller:
         return True
 
     # ------------------------------------------------------------------ previsualizar el agarre antes de taladrar
-    def _grip_preview_key(self):
-        """Clave de lo que se pidió previsualizar (mano pegada + elección + Ø), o None sin mano pegada."""
+    def _grip_preview_source(self):
+        """(tipo, id1, id2) de la mano a previsualizar: la pegada a la figura, o si no hay, la del catálogo elegida; None si no hay ninguna."""
         import os
 
         spec = self.session.project.hand if self.loaded else None
-        if spec is None:
+        if spec is not None:
+            try:
+                return ("pegada", spec.path, os.stat(spec.path).st_mtime_ns)
+            except OSError:
+                return None
+        if self.grip_preview_catalog is not None:
+            return ("catalogo",) + tuple(self.grip_preview_catalog)
+        return None
+
+    def _grip_preview_key(self):
+        """Clave de lo que se pidió previsualizar (mano + elección + Ø), o None sin mano."""
+        src = self._grip_preview_source()
+        if src is None:
+            return None
+        return src + (self.grip_channel, round(self.grip_tilt, 6), round(self.grip_azimuth, 6), self.grip_spec.bore_d)
+
+    def grip_preview_catalog_hand(self):
+        """(raíz, ref) de la mano más reciente del catálogo abierto, o None si no hay catálogo o no tiene manos."""
+        from ..catalog import Catalog, CatalogError
+
+        root = self.weapon_catalog or self.session.catalog_root or GUI_SETTINGS.last_catalog()
+        if not root:
             return None
         try:
-            mt = os.stat(spec.path).st_mtime_ns
-        except OSError:
+            hands = Catalog.open(root).list(tipo="mano")
+        except (CatalogError, OSError):
             return None
-        return (spec.path, mt, self.grip_channel, round(self.grip_tilt, 6), round(self.grip_azimuth, 6), self.grip_spec.bore_d)
+        return (root, hands[-1].ref) if hands else None
+
+    @property
+    def grip_preview_standalone(self) -> bool:
+        """La previsualización va con la mano del catálogo, sola en el visor (no hay mano pegada)."""
+        return self.grip_preview_on and self._grip_preview_source() is not None and self._grip_preview_source()[0] == "catalogo"
 
     @property
     def grip_preview_stale(self) -> bool:
         """Hay que recalcular la previsualización: se pidió y no coincide con lo elegido ahora."""
-        if not self.grip_preview_on or self.session.project.hand is None:
+        if not self.grip_preview_on or self._grip_preview_key() is None:
             return False
         pv = self._grip_preview
         return pv is None or pv["key"] != self._grip_preview_key()
 
-    def set_grip_preview(self, on: bool) -> bool:
-        """Activa o apaga la previsualización del agarre (la calcula `begin_grip_preview`, en un hilo)."""
-        if on and self.session.project.hand is None:
+    def set_grip_preview(self, on: bool, catalog_hand: tuple | None = None) -> bool:
+        """Activa o apaga la previsualización del agarre (la calcula `begin_grip_preview`, en un hilo). Sin mano pegada hace falta
+        `catalog_hand` = (raíz, ref) de una mano del catálogo (ver `grip_preview_catalog_hand`)."""
+        if on and self.loaded and self.session.project.hand is not None:
+            catalog_hand = None
+        elif on and catalog_hand is None:
             self.grip_preview_on = False
             self._changed(tr("controller.para_previsualizar_el_agarre_pega_una_mano"), scene=False)
             return False
+        self.grip_preview_catalog = tuple(catalog_hand) if (on and catalog_hand) else self.grip_preview_catalog
         self.grip_preview_on = bool(on)
         self._changed()
         return True
@@ -3273,7 +3305,7 @@ class Controller:
         spec, canal, tilt, az = self.grip_spec, self.grip_channel, self.grip_tilt, self.grip_azimuth
         barbs = self.grip_barbs
         cached = self._grip_channels
-        hand_key = (key[0], key[1], spec.bore_d)
+        hand_key = key[:3] + (spec.bore_d,)
 
         def job(progress=None):
             from .. import hand as H
@@ -3281,7 +3313,13 @@ class Controller:
             from ..hand import HandError
 
             say = progress or (lambda text: None)
-            hand, _ = H.load_standard_hand(key[0])
+            if key[0] == "pegada":
+                hand, _ = H.load_standard_hand(key[1])
+            else:
+                from ..catalog import Catalog
+
+                _meta, mesh = Catalog.open(key[1]).load(key[2])
+                hand = S.to_manifold(mesh)
             opts = cached[1] if cached and cached[0] == hand_key else None
             out = {"key": key, "hand_key": hand_key, "error": ""}
             try:
@@ -3333,7 +3371,8 @@ class Controller:
         """(mano taladrada, espada de prueba) en el mundo para la previsualización vigente, o None si no hay una válida
         para la elección actual. Es lo que se dibuja en lugar de la mano pegada."""
         pv = self._grip_preview
-        if not self.grip_preview_on or pv is None or pv["error"] or hfit is None or "matrix" not in hfit:
+        solo = self.grip_preview_standalone
+        if not self.grip_preview_on or pv is None or pv["error"] or (not solo and (hfit is None or "matrix" not in hfit)):
             return None
         if pv["key"] != self._grip_preview_key():
             return None
@@ -3341,7 +3380,7 @@ class Controller:
 
         from ..props import GripError, make_prop, prop_to_hand_matrix
 
-        fit, m = pv["fit"], hfit["matrix"]
+        fit, m = pv["fit"], (np.eye(4) if solo else hfit["matrix"])
         hand = pv["hand"].copy()
         hand.apply_transform(m)
         spec = replace(self.grip_spec, bore_d=fit.bore_d, barb_d=self.grip_barbs[len(self.grip_barbs) // 2])
@@ -5207,9 +5246,34 @@ class Controller:
         return self.finish_export(info, outdir)
 
     # ---------------------------------------------------------------- escena
+    def _sync_grip_standalone(self, scene) -> bool:
+        """Previsualización del agarre con la mano del catálogo, sola en el visor (sin mano pegada). False si no corresponde."""
+        if not self.grip_preview_standalone:
+            return False
+        scene.clear()
+        pv = self.grip_preview_meshes(None)
+        if pv is not None:
+            scene.set_mesh("agarre:mano", pv[0], color=_HAND_COLOR)
+            if pv[1] is not None:
+                scene.set_mesh("agarre:espada", pv[1], color=_ACCESSORY_COLOR)
+            return True
+        root, ref = self.grip_preview_catalog
+        if self._grip_cat_mesh is None or self._grip_cat_mesh[:2] != (root, ref):      # mientras se calcula, la mano tal cual está
+            try:
+                from ..catalog import Catalog
+
+                self._grip_cat_mesh = (root, ref, Catalog.open(root).load(ref)[1])
+            except Exception:                                    # noqa: BLE001 — sin la malla simplemente no se dibuja nada
+                self._grip_cat_mesh = None
+        if self._grip_cat_mesh is not None:
+            scene.set_mesh("agarre:mano", self._grip_cat_mesh[2], color=_HAND_COLOR)
+        return True
+
     def sync(self, scene) -> None:
         """Vuelca el estado al `SceneRenderer` (llamar con el contexto GL activo)."""
         sess = self.session
+        if self._sync_grip_standalone(scene):
+            return
         if self.weapon_active and self.weapon is not None and self.weapon.loaded:
             self._sync_weapon(scene)
             return

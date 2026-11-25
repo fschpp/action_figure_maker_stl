@@ -1034,7 +1034,7 @@
   "hacia_que_lado_se_inclina": "Para que lado inclina (°)",
   "canal_n_inclinado_hacia": "Canal %{canal}, inclinado %{inclinar}° para %{azimut}°.",
   "el_canal_o_la_inclinacion_cambio": "O canal ou a inclinação mudaram: fure de novo para salvar a mão com essa escolha. As armas já salvas no catálogo ficam antigas com outro eixo.",
-  "para_previsualizar_el_agarre_pega_una_mano": "Para pré-visualizar a pegada, cole primeiro uma mão de substituição (STL) na figura.",
+  "para_previsualizar_el_agarre_pega_una_mano": "Para pré-visualizar a pegada, cole uma mão de substituição (STL) na figura ou abra um catálogo com uma mão.",
   "previsualizando_el_agarre": "Pré-visualizando a pegada",
   "buscando_canales_y_calculando_agarre": "Procurando os canais da mão e calculando a pegada escolhida… (os canais são calculados uma vez por mão).",
   "previsualizacion_agarre_lista": "Pré-visualização: canal %{canal} de %{n}, inclinado %{inclinar}° para %{azimut}° · parede mínima %{wall} mm · comprimento %{length} mm. Nada foi furado nem salvo.",
@@ -2057,7 +2057,10 @@
   "editar_3_a_silueta": "Editar 3.ª silhueta",
   "dibujar_3_a_silueta": "Desenhar 3.ª silhueta",
   "previsualizando_el_agarre": "Pré-visualizando a pegada",
-  "agarre_previsualizado": "Pegada pré-visualizada"
+  "agarre_previsualizado": "Pegada pré-visualizada",
+  "no_hay_una_mano_pegada_a_la_figura": "Não há mão colada na figura",
+  "tomo_la_mano_del_catalogo_ref_para": "Uso a mão do catálogo (%{ref}) para pré-visualizar a pegada? Ela aparece sozinha no visor; não é colada na figura nem altera o catálogo.",
+  "usar_la_del_catalogo": "Usar a do catálogo"
  },
  "color": {
   "ayuda_desde": "FBX com a textura de cor da mesma figura (modo B): além dos STL, grava piezas_color/ (OBJ+MTL+PNG por peça) e <nome>_ensamblada.glb. Os STL não mudam",

@@ -1034,7 +1034,7 @@
   "hacia_que_lado_se_inclina": "Hacia qué lado se inclina (°)",
   "canal_n_inclinado_hacia": "Canal %{canal}, inclinado %{inclinar}° hacia %{azimut}°.",
   "el_canal_o_la_inclinacion_cambio": "El canal o la inclinación cambiaron: volvé a taladrar para guardar la mano con esa elección. Las armas ya guardadas en el catálogo quedan viejas con otro eje.",
-  "para_previsualizar_el_agarre_pega_una_mano": "Para previsualizar el agarre, pegá primero una mano de reemplazo (STL) a la figura.",
+  "para_previsualizar_el_agarre_pega_una_mano": "Para previsualizar el agarre, pegá una mano de reemplazo (STL) a la figura o abrí un catálogo con una mano.",
   "previsualizando_el_agarre": "Previsualizando el agarre",
   "buscando_canales_y_calculando_agarre": "Buscando los canales de la mano y calculando el agarre elegido… (los canales se calculan una vez por mano).",
   "previsualizacion_agarre_lista": "Previsualización: canal %{canal} de %{n}, inclinado %{inclinar}° hacia %{azimut}° · pared mínima %{wall} mm · largo %{length} mm. Nada se taladró ni se guardó.",
@@ -2057,7 +2057,10 @@
   "editar_3_a_silueta": "Editar 3.ª silueta",
   "dibujar_3_a_silueta": "Dibujar 3.ª silueta",
   "previsualizando_el_agarre": "Previsualizando el agarre",
-  "agarre_previsualizado": "Agarre previsualizado"
+  "agarre_previsualizado": "Agarre previsualizado",
+  "no_hay_una_mano_pegada_a_la_figura": "No hay una mano pegada a la figura",
+  "tomo_la_mano_del_catalogo_ref_para": "¿Tomo la mano del catálogo (%{ref}) para previsualizar el agarre? Se muestra sola en el visor; no se pega a la figura ni se modifica el catálogo.",
+  "usar_la_del_catalogo": "Usar la del catálogo"
  },
  "color": {
   "ayuda_desde": "FBX con la textura de color de la misma figura (modo B): además de los STL, deja piezas_color/ (OBJ+MTL+PNG por pieza) y <nombre>_ensamblada.glb. Los STL no cambian",

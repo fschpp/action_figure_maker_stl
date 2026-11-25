@@ -801,3 +801,40 @@ def test_grip_preview_runs_without_drilling(ctrl, tmp_path, monkeypatch):
     ctrl.finish_grip_preview(res)
     assert not ctrl.grip_preview_stale                       # con error y la misma clave no se reintenta en bucle
     assert ctrl.set_grip_preview(False)
+
+
+def test_grip_preview_with_catalog_hand_when_none_attached(ctrl, tmp_path, monkeypatch):
+    """Sin mano pegada, la previsualización puede usar la mano del catálogo y se dibuja sola (solo lee del catálogo)."""
+    from types import SimpleNamespace
+
+    from afm import props as P
+    from afm import solids as S
+    from afm.catalog import Catalog
+    from tests.test_props import _ch, _ring
+
+    hand, _ = _ring()
+    mesh = S.to_trimesh(hand)
+
+    class FakeCatalog:                                                  # una mano de juguete: la de verdad pide una muñeca plana
+        def list(self, tipo=None, **k):
+            return [SimpleNamespace(ref="mano-test-01@1")] if tipo == "mano" else []
+
+        def load(self, ref):
+            return SimpleNamespace(ref=ref), mesh
+
+    monkeypatch.setattr(Catalog, "open", classmethod(lambda cls, root: FakeCatalog()))
+    monkeypatch.setattr(P, "find_channel_options", lambda h, bore, **k: [_ch(h, bore)])
+    ctrl.weapon_catalog = str(tmp_path)
+
+    assert ctrl.session.project.hand is None
+    assert not ctrl.set_grip_preview(True)                          # sin mano pegada ni mano del catálogo elegida: no
+    found = ctrl.grip_preview_catalog_hand()
+    assert found == (str(tmp_path), "mano-test-01@1")
+    assert ctrl.set_grip_preview(True, catalog_hand=found)
+    assert ctrl.grip_preview_standalone and ctrl.grip_preview_stale
+    res = ctrl.begin_grip_preview()()
+    ctrl.finish_grip_preview(res)
+    assert not res["error"], res["error"]
+    assert not ctrl.grip_preview_stale
+    pv = ctrl.grip_preview_meshes(None)                             # sola, en el marco de la mano
+    assert pv is not None and pv[0].is_watertight
