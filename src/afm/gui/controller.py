@@ -169,12 +169,15 @@ def validation_summary(val: dict, clearance: float) -> str:
 
 # Parámetros editables en la GUI: (clave con punto, etiqueta, mínimo, máximo, paso, decimales)
 # Agarre para accesorios (`afm.props`): (clave de GripSpec, rótulo, mínimo, máximo, paso, decimales)
+# (clave, rótulo, mínimo, máximo, paso, decimales). Máximo None = sin tope: solo se exige el mínimo (valores físicamente posibles);
+# si el valor no sirve para el agarre, la previsualización lo avisa.
 GRIP_FIELDS = (
-    ("bore_d", lz("controller.del_taladro_en_el_puno_mm"), 1.5, 3.5, 0.1, 1),
-    ("shaft_d", lz("controller.de_la_empunadura_mm"), 1.2, 3.0, 0.1, 1),
-    ("slit_w", lz("controller.ranura_entre_lenguetas_mm"), 0.3, 1.5, 0.1, 1),
-    ("finger_len", lz("common.largo_de_la_lengueta_mm"), 3.0, 14.0, 0.5, 1),
+    ("bore_d", lz("controller.del_taladro_en_el_puno_mm"), 1.5, None, 0.1, 1),
+    ("shaft_d", lz("controller.de_la_empunadura_mm"), 1.2, None, 0.1, 1),
+    ("slit_w", lz("controller.ranura_entre_lenguetas_mm"), 0.3, None, 0.1, 1),
+    ("finger_len", lz("common.largo_de_la_lengueta_mm"), 3.0, None, 0.5, 1),
 )
+GRIP_SPIN_MAX = 1.0e5        # tope técnico del control (GTK pide uno): no es un límite del agarre
 
 
 PARAM_FIELDS = (
@@ -237,6 +240,7 @@ class Controller:
         self.picker: Picker | None = None
         self.mode = Mode.VIEW
         self.pending: list[np.ndarray] = []
+        self.grip_aim: tuple | None = None           # (punto local sobre el plano del paso, ¿es el del final?) bajo el puntero: círculo guía del taladro
         self.hover_vertex: np.ndarray | None = None  # vértice bajo el puntero (se pinta de rojo; un clic lo elige)
         self.pending_kind: str | None = None        # "arm" | "leg" mientras se elige el plano de un miembro
         self.message = tr("controller.abri_un_stl_para_empezar")
@@ -2840,6 +2844,8 @@ class Controller:
             return self._update_pin_aim(px, py, width, height)
         if self.ghost_active():                      # modo PIN sin catálogo: el fantasma sigue al puntero
             return self._update_pin_hover(px, py, width, height)
+        if self.grip_aim_active():                   # pasos 2 y 3 del agarre: círculo del taladro siguiendo al puntero, sobre el plano
+            return self._update_grip_aim(px, py, width, height)
         if not self.hover_active():
             return self.clear_hover()
         found = self.picker.nearest_vertex(self.camera, px, py, width, height, HOVER_RADIUS_PX)
@@ -2851,8 +2857,27 @@ class Controller:
         self.scene_dirty = True
         return True
 
+    def grip_aim_active(self) -> bool:
+        """True en los pasos 2 y 3 de la elección del agarre: hay que dibujar el círculo del taladro bajo el puntero."""
+        return self.mode in (Mode.GRIP_CENTER, Mode.GRIP_END) and self.picker is not None and not self.busy
+
+    def _update_grip_aim(self, px: float, py: float, width: float, height: float) -> bool:
+        end = self.mode == Mode.GRIP_END
+        loc = self._grip_click_local(px, py, width, height, end, quiet=True)
+        new = None if loc is None else (loc, end)
+        old = self.grip_aim
+        if (new is None) == (old is None) and (new is None or (new[1] == old[1] and np.allclose(new[0], old[0]))):
+            return False
+        self.grip_aim = new
+        self.scene_dirty = True
+        return True
+
     def clear_hover(self) -> bool:
         aim = self._clear_pin_aim()
+        if self.grip_aim is not None:
+            self.grip_aim = None
+            self.scene_dirty = True
+            aim = True
         if self.hover_vertex is None:
             return aim
         self.hover_vertex = None
@@ -3095,7 +3120,7 @@ class Controller:
         from dataclasses import replace
 
         spec = next((f for f in GRIP_FIELDS if f[0] == key), None)
-        if spec is None or not (spec[2] <= value <= spec[3]):
+        if spec is None or not (spec[2] <= value and (spec[3] is None or value <= spec[3])):
             return False
         self.grip_spec = replace(self.grip_spec, **{key: float(value)})
         self._changed(scene=False)
@@ -3182,6 +3207,24 @@ class Controller:
         a = np.asarray(pts, float).reshape(-1, 3)
         return [tuple(float(x) for x in (inv @ np.append(p, 1.0))[:3]) for p in a]
 
+    def _look_at_grip_plane(self) -> None:
+        """Con el plano recién fijado, la cámara lo mira de frente (por su cara de entrada, fuera de la mano) y se centra en él:
+        es como pasar a la vista «arriba» con el plano horizontal. El centro del círculo se elige entonces sin perspectiva ni sesgo."""
+        from ..props import GripError, manual_plane
+
+        mesh, m = self._grip_source_mesh(), self._grip_pick_m
+        if mesh is None or m is None or self.grip_manual is None:
+            return
+        try:
+            n, _o = manual_plane(mesh, self.grip_manual)               # normal hacia el interior de la mano
+        except GripError:
+            return
+        n_world = m[:3, :3] @ n
+        if float(np.linalg.norm(n_world)) < 1e-9:
+            return
+        target = (m @ np.append(np.mean(np.asarray(self.grip_manual.points, float), axis=0), 1.0))[:3]
+        self.camera.look_along(-n_world, target=target)                  # la cámara del lado de la entrada, mirando hacia la mano
+
     def _finish_grip_plane(self) -> None:
         from ..props import GripError, ManualGrip, plane_from_points
 
@@ -3194,9 +3237,10 @@ class Controller:
             return
         self.grip_manual = ManualGrip(tuple(local))                     # un plano nuevo borra el centro anterior
         self.cancel(quiet=True)
+        self._look_at_grip_plane()
         self._changed(tr("controller.agarre_plano_listo_ahora_elegi_el_centro"))
 
-    def _grip_click_local(self, px: float, py: float, width: float, height: float, end: bool):
+    def _grip_click_local(self, px: float, py: float, width: float, height: float, end: bool, quiet: bool = False):
         """Punto (marco local de la mano) donde el rayo del clic corta el plano del paso; None (con aviso) si no lo corta.
 
         Paso 2: el plano de los 3 puntos. Paso 3: el plano paralelo que toca el final de la mano. En ambos el punto es del PLANO,
@@ -3209,7 +3253,8 @@ class Controller:
         try:
             n, o = manual_end_plane(mesh, self.grip_manual) if end else manual_plane(mesh, self.grip_manual)
         except GripError as e:
-            self._changed(tr("controller.no_sirve_e_elegi_3_puntos", e=e), scene=False)
+            if not quiet:
+                self._changed(tr("controller.no_sirve_e_elegi_3_puntos", e=e), scene=False)
             return None
         origin, direction = self.camera.ray(px, py, width, height)
         inv = np.linalg.inv(self._grip_pick_m)
@@ -3217,7 +3262,8 @@ class Controller:
         d_loc = inv[:3, :3] @ direction
         hit = ray_plane_point(o_loc, d_loc / np.linalg.norm(d_loc), n, o)
         if hit is None:
-            self._changed(tr("controller.el_clic_no_cae_sobre_el_plano_del_agarre"), scene=False)
+            if not quiet:
+                self._changed(tr("controller.el_clic_no_cae_sobre_el_plano_del_agarre"), scene=False)
             return None
         return tuple(float(x) for x in hit)
 
@@ -5403,6 +5449,7 @@ class Controller:
         if not self._sync_grip_standalone_meshes(scene):
             return False
         self._sync_grip_marks(scene)
+        self._sync_grip_aim(scene)
         if self.hover_vertex is not None and self.hover_active():
             scene.set_points("hover:vertice", self.hover_vertex[None], (1.0, 0.0, 0.0, 1.0), 18.0, on_top=True)
         else:
@@ -5415,6 +5462,31 @@ class Controller:
             scene.remove("pendientes")
             scene.remove("pendientes:lineas")
         return True
+
+    def _sync_grip_aim(self, scene) -> None:
+        """Círculo guía del paso 2/3: centro en el puntero (sobre el plano) y Ø = el del taladro en el puño."""
+        aim = self.grip_aim if self.grip_aim_active() else None
+        m = self._grip_local_to_world() if aim is not None else None
+        mesh = self._grip_source_mesh() if m is not None else None
+        if aim is None or m is None or mesh is None or self.grip_manual is None:
+            scene.remove("agarre:mira")
+            scene.remove("agarre:mira:centro")
+            return
+        from ..props import GripError, _ref_up, manual_end_plane, manual_plane
+
+        try:
+            n, _o = manual_end_plane(mesh, self.grip_manual) if aim[1] else manual_plane(mesh, self.grip_manual)
+        except GripError:
+            scene.remove("agarre:mira")
+            scene.remove("agarre:mira:centro")
+            return
+        c = np.asarray(aim[0], float)
+        ref, up = _ref_up(n)
+        a = np.linspace(0.0, 2 * np.pi, 49)
+        ring = c + (self.grip_spec.bore_d / 2) * (np.cos(a)[:, None] * ref + np.sin(a)[:, None] * up)
+        w = lambda P: (m @ np.c_[P, np.ones(len(P))].T).T[:, :3]
+        scene.set_lines("agarre:mira", w(ring), (1.0, 0.85, 0.1, 1.0), closed=True, on_top=True)
+        scene.set_points("agarre:mira:centro", w(c[None]), (1.0, 0.85, 0.1, 1.0), 6.0, on_top=True)
 
     def _sync_grip_marks(self, scene) -> None:
         """Presentación de la operación: el plano elegido (triángulo verde), el cilindro que se resta de la mano (naranja: dos
@@ -5591,6 +5663,7 @@ class Controller:
             if key not in wanted:
                 scene.remove(key)
         self._sync_grip_marks(scene)
+        self._sync_grip_aim(scene)
         if self.hover_vertex is not None and self.hover_active():
             scene.set_points("hover:vertice", self.hover_vertex[None], (1.0, 0.0, 0.0, 1.0), 18.0, on_top=True)
         else:

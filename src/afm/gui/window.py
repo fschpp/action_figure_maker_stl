@@ -1185,7 +1185,7 @@ class MainWindow(Gtk.ApplicationWindow):
     def _on_gl_motion(self, _c, x: float, y: float) -> None:
         """Marca el vértice cercano al puntero (modos de elegir puntos). Se agrupan los eventos: la búsqueda traza un rayo."""
         self._hover_pos = (x, y)
-        if (self.ctrl.hover_active() or self.ctrl.aim_active() or self.ctrl.ghost_active()) and not self._hover_timer:
+        if (self.ctrl.hover_active() or self.ctrl.aim_active() or self.ctrl.ghost_active() or self.ctrl.grip_aim_active()) and not self._hover_timer:
             self._hover_timer = GLib.timeout_add(30, self._hover_tick)
 
     def _hover_tick(self) -> bool:

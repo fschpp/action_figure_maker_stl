@@ -38,13 +38,16 @@ def _short_fingers(c):
 def test_fields_exist_and_defaults_are_in_range():
     c = Controller()
     for key, _label, lo, hi, _step, _dig in GRIP_FIELDS:
-        assert lo <= getattr(c.grip_spec, key) <= hi, key
+        assert lo <= getattr(c.grip_spec, key), key
+        assert hi is None, key                                          # sin tope superior: solo el mínimo
 
 
 def test_set_grip_param_validates():
     c = Controller()
     assert c.set_grip_param("bore_d", 2.2) is True and c.grip_spec.bore_d == 2.2
-    assert c.set_grip_param("bore_d", 9.0) is False and c.grip_spec.bore_d == 2.2
+    assert c.set_grip_param("bore_d", 9.0) is True and c.grip_spec.bore_d == 9.0       # sin tope superior
+    assert c.set_grip_param("finger_len", 40.0) is True and c.grip_spec.finger_len == 40.0
+    assert c.set_grip_param("bore_d", 0.5) is False and c.grip_spec.bore_d == 9.0      # el mínimo sigue valiendo
     assert c.set_grip_param("nope", 1.0) is False
 
 
@@ -375,3 +378,64 @@ def test_hover_does_not_snap_to_vertices_while_choosing_the_center(placed_hand):
     c = placed_hand
     _plane_ready(c)
     assert not c.hover_active()
+
+
+# ---------------------------------------------------------------- vista de frente al plano y círculo guía del taladro
+def test_fixing_the_plane_aligns_the_view_to_it(placed_hand):
+    c = placed_hand
+    assert c.start_grip_plane()
+    pts, m = _hand_pts(c)
+    c.camera.yaw, c.camera.pitch = 20.0, 35.0                              # una vista cualquiera
+    feed(c, pts)
+    n_in = m[:3, :3] @ np.array([0.0, 0.0, 1.0])
+    n_in = n_in / np.linalg.norm(n_in)
+    view_dir = -(c.camera.eye() - np.asarray(c.camera.target, float))
+    view_dir = view_dir / np.linalg.norm(view_dir)
+    assert abs(float(view_dir @ n_in)) > 0.995                             # mira de frente al plano (de canto no)
+    assert np.allclose(c.camera.target, np.mean(pts, axis=0), atol=1e-6)
+
+
+def test_aim_circle_follows_the_pointer_with_the_bore_diameter(placed_hand):
+    c = placed_hand
+    m, n_world = _plane_ready(c)
+    c.set_grip_param("bore_d", 3.0)
+    _look_along_plane_normal(c, n_world)
+    scene = FakeScene()
+    assert c.grip_aim_active() and not c.hover_active()
+    assert c.update_hover(400.0, 300.0, 800, 600) is True and c.grip_aim is not None
+    c.sync(scene)
+    ring = scene.items["agarre:mira"][1]
+    center = scene.items["agarre:mira:centro"][1][0]
+    assert np.allclose(ring.mean(axis=0), center, atol=0.05)                 # centrado en el puntero
+    assert np.allclose(np.linalg.norm(ring - center, axis=1), 1.5, atol=1e-6)   # radio = Ø del taladro / 2
+    n_loc, _o = P.plane_from_points(c.grip_manual.points)
+    assert np.allclose(np.abs((ring - center) @ (m[:3, :3] @ n_loc)), 0.0, atol=1e-6)   # el círculo está en el plano
+    assert c.update_hover(400.0, 300.0, 800, 600) is False                  # sin cambios: no redibuja
+    c.set_grip_param("bore_d", 2.0)
+    c.grip_aim = None
+    c.update_hover(400.0, 300.0, 800, 600)
+    c.sync(scene)
+    assert np.allclose(np.linalg.norm(scene.items["agarre:mira"][1] - scene.items["agarre:mira:centro"][1][0], axis=1), 1.0, atol=1e-6)
+
+
+def test_aim_circle_goes_away_when_the_step_ends(placed_hand):
+    c = placed_hand
+    m, n_world = _plane_ready(c)
+    _look_along_plane_normal(c, n_world)
+    scene = FakeScene()
+    c.update_hover(400.0, 300.0, 800, 600)
+    c.sync(scene)
+    assert "agarre:mira" in scene.items
+    c.click(400.0, 300.0, 800, 600)                                         # fija el centro: el paso termina
+    assert c.grip_manual.center is not None and c.mode.name == "VIEW"
+    c.sync(scene)
+    assert "agarre:mira" not in scene.items and "agarre:mira:centro" not in scene.items
+
+
+def test_aim_circle_is_cleared_when_the_pointer_leaves(placed_hand):
+    c = placed_hand
+    m, n_world = _plane_ready(c)
+    _look_along_plane_normal(c, n_world)
+    c.update_hover(400.0, 300.0, 800, 600)
+    assert c.grip_aim is not None
+    assert c.clear_hover() is True and c.grip_aim is None

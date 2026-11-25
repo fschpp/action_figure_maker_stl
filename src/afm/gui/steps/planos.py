@@ -8,7 +8,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk  # noqa: E402
 
 from ...head import REPLACEMENT_UPS
-from ..controller import GRIP_FIELDS
+from ..controller import GRIP_FIELDS, GRIP_SPIN_MAX
 from ..ui_consts import HEAD_ADJUST_DEFAULTS
 from ..ui_consts import HEAD_ADJUST_FIELDS
 from ..widgets import collapsible as _collapsible
@@ -168,8 +168,9 @@ def build(win) -> None:
     for key, label, lo, hi, step, digits in GRIP_FIELDS:
         row = Gtk.Box(spacing=6)
         row.append(Gtk.Label(label=label, xalign=0, hexpand=True))
-        spin = Gtk.SpinButton.new_with_range(lo, hi, step)
+        spin = Gtk.SpinButton.new_with_range(lo, GRIP_SPIN_MAX if hi is None else hi, step)
         spin.set_digits(digits)
+        spin.set_width_chars(6)
         spin.set_value(getattr(win.ctrl.grip_spec, key))
         spin.connect("value-changed", lambda b, k=key: None if win._updating else win.ctrl.set_grip_param(k, b.get_value()))
         win.grip_spins[key] = spin
