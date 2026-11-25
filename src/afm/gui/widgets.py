@@ -97,9 +97,11 @@ class WrapRow(Gtk.Widget):
             c.unparent()
 
 
-def collapsible(parent: Gtk.Box, title: str, expanded: bool = True, sub: bool = False) -> Gtk.Box:
+def collapsible(parent: Gtk.Box, title: str, expanded: bool = True, sub: bool = False, css_class: str | None = None) -> Gtk.Box:
     """Sección (o subsección, `sub=True`) plegable: agrega un `Gtk.Expander` a `parent` y devuelve su caja interior."""
     exp = Gtk.Expander(expanded=expanded)
+    if css_class:
+        exp.add_css_class(css_class)
     lab = Gtk.Label(label=title, xalign=0, hexpand=True)
     lab.add_css_class("afm-sub-title" if sub else "afm-section-title")
     exp.set_label_widget(lab)
