@@ -17,7 +17,7 @@ from .recipe import RecipeError
 
 
 def add_parsers(sub) -> None:
-    c = sub.add_parser("catalogo", help="catálogo de piezas de una línea (crear, listar, verificar, importar-mano, taladrar-mano, agregar, agregar-stl, guardar-montura, cortar-muneca, usos, eliminar, estado, compat, certificar, matriz, cobertura, contrato, capacidad, paleta, color, color-girar, retoque, exportar, paquete)")
+    c = sub.add_parser("catalogo", help="catálogo de piezas de una línea (crear, listar, verificar, importar-mano, taladrar-mano, agregar, agregar-stl, guardar-montura, cortar-muneca, usos, eliminar, estado, compat, certificar, matriz, cobertura, contrato, capacidad, paleta, color, color-girar, retoque, exportar, instalar, paquete)")
     cs = c.add_subparsers(dest="catcmd", required=True)
 
     def root(p):
@@ -501,6 +501,9 @@ def _run(args) -> int:
     if cmd == "paquete":                       # D04: trabaja sobre un .zip, no necesita catálogo
         from .paquete_cli import run_validar
         return run_validar(args)
+    if cmd == "instalar":                      # D06: el destino es --en o la ruta de la línea del paquete; no usa `ruta`
+        from .paquete_cli import run_instalar
+        return run_instalar(args)
     cat = _open(args)
     if cmd == "exportar":
         from .paquete_cli import run_exportar

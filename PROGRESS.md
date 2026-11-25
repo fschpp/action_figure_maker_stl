@@ -1,3 +1,25 @@
+## Current Focus — Catálogos en línea: D05 `instalar.py` + D06 `afm catalogo instalar` (2026-11-25, rama feat/catalogos-online-d05 sobre main 14f2b6d)
+**Objetivo.** Instalar un paquete `.zip` `afm-paquete-1` en un catálogo con un plan visible antes de escribir y un resultado todo-o-nada (§5.3, §5.4).
+**Hecho.**
+- `src/afm/instalar.py` (D05, motor puro): `plan_install(zip, raiz, como_linea=, allow_fbx=)` **no escribe**: corre `validar` (sin malla) y aplica el §5.3: altura de línea ±0,5 mm y `ref_height` (si no encaja ⇒ error y `sugerir_linea`), perfil distinto ⇒ aviso (gana el local), colisión `id@n` con el mismo `sha256` ⇒ se omite / con otro ⇒ conflicto, tipo distinto ⇒ conflicto, recetas iguales ⇒ se omiten / distintas ⇒ conflicto, paleta (se agregan los roles que faltan; si el id existe con otro hex gana el local y se avisa; un rol usado que no existe ⇒ error), motor, `conflicts`/`requiere` contra el registro, cambio de origen del mismo id ⇒ `cambia_origen` (confirmación explícita). Destino que no existe ⇒ línea nueva con el `linea.json` del paquete; las colecciones se rechazan (D34).
+- `apply(plan, confirmar_origen=)`: comprueba que el zip no cambió desde el plan, extrae a `.instalando-*` dentro del catálogo con `ziplector.extract_all`, revisa los `sha256` de `archivos`, arma ahí un catálogo de juguete (línea de destino + paleta fusionada) y corre `Catalog.verify`; recién entonces mueve con `os.replace` **conservando `id@n`** (sin renumerar), fusiona la paleta, regenera `CATALOGO.md` y escribe `paquetes.json` (formato `afm-instalados-1`: versión, github, índice, sha256 del zip, fecha, licencia, autores, origen, `conflicts` y `refs` agregadas; reinstalar es aditivo). Un diario deshace todo ante cualquier excepción (archivos movidos, paleta, índice, registro, carpetas creadas y, en línea nueva, la carpeta entera).
+- D06: `afm catalogo instalar ZIP [--en RUTA | --como-linea] [--simular] [--si] [--aceptar-cambio-origen] [--permitir-fbx]`. Sin `--en` usa `~/.local/share/afm/catalogos/<línea>` y **no** mira `$AFM_CATALOGO` (D-4; lo avisa). Salida 0 ok / nada que hacer / simulado; 1 errores o cancelado; 2 no es un zip o no trae `paquete.json`. Registrado como `instalar` (consola, escribe) en `catalog_ops.COMMANDS`.
+- **D-9 comprobado:** `Catalog.versions` y `verify` toleran huecos de versión (aviso «no consecutivas», no error), `add_piece(new_version=True)` sigue desde la última, y `paquetes.json` en la raíz no molesta a `verify`, `listar` ni `exportar` (no viaja en el zip).
+**Pruebas.** `tests/test_instalar.py` (27): plan sin escribir, instalar en catálogo y como línea nueva, omitir por mismo hash, colisión, altura, perfil, paleta (falta / gana el local / sin paleta en el paquete), recetas, huecos, origen, conflicts/requiere, colección, zip cambiado entre plan y apply, `verify` que falla, **fallo simulado en cada `os.replace`** + índice + registro con comparación de hashes del árbol, y el CLI (simular, instalar, cancelar, ruta explícita con `AFM_CATALOGO`, zip roto).
+
+### Todo List
+- [x] Done: D03 (exportar), D04 (validar), D08 (lector endurecido), D05 (instalar.py), D06 (catalogo instalar)
+- [ ] Todo: D07 zips heredados (sin `paquete.json`: detectar `linea.json` en la raíz o a un nivel, armar un `paquete.json` mínimo en memoria y pedir licencia y origen); `plan_install` hoy exige el manifiesto, el hueco es `peek_package`/`validate_package`
+- [ ] Todo: CK305 (licencias distintas por pieza sin CREDITOS.md): `PieceMeta` no tiene licencia por pieza, no se evalúa; `paquetes.json` ya guarda la licencia **del paquete** (insumo de D23)
+- [ ] Todo: fijar topes definitivos de `ziplector` con la medición de D01 (hoy [P]; D01 no está hecha y necesita el `proceres-127.zip` real)
+- [ ] Decidir: los avisos «versiones no consecutivas» hoy salen como CK203 aviso y `--estricto` los vuelve **error**: un paquete válido con huecos (p. ej. solo `pieza@2`, o una línea con piezas eliminadas, como `proceres-127`) no pasa la puerta estricta aunque D05 lo instala bien
+
+### Latest Blockers/Discoveries
+- `plan_install` valida con `verify_catalog=False` (rápido, sin mallas); la verificación de mallas ocurre en `apply`, sobre el staging. Por eso `--simular` no avisa de una malla rota.
+- El destino de `apply` se verifica con la línea del **destino**, no la del paquete: así los avisos de perfil son avisos y no errores.
+- Sigue fallando en main `test_catalog_ops::test_every_catalog_subcommand_is_registered_for_the_window` (`retoque`, `guardar-montura` sin registrar): no es de este cambio; `instalar` sí quedó registrado.
+- Sin cobertura post-instalación (§5.3 punto 7, «mostrar `cobertura` de las piezas nuevas»): queda para la GUI (D17/D19) o una opción del CLI.
+
 ## Current Focus — Probetas de articulación: rótulos, mangos y paso de resultados (2026-11-25, sobre main deaa6d3)
 **Objetivo.** Que las probetas se puedan usar sin adivinar: saber qué celda es cuál al arrastrar el STL a Bambu Studio, poder mover la pieza de prueba con los dedos y devolverle al programa cuál ganó.
 **Hecho.**

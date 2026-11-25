@@ -462,7 +462,7 @@ Además, todo Release que el bot adopta pasa `afm catalogo paquete validar --est
 ### Cómo leer las fichas
 **Depende de** = tiene que estar hecha. **Paralelo con** = se puede hacer en otro turno sin esperarla. Cada tarea cierra con un patch `git am` y sus pruebas; las nuevas van en `tests/test_paquete*.py`, `test_instalar.py`, `test_remoto.py`, `test_catalog_online.py` salvo que se indique otra cosa.
 
-**Estado (2026-11-24):** hecha **D02** (`src/afm/paquete.py` + `src/afm/schemas/afm-paquete-1.schema.json`, `tests/test_paquete.py`). Siguen D03, D04 y D08 (motor puro); D00 y D01 esperan al cliente.
+**Estado (2026-11-25):** hechas **D02** (`paquete.py`), **D03** (`exportar`), **D04** y **D08** (`validar.py`, `ziplector.py`), **D05** (`instalar.py`) y **D06** (`afm catalogo instalar`). Siguen D07 (zips heredados), CK305 y los topes definitivos de `ziplector`; D00 y D01 esperan al cliente.
 
 ### Orden y paralelismo
 

@@ -1,6 +1,6 @@
-"""Subcomandos de paquetes de `afm catalogo …` (plan de catálogos en línea, §5.6): `exportar` (D03) y `paquete validar` (D04).
+"""Subcomandos de paquetes de `afm catalogo …` (plan de catálogos en línea, §5.6): `exportar` (D03), `paquete validar` (D04) e `instalar` (D06).
 
-Se enchufa desde `catalog_cli.add_parsers` / `_run` para no engordar ese archivo; los siguientes (`instalar`, `paquete …`, `remoto …`)
+Se enchufa desde `catalog_cli.add_parsers` / `_run` para no engordar ese archivo; los siguientes (`paquete …`, `remoto …`)
 cuelgan de acá. La lógica vive en `exportar.py`: este módulo solo lee argumentos e imprime.
 """
 from __future__ import annotations
@@ -44,6 +44,16 @@ def add_parsers(cs, root) -> None:
     a.add_argument("--licencia-archivo", default="", metavar="ARCHIVO", help="texto de la licencia (si no, LICENSE nombra la licencia y su enlace SPDX)")
     a.add_argument("--creditos", default="", metavar="ARCHIVO.md")
     a.add_argument("--portada", default="", metavar="IMAGEN", help="portada de 1280×720; se guarda como previews/portada.png")
+    i = cs.add_parser("instalar", help="instalar un paquete .zip en un catálogo: valida, muestra el plan y recién entonces escribe (todo o nada); "
+                                       "sin --en usa ~/.local/share/afm/catalogos/<línea> (no mira $AFM_CATALOGO)")
+    i.add_argument("zip", metavar="paquete.zip")
+    g = i.add_mutually_exclusive_group()
+    g.add_argument("--en", default=None, metavar="RUTA", help="catálogo de destino (si no existe se crea como línea nueva con la línea del paquete)")
+    g.add_argument("--como-linea", action="store_true", help="instalar como línea nueva (la carpeta no puede ser un catálogo que ya existe)")
+    i.add_argument("--simular", action="store_true", help="solo imprimir el plan; no escribe nada")
+    i.add_argument("--si", action="store_true", help="no pedir confirmación")
+    i.add_argument("--aceptar-cambio-origen", action="store_true", help="confirmar que un paquete ya instalado cambia de repo de origen")
+    i.add_argument("--permitir-fbx", action="store_true", help="aceptar .fbx dentro del paquete")
     pq = cs.add_parser("paquete", help="herramientas de paquetes .zip (por ahora: validar)")
     ps = pq.add_subparsers(dest="paqcmd", required=True)
     v = ps.add_parser("validar", help="revisar un paquete .zip (lint CK101–CK403): manifiesto, hashes, archivos, color, línea y `verify` del contenido")
@@ -94,4 +104,64 @@ def run_validar(args) -> int:
     return 1
 
 
-__all__ = ["ExportError", "add_parsers", "run_exportar", "run_validar"]
+def run_instalar(args) -> int:
+    """`afm catalogo instalar ZIP`: plan → confirmación → instalación atómica. 0 = instalado (o nada que hacer / simulado sin errores); 1 = el
+    plan tiene errores o se canceló; 2 = no es un zip o un paquete legible."""
+    import os
+
+    from . import instalar as I
+    from .ziplector import ZipError
+
+    try:
+        pkg = I.peek_package(args.zip)
+        if args.en:
+            root = args.en
+        else:
+            if not pkg.linea:
+                print("ERROR: el paquete no declara una línea: indicá el catálogo con --en", file=sys.stderr)
+                return 2
+            root = I.explicit_root(pkg.linea["nombre"])
+            if os.environ.get("AFM_CATALOGO"):
+                print(f"AVISO: $AFM_CATALOGO está definida ({os.environ['AFM_CATALOGO']}) y se ignora al instalar; se usa {root}. Elegí otra ruta con --en.")
+        plan = I.plan_install(args.zip, root, como_linea=args.como_linea, allow_fbx=args.permitir_fbx)
+    except (ZipError, I.InstallError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    for line in plan.describe():
+        print(line)
+    if not plan.ok:
+        print(f"FALLA: no se puede instalar: {len(plan.errors)} error(es).")
+        if plan.sugerir_linea and not args.como_linea:
+            print(f"Sugerencia: instalarlo como línea nueva con `--como-linea` (o `--en RUTA` con una carpeta nueva).")
+        return 1
+    if args.simular:
+        print("Simulación: no se escribió nada.")
+        return 0
+    if plan.nada_que_hacer:
+        print(f"Nada que instalar: «{plan.paquete.id}» {plan.paquete.version} ya está en {plan.root}.")
+        return 0
+    print("Aviso: la licencia y el origen los declara quien hizo el paquete; la app no los verifica (listar no es verificar).")
+    if plan.cambia_origen and not args.aceptar_cambio_origen:
+        print("ERROR: el paquete cambia de origen respecto de lo instalado; confirmalo con --aceptar-cambio-origen.", file=sys.stderr)
+        return 1
+    if not args.si:
+        try:
+            ans = input("¿Instalar? [s/N] ").strip().lower()
+        except EOFError:
+            ans = ""
+        if ans not in ("s", "si", "sí", "y", "yes"):
+            print("Cancelado: no se escribió nada.")
+            return 1
+    try:
+        res = I.apply(plan, confirmar_origen=args.aceptar_cambio_origen)
+    except (I.InstallError, OSError) as exc:
+        print(f"ERROR: no se instaló nada: {exc}", file=sys.stderr)
+        return 1
+    print(f"Instalado «{res.paquete.id}» {res.paquete.version} en {res.root}: {len(res.piezas)} pieza(s), {len(res.recetas)} receta(s), {len(res.roles)} rol(es) de paleta"
+          + (f"; {len(res.omitidas)} ya estaban" if res.omitidas else "") + ".")
+    for w in res.avisos:
+        print("AVISO:", w)
+    return 0
+
+
+__all__ = ["ExportError", "add_parsers", "run_exportar", "run_validar", "run_instalar"]
