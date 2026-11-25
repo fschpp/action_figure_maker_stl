@@ -3174,3 +3174,8 @@ No existe una «cara interna del muslo» detectable en Güemes (el borde interno
 - [x] `tests/test_gui_bambu_main.py` (27 pruebas; 26 pasaron, la 27.ª era un error de la prueba, corregido).
 - [ ] Pendiente: prueba de humo de la ventana bajo Xvfb (filas del selector, «Vista Bambu», manejadores `_on_bambu_*`), regresión de Bambu/color, refactor de la lógica duplicada con `FigureBuilder`.
 - Descubierto: la vista previa del visor principal sale en pose sentada (marco de las piezas), no en el marco de trabajo.
+
+
+## Guardar la mano de catálogo taladrada de vuelta en el catálogo
+**Problema:** «Guardar la mano taladrada en el catálogo» quedaba en gris con una mano de catálogo taladrada en «Planos»: solo se reconocía como del catálogo si se taladraba desde la previsualización sola; si se elegía su STL con el selector de archivos (`<catálogo>/piezas/mano/<id>@<n>.stl`) se trataba como «STL suelto».
+**Hecho:** `Controller.catalog_hand_of_path` reconoce por la ruta el STL de una pieza `mano` de un catálogo y `begin_grip` lo usa; prueba en `tests/test_catalog_drill_hand.py`.

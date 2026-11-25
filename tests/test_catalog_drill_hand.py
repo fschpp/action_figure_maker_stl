@@ -9,7 +9,7 @@ from test_catalog_grip import cat  # noqa: F401  (fixture)
 from test_gui_hand_place import std_hand  # noqa: F401  (fixture)
 
 
-def _fake_compute_grip(hand_path, spec=None, progress=None):
+def _fake_compute_grip(hand_path, spec=None, progress=None, manual=None):
     """La mano de prueba no tiene canal natural (la búsqueda real se prueba en test_props con un toro): se fabrica el resultado del taladro
     sobre la misma malla, para probar lo que es de este paso (versión nueva, datos de la pieza, agarre guardado)."""
     from dataclasses import asdict
@@ -123,3 +123,26 @@ def test_el_boton_guarda_la_mano_del_catalogo_taladrada_en_la_sesion(cat_lisa, t
     assert ctrl.blocked("grip_catalog") is None
     assert ctrl.save_grip_catalog() and cat_lisa.versions("mano-lisa-01") == [1, 2]
     assert P.GripSpec  # noqa: B015
+
+
+def test_la_mano_del_catalogo_elegida_por_archivo_tambien_se_guarda_de_vuelta(cat_lisa):
+    """Taladrar el STL de una mano del catálogo (elegido con el selector, sin previsualizarla sola) la deja guardable en el catálogo."""
+    import os
+
+    from afm.gui.controller import Controller
+
+    stl = os.path.join(cat_lisa.root, "piezas", "mano", "mano-lisa-01@1.stl")
+    assert Controller.catalog_hand_of_path(stl) == (os.path.abspath(cat_lisa.root), "mano-lisa-01@1")
+    assert Controller.catalog_hand_of_path(os.path.join(cat_lisa.root, "no-es@1.stl")) is None
+    assert Controller.catalog_hand_of_path(os.path.join(cat_lisa.root, "piezas", "mano", "otra@9.stl")) is None
+    from afm.props import ManualGrip
+
+    ctrl = Controller()
+    ctrl.grip_manual = ManualGrip(((0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)), center=(0.0, 0.0, 3.0))      # plano y centro a mano
+    assert ctrl.grip_manual_ready
+    ctrl.grip_spec = type(ctrl.grip_spec)(bore_d=5.0)
+    job = ctrl.begin_grip(stl)
+    assert job is not None
+    ctrl.finish_grip(job())
+    assert ctrl.blocked("grip_catalog") is None
+    assert ctrl.save_grip_catalog() and cat_lisa.versions("mano-lisa-01") == [1, 2]

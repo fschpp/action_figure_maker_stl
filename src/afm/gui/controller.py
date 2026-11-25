@@ -3349,7 +3349,7 @@ class Controller:
         if not self.grip_manual_ready:
             self._changed(tr("controller.primero_elegi_el_plano_y_el_centro"), scene=False)
             return None
-        self._grip_pending_cat = self.grip_preview_catalog if path == self.grip_catalog_stl_path() else None
+        self._grip_pending_cat = self.grip_preview_catalog if path == self.grip_catalog_stl_path() else self.catalog_hand_of_path(path)
         self.busy = True
         self.progress_prefix = tr("controller.taladrando_la_mano")
         self._changed(tr("controller.taladrando_la_mano_estandar_con_el_plano"), scene=False)
@@ -3481,6 +3481,31 @@ class Controller:
         except (CatalogError, OSError):
             return None
         return (root, hands[-1].ref) if hands else None
+
+    @staticmethod
+    def catalog_hand_of_path(path: str) -> tuple | None:
+        """(raíz, ref) si `path` es el STL de una pieza `mano` de un catálogo (``<raíz>/piezas/mano/<id>@<versión>.stl``), o None.
+        Así una mano de catálogo elegida con el selector de archivos (no solo la previsualizada) también se puede guardar de vuelta."""
+        import os
+        import re
+
+        from ..catalog import Catalog, CatalogError
+
+        full = os.path.abspath(path)
+        m = re.fullmatch(r"(.+)@(\d+)\.stl", os.path.basename(full))
+        folder = os.path.dirname(full)
+        if m is None or os.path.basename(folder) != "mano":
+            return None
+        pieces = os.path.dirname(folder)
+        if os.path.basename(pieces) != "piezas":
+            return None
+        root = os.path.dirname(pieces)
+        ref = f"{m.group(1)}@{m.group(2)}"
+        try:
+            meta = Catalog.open(root).meta(ref)
+        except (CatalogError, OSError, ValueError):
+            return None
+        return (root, meta.ref) if meta.tipo == "mano" else None
 
     def grip_catalog_stl_path(self) -> str | None:
         """Ruta del STL de la mano del catálogo que se está previsualizando sola (sin mano pegada), o None.
