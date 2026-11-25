@@ -3185,3 +3185,8 @@ No existe una «cara interna del muslo» detectable en Güemes (el borde interno
 **Problema:** con una mano taladrada a Ø5 y canal de 8,54 mm, «Ver la mano con agarre sobre el mango» mostraba solo el arma: la empuñadura derivada de la mano (vástago Ø4,6, dentado Ø5,5, lengüeta 8 mm, ranura 0,5) deformaba la lengüeta 1,20 % > 1,0 %, el arma no se armaba y la mano solo se dibuja sobre el arma armada.
 **Hecho:** `weapon.line_grip` alarga la lengüeta (hasta lo que permite el canal) y ensancha la ranura si hace falta, con 10 % de margen; con taladros chicos no cambia nada. Prueba en `tests/test_weapon.py`.
 **Pendiente:** 3 pruebas de `test_gui_controller.py` (`grip_axis_choice_limits_and_stale`, `grip_preview_runs_without_drilling`, `grip_preview_with_catalog_hand_when_none_attached`) fallan también sin este cambio.
+
+
+## «Armas en el cuerpo» seguía en gris al tildar un accesorio
+**Problema:** en «Armar figura desde catálogo», el bloque «Armas en el cuerpo (enganche)» se habilita según los accesorios marcados, pero solo se recalculaba al cambiar una pieza o abrir una receta: tildar el accesorio a mano no lo habilitaba.
+**Hecho:** `_on_accessory` llama a `_refill_mounts()`. **No probado:** la ventana real (sin GTK en el entorno de pruebas).

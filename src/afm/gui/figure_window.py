@@ -247,6 +247,7 @@ class FigureBuilderWindow(Gtk.Window):
             self.builder.set_accessory(ref, chk.get_active())
         except ValueError as exc:
             self.lbl_result.set_text(str(exc))
+        self._refill_mounts()                         # «Armas en el cuerpo» se habilita (o se apaga) con los accesorios marcados
         self._sync()
 
     # ------------------------------------------------------------ armas en el cuerpo (M13)
