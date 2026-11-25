@@ -659,6 +659,9 @@ class MainWindow(Gtk.ApplicationWindow):
             for key, spin in self.grip_spins.items():
                 if abs(spin.get_value() - getattr(ctrl.grip_spec, key)) > 1e-9:
                     spin.set_value(getattr(ctrl.grip_spec, key))
+            for key, spin in self.grip_axis_spins.items():
+                if abs(spin.get_value() - getattr(ctrl, key)) > 1e-9:
+                    spin.set_value(getattr(ctrl, key))
             gate(self.btn_open, ctrl.blocked("open"))      # no se cambia de archivo en medio de una tarea
             has_sym = ctrl.session.project.symmetry is not None
             gate((self.btn_arm, self.btn_leg, self.btn_neck, self.btn_waist, self.btn_hand, self.btn_hand_stl),

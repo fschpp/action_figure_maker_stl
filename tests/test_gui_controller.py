@@ -745,3 +745,23 @@ def test_guide_outline_is_thick_loud_and_on_top(arm):
     arm._sync_polygons(_Scene())
     color, on_top, width = seen["guia"]
     assert color == GUIDE_COLOR != DRAFT_COLOR and on_top and width == GUIDE_PX >= SILHOUETTE_PX
+
+
+def test_grip_axis_choice_limits_and_stale(ctrl):
+    from types import SimpleNamespace
+
+    assert ctrl.grip_channel == 1 and ctrl.grip_tilt == 0.0 and not ctrl.grip_axis_stale
+    assert ctrl.set_grip_axis("grip_channel", 3) and ctrl.grip_channel == 3
+    assert not ctrl.set_grip_axis("grip_channel", 5)                 # solo hay hasta 4 candidatos
+    assert not ctrl.set_grip_axis("grip_tilt", 20.0)                 # la inclinación fina llega a ±15°
+    assert ctrl.set_grip_axis("grip_tilt", -8.0) and ctrl.grip_tilt == -8.0
+    assert not ctrl.set_grip_axis("nada", 1)
+    # una mano taladrada con otra elección queda marcada como vieja; con la misma, no
+    ctrl.grip = SimpleNamespace(meta={"agarre": {"eleccion": {"canal": 3, "inclinar_grados": -8.0, "azimut_grados": 0.0}}})
+    assert not ctrl.grip_axis_stale
+    ctrl.set_grip_axis("grip_channel", 2)
+    assert ctrl.grip_axis_stale
+    ctrl.grip = SimpleNamespace(meta={"agarre": {}})                  # sin «eleccion»: canal 1 sin inclinar
+    ctrl.set_grip_axis("grip_channel", 1)
+    ctrl.set_grip_axis("grip_tilt", 0.0)
+    assert not ctrl.grip_axis_stale

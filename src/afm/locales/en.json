@@ -1028,7 +1028,12 @@
   "color_omitido_motivo": "Color skipped (%{motivo}).",
   "bambu_exportado": "For Bambu Studio: %{archivos} (%{n} colours).",
   "bambu_sin_color": "For Bambu Studio: not generated, the figure has no colour (turn on a colour in Parameters).",
-  "bambu_vista_apagada": "3MF view off."
+  "bambu_vista_apagada": "3MF view off.",
+  "canal_de_agarre": "Grip channel (1 = the most robust)",
+  "inclinacion_fina_del_eje": "Fine axis tilt (°)",
+  "hacia_que_lado_se_inclina": "Tilt direction (°)",
+  "canal_n_inclinado_hacia": "Channel %{canal}, tilted %{inclinar}° toward %{azimut}°.",
+  "el_canal_o_la_inclinacion_cambio": "The channel or tilt changed: bore again to save the hand with that choice. Weapons already saved in the catalog go stale with a different axis."
  },
  "figure_builder": {
   "sin_soportes_resumen": "No supports: cut %{corte} mm above the tail; arms rotated forward: %{giro}",
@@ -1790,7 +1795,8 @@
   "corta_la_cabeza_con_un_plano": "Cuts the head with a horizontal plane (parallel to the figure’s floor) instead of picking 3 points. It moves in parallel with “Height above the floor”, with a click on the figure or with ↑ ↓.",
   "altura_sobre_el_piso_mm": "Height above the floor (mm)",
   "traslada_el_plano_de_corte_en_paralelo": "Moves the cut plane parallel to the floor. Also: click on the figure or ↑ ↓ arrows (Shift = 1 mm) with the tool active.",
-  "ver_la_mano_estandar_sobre_el_mango": "Show the standard hand on the handle"
+  "ver_la_mano_estandar_sobre_el_mango": "Show the standard hand on the handle",
+  "el_canal_es_una_de_las": "Channel: the hand has up to 4 possible hole directions; 1 is the one with the thickest walls (the usual one). The fine tilt goes up to ±15° and is rejected if the ring is left thinner than the minimum wall."
  },
  "rail": {
   "salta_al_primer_paso_que_todavia": "Jumps to the first step that still asks for something (○ missing · ⚠ review · ⟳ out of date · ▶ ready to generate).",

@@ -1028,7 +1028,12 @@
   "color_omitido_motivo": "Color omitido (%{motivo}).",
   "bambu_exportado": "Para Bambu Studio: %{archivos} (%{n} colores).",
   "bambu_sin_color": "Para Bambu Studio: no se generó, la figura no tiene color (activá un color en Parámetros).",
-  "bambu_vista_apagada": "Vista del 3MF apagada."
+  "bambu_vista_apagada": "Vista del 3MF apagada.",
+  "canal_de_agarre": "Canal de agarre (1 = el más robusto)",
+  "inclinacion_fina_del_eje": "Inclinación fina del eje (°)",
+  "hacia_que_lado_se_inclina": "Hacia qué lado se inclina (°)",
+  "canal_n_inclinado_hacia": "Canal %{canal}, inclinado %{inclinar}° hacia %{azimut}°.",
+  "el_canal_o_la_inclinacion_cambio": "El canal o la inclinación cambiaron: volvé a taladrar para guardar la mano con esa elección. Las armas ya guardadas en el catálogo quedan viejas con otro eje."
  },
  "figure_builder": {
   "sin_soportes_resumen": "Sin soportes: corte a %{corte} mm sobre la cola; brazos girados hacia adelante: %{giro}",
@@ -1790,7 +1795,8 @@
   "corta_la_cabeza_con_un_plano": "Corta la cabeza con un plano horizontal (paralelo al piso de la figura) en vez de elegir 3 puntos. Se traslada en paralelo con «Altura sobre el piso», con un clic sobre la figura o con ↑ ↓.",
   "altura_sobre_el_piso_mm": "Altura sobre el piso (mm)",
   "traslada_el_plano_de_corte_en_paralelo": "Traslada el plano de corte en paralelo al piso. También: clic sobre la figura o flechas ↑ ↓ (Mayús = 1 mm) con la herramienta activa.",
-  "ver_la_mano_estandar_sobre_el_mango": "Ver la mano estándar sobre el mango"
+  "ver_la_mano_estandar_sobre_el_mango": "Ver la mano estándar sobre el mango",
+  "el_canal_es_una_de_las": "Canal: la mano tiene hasta 4 direcciones posibles para el agujero; el 1 es el de paredes más gruesas (el de siempre). La inclinación fina llega a ±15° y se rechaza si el anillo queda con menos pared que el mínimo."
  },
  "rail": {
   "salta_al_primer_paso_que_todavia": "Salta al primer paso que todavía pide algo (○ falta · ⚠ revisar · ⟳ desactualizado · ▶ listo para generar).",

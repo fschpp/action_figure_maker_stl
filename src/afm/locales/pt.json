@@ -1028,7 +1028,12 @@
   "color_omitido_motivo": "Cor omitida (%{motivo}).",
   "bambu_exportado": "Para o Bambu Studio: %{archivos} (%{n} cores).",
   "bambu_sin_color": "Para o Bambu Studio: não foi gerado, a figura não tem cor (ative uma cor em Parâmetros).",
-  "bambu_vista_apagada": "Vista do 3MF desligada."
+  "bambu_vista_apagada": "Vista do 3MF desligada.",
+  "canal_de_agarre": "Canal de pegada (1 = o mais robusto)",
+  "inclinacion_fina_del_eje": "Inclinação fina do eixo (°)",
+  "hacia_que_lado_se_inclina": "Para que lado inclina (°)",
+  "canal_n_inclinado_hacia": "Canal %{canal}, inclinado %{inclinar}° para %{azimut}°.",
+  "el_canal_o_la_inclinacion_cambio": "O canal ou a inclinação mudaram: fure de novo para salvar a mão com essa escolha. As armas já salvas no catálogo ficam antigas com outro eixo."
  },
  "figure_builder": {
   "sin_soportes_resumen": "Sem suportes: corte a %{corte} mm sobre a cauda; braços girados para frente: %{giro}",
@@ -1790,7 +1795,8 @@
   "corta_la_cabeza_con_un_plano": "Corta a cabeça com um plano horizontal (paralelo ao piso da figura) em vez de escolher 3 pontos. Desloca-se em paralelo com “Altura sobre o piso”, com um clique na figura ou com ↑ ↓.",
   "altura_sobre_el_piso_mm": "Altura sobre o piso (mm)",
   "traslada_el_plano_de_corte_en_paralelo": "Desloca o plano de corte em paralelo ao piso. Também: clique na figura ou setas ↑ ↓ (Shift = 1 mm) com a ferramenta ativa.",
-  "ver_la_mano_estandar_sobre_el_mango": "Mostrar a mão padrão no cabo"
+  "ver_la_mano_estandar_sobre_el_mango": "Mostrar a mão padrão no cabo",
+  "el_canal_es_una_de_las": "Canal: a mão tem até 4 direções possíveis para o furo; o 1 é o de paredes mais grossas (o de sempre). A inclinação fina vai até ±15° e é rejeitada se o anel ficar com menos parede que o mínimo."
  },
  "rail": {
   "salta_al_primer_paso_que_todavia": "Salta para o primeiro passo que ainda pede algo (○ falta · ⚠ revisar · ⟳ desatualizado · ▶ pronto para gerar).",

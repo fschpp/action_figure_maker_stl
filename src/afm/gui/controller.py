@@ -173,6 +173,14 @@ GRIP_FIELDS = (
 )
 
 
+# Elección del eje de agarre (`props.compute_grip`): (atributo, rótulo, mínimo, máximo, paso, decimales)
+GRIP_AXIS_FIELDS = (
+    ("grip_channel", lz("controller.canal_de_agarre"), 1, 4, 1, 0),
+    ("grip_tilt", lz("controller.inclinacion_fina_del_eje"), -15.0, 15.0, 1.0, 0),
+    ("grip_azimuth", lz("controller.hacia_que_lado_se_inclina"), 0.0, 359.0, 15.0, 0),
+)
+
+
 PARAM_FIELDS = (
     ("clearance", lz("controller.holgura_miembrocavidad_mm"), 0.1, 1.5, 0.05, 2),
     ("burr", lz("controller.rebaba_a_rebajar_en_la_cara"), 0.0, 3.0, 0.05, 2),
@@ -291,6 +299,9 @@ class Controller:
         from ..props import DEFAULT_BARBS, GripSpec
         self.grip_spec = GripSpec()                  # agarre para accesorios: valores a usar (se editan en la sección «Agarre»)
         self.grip_barbs: tuple[float, ...] = DEFAULT_BARBS
+        self.grip_channel = 1                        # canal candidato de la mano (1 = el más robusto, el de siempre)
+        self.grip_tilt = 0.0                         # inclinación fina del eje (°, ±15) y hacia qué lado (°)
+        self.grip_azimuth = 0.0
         self.grip = None                             # props.GripResult de la última mano taladrada (None = ninguna)
         self.grip_show = False                       # dibujar una espada de prueba en la mano pegada de la figura
         self.weapon = None                           # weapon_session.WeaponSession del arma que se está importando (None = ninguna)
@@ -3083,6 +3094,24 @@ class Controller:
         self._changed(scene=False)
         return True
 
+    def set_grip_axis(self, key: str, value: float) -> bool:
+        """Canal (1–4), inclinación fina (°) o lado de la inclinación (°) del agarre; se aplican al volver a taladrar."""
+        spec = next((f for f in GRIP_AXIS_FIELDS if f[0] == key), None)
+        if spec is None or not (spec[2] <= value <= spec[3]):
+            return False
+        setattr(self, key, int(round(value)) if key == "grip_channel" else float(value))
+        self._changed(scene=False)
+        return True
+
+    @property
+    def grip_axis_stale(self) -> bool:
+        """La elección de canal o inclinación pedida ya no es la de la mano taladrada."""
+        if self.grip is None:
+            return False
+        ch = (self.grip.meta.get("agarre") or {}).get("eleccion") or {"canal": 1, "inclinar_grados": 0.0, "azimut_grados": 0.0}
+        return (int(ch["canal"]) != self.grip_channel or abs(float(ch["inclinar_grados"]) - self.grip_tilt) > 1e-9
+                or (self.grip_tilt != 0.0 and abs(float(ch["azimut_grados"]) - self.grip_azimuth) > 1e-9))
+
     def set_grip_barbs(self, text: str) -> bool:
         from ..props import parse_barbs
 
@@ -3108,11 +3137,12 @@ class Controller:
         self.progress_prefix = tr("controller.taladrando_la_mano")
         self._changed(tr("controller.taladrando_la_mano_estandar_busca_el"), scene=False)
         spec = self.grip_spec
+        canal, inclinar, azimut = self.grip_channel, self.grip_tilt, self.grip_azimuth
 
         def job(progress=None):
             from ..props import compute_grip
 
-            return compute_grip(path, spec, progress)
+            return compute_grip(path, spec, progress, canal=canal, inclinar=inclinar, azimut=azimut)
 
         return job
 
@@ -3150,8 +3180,13 @@ class Controller:
         lines += [tr("controller.dentado_dentado_mm_interferencia_interfere", dentado_mm=f"{v['dentado_mm']:g}", interferencia_mm=f"{v['interferencia_mm']:.2f}", deformacion_pct=f"{v['deformacion_pct']:.2f}") for v in grip_variants(g.spec, self.grip_barbs)]
         if f.support_deg < 270:
             lines.append(tr("controller.aviso_el_hombro_apoya_solo_en"))
+        ch = (g.meta.get("agarre") or {}).get("eleccion")
+        if ch:
+            lines.append(tr("controller.canal_n_inclinado_hacia", canal=ch["canal"], inclinar=f"{ch['inclinar_grados']:g}", azimut=f"{ch['azimut_grados']:g}"))
         if self.grip_stale:
             lines.append(tr("controller.el_del_taladro_cambio_volve_a"))
+        if self.grip_axis_stale:
+            lines.append(tr("controller.el_canal_o_la_inclinacion_cambio"))
         if self.grip_show and self._grip_prop_error:
             lines.append(tr("controller.no_se_puede_dibujar_la_espada", grip_prop_error=self._grip_prop_error))
         return "\n".join(lines)
