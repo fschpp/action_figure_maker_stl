@@ -173,6 +173,78 @@ def _score_dir(pts: np.ndarray, d: np.ndarray, pitch: float, bore_d: float):
     return _carved_wall(img, cell, pitch, bore_d), r, cell, img, lo, a, b
 
 
+def _candidate_dirs(pts: np.ndarray, pitch: float, bore_d: float, n_dirs: int) -> list:
+    """(pared, radio libre, dirección) de cada dirección de prueba con agujero cerrado, de mejor a peor."""
+    i = np.arange(n_dirs) + 0.5
+    phi, th = np.arccos(1 - i / n_dirs), np.pi * (1 + 5 ** 0.5) * i
+    dirs = np.c_[np.cos(th) * np.sin(phi), np.sin(th) * np.sin(phi), np.cos(phi)]
+    cands = []
+    for d in dirs:
+        sc = _score_dir(pts, d, pitch, bore_d)
+        if sc is not None:
+            cands.append((sc[0], sc[1], d))
+    cands.sort(key=lambda t: (-t[0], -t[1]))
+    return cands
+
+
+def find_channel_options(hand: S.Manifold, bore_d: float = 2.4, n_best: int = 4, min_sep_deg: float = 15.0,
+                         pitch: float = 0.12, n_dirs: int = 500) -> list[HandChannel]:
+    """Hasta `n_best` canales de ejes distintos (separados al menos `min_sep_deg`, sin distinguir el sentido), del de pared más
+    gruesa al menos robusto; el primero es el que elige `find_channel`. Sirven para alternar el agarre de la mano."""
+    pts, pitch = _solid_points(hand, pitch)
+    if len(pts) == 0:
+        raise HandError("la mano está vacía")
+    cos_min = np.cos(np.radians(min_sep_deg))
+    picked: list = []
+    for wall, r, d in _candidate_dirs(pts, pitch, bore_d, n_dirs):
+        if wall <= 0.0 or any(abs(float(d @ q)) > cos_min for _, _, q in picked):
+            continue
+        picked.append((wall, r, d))
+        if len(picked) == n_best:
+            break
+    if not picked:
+        raise HandError("la mano no tiene ningún canal pasante (los dedos no dejan hueco con la palma)")
+    out = []
+    for k, (_, _, d) in enumerate(picked):
+        # el primero es el de siempre (find_channel); los demás, el mejor centro en su propia dirección
+        out.append(find_channel(hand, bore_d, pitch=pitch, n_dirs=n_dirs) if k == 0 else channel_along(hand, d, bore_d, pitch / 2))
+    return out
+
+
+def channel_along(hand: S.Manifold, d: np.ndarray, bore_d: float = 2.4, pitch: float = 0.06) -> HandChannel:
+    """Canal en la dirección `d` dada: el mejor centro del hueco para un taladro de Ø`bore_d` (HandError si en `d` no hay agujero cerrado)."""
+    d = np.asarray(d, float)
+    d = d / np.linalg.norm(d)
+    pts, fp = _solid_points(hand, pitch)
+    sc = _score_dir(pts, d, fp, bore_d)
+    if sc is None:
+        raise HandError("en esa dirección no hay un agujero cerrado a través de la mano")
+    wall, r, cell, img, lo, a, b = sc
+    c0 = cell.copy()
+    for di in np.arange(-6, 7):
+        for dj in np.arange(-6, 7):
+            c = c0 + np.array([di, dj])
+            if not (0 <= int(c[0]) < img.shape[0] and 0 <= int(c[1]) < img.shape[1]) or img[int(c[0]), int(c[1])]:
+                continue
+            w = _carved_wall(img, c, fp, bore_d)
+            if w > wall:
+                wall, cell = w, c
+    ctr = a * (lo[0] + cell[0] * fp) + b * (lo[1] + cell[1] * fp)
+    ctr = ctr + d * float((pts.mean(0) - ctr) @ d)
+    return HandChannel(axis=d, center=ctr, free_d=2 * r)
+
+
+def tilt_axis(axis: np.ndarray, tilt_deg: float, azimuth_deg: float = 0.0) -> np.ndarray:
+    """`axis` inclinado `tilt_deg` hacia la dirección `azimuth_deg` del plano perpendicular (base `_ref_up`)."""
+    d = np.asarray(axis, float)
+    d = d / np.linalg.norm(d)
+    ref, up = _ref_up(d)
+    az = np.radians(azimuth_deg)
+    t = np.radians(tilt_deg)
+    out = d * np.cos(t) + (ref * np.cos(az) + up * np.sin(az)) * np.sin(t)
+    return out / np.linalg.norm(out)
+
+
 def find_channel(hand: S.Manifold, bore_d: float = 2.4, pitch: float = 0.12, n_dirs: int = 500,
                  refine: bool = True) -> HandChannel:
     """Dirección y centro del canal pasante donde un taladro de Ø`bore_d` deja el anillo de material más grueso.
@@ -404,19 +476,43 @@ class GripResult:
     spec: GripSpec
 
 
-def compute_grip(hand_path: str, spec: GripSpec | None = None, progress=None) -> GripResult:
-    """Carga la mano estándar, busca su canal y la taladra. No escribe nada (ver `write_grip_hand`)."""
+MAX_TILT_DEG = 15.0          # inclinación fina máxima del eje respecto del canal elegido (la pared mínima la limita antes si hace falta)
+
+
+def compute_grip(hand_path: str, spec: GripSpec | None = None, progress=None, canal: int = 1, inclinar: float = 0.0,
+                 azimut: float = 0.0) -> GripResult:
+    """Carga la mano estándar, busca su canal y la taladra. No escribe nada (ver `write_grip_hand`).
+
+    `canal` (1 = el más robusto, el de siempre) elige entre los canales candidatos de `find_channel_options`; `inclinar` (°, hasta
+    `MAX_TILT_DEG`) y `azimut` (°) lo inclinan. `carve_grip` rechaza el resultado si la pared queda por debajo de `spec.min_wall`."""
     from . import hand as H
 
     say = progress or (lambda text: None)
     spec = spec or GripSpec()
+    if canal < 1:
+        raise GripError("canal: el número empieza en 1")
+    if abs(inclinar) > MAX_TILT_DEG:
+        raise GripError(f"la inclinación fina llega a ±{MAX_TILT_DEG:g}° (se pidió {inclinar:g}°): elegí otro canal para cambios mayores")
     hand, meta = H.load_standard_hand(hand_path)
     say("buscando el canal de la mano")
-    ch = find_channel(hand, spec.bore_d)
+    if canal == 1 and not inclinar:
+        ch = find_channel(hand, spec.bore_d)
+    else:
+        opts = find_channel_options(hand, spec.bore_d, n_best=max(4, canal))
+        if canal > len(opts):
+            raise GripError(f"la mano solo tiene {len(opts)} canales candidatos (se pidió el {canal})")
+        ch = opts[canal - 1]
+        if inclinar:
+            try:
+                ch = channel_along(hand, tilt_axis(ch.axis, inclinar, azimut), spec.bore_d)
+            except HandError as exc:
+                raise GripError(f"inclinar {inclinar:g}°: {exc}") from exc
     say(f"taladrando Ø{spec.bore_d:g} mm")
     carved, fit = carve_grip(hand, spec, ch)
     meta = dict(meta or {"formato": H.HAND_FORMAT})
     meta["agarre"] = {**fit.to_dict(), "canal_natural_mm": round(ch.free_d, 3), "especificacion": asdict(spec)}
+    if canal != 1 or inclinar:
+        meta["agarre"]["eleccion"] = {"canal": canal, "inclinar_grados": inclinar, "azimut_grados": azimut}
     return GripResult(source=hand_path, hand=carved, meta=meta, channel=ch, fit=fit, spec=spec)
 
 

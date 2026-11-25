@@ -667,6 +667,10 @@ def main(argv=None) -> int:
     ag.add_argument("--ranura", type=float, default=0.5, help="ancho de la ranura entre las dos lengüetas (mm)")
     ag.add_argument("--largo-lengueta", type=float, default=8.0, help="largo de la lengüeta (mm)")
     ag.add_argument("--dentados", default="2.7,2.9,3.1", help="Ø del dentado a probar, uno por espada (mm)")
+    ag.add_argument("--listar-canales", action="store_true", help="solo mostrar los canales candidatos de la mano (número, dirección, pared) y salir")
+    ag.add_argument("--canal", type=int, default=1, help="canal candidato a usar (1 = el más robusto, el de siempre; ver --listar-canales)")
+    ag.add_argument("--inclinar", type=float, default=0.0, help="inclinación fina del eje (°, hasta ±15) respecto del canal elegido")
+    ag.add_argument("--azimut", type=float, default=0.0, help="hacia qué lado se inclina (°, 0–360) con --inclinar")
     ag.add_argument("--catalogo", default=None, help="ruta de un catálogo de línea: guarda además la mano taladrada (pieza «mano» con agarre) "
                                                       "y una espada de prueba (pieza «accesorio») con el dentado del medio de --dentados")
     ag.add_argument("--id-mano", default=None)
@@ -781,7 +785,14 @@ def main(argv=None) -> int:
         from .props import GripError, GripSpec, compute_grip, run_grip
         try:
             spec = GripSpec(bore_d=args.taladro, shaft_d=args.vastago, slit_w=args.ranura, finger_len=args.largo_lengueta)
-            res = compute_grip(args.mano, spec)
+            if args.listar_canales:
+                from . import hand as H
+                from .props import find_channel_options
+                hand_mf, _ = H.load_standard_hand(args.mano)
+                for k, ch in enumerate(find_channel_options(hand_mf, spec.bore_d), 1):
+                    print(f"  canal {k}: eje ({ch.axis[0]:+.3f}, {ch.axis[1]:+.3f}, {ch.axis[2]:+.3f}) · libre Ø{ch.free_d:.2f} mm")
+                return 0
+            res = compute_grip(args.mano, spec, canal=args.canal, inclinar=args.inclinar, azimut=args.azimut)
             info = run_grip(args.mano, args.out, spec, tuple(float(x) for x in args.dentados.split(",")), res=res)
         except (HandError, GripError) as exc:
             print(f"ERROR: {exc}", file=sys.stderr)

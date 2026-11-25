@@ -95,3 +95,28 @@ def test_prop_has_a_flat_common_bottom():
     sp = P.GripSpec(barb_d=3.1)
     tm = S.to_trimesh(P.make_prop(sp, 9.5))
     assert tm.bounds[0][2] == pytest.approx(-sp.shaft_d / 2, abs=1e-3)
+
+
+def test_tilt_axis_angle_and_unit():
+    d = np.array([0.0, 0.0, 1.0])
+    t = P.tilt_axis(d, 10.0, 90.0)
+    assert np.linalg.norm(t) == pytest.approx(1.0)
+    assert np.degrees(np.arccos(float(t @ d))) == pytest.approx(10.0)
+    assert P.tilt_axis(d, 0.0, 37.0) == pytest.approx(d)
+
+
+def test_channel_along_and_options_on_ring():
+    hand, d = _ring()
+    ch = P.channel_along(hand, d, 2.4, pitch=0.2)
+    assert abs(float(ch.axis @ d)) > 0.999
+    opts = P.find_channel_options(hand, 2.4, n_best=3, pitch=0.2, n_dirs=150)
+    assert 1 <= len(opts) <= 3
+    for i, a in enumerate(opts):
+        for b in opts[i + 1:]:
+            assert abs(float(a.axis @ b.axis)) < np.cos(np.radians(15.0))
+
+
+def test_channel_along_without_hole_raises():
+    hand, _ = _ring()
+    with pytest.raises(P.HandError):
+        P.channel_along(hand, np.array([1.0, 0.0, 0.0]) , 2.4, pitch=0.2)
