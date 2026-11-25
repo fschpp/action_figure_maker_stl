@@ -3475,6 +3475,23 @@ class Controller:
             return None
         return (root, hands[-1].ref) if hands else None
 
+    def grip_catalog_stl_path(self) -> str | None:
+        """Ruta del STL de la mano del catálogo que se está previsualizando sola (sin mano pegada), o None.
+        Con ella «Taladrar una mano estándar» no pide archivo: taladra esa misma mano y deja guardar el resultado."""
+        import os
+
+        if not self.grip_preview_standalone:
+            return None
+        from ..catalog import Catalog, CatalogError
+
+        root, ref = self.grip_preview_catalog
+        try:
+            m = Catalog.open(root).meta(ref)
+        except (CatalogError, OSError):
+            return None
+        path = os.path.join(root, "piezas", m.tipo, f"{m.id}@{m.version}.stl")
+        return path if os.path.exists(path) else None
+
     @property
     def grip_preview_standalone(self) -> bool:
         """La previsualización va con la mano del catálogo, sola en el visor (no hay mano pegada)."""

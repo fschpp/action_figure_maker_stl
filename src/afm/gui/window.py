@@ -2608,6 +2608,10 @@ class MainWindow(Gtk.ApplicationWindow):
         self.ctrl.clear_grip_manual()
 
     def _on_grip_pick(self, *_):
+        cat_stl = self.ctrl.grip_catalog_stl_path()
+        if cat_stl is not None:                      # previsualizando la mano del catálogo: se taladra esa, sin pedir archivo
+            self._grip_task(cat_stl)
+            return
         self._pick_file(tr("window.mano_estandar_stl"), ["*.stl"], tr("window.archivos_stl"), self._grip_task)
 
     def _on_grip_preview_toggled(self, btn) -> None:

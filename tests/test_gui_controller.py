@@ -838,3 +838,26 @@ def test_grip_preview_with_catalog_hand_when_none_attached(ctrl, tmp_path, monke
     assert not ctrl.grip_preview_stale
     pv = ctrl.grip_preview_meshes(None)                             # sola, en el marco de la mano
     assert pv is not None and pv[0].is_watertight
+
+
+def test_grip_catalog_stl_path_for_standalone_preview(tmp_path, monkeypatch):
+    """Con la mano del catálogo en el visor, «Taladrar una mano estándar» usa el STL de esa pieza (no pide archivo)."""
+    from types import SimpleNamespace
+
+    from afm.catalog import Catalog
+
+    ctrl = Controller()
+    assert ctrl.grip_catalog_stl_path() is None                        # sin previsualización del catálogo: hay que elegir un archivo
+    stl = tmp_path / "piezas" / "mano" / "mano-test-01@1.stl"
+    stl.parent.mkdir(parents=True)
+    stl.write_bytes(b"solid x\nendsolid x\n")
+
+    class FakeCatalog:
+        def meta(self, ref):
+            return SimpleNamespace(tipo="mano", id="mano-test-01", version=1)
+
+    monkeypatch.setattr(Catalog, "open", classmethod(lambda cls, root: FakeCatalog()))
+    ctrl.grip_preview_on = True
+    ctrl.grip_preview_catalog = (str(tmp_path), "mano-test-01@1")
+    assert ctrl.grip_preview_standalone
+    assert ctrl.grip_catalog_stl_path() == str(stl)
