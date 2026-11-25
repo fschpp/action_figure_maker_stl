@@ -1,3 +1,23 @@
+## Current Focus — Catálogos en línea: D13 cliente remoto `remoto.py` (2026-11-25, rama feat/catalogos-online-d13 sobre main 00e2ab9)
+**Objetivo.** Leer un índice por HTTPS y bajar un paquete verificado a la caché, para que D14 (`afm catalogo remoto …`) y D17 (lógica de la GUI sin GTK) tengan sobre qué apoyarse. D12 (repo del índice) no existe todavía: el cliente se probó contra un `http.server` local.
+**Hecho.**
+- `src/afm/remoto.py` (motor puro; único módulo que toca la red, con `urllib`): `Policy` (solo HTTPS + host del índice + hosts de GitHub; cada redirección se revisa **antes** de seguirla; `allow_loopback_http` solo para pruebas), `fetch_index` (caché con `ETag`/`Last-Modified`, 304 ⇒ copia, sin red ⇒ índice guardado con `Index.origen == "guardado"`, `OfflineError` si no hay), `parse_index` tolerante (claves desconocidas se ignoran, entradas rotas se saltan con aviso, solo `schema_version` mayor ⇒ `IndexTooNew`; un índice inválido o nuevo **no pisa** la copia buena), `fetch_indexes` (uno caído no tapa a los demás), `download_package` (sha256 y tamaño **del índice** obligatorios; `.part` + `os.replace` solo bajo `<caché>/zips/`; corte a mitad o 5xx ⇒ reintento; versión retirada ⇒ no se instala salvo `allow_retirada`), `plan_entry` (baja y llama a `instalar.plan_install`: mismo camino que un `.zip` local; error si el zip trae otro `id`/versión que el índice, aviso si cambia el repo) y `load_config`/`save_config` (`~/.config/afm/remoto.json`, `$AFM_REMOTO`).
+- `instalar.InstallPlan.indice` (aditivo): `apply` lo guarda en `paquetes.json` (`"indice"`), que hasta ahora quedaba vacío.
+**Pruebas.** `tests/test_remoto.py` (36): índice (ETag/304, sin red, servidor caído, 5xx, timeout, claves nuevas, entradas rotas, `schema_version` mayor, `null` ≠ 0, `inaccesible` oculto), política (HTTP, hosts, redirecciones fuera/dentro de la lista), descarga (sha distinto ⇒ no queda nada, tamaño mayor, corte a mitad, retirada, 404 sin reintento, caché sin red) y plan (instala un paquete real exportado de `catalogo/ejemplo` y guarda el índice de origen). Con `test_instalar*`, `test_paquete`, `test_engine_portability` e `test_i18n`: 244 pasan.
+
+### Todo List
+- [x] Done: D02–D08 y D13 (cliente; código y pruebas)
+- [ ] Todo: D14 `afm catalogo remoto buscar|ver|instalar|actualizar|versiones` y `remoto indice …` (el módulo ya trae lo necesario; falta registrar los subcomandos en `catalog_ops.COMMANDS`)
+- [ ] Todo: D17 `gui/catalog_online.py` (estado, filtros, instalación en hilo con `progress`) y claves es/en/pt
+- [ ] Todo: D33 alta de índices por `owner/repo` (hoy solo URL en `remoto.json`); D11 formaliza el esquema del índice; D12 repo del índice (bloqueado por G0/D00)
+- [ ] Decidir: `OFFICIAL_INDEX` por defecto (hoy `load_config` devuelve `[]` sin archivo: no hay índice oficial hasta D00/D12)
+- [ ] Todo: fijar topes definitivos de `MAX_ZIP_BYTES`/`MAX_INDEX_BYTES` con D01 (hoy [P])
+
+### Latest Blockers/Discoveries
+- El plan no fija los nombres del feed. Se asumió: lista en `"paquetes"`; `latest.zip = {nombre, url, tamano, sha256}`; `versiones` = lista de bloques como `latest`; `portada` y `descripcion_url` relativas a la carpeta de `index.json` (`data/`). **D11 tiene que confirmarlos o ajustar `remoto.py`.**
+- `tests/test_catalog_ops.py::test_every_catalog_subcommand_is_registered_for_the_window` **ya fallaba en main** (faltan `retoque` y `guardar-montura` en `catalog_ops.COMMANDS`); no es de esta tarea.
+- Pruebas no hechas: HTTPS real contra GitHub/Pages (el entorno de desarrollo no llega a esos hosts) y los hosts a los que GitHub redirige los assets (`release-assets.githubusercontent.com` está en la lista como [I]; D01 lo mide).
+
 ## Current Focus — Catálogos en línea: D07 zips heredados (2026-11-25, rama feat/catalogos-online-d07 sobre main 8efad2d)
 **Objetivo.** Que los `catalogo.zip` que ya circulan (carpeta de catálogo comprimida a mano, sin `paquete.json`) se instalen con el mismo plan y la misma atomicidad que un paquete.
 **Hecho.**

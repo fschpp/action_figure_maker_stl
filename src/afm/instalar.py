@@ -90,6 +90,7 @@ class InstallPlan:
     allow_fbx: bool = False
     descartados: list = field(default_factory=list)    # D07: archivos del zip heredado que no se instalan (derivados, otros)
     heredado_sha256: str = ""                          # D07: sha256 del zip original (el del plan es el del paquete convertido)
+    indice: str = ""                                   # D13: URL del índice de donde se bajó el zip (se guarda en `paquetes.json`); "" si fue un zip local
 
     @property
     def errors(self) -> list:
@@ -581,7 +582,7 @@ def apply(plan: InstallPlan, *, confirmar_origen: bool = False, now: datetime | 
         prev = reg["paquetes"].get(pkg.id) or {}
         merged_refs = {k: sorted(set((prev.get("refs") or {}).get(k, [])) | set(v)) for k, v in refs.items()}
         reg["paquetes"][pkg.id] = {
-            "version": pkg.version, "nombre": pkg.nombre, "github": pkg.github, "indice": prev.get("indice", ""), "sha256": plan.zip_sha256,
+            "version": pkg.version, "nombre": pkg.nombre, "github": pkg.github, "indice": plan.indice or prev.get("indice", ""), "sha256": plan.zip_sha256,
             "fecha": when, "licencia": pkg.licencia, "autores": [a.to_dict() for a in pkg.autores], "origen": pkg.origen,
             "conflicts": list(pkg.conflicts), "refs": merged_refs,
         }
