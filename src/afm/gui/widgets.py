@@ -110,6 +110,7 @@ def collapsible(parent: Gtk.Box, title: str, expanded: bool = True, sub: bool = 
     body.set_margin_bottom(8)
     body.set_margin_start(12 if sub else 6)
     exp.set_child(body)
+    body.expander = exp                      # el padre del cuerpo es None mientras el Expander está plegado
     exp.set_margin_top(4 if sub else 8)
     parent.append(exp)
     return body

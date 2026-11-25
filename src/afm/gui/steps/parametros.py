@@ -65,7 +65,7 @@ def build(win) -> None:
     for name in PM.PARAM_GROUPS:
         expanded = name == PM.PARAM_GROUPS[0]
         groups[name] = _collapsible(sec, loc(name), expanded=expanded, sub=True, css_class="afm-param-group")
-        win.param_group_exp[name] = (groups[name].get_parent(), expanded)
+        win.param_group_exp[name] = (groups[name].expander, expanded)
     win.param_spins: dict[str, object] = {}
     win.param_rows: dict[str, dict] = {}
     for key, label, lo, hi, step, digits in PARAM_FIELDS:
