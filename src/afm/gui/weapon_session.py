@@ -26,6 +26,7 @@ class WeaponSession:
         self.error: str = ""                              # por qué no hay vista previa (plano ausente, sección chica…)
         self.catalog: Catalog | None = None
         self.hand = None                                  # pieza `mano` con agarre de la que sale la empuñadura
+        self._grip_override: tuple | None = None          # (malla de la mano taladrada, GripFit): la que se previsualizó/taladró en la sesión
         self._scaled: trimesh.Trimesh | None = None
         self._hand_view: trimesh.Trimesh | None = None    # la mano estándar puesta en el mango del arma armada (marco del arma escalada)
         self.hand_sim_error: str = ""                      # por qué no se pudo simular el arma en la mano
@@ -33,14 +34,47 @@ class WeaponSession:
 
     # ------------------------------------------------------------ catálogo y carga
     def set_catalog(self, root: str, hand_ref: str | None = None) -> None:
-        """Elige el catálogo de la línea; la empuñadura sale de su mano con agarre (`hand_ref`, o la más reciente)."""
+        """Elige el catálogo de la línea; la empuñadura sale de su mano con agarre (`hand_ref`, o la más reciente), salvo que haya una
+        mano taladrada en la sesión (`set_grip_override`): esa manda."""
         try:
             cat = Catalog.open(root)
         except (CatalogError, OSError) as exc:
             raise W.WeaponError(tr("weapon_session.no_se_pudo_abrir_el_catalogo", root=root, exc=exc)) from exc
-        self.hand = W.line_hand(cat, hand_ref)            # WeaponError si no hay ninguna mano con agarre
         self.catalog = cat
+        if self._grip_override is None:
+            self.hand = None
+            self.hand = W.line_hand(cat, hand_ref)        # WeaponError si no hay ninguna mano con agarre
         self._rebuild()
+
+    def set_grip_override(self, ref: str, mesh, fit) -> None:
+        """Usa la mano taladrada en la sesión (`mesh` en su marco local, `fit` = GripFit) en lugar de la guardada en el catálogo:
+        de ella salen la empuñadura, la mano que se dibuja sobre el mango y la simulación. `ref` solo la nombra."""
+        from types import SimpleNamespace
+
+        self._grip_override = (mesh, fit)
+        self.hand = SimpleNamespace(ref=ref, mecanismo={"agarre": fit.to_dict()})
+        self._rebuild()
+
+    def clear_grip_override(self) -> None:
+        """Vuelve a la mano con agarre guardada en el catálogo (si ya no hay mano de la sesión)."""
+        if self._grip_override is None:
+            return
+        self._grip_override, self.hand = None, None
+        if self.catalog is not None:
+            try:
+                self.hand = W.line_hand(self.catalog)
+            except W.WeaponError:
+                pass
+        self._rebuild()
+
+    def _hand_with_grip(self):
+        """(ficha, malla local, GripFit) de la mano de la empuñadura: la de la sesión si hay, si no la del catálogo."""
+        from .. import weapon_fit as WF
+
+        if self._grip_override is not None:
+            mesh, fit = self._grip_override
+            return self.hand, mesh, fit
+        return WF.load_hand_with_grip(self.catalog, self.hand.ref)
 
     @property
     def loaded(self) -> bool:
@@ -152,7 +186,7 @@ class WeaponSession:
             from ..props import prop_to_hand_matrix
 
             try:
-                _meta, hand_mesh, fit = WF.load_hand_with_grip(self.catalog, self.hand.ref)
+                _meta, hand_mesh, fit = self._hand_with_grip()
             except Exception:                             # noqa: BLE001 — sin la mano el arma se ve igual
                 return None
             m = hand_mesh.copy()
@@ -172,7 +206,7 @@ class WeaponSession:
             return None
         if self._fit_cache is None:
             try:
-                _meta, hand_mesh, fit = WF.load_hand_with_grip(self.catalog, self.hand.ref)
+                _meta, hand_mesh, fit = self._hand_with_grip()
                 sim = WF.simulate_in_hand(S.to_printable_trimesh(self.build.mesh), hand_mesh, fit, self.catalog.height_mm)
                 self._fit_cache = (sim, "")
             except (WF.FitError, W.WeaponError) as exc:
@@ -189,7 +223,7 @@ class WeaponSession:
             return None
         from .. import weapon_fit as WF
 
-        _meta, hand_mesh, _fit = WF.load_hand_with_grip(self.catalog, self.hand.ref)
+        _meta, hand_mesh, _fit = self._hand_with_grip()
         return hand_mesh, sim.weapon
 
     def summary(self) -> str:
@@ -215,4 +249,5 @@ class WeaponSession:
         """Guarda el arma en el catálogo como pieza `accesorio`. Devuelve (meta, avisos)."""
         if self.build is None:
             raise W.WeaponError(self.error or tr("weapon_session.todavia_no_hay_arma_para_guardar"))
-        return W.add_weapon_to_catalog(self.catalog, self.scaled, self.spec, self.hand.ref, piece_id, new_version, descripcion)
+        return W.add_weapon_to_catalog(self.catalog, self.scaled, self.spec, self.hand.ref, piece_id, new_version, descripcion,
+                                     hand=self.hand if self._grip_override is not None else None)

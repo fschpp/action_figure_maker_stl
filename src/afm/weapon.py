@@ -240,7 +240,7 @@ def _slug(text: str) -> str:
 
 
 def add_weapon_to_catalog(cat, mesh: trimesh.Trimesh, spec: WeaponSpec, hand_ref: str | None = None, piece_id: str | None = None,
-                          new_version: bool = False, descripcion: str = ""):
+                          new_version: bool = False, descripcion: str = "", hand=None):
     """Prepara el arma (corte + empuñadura de la línea) y la guarda en el catálogo como pieza `accesorio`.
 
     Devuelve (meta, avisos). El mecanismo de la pieza lleva el agarre (para la compatibilidad con la mano) y «arma»: la mano
@@ -249,7 +249,7 @@ def add_weapon_to_catalog(cat, mesh: trimesh.Trimesh, spec: WeaponSpec, hand_ref
 
     from .props import accessory_grip
 
-    hand = line_hand(cat, hand_ref)
+    hand = hand if hand is not None else line_hand(cat, hand_ref)           # `hand`: la mano taladrada en la sesión (ref + mecanismo), no la guardada
     grip, hole_len = line_grip(hand.mecanismo["agarre"])
     b = build_weapon(mesh, spec, grip, hole_len)
     stem = os.path.splitext(os.path.basename(spec.path))[0]

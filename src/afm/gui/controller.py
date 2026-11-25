@@ -3652,12 +3652,37 @@ class Controller:
         return mesh
 
     # ------------------------------------------------------------------ armas: importar, escalar, cortar el mango, guardar en el catálogo
+    def weapon_grip_source(self):
+        """(ref, malla local, GripFit) de la mano taladrada en esta sesión, para armar las armas con ella en vez de con la que el
+        catálogo tiene guardada: el taladro real (si sigue vigente) o, si no, la previsualización vigente. None si no hay ninguna."""
+        import os
+
+        from .. import solids as S
+
+        g = self.grip
+        if g is not None and not self.grip_stale:
+            return os.path.splitext(os.path.basename(g.source))[0], S.to_trimesh(g.hand), g.fit
+        pv = self._grip_preview
+        if self.grip_preview_on and pv is not None and not pv.get("error") and "fit" in pv and pv["key"] == self._grip_preview_key():
+            key = pv["key"]
+            ref = key[2] if key[0] == "catalogo" else os.path.splitext(os.path.basename(key[1]))[0]
+            return ref, pv["hand"], pv["fit"]
+        return None
+
+    def _apply_weapon_grip_source(self, ws) -> None:
+        src = self.weapon_grip_source()
+        if src is not None:
+            ws.set_grip_override(*src)
+        else:
+            ws.clear_grip_override()
+
     def set_weapon_catalog(self, root: str) -> bool:
         """Elige el catálogo de la línea: de su mano con agarre sale la empuñadura de las armas, y de él los accesorios del proyecto."""
         from ..weapon import WeaponError
         from .weapon_session import WeaponSession
 
         ws = self.weapon or WeaponSession()
+        self._apply_weapon_grip_source(ws)
         try:
             ws.set_catalog(root)
         except WeaponError as exc:
@@ -3676,6 +3701,7 @@ class Controller:
             return False
         ws = self.weapon or WeaponSession()
         root = self.weapon_catalog or self.session.catalog_root or GUI_SETTINGS.last_catalog()
+        self._apply_weapon_grip_source(ws)                       # la mano que se previsualizó/taladró manda sobre la guardada en el catálogo
         if ws.catalog is None and root:                          # el catálogo ya abierto (o el último usado) da la empuñadura de la línea
             try:
                 ws.set_catalog(root)
@@ -5596,7 +5622,8 @@ class Controller:
     def sync(self, scene) -> None:
         """Vuelca el estado al `SceneRenderer` (llamar con el contexto GL activo)."""
         sess = self.session
-        if self._sync_grip_standalone(scene):
+        weapon_view = self.weapon_active and self.weapon is not None and self.weapon.loaded
+        if not weapon_view and self._sync_grip_standalone(scene):
             return
         if self.weapon_active and self.weapon is not None and self.weapon.loaded:
             self._sync_weapon(scene)

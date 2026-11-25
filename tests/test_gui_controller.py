@@ -861,3 +861,37 @@ def test_grip_catalog_stl_path_for_standalone_preview(tmp_path, monkeypatch):
     ctrl.grip_preview_catalog = (str(tmp_path), "mano-test-01@1")
     assert ctrl.grip_preview_standalone
     assert ctrl.grip_catalog_stl_path() == str(stl)
+
+
+def test_weapon_uses_the_hand_drilled_in_the_session(tmp_path):
+    """Previsualizar/taladrar la mano y después cargar un arma: la empuñadura, la mano dibujada y el guardado salen de esa mano,
+    no de la que el catálogo tenía guardada con otro taladro."""
+    from types import SimpleNamespace
+
+    from afm import props as P
+    from afm.gui.weapon_session import WeaponSession
+
+    fit = P.GripFit(axis=np.array([0, 0, 1.0]), center=np.array([0, 0, 3.0]), ref=np.array([1.0, 0, 0]), up=np.array([0, 1.0, 0]),
+                    bore_d=5.0, t_in=-5.0, t_out=5.0, wall_min=0.0, support_deg=300.0)
+    ws = WeaponSession()
+    assert ws._grip_override is None
+    ws.set_grip_override("mano-test-01@1", object(), fit)
+    assert ws.hand.ref == "mano-test-01@1" and ws.hand.mecanismo["agarre"]["diametro_taladro_mm"] == 5.0
+    meta, mesh, f = ws._hand_with_grip()
+    assert f is fit and meta is ws.hand
+    from afm import weapon as W
+
+    grip, hole = W.line_grip(ws.hand.mecanismo["agarre"])
+    assert grip.bore_d == 5.0 and hole == 10.0                          # la empuñadura sale del taladro de la sesión
+    ws.clear_grip_override()
+    assert ws._grip_override is None and ws.hand is None               # sin catálogo no hay mano guardada a la que volver
+
+    ctrl = Controller()
+    assert ctrl.weapon_grip_source() is None                           # nada previsualizado ni taladrado: se usa la mano del catálogo
+    key = ("catalogo", str(tmp_path), "mano-test-01@1", "{}", 5.0)
+    ctrl.grip_preview_on = True
+    ctrl._grip_preview_key = lambda: key
+    ctrl._grip_preview = {"key": key, "error": "", "fit": fit, "hand": "malla"}
+    assert ctrl.weapon_grip_source() == ("mano-test-01@1", "malla", fit)
+    ctrl._grip_preview = {"key": ("otra",), "error": "", "fit": fit, "hand": "malla"}      # elección cambiada: previsualización vieja
+    assert ctrl.weapon_grip_source() is None
