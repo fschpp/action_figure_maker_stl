@@ -42,6 +42,7 @@ COMMANDS: dict[str, tuple[str, bool, bool]] = {
     "color": (CONSOLE, False, True),           # T42: versión nueva de una pieza con roles de color; el asistente de la ventana es T47
     "exportar": (CONSOLE, False, False),       # D03 (PLAN_catalogos_online.md): paquete .zip; «Compartir → Exportar paquete…» de la ventana es D21
     "instalar": (CONSOLE, False, True),        # D06: paquete .zip → catálogo (escribe); «Compartir → Importar paquete .zip…» de la ventana es D22
+    "remoto": (CONSOLE, True, True),           # D14: buscar/ver/versiones/instalar/actualizar desde un índice; «Explorar catálogos en línea…» de la ventana es D18
     "paquete": (CONSOLE, False, False),        # D04: `paquete validar`; «Publicar…» de la ventana (D21) lo usa
     "paleta": (CONSOLE, False, True),          # T39: paleta.json de la línea; la pestaña «Paleta» de la ventana es T46 (PLAN_paleta_color_linea.md)
 }

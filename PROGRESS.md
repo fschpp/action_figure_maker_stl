@@ -1,3 +1,24 @@
+## Current Focus — Catálogos en línea: D14 `afm catalogo remoto …` (2026-11-25, rama feat/catalogos-online-d14 sobre main 9edcefe)
+**Objetivo.** Explorar e instalar desde un índice por consola, sobre el cliente de D13, con la misma confirmación y atomicidad que `afm catalogo instalar`.
+**Hecho.**
+- `src/afm/remoto_cli.py`: `remoto buscar [texto] [--tipo --linea --licencia --categoria --orden descargas|reciente|nombre --ocultos]`, `ver ID`, `versiones ID`, `instalar ID[@versión] [--en | --como-linea] [--simular --si --aceptar-cambio-origen --permitir-fbx --permitir-retirada]`, `actualizar [ID] [--en]`; todos con `--indice URL` (repetible) y `--sin-red`. Los índices salen de `--indice` o de `~/.config/afm/remoto.json`. Salida 0 ok · 1 plan con errores/cancelado · 2 índice o paquete inalcanzable. Un índice caído avisa y no impide usar los otros.
+- `remoto.py` (aditivo): `parse_ref` (`Autor@id@1.2.0`), `search`, `resolve` (ambigüedad entre índices ⇒ error; `inaccesible` no se instala), `state` (`no instalado` / `instalado X` / `actualización X`), `installed_version`, `catalog_roots`, `pending_updates` (salta con aviso un paquete instalado desde otro repo que el que liga el índice: suplantación §5.7). Lo reutiliza D17.
+- `catalog_ops.COMMANDS["remoto"]` (solo consola; la ventana es D18).
+- **Bug corregido en `instalar.py`:** una versión nueva que solo cambia metadatos (mismas piezas) decía «nada que instalar» y no actualizaba `paquetes.json`; `actualizar` habría vuelto a ofrecerla siempre. Ahora `nada_que_hacer` es falso si cambian versión o `sha256` del paquete ya registrado.
+**Pruebas.** `tests/test_remoto_cli.py` (16) contra servidor local: búsqueda/orden/filtros, `null` al final, `inaccesible`, ambigüedad, índice caído, sin red, simular vs instalar, `$AFM_CATALOGO` ignorada, hash que cambió ⇒ catálogo intacto, versión inexistente/retirada, actualizar aditivo y repo distinto. Con las de remoto, instalar, paquete, exportar, portabilidad e i18n: 283 pasan; sigue fallando solo la de `test_catalog_ops` que ya fallaba en main.
+
+### Todo List
+- [x] Done: D02–D08, D13, D14
+- [ ] Todo: D17 `gui/catalog_online.py` (estado, filtros, instalación en hilo con `progress`) y claves es/en/pt; reutiliza `remoto.search/resolve/state/pending_updates`
+- [ ] Todo: D15 compatibilidad antes de descargar (necesita las fichas D11); D16 dependencias (`requiere`/`conflicts` entre paquetes, hoy solo avisos del plan)
+- [ ] Todo: D33 alta de índices por `owner/repo`; D11 esquema del feed; D12 repo del índice (G0/D00)
+- [ ] Decidir: `OFFICIAL_INDEX` por defecto (hoy sin `remoto.json` no hay índices)
+
+### Latest Blockers/Discoveries
+- `actualizar` solo mira paquetes con `github` igual al del índice; los instalados desde un zip local no se tocan.
+- `tests/test_catalog_ops.py::test_every_catalog_subcommand_is_registered_for_the_window` ya fallaba en main (`retoque`, `guardar-montura`).
+- Sigue sin probarse contra GitHub/Pages reales.
+
 ## Current Focus — Catálogos en línea: D13 cliente remoto `remoto.py` (2026-11-25, rama feat/catalogos-online-d13 sobre main 00e2ab9)
 **Objetivo.** Leer un índice por HTTPS y bajar un paquete verificado a la caché, para que D14 (`afm catalogo remoto …`) y D17 (lógica de la GUI sin GTK) tengan sobre qué apoyarse. D12 (repo del índice) no existe todavía: el cliente se probó contra un `http.server` local.
 **Hecho.**

@@ -612,3 +612,123 @@ def plan_entry(entry: Entry, root: str | None = None, *, version: str | None = N
             plan.issues.append(I.Issue(I.WARNING, entry.id, f"el índice liga «{entry.id}» a «{entry.github}» y el paquete dice «{pkg.github}»"))
     plan.indice = entry.indice
     return plan
+
+
+# ------------------------------------------------------------------------------------------------------------------------ buscar, resolver, actualizar (lo que usan la CLI de D14 y la GUI de D17)
+
+SORTS = ("descargas", "reciente", "nombre")
+
+
+def parse_ref(text: str) -> tuple[str, str | None]:
+    """`id`, `Autor@id`, `id@1.2.0` o `Autor@id@1.2.0` → (identificador, versión | None). El último tramo es versión solo si es semver."""
+    text = text.strip()
+    parts = text.split("@")
+    if len(parts) > 1 and Q.is_semver(parts[-1]):
+        return "@".join(parts[:-1]), parts[-1]
+    return text, None
+
+
+def _total(e: Entry) -> int:
+    t = (e.descargas or {}).get("total")
+    return t if isinstance(t, int) and not isinstance(t, bool) else -1          # sin contador (`null`) va al final, no como «poco popular»
+
+
+def search(entries, text: str = "", *, tipo: str = "", linea: str = "", licencia: str = "", categoria: str = "", orden: str = "descargas",
+           incluir_ocultas: bool = False) -> list[Entry]:
+    """Filtra y ordena entradas (todas las palabras de `text` tienen que aparecer en id, nombre, descripción, autor, etiquetas o categorías)."""
+    if orden not in SORTS:
+        raise RemoteError(f"orden «{orden}» desconocido (usá: {', '.join(SORTS)})")
+    words = [w for w in text.casefold().split() if w]
+    out = []
+    for e in entries:
+        if not e.visible and not incluir_ocultas:
+            continue
+        if tipo and e.tipo != tipo or licencia and e.licencia.casefold() != licencia.casefold() or categoria and categoria not in e.categorias:
+            continue
+        if linea and (e.linea or {}).get("nombre") != linea:
+            continue
+        hay = " ".join([e.id, e.nombre, e.descripcion, e.autor, *e.etiquetas, *e.categorias]).casefold()
+        if all(w in hay for w in words):
+            out.append(e)
+    if orden == "descargas":
+        out.sort(key=lambda e: (-_total(e), e.nombre.casefold()))
+    elif orden == "reciente":
+        out.sort(key=lambda e: (e.latest.publicado if e.latest else "") or "", reverse=True)
+    else:
+        out.sort(key=lambda e: e.nombre.casefold())
+    return out
+
+
+def resolve(indexes, ident: str, *, instalable: bool = False) -> Entry:
+    """La entrada que `ident` (`id` o `Autor@id`) nombra en los índices dados; error claro si no está o si es ambigua."""
+    found = [e for idx in indexes for e in idx.entries if ident in (e.id, e.folder)]
+    if not found:
+        raise RemoteError(f"«{ident}» no está en los índices consultados")
+    if len(found) > 1:
+        raise RemoteError(f"«{ident}» está en más de un lugar ({', '.join(f'{e.folder} de {e.indice}' for e in found)}): usá Autor@id o elegí un índice con --indice")
+    e = found[0]
+    if instalable and not e.visible:
+        raise RemoteError(f"«{e.folder}» figura como inaccesible (su repo o su Release no responden); probá más tarde")
+    return e
+
+
+def installed_version(entry: Entry, root: str | None = None) -> str | None:
+    """La versión instalada de `entry` en `root` (o en la carpeta de su línea), según `paquetes.json`; `None` si no está o no se puede leer."""
+    try:
+        root = root or default_root(entry)
+        if not os.path.isdir(root):
+            return None
+        got = I.load_registry(root)["paquetes"].get(entry.id)
+    except (RemoteError, I.InstallError):
+        return None
+    return got.get("version") if isinstance(got, dict) else None
+
+
+def state(entry: Entry, root: str | None = None) -> str:
+    """`no instalado` · `instalado X` · `actualización X` (instalado una versión más vieja que `latest`) · `inaccesible` · `sin versión instalable`."""
+    if not entry.visible:
+        return "inaccesible"
+    have = installed_version(entry, root)
+    if entry.latest is None:
+        return "sin versión instalable" if have is None else f"instalado {have}"
+    if have is None:
+        return "no instalado"
+    try:
+        if Q.parse_semver(have) < Q.parse_semver(entry.latest.version) and entry.latest.version not in entry.retiradas:
+            return f"actualización {entry.latest.version}"
+    except Q.PaqueteError:
+        pass
+    return f"instalado {have}"
+
+
+def catalog_roots() -> list[str]:
+    """Los catálogos en `~/.local/share/afm/catalogos/*` que tienen `paquetes.json` (para «actualizar todo»)."""
+    base = os.path.dirname(I.explicit_root("x"))
+    try:
+        names = sorted(os.listdir(base))
+    except OSError:
+        return []
+    return [os.path.join(base, n) for n in names if os.path.isfile(os.path.join(base, n, I.REGISTRY_FILE))]
+
+
+def pending_updates(indexes, root: str) -> tuple[list, list]:
+    """(actualizaciones, avisos) para los paquetes de `root`: `[(Entry, versión instalada)]` de los que el índice trae más nuevos.
+
+    Se salta (con aviso) el que está instalado desde otro repo que el que dice el índice (suplantación, §5.7) y el que el índice no lista.
+    """
+    reg = I.load_registry(root)["paquetes"]
+    todo, avisos = [], []
+    for pid, got in sorted(reg.items()):
+        cands = [e for idx in indexes for e in idx.entries if e.id == pid]
+        if not cands:
+            continue
+        if len(cands) > 1:
+            avisos.append(f"«{pid}» está en más de un índice; actualizalo a mano con `remoto instalar Autor@{pid} --indice URL`")
+            continue
+        e = cands[0]
+        if got.get("github", "") != e.github:
+            avisos.append(f"«{pid}» se instaló desde «{got.get('github') or 'un zip local'}» y el índice lo liga a «{e.github or 'ningún repo'}»: no se actualiza solo")
+            continue
+        if state(e, root).startswith("actualización"):
+            todo.append((e, got.get("version", "")))
+    return todo, avisos

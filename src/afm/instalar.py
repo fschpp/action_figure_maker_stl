@@ -114,7 +114,10 @@ class InstallPlan:
 
     @property
     def nada_que_hacer(self) -> bool:
-        return self.ok and not self.a_instalar and not self.roles_nuevos and not self.como_linea
+        if not self.ok or self.a_instalar or self.roles_nuevos or self.como_linea:
+            return False
+        prev = self.registro_previo                       # D14: una versión nueva que solo cambia metadatos igual se registra (si no, `actualizar` no terminaría nunca)
+        return not (prev and self.paquete is not None and (prev.get("version") != self.paquete.version or prev.get("sha256") != self.zip_sha256))
 
     def describe(self) -> list[str]:
         """El plan en líneas de texto (lo que imprime `--simular`)."""
