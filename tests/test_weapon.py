@@ -145,6 +145,18 @@ def test_line_grip_follows_the_hand():
     assert (spec.bore_d, spec.shaft_d, spec.barb_d, hole) == (2.4, 2.0, 2.9, 10.0)
 
 
+def test_line_grip_relieves_the_strain_of_big_bores():
+    """Un taladro de Ø5 con el canal de 8,54 mm dejaba la lengüeta en 1,20 % > 1,0 % y el arma no se armaba (ni se veía la mano en el mango)."""
+    from afm.props import _check_grip, grip_strain
+
+    spec, hole = W.line_grip({"diametro_taladro_mm": 5.0, "largo_canal_mm": 8.54})
+    assert (spec.bore_d, spec.shaft_d, spec.barb_d) == (5.0, 4.6, 5.5)
+    assert grip_strain(spec) <= spec.max_strain and spec.finger_len > 8.0 and spec.slit_w > 0.5
+    _check_grip(spec, hole)                                                  # no levanta GripError
+    small, _ = W.line_grip({"diametro_taladro_mm": 2.4, "largo_canal_mm": 10.0})
+    assert (small.finger_len, small.slit_w) == (8.0, 0.5)                    # con taladros chicos no cambia nada
+
+
 def test_catalog_needs_a_hand_with_grip(tmp_path, sword_stl):
     path, pts = sword_stl
     cat = Catalog.create(str(tmp_path / "vacia"), "linea-vacia", 127.0)

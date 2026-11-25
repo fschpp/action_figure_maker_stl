@@ -11,14 +11,14 @@ posible (hoja plana acostada) y las lengüetas, que flexionan en Y, trabajen en 
 """
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 
 import numpy as np
 import trimesh
 
 from . import solids as S
 from .planes import Plane
-from .props import GripSpec, grip_stub
+from .props import GripSpec, grip_strain, grip_stub
 
 
 class WeaponError(ValueError):
@@ -217,7 +217,22 @@ def line_grip(hand_agarre: dict) -> tuple[GripSpec, float]:
     vástago = taladro − 0,4 mm (0,2 por lado) y dentado = taladro + 0,5 mm (interferencia 0,25 por lado), los valores que ya
     probamos con la mano de Güemes. Devuelve (GripSpec, largo del canal)."""
     bore = float(hand_agarre["diametro_taladro_mm"])
-    return GripSpec(bore_d=bore, shaft_d=round(bore - 0.4, 3), barb_d=round(bore + 0.5, 3)), float(hand_agarre["largo_canal_mm"])
+    hole = float(hand_agarre["largo_canal_mm"])
+    return _relieve_strain(GripSpec(bore_d=bore, shaft_d=round(bore - 0.4, 3), barb_d=round(bore + 0.5, 3)), hole), hole
+
+
+def _relieve_strain(spec: GripSpec, hole_len: float) -> GripSpec:
+    """Con taladros grandes (Ø ≳ 4,5 mm) la lengüeta de 8 mm se deforma más del máximo y el arma no se podía armar (ni dibujar la mano en el
+    mango). Si pasa, se alarga la lengüeta todo lo que permite el canal y, si hace falta, se ensancha la ranura (lengüetas más finas), con
+    un margen del 10 % sobre el máximo. Con taladros chicos no cambia nada. Si ni así alcanza, se devuelve tal cual y el armado avisa."""
+    if grip_strain(spec) <= spec.max_strain:
+        return spec
+    target = 0.9 * spec.max_strain
+    longest = hole_len + spec.play + spec.back_len - 0.5                 # `_check_grip`: la lengüeta deja ≥ 0,5 mm de empuñadura
+    out = replace(spec, finger_len=max(spec.finger_len, round(longest, 2)))
+    while grip_strain(out) > target and (out.shaft_d - out.slit_w) / 2.0 > 0.6:
+        out = replace(out, slit_w=round(out.slit_w + 0.1, 3))
+    return out if grip_strain(out) <= out.max_strain else spec
 
 
 def line_hand(cat, hand_ref: str | None = None):

@@ -3179,3 +3179,9 @@ No existe una «cara interna del muslo» detectable en Güemes (el borde interno
 ## Guardar la mano de catálogo taladrada de vuelta en el catálogo
 **Problema:** «Guardar la mano taladrada en el catálogo» quedaba en gris con una mano de catálogo taladrada en «Planos»: solo se reconocía como del catálogo si se taladraba desde la previsualización sola; si se elegía su STL con el selector de archivos (`<catálogo>/piezas/mano/<id>@<n>.stl`) se trataba como «STL suelto».
 **Hecho:** `Controller.catalog_hand_of_path` reconoce por la ruta el STL de una pieza `mano` de un catálogo y `begin_grip` lo usa; prueba en `tests/test_catalog_drill_hand.py`.
+
+
+## Mano con agarre sobre el mango no se veía (taladro grande)
+**Problema:** con una mano taladrada a Ø5 y canal de 8,54 mm, «Ver la mano con agarre sobre el mango» mostraba solo el arma: la empuñadura derivada de la mano (vástago Ø4,6, dentado Ø5,5, lengüeta 8 mm, ranura 0,5) deformaba la lengüeta 1,20 % > 1,0 %, el arma no se armaba y la mano solo se dibuja sobre el arma armada.
+**Hecho:** `weapon.line_grip` alarga la lengüeta (hasta lo que permite el canal) y ensancha la ranura si hace falta, con 10 % de margen; con taladros chicos no cambia nada. Prueba en `tests/test_weapon.py`.
+**Pendiente:** 3 pruebas de `test_gui_controller.py` (`grip_axis_choice_limits_and_stale`, `grip_preview_runs_without_drilling`, `grip_preview_with_catalog_hand_when_none_attached`) fallan también sin este cambio.
