@@ -5,6 +5,7 @@ cuelgan de acá. La lógica vive en `exportar.py`: este módulo solo lee argumen
 """
 from __future__ import annotations
 
+import os
 import sys
 
 from . import paquete as Q
@@ -59,13 +60,17 @@ def add_parsers(cs, root) -> None:
     i.add_argument("--autor", action="append", default=[], metavar="NOMBRE[:github]", help="solo zips heredados (repetible)")
     i.add_argument("--id", default="", help="solo zips heredados: id del paquete (por defecto el nombre de la línea)")
     i.add_argument("--version-paquete", default="", metavar="X.Y.Z", help="solo zips heredados (por defecto 1.0.0)")
-    pq = cs.add_parser("paquete", help="herramientas de paquetes .zip (por ahora: validar)")
+    pq = cs.add_parser("paquete", help="herramientas de paquetes .zip (validar, fichas)")
     ps = pq.add_subparsers(dest="paqcmd", required=True)
     v = ps.add_parser("validar", help="revisar un paquete .zip (lint CK101–CK403): manifiesto, hashes, archivos, color, línea y `verify` del contenido")
     v.add_argument("zip", metavar="paquete.zip")
     v.add_argument("--estricto", action="store_true", help="los avisos cuentan como errores (así lo revisa el índice antes de adoptar un release)")
     v.add_argument("--permitir-fbx", action="store_true", help="aceptar .fbx dentro del paquete (los que se exportaron con --incluir-fbx)")
     v.add_argument("--sin-malla", action="store_true", help="no abrir el contenido como catálogo (omite CK203: rápido, pero no revisa las mallas)")
+    f = ps.add_parser("fichas", help="juntar las .pieza.json de un paquete en un solo archivo afm-fichas-1 (sin mallas): lo usa el índice y «compatibilidad antes de descargar»")
+    f.add_argument("zip", metavar="paquete.zip")
+    f.add_argument("-o", "--salida", default="", metavar="FICHAS.json", help="archivo de salida (sin -o se imprime en la consola)")
+    f.add_argument("--sobrescribir", action="store_true")
 
 
 def run_exportar(cat: Catalog, args) -> int:
@@ -85,6 +90,33 @@ def run_exportar(cat: Catalog, args) -> int:
           f"{len(res.archivos) + 1} archivos, {res.tamano / 1e6:.2f} MB, sha256 {res.sha256}")
     for w in res.avisos:
         print("AVISO:", w)
+    return 0
+
+
+def run_paquete(args) -> int:
+    """`afm catalogo paquete validar|fichas ZIP`."""
+    return run_fichas(args) if args.paqcmd == "fichas" else run_validar(args)
+
+
+def run_fichas(args) -> int:
+    """`afm catalogo paquete fichas ZIP [-o FICHAS.json]`: no abre ningún STL. 0 = escrito; 2 = el zip no sirve."""
+    from . import indice as X
+    from .ziplector import ZipError
+
+    try:
+        text = X.dump_json(X.fichas_from_zip(args.zip))
+    except (ZipError, X.IndiceError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    if not args.salida:
+        print(text, end="")
+        return 0
+    if os.path.exists(args.salida) and not args.sobrescribir:
+        print(f"ERROR: «{args.salida}» ya existe (usá --sobrescribir)", file=sys.stderr)
+        return 2
+    with open(args.salida, "w", encoding="utf-8") as f:
+        f.write(text)
+    print(f"Fichas de «{args.zip}» → {args.salida}")
     return 0
 
 
@@ -206,4 +238,4 @@ def _install_plan(args, plan, I) -> int:
     return 0
 
 
-__all__ = ["ExportError", "add_parsers", "run_exportar", "run_validar", "run_instalar"]
+__all__ = ["ExportError", "add_parsers", "run_exportar", "run_validar", "run_paquete", "run_fichas", "run_instalar"]

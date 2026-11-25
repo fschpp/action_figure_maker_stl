@@ -15,6 +15,7 @@ from . import __version__
 from . import instalar as I
 from . import paquete as Q
 from . import remoto as R
+from .catalog import CatalogError
 from .paquete_cli import _install_plan
 from .ziplector import ZipError
 
@@ -40,6 +41,8 @@ def add_parsers(cs) -> None:
     common(b)
     v = rs.add_parser("ver", help="ficha de un paquete: autor, licencia, línea, tamaño, sha256, versiones retiradas…")
     v.add_argument("ref", metavar="ID")
+    v.add_argument("--compat", action="store_true", help="medir cuántas piezas del paquete encajan con tu catálogo, sin bajar los STL (baja solo sus fichas)")
+    v.add_argument("--en", default=None, metavar="RUTA", help="catálogo contra el que medir con --compat (por defecto ~/.local/share/afm/catalogos/<línea>; no mira $AFM_CATALOGO)")
     common(v)
     vs = rs.add_parser("versiones", help="versiones que el índice conoce de un paquete")
     vs.add_argument("ref", metavar="ID")
@@ -100,7 +103,7 @@ def _downloads(e) -> str:
 def run_remoto(args) -> int:
     try:
         return _run(args)
-    except (R.RemoteError, I.InstallError, ZipError) as exc:
+    except (R.RemoteError, I.InstallError, CatalogError, ZipError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
 
@@ -124,7 +127,10 @@ def _run(args) -> int:
     if cmd in ("ver", "versiones"):
         ident, _ = R.parse_ref(args.ref)
         e = R.resolve(indexes, ident)
-        return _ver(e) if cmd == "ver" else _versiones(e)
+        if cmd == "versiones":
+            return _versiones(e)
+        code = _ver(e)
+        return _compat(args, e) if args.compat and code == 0 else code
     if cmd == "instalar":
         return _instalar(args, indexes)
     return _actualizar(args, indexes)
@@ -157,6 +163,27 @@ def _ver(e) -> int:
     if not e.visible:
         print("\nAVISO: el repo o el Release de este paquete no responden ahora; no se puede instalar.")
     print("\nListar no es verificar: el índice no revisa el contenido a mano; la licencia y el origen los declara quien lo publicó.")
+    return 0
+
+
+def _compat(args, e) -> int:
+    """D15: `ver --compat`: mide las fichas del paquete contra el catálogo local. Sin catálogo no hay con qué comparar."""
+    from . import compat_remota as CR
+    from .catalog import Catalog, CatalogError
+
+    if not e.instalable:
+        print("\nNo se puede medir la compatibilidad: el paquete no tiene una versión instalable.")
+        return 0
+    root = args.en or R.default_root(e)
+    try:
+        cat = Catalog.open(root)
+    except CatalogError:
+        print(f"\nNo hay un catálogo en «{root}» con qué comparar (instalá el paquete como línea nueva o indicá --en RUTA).")
+        return 0
+    fichas = CR.fetch_fichas(e, offline=args.sin_red)
+    print()
+    for line in CR.report_lines(CR.check(cat, fichas)):
+        print(line)
     return 0
 
 

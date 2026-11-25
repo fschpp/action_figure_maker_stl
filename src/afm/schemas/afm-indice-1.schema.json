@@ -1,0 +1,358 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/fschpp/action_figure_maker_stl/schemas/afm-indice-1.schema.json",
+  "title": "afm-indice-1",
+  "description": "`data/index.json` que publica el índice (§5.5): lo único que lee la app. Evolución aditiva (plan §5.1 punto 8): se permiten claves que este esquema no conoce; `schema_version` solo sube si se rompe algo existente.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "paquetes"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "generado": {
+      "type": "string"
+    },
+    "cantidad": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "categorias": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "paquetes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "folder",
+          "id",
+          "nombre"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "maxLength": 64
+          },
+          "nombre": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "autor": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+          },
+          "version": {
+            "type": "string",
+            "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-([0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
+          },
+          "categorias": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "maxItems": 4
+          },
+          "github": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+          },
+          "descripcion": {
+            "type": "string",
+            "maxLength": 280
+          },
+          "etiquetas": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "licencia": {
+            "type": "string"
+          },
+          "origen": {
+            "enum": [
+              "propia",
+              "derivada",
+              "dominio-publico",
+              "con-permiso",
+              "referencia"
+            ]
+          },
+          "tipo": {
+            "enum": [
+              "linea",
+              "piezas",
+              "heroe",
+              "coleccion"
+            ]
+          },
+          "linea": {
+            "type": "object",
+            "required": [
+              "nombre",
+              "altura_mm"
+            ],
+            "properties": {
+              "nombre": {
+                "type": "string"
+              },
+              "altura_mm": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              }
+            }
+          },
+          "motor": {
+            "type": "string"
+          },
+          "requiere": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "conflicts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "experimental": {
+            "type": "boolean"
+          },
+          "fuente": {
+            "type": "object",
+            "required": [
+              "tipo",
+              "url",
+              "sha256"
+            ],
+            "properties": {
+              "tipo": {
+                "const": "url"
+              },
+              "url": {
+                "type": "string",
+                "pattern": "^https://"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          },
+          "seguimiento": {
+            "enum": [
+              "ultimo",
+              "fijo"
+            ]
+          },
+          "release_fijo": {
+            "type": "string"
+          },
+          "folder": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*@[a-z0-9]+(?:-[a-z0-9]+)*$"
+          },
+          "portada": {
+            "type": "string"
+          },
+          "descripcion_url": {
+            "type": "string"
+          },
+          "latest": {
+            "type": "object",
+            "required": [
+              "version",
+              "zip"
+            ],
+            "properties": {
+              "version": {
+                "type": "string",
+                "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-([0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
+              },
+              "tag": {
+                "type": "string"
+              },
+              "prerelease": {
+                "type": "boolean"
+              },
+              "publicado": {
+                "type": "string"
+              },
+              "zip": {
+                "type": "object",
+                "required": [
+                  "url",
+                  "sha256"
+                ],
+                "properties": {
+                  "nombre": {
+                    "type": "string"
+                  },
+                  "url": {
+                    "type": "string"
+                  },
+                  "tamano": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "sha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  }
+                }
+              },
+              "fichas": {
+                "type": "string"
+              }
+            }
+          },
+          "versiones": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "version",
+                "zip"
+              ],
+              "properties": {
+                "version": {
+                  "type": "string",
+                  "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-([0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
+                },
+                "tag": {
+                  "type": "string"
+                },
+                "prerelease": {
+                  "type": "boolean"
+                },
+                "publicado": {
+                  "type": "string"
+                },
+                "zip": {
+                  "type": "object",
+                  "required": [
+                    "url",
+                    "sha256"
+                  ],
+                  "properties": {
+                    "nombre": {
+                      "type": "string"
+                    },
+                    "url": {
+                      "type": "string"
+                    },
+                    "tamano": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "sha256": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$"
+                    }
+                  }
+                },
+                "fichas": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "retiradas": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "update_check": {
+            "type": "string",
+            "pattern": "^(ok|off|sin release instalable|inaccesible|error: .*)$"
+          },
+          "descargas": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "total": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "reciente": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "ventana_dias": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "as_of": {
+                "type": "string"
+              }
+            }
+          },
+          "piezas": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "ref",
+                "tipo",
+                "puertos"
+              ],
+              "properties": {
+                "ref": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*@[1-9]\\d*$"
+                },
+                "tipo": {
+                  "type": "string"
+                },
+                "puertos": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "object",
+                    "properties": {
+                      "clase": {
+                        "type": "string"
+                      },
+                      "rol": {
+                        "type": "string"
+                      },
+                      "radio_eq_mm": {
+                        "type": [
+                          "number",
+                          "null"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

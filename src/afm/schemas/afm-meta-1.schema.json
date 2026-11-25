@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/fschpp/action_figure_maker_stl/schemas/afm-meta-1.schema.json",
+  "title": "afm-meta-1",
+  "description": "`meta.json` de `paquetes/<Autor>@<id>/` del índice (§5.5): casi una copia de `paquete.json` más los campos de listado. Evolución aditiva (plan §5.1 punto 8): se permiten claves que este esquema no conoce; `schema_version` solo sube si se rompe algo existente.",
+  "type": "object",
+  "required": [
+    "id",
+    "nombre",
+    "autor",
+    "version",
+    "categorias",
+    "descripcion",
+    "licencia",
+    "origen",
+    "tipo"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "maxLength": 64
+    },
+    "nombre": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "autor": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-([0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
+    },
+    "categorias": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "maxItems": 4
+    },
+    "github": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+    },
+    "descripcion": {
+      "type": "string",
+      "maxLength": 280
+    },
+    "etiquetas": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "licencia": {
+      "type": "string"
+    },
+    "origen": {
+      "enum": [
+        "propia",
+        "derivada",
+        "dominio-publico",
+        "con-permiso",
+        "referencia"
+      ]
+    },
+    "tipo": {
+      "enum": [
+        "linea",
+        "piezas",
+        "heroe",
+        "coleccion"
+      ]
+    },
+    "linea": {
+      "type": "object",
+      "required": [
+        "nombre",
+        "altura_mm"
+      ],
+      "properties": {
+        "nombre": {
+          "type": "string"
+        },
+        "altura_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "motor": {
+      "type": "string"
+    },
+    "requiere": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "conflicts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "experimental": {
+      "type": "boolean"
+    },
+    "fuente": {
+      "type": "object",
+      "required": [
+        "tipo",
+        "url",
+        "sha256"
+      ],
+      "properties": {
+        "tipo": {
+          "const": "url"
+        },
+        "url": {
+          "type": "string",
+          "pattern": "^https://"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "seguimiento": {
+      "enum": [
+        "ultimo",
+        "fijo"
+      ]
+    },
+    "release_fijo": {
+      "type": "string"
+    }
+  },
+  "anyOf": [
+    {
+      "required": [
+        "github"
+      ]
+    },
+    {
+      "required": [
+        "fuente"
+      ]
+    }
+  ],
+  "if": {
+    "required": [
+      "seguimiento"
+    ],
+    "properties": {
+      "seguimiento": {
+        "const": "fijo"
+      }
+    }
+  },
+  "then": {
+    "required": [
+      "release_fijo"
+    ]
+  }
+}

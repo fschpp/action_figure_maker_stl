@@ -17,7 +17,7 @@ from .recipe import RecipeError
 
 
 def add_parsers(sub) -> None:
-    c = sub.add_parser("catalogo", help="catálogo de piezas de una línea (crear, listar, verificar, importar-mano, taladrar-mano, agregar, agregar-stl, guardar-montura, cortar-muneca, usos, eliminar, estado, compat, certificar, matriz, cobertura, contrato, capacidad, paleta, color, color-girar, retoque, exportar, instalar, paquete)")
+    c = sub.add_parser("catalogo", help="catálogo de piezas de una línea (crear, listar, verificar, importar-mano, taladrar-mano, agregar, agregar-stl, guardar-montura, cortar-muneca, usos, eliminar, estado, compat, certificar, matriz, cobertura, contrato, capacidad, paleta, color, color-girar, retoque, exportar, instalar, paquete, remoto)")
     cs = c.add_subparsers(dest="catcmd", required=True)
 
     def root(p):
@@ -501,8 +501,8 @@ def _run(args) -> int:
         print(f"Catálogo «{cat.name}» creado en {cat.root} (altura {cat.height_mm:g} mm, holgura {cat.params.clearance:g} mm)")
         return 0
     if cmd == "paquete":                       # D04: trabaja sobre un .zip, no necesita catálogo
-        from .paquete_cli import run_validar
-        return run_validar(args)
+        from .paquete_cli import run_paquete
+        return run_paquete(args)
     if cmd == "remoto":                        # D14: habla con un índice; el destino es --en o la ruta de la línea
         from .remoto_cli import run_remoto
         return run_remoto(args)

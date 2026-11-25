@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/fschpp/action_figure_maker_stl/schemas/afm-fichas-1.schema.json",
+  "title": "afm-fichas-1",
+  "description": "`data/fichas/<Autor>@<id>-<ver>.json`: las `.pieza.json` de un paquete sin mallas (§5.5), para medir la compatibilidad antes de descargar. Evolución aditiva (plan §5.1 punto 8): se permiten claves que este esquema no conoce; `schema_version` solo sube si se rompe algo existente.",
+  "type": "object",
+  "required": [
+    "formato",
+    "paquete",
+    "fichas"
+  ],
+  "properties": {
+    "formato": {
+      "const": "afm-fichas-1"
+    },
+    "paquete": {
+      "type": "object",
+      "required": [
+        "id",
+        "version"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "linea": {
+          "type": "object",
+          "required": [
+            "nombre",
+            "altura_mm"
+          ],
+          "properties": {
+            "nombre": {
+              "type": "string"
+            },
+            "altura_mm": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          }
+        }
+      }
+    },
+    "fichas": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "formato",
+          "id",
+          "version",
+          "tipo"
+        ],
+        "properties": {
+          "formato": {
+            "const": "afm-pieza-1"
+          },
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "tipo": {
+            "type": "string"
+          },
+          "puertos": {
+            "type": "object"
+          }
+        }
+      }
+    }
+  }
+}

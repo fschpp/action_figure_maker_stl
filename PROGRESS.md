@@ -1,3 +1,25 @@
+## Current Focus — Catálogos en línea: D11 esquemas e `indice.py` + D15 compatibilidad antes de descargar (2026-11-25, rama feat/catalogos-online-d11-d15 sobre main aa79b00)
+**Objetivo.** Fijar el formato del feed que publica el índice (D11) y, con sus fichas, medir qué piezas de un paquete encajan en el catálogo propio sin bajar ningún STL (D15).
+**Hecho.**
+- `src/afm/indice.py` (D11, motor puro; del archivo que pasó el cliente, sin cambios): `fichas_from_zip` (`afm-fichas-1`), `meta_from_paquete` (`meta.json`, con `seguimiento`/`release_fijo`), `entry_from_zip` (entrada de `index.json`: `latest` con `sha256` y tamaño reales, `piezas`, `update_check`, `descargas` = `null` si no hay contador), `build_index`, `folder_name` (`Autor@id`) y `schema(which)`. No lee ninguna malla (las pruebas rompen `load_mesh`/`trimesh.load`).
+- `src/afm/schemas/afm-{meta,indice,fichas}-1.schema.json`: aditivos (claves desconocidas permitidas). `meta` pide `github` **o** `fuente` (solo HTTPS + `sha256`), y `release_fijo` si `seguimiento = fijo`.
+- `afm catalogo paquete fichas ZIP [-o FICHAS.json] [--sobrescribir]` (`paquete_cli.run_paquete` despacha `validar`/`fichas`).
+- `remoto.Release.fichas` (aditivo): URL del archivo de fichas; **confirma los nombres del feed que D13 había asumido** (`paquetes`, `latest.zip = {nombre, url, tamano, sha256}`, rutas relativas a `data/`): `remoto.parse_index` lee sin avisos lo que `indice.build_index` escribe.
+- `src/afm/compat_remota.py` (D15): `parse_fichas`, `fichas_url` (la del índice o `fichas/<Autor>@<id>-<ver>.json` junto al `index.json`), `fetch_fichas` (misma política de hosts y reintentos que `remoto`; caché; sin red usa la copia), `check(cat, fichas)` → `PackageCompat` y `report_lines`. Usa `guide.coverage_of_port` sobre un catálogo virtual (piezas locales + las nuevas del paquete): por puerto da universo/ok/aviso/no, el mejor ajuste y los motivos; por pieza, el peor de los mejores ajustes (`ok|aviso|no|sin_datos`). Avisa de línea de otra altura (±0,5 mm), pieza ya instalada o en conflicto (otro `sha256`) y roles de color que la paleta local no tiene.
+- `afm catalogo remoto ver ID --compat [--en RUTA]`.
+**Pruebas.** `tests/test_indice.py` (11) y `tests/test_compat_remota.py` (19): fichas/entrada/índice de `catalogo/ejemplo` validan contra el esquema; el zip se procesa sin leer mallas; **los números coinciden con `piece_coverage` tras instalar** (apagando el choque sentado, ver abajo); niveles, motivos, otra altura, instalada/conflicto, roles, fichas rotas, red (solo se piden las fichas; 503 ⇒ copia guardada; 404 ⇒ error; host fuera de lista). Con remoto, instalar, paquete, exportar, validar, ziplector, guía e i18n: 375 pasan; sigue fallando `test_catalog_ops::test_every_catalog_subcommand_is_registered_for_the_window` (ya fallaba en main).
+
+### Todo List
+- [x] Done: D02–D08, D11, D13, D14, D15
+- [ ] Todo: D12 repo del índice (G0/D00) y D31 salud/descargas, que usan `indice.entry_from_zip`/`build_index`; D10 `paquete enviar` (usa `meta_from_paquete`)
+- [ ] Todo: D16 dependencias, retiradas y bloqueados; D17 `gui/catalog_online.py` (puede mostrar `compat_remota.report_lines` en la ficha de «Explorar»)
+- [ ] Decidir: `OFFICIAL_INDEX` por defecto; topes definitivos con D01
+
+### Latest Blockers/Discoveries
+- **Diferencia conocida con `cobertura`:** el choque en la pose sentada de un brazo/pierna contra el torso de otra figura (`guide.SeatedClash`) necesita las mallas; la medición remota no lo incluye y lo marca (`PortCoverage.sin_choque`, aviso por pieza). Para `hombro` y `cadera` el «no» por choque aparece recién tras instalar.
+- `PieceMeta.from_dict` no valida el id: `parse_fichas` lo exige (`ID_RE`, versión ≥ 1) y una ficha mala se salta con aviso.
+- Sin probar contra GitHub Pages real (no hay índice publicado todavía).
+
 ## Current Focus — Catálogos en línea: D14 `afm catalogo remoto …` (2026-11-25, rama feat/catalogos-online-d14 sobre main 9edcefe)
 **Objetivo.** Explorar e instalar desde un índice por consola, sobre el cliente de D13, con la misma confirmación y atomicidad que `afm catalogo instalar`.
 **Hecho.**

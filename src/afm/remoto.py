@@ -261,6 +261,7 @@ class Release:
     url: str
     tamano: int
     sha256: str
+    fichas: str = ""                      # URL del archivo `afm-fichas-1` de esta versión (D11/D15); "" = usar la convención `fichas/<carpeta>-<ver>.json`
 
 
 @dataclass
@@ -361,7 +362,8 @@ def _release(d, base_url: str) -> Release:
     size = z.get("tamano", 0)
     size = size if isinstance(size, int) and not isinstance(size, bool) and size > 0 else 0
     return Release(version=version, tag=_str(d, "tag"), prerelease=bool(d.get("prerelease", False)), publicado=_str(d, "publicado"),
-                   nombre=_str(z, "nombre"), url=urllib.parse.urljoin(base_url, url), tamano=size, sha256=sha)
+                   nombre=_str(z, "nombre"), url=urllib.parse.urljoin(base_url, url), tamano=size, sha256=sha,
+                   fichas=urllib.parse.urljoin(base_url, d["fichas"]) if isinstance(d.get("fichas"), str) and d["fichas"] else "")
 
 
 def _entry(d: dict, base_url: str, avisos: list, n: int) -> Entry | None:
