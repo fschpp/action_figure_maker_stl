@@ -1,3 +1,24 @@
+## Current Focus — Plan de factibilidad: plugins que convierten un corte en articulación (2026-11-25, sobre main 0d421b7)
+**Objetivo.** Evaluar si el corte por plano puede dejar de tener la articulación cableada y delegarla en tipos registrables (hongo, clic, bisagra, swivel/flat plane, rótula, tobillo), con perfiles sin código y plugins externos al final. Solo plan: `docs/PLAN_plugins_articulacion.md`; no se tocó código.
+**Hecho.**
+- Lectura del motor: el corte (`Plane` + `LimbSpec` → `ContactFace`) ya es la interfaz natural; el tipo está cableado en `pipeline.build` (`kind`, `LimbSpec.mechanism`, flags de `Params`), `joints.KINDS`, `ports.PORT_CLASSES`/`PIN_OF_CLASS` y 9 llamadas a `mushroom_pin` en 7 módulos.
+- Mapeo de la imagen Action Force: disc = ya existe; double pin/rocker = bisagra con otro rango; flat plane = hongo sobre la normal dentro de un miembro; ball = requiere `Motion` general; varias articulaciones por miembro = hoy `ValueError`.
+- Plan en 6 fases con criterio de aceptación (golden de `tools/golden.py`), riesgos y 6 decisiones para el cliente.
+**No verificado.** Estimaciones de esfuerzo (6–9 semanas, orientativas); imprimibilidad de la rótula; `importlib.metadata` y entry points bajo Pyodide; ningún código ejecutado.
+
+### Todo List
+- [x] Done: lectura del motor y de los planes previos, `docs/PLAN_plugins_articulacion.md`
+- [/] In Progress: ninguno
+- [ ] Todo: el cliente responde las decisiones del §7 del plan (tipos y orden, «double pin», plugins de terceros sí/no, pie/tobillo)
+- [ ] Todo: Fase 0 (rama `plugins_articulacion`): golden de las 5 figuras y registro con el hongo envuelto
+- [ ] Todo: spike de rótula con una probeta impresa antes de comprometer la Fase 4
+
+### Latest Blockers/Discoveries
+- `build_joint` rechaza un eje casi paralelo a la normal del plano (`joints.py:230`): el swivel no puede pasar por ahí, es un tipo aparte.
+- `pipeline.build` lanza «por ahora una sola articulación por miembro»: es el costo escondido de bíceps + codo + muñeca (Fase 3).
+- `LimbSpec.mechanism` ya viaja en el catálogo (`meta.mecanismo`): es la semilla del registro y de la compatibilidad por tipo.
+- En main falla ya `test_catalog_import::test_parse_builds_the_arguments_of_catalog_ops` (viene de antes, ver sección del 2026-11-24).
+
 ## Current Focus — Probetas de articulación: rótulos, mangos y paso de resultados (2026-11-25, sobre main deaa6d3)
 **Objetivo.** Que las probetas se puedan usar sin adivinar: saber qué celda es cuál al arrastrar el STL a Bambu Studio, poder mover la pieza de prueba con los dedos y devolverle al programa cuál ganó.
 **Hecho.**
