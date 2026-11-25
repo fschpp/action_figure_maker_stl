@@ -75,6 +75,51 @@ def test_three_clicks_cut_the_handle_and_preview_the_result(ctrl, sword_stl):
     assert res.is_watertight and res.volume > 0
 
 
+def _armed(ctrl, sword_stl):
+    path, pts = _shown(sword_stl)
+    ctrl.open_weapon(path)
+    ctrl.set_weapon_scale(factor=10.0)
+    ctrl.start_weapon_cut_plane()
+    feed(ctrl, [p * 10.0 for p in pts])
+    assert ctrl.weapon.build is not None
+
+
+def test_standard_hand_closes_on_the_handle_in_the_3d_view(ctrl, sword_stl):
+    """La mano estándar sale en el visor, puesta en el mango: el puño apoya contra la guarda y el eje del taladro es el de la empuñadura."""
+    scene = FakeScene()
+    ctrl.open_weapon(_shown(sword_stl)[0])
+    ctrl.sync(scene)
+    assert "arma:mano" not in scene.items                                           # sin arma armada todavía no hay dónde ponerla
+    _armed(ctrl, sword_stl)
+    ctrl.sync(scene)
+    assert "arma:mano" in scene.items
+    hand = scene.items["arma:mano"][1]
+    ws = ctrl.weapon
+    assert len(hand.faces) > 0
+    # el origen del marco del accesorio (la cara de la guarda que mira a la mano) cae pegado al puño
+    origin = ws.build.to_mesh_frame[:3, 3]
+    assert np.linalg.norm(hand.vertices - origin, axis=1).min() < 6.0
+    # y el eje de la empuñadura atraviesa la mano: sus dos extremos del canal están dentro de la caja de la mano
+    axis = ws.build.to_mesh_frame[:3, :3] @ np.array([1.0, 0.0, 0.0])
+    inside = origin + axis * 3.0
+    lo, hi = hand.bounds
+    assert np.all(inside >= lo - 1.0) and np.all(inside <= hi + 1.0)
+    assert ws.hand_in_weapon() is hand                                              # se arma una vez por armado
+    ctrl.set_weapon_scale(length_mm=30.0)
+    assert ws.hand_in_weapon() is not hand
+
+
+def test_hand_on_the_handle_can_be_hidden(ctrl, sword_stl):
+    _armed(ctrl, sword_stl)
+    ctrl.set_weapon_show_hand(False)
+    scene = FakeScene()
+    ctrl.sync(scene)
+    assert "arma:mano" not in scene.items and "arma:resultado" in scene.items
+    ctrl.set_weapon_show_hand(True)
+    ctrl.sync(scene)
+    assert "arma:mano" in scene.items
+
+
 def test_weapon_view_replaces_the_figure_and_cancel_restores_it(ctrl, sword_stl):
     path, pts = _shown(sword_stl)
     ctrl.open_weapon(path)

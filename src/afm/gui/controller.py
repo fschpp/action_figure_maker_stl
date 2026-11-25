@@ -131,6 +131,7 @@ _CUT_PLANE_COLOR = (1.0, 1.0, 1.0, 0.16)               # plano donde SE CORTA el
 _REPLACEMENT_HEAD_COLOR = (0.95, 0.62, 0.25, 1.0)      # cabeza de reemplazo en la vista 3D (naranja)
 _EXTRACTED_HAND_COLOR = (0.25, 0.85, 0.55, 1.0)         # mano extraída (aún sin guardar) en la vista 3D (verde)
 _REPLACEMENT_HAND_COLOR = (0.25, 0.75, 0.85, 1.0)       # mano estándar pegada en el modelo (turquesa: no se confunde con la extraída)
+_HAND_COLOR = (0.94, 0.74, 0.60, 1.0)                   # la mano estándar sobre el mango del arma (color piel)
 _ACCESSORY_COLOR = (0.82, 0.82, 0.88, 1.0)             # espada de prueba puesta en el puño de la mano pegada (gris claro)
 SHOW_GROUPS = ("planes", "pins", "contours")     # lo que se puede mostrar / ocultar de una vez desde la lista de planos
 FLAT_NUDGE_MM = 0.1            # paso de las flechas al ajustar el plano de corte «sin soportes» (Mayús = 10 veces más)
@@ -294,6 +295,7 @@ class Controller:
         self.grip_show = False                       # dibujar una espada de prueba en la mano pegada de la figura
         self.weapon = None                           # weapon_session.WeaponSession del arma que se está importando (None = ninguna)
         self.weapon_active = False                   # el visor muestra el arma en lugar de la figura
+        self.weapon_show_hand = True                 # ... con la mano estándar de la línea cerrada sobre el mango
         self.weapon_catalog = ""                     # carpeta del catálogo de la línea para armas y accesorios del proyecto
         self.color_report: dict | None = None        # `files["color"]` del último export con color (None = sin color o sin exportar)
         self.bambu = BambuChoice(lambda: self.session.colorizer, self._bambu_role_names)   # salida para Bambu Studio (casilla, tope, selector); sin catálogo
@@ -3322,6 +3324,11 @@ class Controller:
         self.weapon.set_roll(degrees)
         self._changed(self.weapon.summary().replace("\n", " · "))
 
+    def set_weapon_show_hand(self, on: bool) -> None:
+        """Muestra u oculta la mano estándar sobre el mango del arma en el visor."""
+        self.weapon_show_hand = bool(on)
+        self._changed(scene=bool(self.weapon_active))
+
     def weapon_summary(self) -> str:
         return self.weapon.summary() if self.weapon is not None else ""
 
@@ -3350,6 +3357,9 @@ class Controller:
         scene.set_mesh("arma:original", ws.scaled, color=(0.72, 0.74, 0.80, 0.30 if res is not None else 1.0))
         if res is not None:
             scene.set_mesh("arma:resultado", res, color=_ACCESSORY_COLOR)
+            hand = ws.hand_in_weapon() if self.weapon_show_hand else None
+            if hand is not None:
+                scene.set_mesh("arma:mano", hand, color=_HAND_COLOR)
         pl = ws.plane()
         if pl is not None:
             hs = float(np.max(ws.scaled.extents)) * 0.35

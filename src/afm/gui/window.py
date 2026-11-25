@@ -648,6 +648,8 @@ class MainWindow(Gtk.ApplicationWindow):
                     self.spin_weapon_len.set_value(ws.length_mm)
                 if abs(self.spin_weapon_scale.get_value() - ws.scale) > 1e-4 * max(1.0, ws.scale):
                     self.spin_weapon_scale.set_value(ws.scale)
+            if self.chk_weapon_hand.get_active() != ctrl.weapon_show_hand:
+                self.chk_weapon_hand.set_active(ctrl.weapon_show_hand)
             txt = ctrl.weapon_summary()
             if self.lbl_weapon.get_text() != txt:
                 self.lbl_weapon.set_text(txt)

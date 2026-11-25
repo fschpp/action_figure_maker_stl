@@ -1,3 +1,15 @@
+## Current Focus — Panel de armas: la mano estándar en 3D sobre el mango, en el visor principal (2026-11-24, sobre main 6f4df59)
+**Objetivo.** El dibujo 2D del panel (insignias, figurita) no gustó: se revierte (`6f4df59`) y la mano estándar de la línea se muestra renderizada en el visor 3D, puesta en el mango del arma armada.
+**Hecho.**
+- `WeaponSession.hand_in_weapon()`: la mano con agarre de la línea en el marco del arma escalada (`to_mesh_frame @ inv(prop_to_hand_matrix)`, la misma colocación del armado final); una vez por armado.
+- `Controller._sync_weapon` dibuja `arma:mano` (color piel) junto con `arma:resultado`; `weapon_show_hand` (por defecto sí) y `set_weapon_show_hand`; casilla «Ver la mano estándar sobre el mango» en el panel (es/en/pt).
+**Pruebas.** `tests/test_gui_weapon.py` +2 (la mano pegada a la guarda con el eje de la empuñadura dentro de ella; ocultar/mostrar). Con test_weapon, test_weapon_fit y test_i18n: 52 en verde.
+**No verificado.** El visor GL y la ventana GTK no se abrieron (sin PyGObject/GL en este entorno); la colocación se miró en un render con matplotlib sobre la mano de prueba de los tests.
+
+### Todo List
+- [x] Done: mano en 3D sobre el mango, casilla para ocultarla
+- [ ] Todo: verla en la ventana real con una mano de la línea (¿translúcida para ver el vástago dentro del puño?)
+
 ## Current Focus — Catálogos en línea: D04 `paquete validar` + D08 lector de zip endurecido (2026-11-24, rama feat/catalogos-online-d04 sobre main 6c9a9e6)
 **Objetivo.** Revisar un paquete `.zip` ajeno antes de instalarlo: lint `CK…` (§6) con archivo y qué corregir, sobre un lector de zips único (§5.7) que usarán D05 y el cliente.
 **Hecho.**

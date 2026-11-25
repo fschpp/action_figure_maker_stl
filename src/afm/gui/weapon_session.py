@@ -27,6 +27,7 @@ class WeaponSession:
         self.catalog: Catalog | None = None
         self.hand = None                                  # pieza `mano` con agarre de la que sale la empuñadura
         self._scaled: trimesh.Trimesh | None = None
+        self._hand_view: trimesh.Trimesh | None = None    # la mano estándar puesta en el mango del arma armada (marco del arma escalada)
         self.hand_sim_error: str = ""                      # por qué no se pudo simular el arma en la mano
         self._fit_cache: tuple | None = None              # (clave, HandSim | mensaje de error): la simulación en la mano estándar
 
@@ -102,6 +103,7 @@ class WeaponSession:
     def _rebuild(self) -> None:
         self.build, self.error = None, ""
         self._fit_cache = None
+        self._hand_view = None
         if self.raw is None or self.spec is None:
             return
         if len(self.spec.cut_points) != 3:
@@ -136,6 +138,27 @@ class WeaponSession:
         m = S.to_trimesh(self.build.mesh)
         m.apply_transform(self.build.to_mesh_frame)
         return m
+
+    def hand_in_weapon(self) -> trimesh.Trimesh | None:
+        """La mano estándar de la línea cerrada sobre el mango del arma armada, en el mismo marco que `result_mesh` (el del arma
+        escalada), para dibujarlas juntas en el visor. None si todavía no hay arma armada.
+
+        Es la misma colocación que usa el armado final (`props.prop_to_hand_matrix`): el eje del taladro de la mano coincide con el
+        de la empuñadura y la cara de entrada del puño apoya contra la guarda."""
+        if self.build is None or self.catalog is None or self.hand is None or self.build.to_mesh_frame is None:
+            return None
+        if self._hand_view is None:
+            from .. import weapon_fit as WF
+            from ..props import prop_to_hand_matrix
+
+            try:
+                _meta, hand_mesh, fit = WF.load_hand_with_grip(self.catalog, self.hand.ref)
+            except Exception:                             # noqa: BLE001 — sin la mano el arma se ve igual
+                return None
+            m = hand_mesh.copy()
+            m.apply_transform(self.build.to_mesh_frame @ np.linalg.inv(prop_to_hand_matrix(fit)))
+            self._hand_view = m
+        return self._hand_view
 
     def hand_sim(self):
         """`HandSim` del arma armada puesta en el puño de la mano estándar de la línea (None si todavía no hay arma o mano).
