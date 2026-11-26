@@ -26,8 +26,13 @@ class Detent:
         return params.detent
 
     def requires(self, jp: DetentSpec, params: Params, slot: str | None = None) -> FaceRequirements:
-        """Lo mismo que el hongo del lugar (como `capacity.demand` hoy): el disco no cambia lo que se pide detrás de la cara."""
-        return Mushroom().requires(Mushroom().default_params(params, slot or ""), params, slot)
+        """Lo mismo que el hongo del lugar: el disco no cambia lo que se pide detrás de la cara (sí corre el hongo: `pin_shift`)."""
+        from .resolve import class_pin
+        return Mushroom().requires(class_pin(slot or "", params) or Mushroom().default_params(params, slot or ""), params, slot)
+
+    def pin_shift(self, jp: DetentSpec, params: Params, slot: str | None = None) -> float:
+        """El hongo queda `disc_h` detrás del disco de clic."""
+        return float(jp.disc_h)
 
     def build(self, site: JointSite) -> JointResult:
         p, face = site.params, site.face

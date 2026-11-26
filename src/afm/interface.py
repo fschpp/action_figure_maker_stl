@@ -20,7 +20,8 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from .params import Params
-from .ports import PIN_OF_CLASS, Port
+from .joint_types.resolve import PIN_ATTR_OF_CLASS, class_pin
+from .ports import Port
 
 FORMAT = "afm-interfaz-1"
 VERSION = 1
@@ -96,7 +97,7 @@ class ClassContract:
         d["talles"] = [t.to_dict() for t in sorted(self.talles, key=lambda t: t.radio_mm)]
         if self.pared_min_mm is not None:
             d["pared_min_mm"] = _r(self.pared_min_mm)
-        pin = PIN_OF_CLASS.get(self.clase)
+        pin = PIN_ATTR_OF_CLASS.get(self.clase)       # el NOMBRE del campo de Params: dato guardado en los contratos, no cambia
         if pin:
             d["pasador"] = pin
         return d
@@ -188,10 +189,9 @@ class Contract:
 def floor_radius(clase: str, params: Params | None, pared_min: float | None = None) -> float | None:
     """Piso físico del radio de la cara: para que el vástago entre con pared, radio ≥ Ø vástago / 2 + pared mínima
     (3,25 mm en el hombro y 3,70 mm en la cadera con los pasadores de la figura de referencia)."""
-    attr = PIN_OF_CLASS.get(clase)
-    if attr is None or params is None:
+    pin = None if params is None else class_pin(clase, params)
+    if pin is None:
         return None
-    pin = getattr(params, attr)
     wall = params.min_wall if pared_min is None else pared_min
     return float(pin.shaft_d) / 2 + float(wall)
 
@@ -388,7 +388,7 @@ def propose(cat, radius_tol_mm: float = DEFAULT_RADIUS_TOL_MM, metrica: str = DE
             room = (b.radio_mm - a.radio_mm) / 2 - 1e-3
             a.tol_mm = min(a.tol_mm, room)
             b.tol_mm = min(b.tol_mm, room)
-        cc = ClassContract(clase, talles=talles, metrica=metrica, x_mm=x_med, x_tol_mm=x_tol if x_tol is not None else 1.0, pared_min_mm=params.min_wall if PIN_OF_CLASS.get(clase) else None)
+        cc = ClassContract(clase, talles=talles, metrica=metrica, x_mm=x_med, x_tol_mm=x_tol if x_tol is not None else 1.0, pared_min_mm=params.min_wall if class_pin(clase, params) is not None else None)
         classes[clase] = cc
         fl = floor_radius(clase, params, cc.pared_min_mm)
         for t in talles:

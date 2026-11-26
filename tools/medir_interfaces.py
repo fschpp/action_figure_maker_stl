@@ -85,9 +85,9 @@ def measure(name: str) -> dict:
 
 def _pin_margin(port: Port, params) -> float | None:
     from afm.limbs import pin_fit
-    from afm.ports import PIN_OF_CLASS
-    attr = PIN_OF_CLASS.get(port.clase)
-    return None if attr is None else pin_fit(port.face.shape(), (0.0, 0.0), getattr(params, attr).shaft_d)[1]
+    from afm.joint_types.resolve import class_pin
+    pin = class_pin(port.clase, params)
+    return None if pin is None else pin_fit(port.face.shape(), (0.0, 0.0), pin.shaft_d)[1]
 
 
 def run(names: list[str]) -> dict:

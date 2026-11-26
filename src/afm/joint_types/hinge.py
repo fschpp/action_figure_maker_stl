@@ -29,6 +29,9 @@ class Hinge:
         """None: la bisagra no pide pasador al anfitrión (como `capacity.demand`, que devuelve None para rodilla y codo)."""
         return None
 
+    def pin_shift(self, jp, params: Params, slot: str | None = None) -> float:
+        return 0.0
+
     def build(self, site: JointSite) -> JointResult:
         site.say(f"Articulación {site.jp.name}…")
         jb = build_joint(site.child, site.jp, site.face.center, site.params, site.segments, site.opts.get("rod_step", 0.25))

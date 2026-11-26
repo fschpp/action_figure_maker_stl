@@ -21,35 +21,32 @@ from __future__ import annotations
 import numpy as np
 
 from .params import Params
-from .ports import COMPLEMENT, PIN_OF_CLASS, Port
+from .ports import COMPLEMENT, Port
 
-MIRROR_CLASSES = ("cadera",)                 # las que el motor valida por cabezas enfrentadas (`_validate_hip_pin`)
 CAP_WARN_MM = 0.5                            # margen por debajo del cual se avisa (plan §4.4: «hasta 0,5 mm de margen, aviso»)
 RAY_EPS_MM = 0.02                            # los rayos arrancan este tanto adentro del cuerpo, para no empezar sobre la cara
 MAX_RAYS = 61
 
 
 def pin_of(clase: str, params: Params):
-    attr = PIN_OF_CLASS.get(clase)
-    return getattr(params, attr) if attr else None
+    """Pasador de la clase en esta línea (None si no lleva): ver `joint_types.resolve.class_pin`."""
+    from .joint_types.resolve import class_pin
+    return class_pin(clase, params)
 
 
 def demand(clase: str, params: Params) -> dict | None:
-    """Lo que el pasador de la línea le pide al anfitrión (None si la clase no lleva pasador: muñeca, rodilla, codo)."""
-    pin = pin_of(clase, params)
-    if pin is None:
-        return None
-    depth = float(pin.shaft_len) + float(pin.head_h) + float(params.clearance)
-    d = {"profundidad_mm": depth, "pared_min_mm": float(params.min_wall), "huella_radio_mm": float(pin.head_d) / 2}
-    if clase in MIRROR_CLASSES:
-        d["separacion_min_mm"] = 2.0 * float(params.clearance)
-    return d
+    """Lo que el tipo de articulación de la línea le pide al anfitrión (None si la clase no lleva pasador: muñeca, rodilla, codo).
+    Es `JointType.requires` (`FaceRequirements`) en forma de dict; `separacion_min_mm` solo en las clases enfrentadas a su espejo."""
+    from .joint_types.resolve import class_requirements
+    req = class_requirements(clase, params)
+    return None if req is None else req.to_dict()
 
 
 def pin_shift(clase: str, params: Params) -> float:
-    """Cuánto queda más adentro el hongo del pasador por el clic: `detent.disc_h` (el disco va delante). Solo la cadera, que es
-    la que valida las cabezas enfrentadas; igual que `pipeline` (`pin_shift_mm`)."""
-    return float(params.detent.disc_h) if clase in MIRROR_CLASSES and params.hip_detent else 0.0
+    """Cuánto queda más adentro el hongo del pasador por el clic (`JointType.pin_shift`). Solo la cadera, que es la que valida las
+    cabezas enfrentadas; igual que `pipeline` (`pin_shift_mm`)."""
+    from .joint_types.resolve import class_pin_shift
+    return class_pin_shift(clase, params)
 
 
 def head_gap(pin, x: float, dir_x: float, shift: float = 0.0) -> float:
@@ -118,6 +115,7 @@ def measure(mesh, port: Port, params: Params, inset_mm: float = 0.0) -> dict | N
     pin = pin_of(port.clase, params)
     if pin is None or port.rol != "toma":
         return None
+    mirrored = demand(port.clase, params).get("separacion_min_mm") is not None      # se enfrenta a su espejo (cadera)
     radius = float(pin.head_d) / 2
     uv = _footprint(port.face, radius, float(params.min_wall))
     fr = port.frame
@@ -129,7 +127,7 @@ def measure(mesh, port: Port, params: Params, inset_mm: float = 0.0) -> dict | N
         return None
     depths = [d + float(inset_mm) for d in depths]
     cap = {"profundidad_mm": round(min(depths), 3), "huella_radio_mm": round(radius, 3), "rayos": len(depths)}
-    if port.clase in MIRROR_CLASSES and abs(float(fr.center[0])) > 1e-6:
+    if mirrored and abs(float(fr.center[0])) > 1e-6:
         d = -np.asarray(fr.axis, float) / np.linalg.norm(fr.axis)
         cap["x_mm"] = round(abs(float(fr.center[0])), 3)
         cap["dir_x"] = round(float(d[0]) * float(np.sign(fr.center[0])), 4)

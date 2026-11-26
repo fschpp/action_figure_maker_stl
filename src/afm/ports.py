@@ -30,7 +30,6 @@ ROLES = ("enchufe", "toma", "soldado")
 FACE_TOL = 1e-3                 # mm: distancia al plano para considerar un triángulo parte de la cara del puerto
 HEIGHT_TOL_MM = 0.5             # diferencia de altura de figura a partir de la cual se avisa
 # Clase de puerto -> atributo de `Params` con el pasador que lleva (muñeca: el pasador se achica solo, ver hand.fit_hand_pin)
-PIN_OF_CLASS = {"cuello": "neck_pin", "hombro": "shoulder_pin", "cadera": "hip_pin", "cintura": "waist_pin"}
 COMPLEMENT = {"enchufe": "toma", "toma": "enchufe", "soldado": "soldado"}
 
 
@@ -374,8 +373,8 @@ class Compat:
 
 
 def _pin_for(clase: str, params: Params) -> PinSpec | None:
-    attr = PIN_OF_CLASS.get(clase)
-    return getattr(params, attr) if attr else None
+    from .joint_types.resolve import class_pin
+    return class_pin(clase, params)
 
 
 _SIDE_NAME = {"A": "la pieza", "B": "el modelo"}

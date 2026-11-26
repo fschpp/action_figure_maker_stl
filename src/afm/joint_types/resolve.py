@@ -78,3 +78,67 @@ def joint_overrides(joint, p) -> dict:
         out.update(e.get("params") or {})
     out.update(getattr(joint, "type_params", None) or {})
     return out
+
+
+# ---------------------------------------------------------------------------------------------------- por clase de puerto
+# Nombre del campo de `Params` con el pasador de cada clase de puerto. Es un DATO guardado (`interface.ClassContract.to_dict` escribe
+# `"pasador": "hip_pin"`): no se renombra. Cuello y cintura llevan hongo fijo (no intercambiable por ahora: plan §7.5).
+PIN_ATTR_OF_CLASS = {"cuello": "neck_pin", "hombro": "shoulder_pin", "cadera": "hip_pin", "cintura": "waist_pin"}
+SWAPPABLE_CLASSES = ("hombro", "cadera")
+
+
+def class_type_id(clase: str, params) -> str | None:
+    """Tipo de articulación que la LÍNEA fija para una clase de puerto (el contrato es por clase): perfil `Params.joints`, si no
+    clic o hongo según `shoulder_detent`/`hip_detent`. None si la clase no lleva pasador (muñeca, rodilla, codo)."""
+    if clase not in PIN_ATTR_OF_CLASS:
+        return None
+    if clase not in SWAPPABLE_CLASSES:
+        return "mushroom"
+    if e := profile_entry(params, clase):
+        return _check_type(e["type"], clase, clase)
+    return "detent" if (params.hip_detent if clase == "cadera" else params.shoulder_detent) else "mushroom"
+
+
+def class_pin(clase: str, params):
+    """Pasador (PinSpec) de la clase en esta línea, o None si no lleva: el de `Params` con encima las medidas del perfil de línea
+    cuando el tipo del lugar es `mushroom` (con clic el hongo queda el de `Params`, como en `pipeline._pin_spec`)."""
+    attr = PIN_ATTR_OF_CLASS.get(clase)
+    if attr is None:
+        return None
+    base = getattr(params, attr)
+    e = profile_entry(params, clase) if clase in SWAPPABLE_CLASSES else None
+    if e and e["type"] == "mushroom" and e.get("params"):
+        return replace_params(base, e["params"], clase)
+    return base
+
+
+def class_detent(clase: str, params):
+    """Medidas del clic de la clase: `Params.detent` con encima las del perfil si el tipo del lugar es `detent`."""
+    e = profile_entry(params, clase) if clase in SWAPPABLE_CLASSES else None
+    if e and e["type"] == "detent" and e.get("params"):
+        return replace_params(params.detent, e["params"], clase)
+    return params.detent
+
+
+def _class_jp(clase: str, params, type_id: str):
+    return class_detent(clase, params) if type_id == "detent" else class_pin(clase, params)
+
+
+def class_requirements(clase: str, params):
+    """Lo que el tipo de la línea le pide al anfitrión en esa clase (`FaceRequirements`), o None si no lleva pasador."""
+    tid = class_type_id(clase, params)
+    if tid is None:
+        return None
+    from . import get
+    return get(tid).requires(_class_jp(clase, params, tid), params, clase)
+
+
+def class_pin_shift(clase: str, params) -> float:
+    """Cuánto queda más adentro el hongo por el tipo del lugar (el clic: `disc_h`). Solo en las clases que se enfrentan a su espejo
+    (la cadera), que son las que validan cabezas enfrentadas; igual que `pipeline` (`pin_shift_mm`)."""
+    req = class_requirements(clase, params)
+    if req is None or req.separacion_min_mm is None:
+        return 0.0
+    from . import get
+    tid = class_type_id(clase, params)
+    return float(get(tid).pin_shift(_class_jp(clase, params, tid), params, clase))

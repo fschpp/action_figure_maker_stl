@@ -32,7 +32,8 @@ import numpy as np
 from . import guide as G
 from .catalog import Catalog
 from .extract import KIND_PORT, complement, reference_for
-from .ports import PIN_OF_CLASS, Port, PortFace, PortFrame
+from .joint_types.resolve import PIN_ATTR_OF_CLASS, class_pin
+from .ports import Port, PortFace, PortFrame
 from .params import Params
 
 GREEN_MIN = 0.8            # fracción de piezas que lo aceptan (ok o aviso) desde la cual la mira se pinta de verde
@@ -150,7 +151,9 @@ class PinAid:
         self.cat = cat
         self.params = params or cat.params
         self.clase = KIND_PORT.get(kind, kind)
-        self.pin = getattr(self.params, PIN_OF_CLASS[self.clase])
+        if self.clase not in PIN_ATTR_OF_CLASS:
+            raise KeyError(self.clase)                      # la clase no lleva pasador
+        self.pin = class_pin(self.clase, self.params)
         self.height_mm = height_mm
         self.exclude_figure = exclude_figure or None
         self.calib = calib if calib is not None else G.load_calibration(cat.root)

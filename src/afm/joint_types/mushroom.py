@@ -14,7 +14,7 @@ from ..params import Params, PinSpec
 from ..pins import mushroom_pin
 from .base import (API_VERSION, FaceRequirements, JointResult, JointSite, RevoluteMotion, rotation_axis, sweep_angles)
 
-MIRROR_SLOTS = frozenset({"cadera", "pierna"})   # las que el motor valida por cabezas enfrentadas (`capacity.MIRROR_CLASSES`)
+MIRROR_SLOTS = frozenset({"cadera", "pierna"})   # las que el motor valida por cabezas enfrentadas (las clases con `separacion_min_mm` en `FaceRequirements`)
 
 
 class Mushroom:
@@ -32,6 +32,9 @@ class Mushroom:
         depth = float(jp.shaft_len) + float(jp.head_h) + float(params.clearance)
         gap = 2.0 * float(params.clearance) if slot in MIRROR_SLOTS else None
         return FaceRequirements(depth, float(params.min_wall), float(jp.head_d) / 2, gap)
+
+    def pin_shift(self, jp: PinSpec, params: Params, slot: str | None = None) -> float:
+        return 0.0
 
     def build(self, site: JointSite) -> JointResult:
         face, p = site.face, site.params

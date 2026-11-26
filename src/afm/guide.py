@@ -33,7 +33,8 @@ from . import solids as S
 from .catalog import Catalog
 from .hand import STEP_WARN_MM
 from .head import MIN_BASE_IOU
-from .ports import COMPLEMENT, PIN_OF_CLASS, Compat, Port, PortFace, PortFrame, coupling_transform, pin_diagnosis, port_compat
+from .joint_types.resolve import class_pin
+from .ports import COMPLEMENT, Compat, Port, PortFace, PortFrame, coupling_transform, pin_diagnosis, port_compat
 from .params import Params
 
 CALIB_FORMAT = "afm-calibracion-1"
@@ -400,8 +401,7 @@ def _measure_port(lugar: str, clase: str, port: Port, params: Params) -> CutMeas
     m = CutMeasure(lugar, clase, port=port)
     pf = port.face
     m.r_eq, m.area_mm2, m.x_mm = pf.radius_eq, pf.area, abs(float(port.frame.center[0]))
-    attr = PIN_OF_CLASS.get(clase)
-    pin = getattr(params, attr) if attr else None
+    pin = class_pin(clase, params)
     g = pin_diagnosis(pf, pin.shaft_d if pin is not None else 0.0)
     m.r_inscrito = g["circulo_d"] / 2
     if pin is not None:
