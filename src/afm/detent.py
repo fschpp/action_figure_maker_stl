@@ -306,18 +306,19 @@ class DetentLimb:
 
 
 def mechanism_id(limb_spec, p: Params) -> str:
-    """Id del tipo de articulación del miembro en `joint_types.REGISTRY`: su `mechanism` propio o, si es None, el de Params."""
-    mech = getattr(limb_spec, "mechanism", None)
-    if mech is None:
-        mech = "detent" if (p.hip_detent if limb_spec.kind == "leg" else p.shoulder_detent) else "mushroom"
-    if mech not in ("mushroom", "detent"):
-        raise ValueError(f"«{limb_spec.name}»: mecanismo desconocido {mech!r} (mushroom | detent)")
-    return mech
+    """Id del tipo de articulación del miembro en `joint_types.REGISTRY` (ver `joint_types.resolve`)."""
+    from .joint_types.resolve import limb_type_id
+    return limb_type_id(limb_spec, p)
 
 
 def detent_spec_for(limb_spec, p: Params) -> DetentSpec | None:
-    """Mecanismo efectivo del miembro: su `detent` propio / el de Params, o None si usa solo el hongo."""
-    return None if mechanism_id(limb_spec, p) == "mushroom" else (getattr(limb_spec, "detent", None) or p.detent)
+    """Medidas del clic del miembro, o None si usa solo el hongo: `mechanism_params` > `LimbSpec.detent` > perfil de línea > `Params.detent`."""
+    from .joint_types.resolve import limb_overrides, replace_params
+    if mechanism_id(limb_spec, p) != "detent":
+        return None
+    base = getattr(limb_spec, "detent", None) or p.detent
+    over = limb_overrides(limb_spec, p, "detent")
+    return replace_params(base, over, limb_spec.name) if over else base
 
 
 def build_detent_limb(name: str, limb_raw: m3.Manifold, face, axis, spec: DetentSpec, p: Params, pin_spec,

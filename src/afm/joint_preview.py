@@ -132,7 +132,7 @@ def preview_joint(limb: S.Manifold, face: ContactFace, joint: JointSpec, p: Para
     cropped = S.intersection(limb, _crop_box(joint.axis_center, crop_mm)) if crop_mm else limb
     if cropped.is_empty():
         raise ValueError(f"«{joint.name}»: el eje queda fuera del miembro (revisá su posición)")
-    jb = JT.get("hinge").build(JointSite(slot=joint.name, side="izq", child=cropped, face=face, params=fast, jp=joint,
+    jb = JT.get(JT.resolve.joint_type_id(joint, p)).build(JointSite(slot=joint.name, side="izq", child=cropped, face=face, params=fast, jp=joint,
                                          segments=PREVIEW_SEGMENTS, opts={"rod_step": PREVIEW_ROD_STEP})).native
     n = np.asarray(joint.plane.normal, float)
     n = n / np.linalg.norm(n)

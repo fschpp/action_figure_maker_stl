@@ -47,6 +47,8 @@ class JointSpec:
     flex_sign: int | None = None       # signo del giro en torno a `axis_dir` para flexionar; None = según el tipo
     prox_name: str | None = None
     dist_name: str | None = None
+    type: str = "hinge"                # id del tipo de articulación en `joint_types.REGISTRY`; `kind` queda como LUGAR (rodilla/codo)
+    type_params: dict | None = None    # medidas propias del tipo (claves de su `params_cls`; para `hinge`, las de HingeSpec)
 
     def names(self) -> tuple[str, str]:
         d = DEFAULT_NAMES[self.kind]
@@ -79,11 +81,16 @@ class JointSpec:
                                    axis_dir=tuple(float(x) for x in ax), flex_sign=flip)
 
     def to_dict(self) -> dict:
-        return {"name": self.name, "limb": self.limb, "kind": self.kind, "plane": self.plane.to_dict(),
-                "axis_center": list(self.axis_center), "axis_dir": list(self.axis_dir),
-                "hinge": None if self.hinge is None else vars(self.hinge).copy(),
-                "flex_range": None if self.flex_range is None else list(self.flex_range),
-                "flex_sign": self.flex_sign, "prox_name": self.prox_name, "dist_name": self.dist_name}
+        d = {"name": self.name, "limb": self.limb, "kind": self.kind, "plane": self.plane.to_dict(),
+             "axis_center": list(self.axis_center), "axis_dir": list(self.axis_dir),
+             "hinge": None if self.hinge is None else vars(self.hinge).copy(),
+             "flex_range": None if self.flex_range is None else list(self.flex_range),
+             "flex_sign": self.flex_sign, "prox_name": self.prox_name, "dist_name": self.dist_name}
+        if self.type != "hinge":                  # solo si no es el de siempre: los proyectos anteriores no cambian
+            d["type"] = self.type
+        if self.type_params:
+            d["type_params"] = dict(self.type_params)
+        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> "JointSpec":
@@ -91,11 +98,16 @@ class JointSpec:
                    axis_center=tuple(d["axis_center"]), axis_dir=tuple(d.get("axis_dir", (1, 0, 0))),
                    hinge=None if d.get("hinge") is None else HingeSpec(**d["hinge"]),
                    flex_range=None if d.get("flex_range") is None else tuple(d["flex_range"]),
-                   flex_sign=d.get("flex_sign"), prox_name=d.get("prox_name"), dist_name=d.get("dist_name"))
+                   flex_sign=d.get("flex_sign"), prox_name=d.get("prox_name"), dist_name=d.get("dist_name"),
+                   type=d.get("type") or "hinge", type_params=dict(d["type_params"]) if d.get("type_params") else None)
 
 
 def hinge_for(joint: JointSpec, p: Params) -> HingeSpec:
-    return joint.hinge or p.hinge_pin
+    """Medidas de la bisagra: `joint.hinge` o `Params.hinge_pin`, con encima las del perfil de línea y `type_params` si las hay."""
+    from .joint_types.resolve import joint_overrides, replace_params
+    base = joint.hinge or p.hinge_pin
+    over = joint_overrides(joint, p)
+    return replace_params(base, over, joint.name) if over else base
 
 
 def flex_range(joint: JointSpec, p: Params) -> tuple[float, float]:

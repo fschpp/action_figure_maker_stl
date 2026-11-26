@@ -62,6 +62,22 @@ class DetentSpec:
     elastic_modulus: float = 2500.0   # MPa: PLA impreso [estimación]
 
 
+def _check_joints(raw) -> dict:
+    """Valida el perfil `Params.joints`: `{lugar: {"type": id, "params": {…}}}`. Un perfil mal formado es un error claro."""
+    if raw in (None, {}):
+        return {}
+    if not isinstance(raw, dict):
+        raise ValueError("Params.joints debe ser un objeto {lugar: {\"type\": id, \"params\": {…}}}")
+    out = {}
+    for slot, e in raw.items():
+        if not isinstance(e, dict) or not isinstance(e.get("type"), str) or not e["type"]:
+            raise ValueError(f"Params.joints[{slot!r}] necesita un «type» (id del tipo de articulación)")
+        if e.get("params") is not None and not isinstance(e["params"], dict):
+            raise ValueError(f"Params.joints[{slot!r}]: «params» debe ser un objeto")
+        out[slot] = {"type": e["type"], **({"params": dict(e["params"])} if e.get("params") else {})}
+    return out
+
+
 @dataclass
 class Params:
     ref_height: float = 100.0
@@ -104,6 +120,9 @@ class Params:
     # asimétrico del STL (banda, condecoraciones…): cada lado sale de su mitad real y solo los miembros se espejan.
     torso_mirror: bool = True
     flat_fill_hip: bool = False      # «imprimir sin soportes»: alarga los muslos con la loncha de pelvis que el corte plano saca (y talla la pelvis alrededor)
+    # Perfil de línea (plan de plugins §3.6): un tipo de articulación por lugar, `{lugar: {"type": id, "params": {…}}}` con lugar en
+    # hombro | cadera | rodilla | codo. Vacío = el comportamiento de siempre (hongo, o clic según `shoulder_detent`/`hip_detent`).
+    joints: dict = field(default_factory=dict)
 
     def with_hip_reference(self) -> "Params":
         """Copia con el pasador de cadera de la figura de referencia (cabeza/vástago ≈ 1,9, mm absolutos)."""
@@ -117,11 +136,15 @@ class Params:
         return cls(ref_height=REFERENCE_FIGURE_HEIGHT).with_hip_reference()
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        d = asdict(self)
+        if not d.get("joints"):          # solo si hay perfil: las líneas anteriores (y su `recipe_key`) no cambian
+            d.pop("joints", None)
+        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> "Params":
         d = dict(d)
+        d["joints"] = _check_joints(d.get("joints"))
         for k in ("shoulder_pin", "hip_pin", "neck_pin", "waist_pin", "hand_pin"):
             if k in d and isinstance(d[k], dict):
                 d[k] = PinSpec(**d[k])

@@ -106,6 +106,9 @@ class ColorSpec:
         return bool(self.source_sha256) and sha256_of(path) == self.source_sha256
 
 
+PROJECT_VERSION = 2        # 1 = hasta los plugins de articulación; 2 = + tipos de articulación (se escribe solo si se usan)
+
+
 @dataclass
 class Project:
     params: Params = field(default_factory=Params)
@@ -130,6 +133,8 @@ class Project:
 
     def to_dict(self) -> dict:
         d = self._to_dict_base()
+        if self._uses_v2():                                   # solo si usa lo nuevo: los proyectos anteriores quedan en la versión 1
+            d["version"] = 2
         if self.accesorios:                                   # solo si hay: los proyectos anteriores no cambian
             d["accesorios"] = [a.to_dict() for a in self.accesorios]
         if self.limbs_right is not None:
@@ -137,6 +142,13 @@ class Project:
         if self.color is not None:                            # solo si hay: los proyectos anteriores no cambian
             d["color"] = self.color.to_dict()
         return d
+
+    def _uses_v2(self) -> bool:
+        """Versión 2 (plan de plugins §3.6): tipos de articulación elegidos (`mechanism_params`, `JointSpec.type`/`type_params`,
+        `Params.joints`). Un proyecto sin nada de eso se guarda como versión 1 y se lee igual que siempre."""
+        limbs = list(self.limbs) + list(self.limbs_right or [])
+        return bool(self.params.joints) or any(l.mechanism_params for l in limbs) or any(
+            j.type != "hinge" or j.type_params for j in self.joints)
 
     def _to_dict_base(self) -> dict:
         return {
@@ -157,6 +169,8 @@ class Project:
 
     @classmethod
     def from_dict(cls, d: dict) -> "Project":
+        if int(d.get("version") or 1) > PROJECT_VERSION:
+            raise ValueError(f"el proyecto es de la versión {d['version']} y este motor lee hasta la {PROJECT_VERSION}: actualizá afm")
         return cls(
             params=Params.from_dict(d.get("params", {})),
             symmetry=None if d.get("symmetry") is None else Plane.from_dict(d["symmetry"]),

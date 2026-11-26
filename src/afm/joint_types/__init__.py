@@ -40,5 +40,7 @@ from .mushroom import Mushroom  # noqa: E402
 for _t in (Mushroom(), Detent(), Hinge()):
     register(_t)
 
+from . import resolve  # noqa: E402,F401  (qué tipo y qué medidas le tocan a cada miembro/articulación)
+
 __all__ = ["API_VERSION", "REGISTRY", "FaceRequirements", "Finding", "JointResult", "JointSite", "JointType", "Motion",
            "RevoluteMotion", "get", "ids", "register", "rotation_axis", "rotation_matrix", "sweep_angles"]

@@ -149,8 +149,17 @@ class LimbSpec:
     # pasador de hongo; "detent" = hongo + disco de clic con lengüetas (PLAN_mecanismo_clic_hombro_cadera.md).
     mechanism: str | None = None
     detent: "DetentSpec | None" = None      # medidas propias del clic de este miembro; None = `Params.detent`
+    # Medidas propias del tipo de articulación de este miembro (plan de plugins §3.6): JSON opaco cuyas claves son los campos de
+    # `params_cls` del tipo (PinSpec para `mushroom`, DetentSpec para `detent`). Pisa a `Params.joints[lugar]["params"]` y a `detent`.
+    mechanism_params: dict | None = None
 
     def to_dict(self) -> dict:
+        d = self._to_dict_base()
+        if self.mechanism_params:                             # solo si hay: los proyectos anteriores no cambian
+            d["mechanism_params"] = dict(self.mechanism_params)
+        return d
+
+    def _to_dict_base(self) -> dict:
         return {
             "name": self.name, "kind": self.kind, "plane": self.plane.to_dict(),
             "polygon": np.asarray(self.polygon).tolist(), "thickness": self.thickness,
@@ -181,7 +190,8 @@ class LimbSpec:
             cap_center=pt(self.cap_center),
             cross=None if self.cross is None else self.cross.mirrored(),
             cross2=None if self.cross2 is None else self.cross2.mirrored(),
-            detent=None if self.detent is None else dataclasses.replace(self.detent))
+            detent=None if self.detent is None else dataclasses.replace(self.detent),
+            mechanism_params=None if self.mechanism_params is None else dict(self.mechanism_params))
 
     @classmethod
     def from_dict(cls, d: dict) -> "LimbSpec":
@@ -202,6 +212,7 @@ class LimbSpec:
             cross2=None if d.get("cross2") is None else LimbCut.from_dict(d["cross2"]),
             mechanism=d.get("mechanism"),
             detent=None if d.get("detent") is None else DetentSpec(**d["detent"]),
+            mechanism_params=dict(d["mechanism_params"]) if d.get("mechanism_params") else None,
         )
 
 

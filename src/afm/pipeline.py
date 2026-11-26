@@ -83,7 +83,14 @@ def _sweep_range(spec: LimbSpec, p: Params) -> tuple[float, float]:
 
 
 def _pin_spec(spec: LimbSpec, p: Params):
-    return p.hip_pin if spec.kind == "leg" else p.shoulder_pin
+    """Pasador de hongo del miembro: el de la línea, con encima las medidas propias del tipo `mushroom` si las hay."""
+    from .joint_types.resolve import limb_overrides, limb_type_id, replace_params
+    base = p.hip_pin if spec.kind == "leg" else p.shoulder_pin
+    if limb_type_id(spec, p) == "mushroom":
+        over = limb_overrides(spec, p, "mushroom")
+        if over:
+            return replace_params(base, over, spec.name)
+    return base
 
 
 _rotation_axis = JT.rotation_axis       # el eje de giro del pasador vive en el contrato de los tipos (`joint_types.base`)
@@ -262,7 +269,7 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
                             "angles": jr.report["angles"], "pin_margin": jr.report["pin_margin"]}
     joint_builds: dict[str, JointBuild] = {}
     for lname, j in by_limb.items():
-        jr = JT.get("hinge").build(JT.JointSite(slot=j.name, side="izq", child=built[lname]["limb"], face=built[lname]["face"],
+        jr = JT.get(JT.resolve.joint_type_id(j, p)).build(JT.JointSite(slot=j.name, side="izq", child=built[lname]["limb"], face=built[lname]["face"],
                                                 params=p, jp=j, say=say))
         joint_builds[lname] = jr.native
     carved: dict[str, float] = {}

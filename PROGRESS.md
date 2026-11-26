@@ -1,3 +1,20 @@
+## Current Focus — Plugins de articulación, Fase 1 (tarea 1: datos y compatibilidad hacia atrás) (2026-11-26, rama plugins_fase1 sobre main de7157c)
+**Objetivo.** Que el tipo de articulación y sus medidas sean DATOS del proyecto y de la línea, sin cambiar un byte de lo guardado (`docs/PLAN_plugins_articulacion.md` §3.6, §5 Fase 1). Es la primera de varias tareas de la Fase 1.
+**Hecho.**
+- `LimbSpec.mechanism_params` (JSON opaco; claves = campos de `params_cls`), `JointSpec.type` (`"hinge"` por defecto; `kind` queda como lugar) y `JointSpec.type_params`, `Params.joints` = `{lugar: {"type": id, "params": {…}}}` con lugar ∈ hombro | cadera | rodilla | codo. **Los tres se escriben solo si se usan**: un proyecto o una línea vieja se guardan idénticos y `recipe_key` (que hashea `Params.to_dict()`) no cambia. `Params.from_dict` valida el perfil con un error claro.
+- `Project`: `version` 2 se escribe solo si el proyecto usa algo nuevo; se leen la 1, la 2 y un archivo sin versión; una versión mayor da un error claro («actualizá afm»).
+- `joint_types/resolve.py`: precedencia del TIPO: `LimbSpec.mechanism` / `JointSpec.type` → `Params.joints[lugar]` → lo de siempre (clic si `shoulder_detent`/`hip_detent`, si no hongo; bisagra); y de las MEDIDAS: `mechanism_params` / `type_params` → `Params.joints[lugar]["params"]` (solo si es del mismo tipo) → las de `Params`. Un tipo desconocido o que no sirve en ese lugar da `mecanismo desconocido 'x' (mushroom | detent)`; una clave que no es campo del `params_cls`, `parámetro desconocido 'x' para PinSpec`.
+- Cableado: `pipeline._pin_spec`, `detent.mechanism_id` / `detent_spec_for`, `joints.hinge_for` y la armada de la bisagra (`pipeline`, `joint_preview`) usan `resolve`.
+**Límite conocido (siguiente tarea).** `capacity`, `guide`, `interface`, `pin_aid` y `ports` siguen leyendo el pasador de `Params.hip_pin`/`shoulder_pin` por `PIN_OF_CLASS`: un perfil con `params` de hongo cambia la figura armada pero NO lo que miden la capacidad y la compatibilidad de puertos. Se corrige al pasar esos módulos a `FaceRequirements`.
+**Pruebas.** `tests/test_params_joints.py` (15: ida y vuelta, perfil mal formado, precedencia de tipo y de medidas, tipos de otro lugar, armada del muñeco con perfil `hombro → detent`) y `tests/test_project_v2.py` (4).
+**Verificado.** `golden comparar`: muneco y guemes_fbx idénticas; guemes igual que `main` (dorado desactualizado de antes).
+
+### Todo List
+- [x] Done: Fase 1, tarea 1 (datos: `mechanism_params`, `JointSpec.type`, `Params.joints`, `Project` v2)
+- [ ] Todo: tarea 2 `FaceRequirements` reemplaza `capacity.demand`/`pin_shift`/`_pin_for`/`PIN_OF_CLASS` en `capacity`, `guide`, `interface`, `pin_aid`, `ports` (y cierra el límite de arriba)
+- [ ] Todo: tarea 3 `joint_type` + hash de parámetros críticos en puertos y `PieceMeta`; `port_compat` rechaza por tipo; `capacidad` con el tipo medido
+- [ ] Todo: tarea 4 `recipe_key` con `tipos`; `paquete.json` con `tipos_articulacion`; `instalar` avisa por un tipo ausente; declarar `motor` cuando se use `joints`
+
 ## Current Focus — Plugins de articulación, Fase 0 completa: hongo, clic y bisagra por el registro (2026-11-26, rama plugins_articulacion sobre main 9c1aeb0)
 **Objetivo.** Separar el corte (núcleo) del tipo de articulación (punto de extensión) sin cambiar ni un STL (`docs/PLAN_plugins_articulacion.md` §3, §5 Fase 0 y §9).
 **Hecho.**
