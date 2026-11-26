@@ -1260,6 +1260,8 @@
   "montura_pared_mm": "Parede (mm, 0 = a da linha)",
   "montura_marca_un_accesorio": "Marque primeiro um acessório em «Acessórios que acompanham a figura».",
   "montura_sin_armar": "A figura ainda não foi montada com este suporte: o estado aparece ao montar.",
+  "montura_sin_verificar": "não verificado",
+  "montura_aviso_al_abrir": "Suporte não verificado: a figura ainda não foi montada com ele. Monte-a para ver se a arma passa pela abertura e se bate no corpo.",
   "montura_nota": "Com a ponta para baixo (−Z) a gravidade segura a arma. A âncora vai no flanco da peça: «afm montura-mapa» mostra onde há espaço.",
   "montura_estado_ok": "Sem problemas nem avisos.",
   "montura_estado_aviso": "Com avisos:",

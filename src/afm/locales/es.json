@@ -1260,6 +1260,8 @@
   "montura_pared_mm": "Pared (mm, 0 = la de la línea)",
   "montura_marca_un_accesorio": "Marcá primero un accesorio en «Accesorios que acompañan a la figura».",
   "montura_sin_armar": "Todavía no se armó la figura con esta montura: el estado sale al armar.",
+  "montura_sin_verificar": "sin verificar",
+  "montura_aviso_al_abrir": "Montura sin verificar: la figura todavía no se armó con ella. Armala para ver si el arma entra por el hueco y si choca con el cuerpo.",
   "montura_nota": "Con la punta hacia abajo (−Z) la gravedad retiene el arma. El ancla va sobre el flanco de la pieza: «afm montura-mapa» muestra dónde hay lugar.",
   "montura_estado_ok": "Sin problemas ni avisos.",
   "montura_estado_aviso": "Con avisos:",

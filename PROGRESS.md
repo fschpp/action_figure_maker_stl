@@ -1,3 +1,18 @@
+## Current Focus — GUI: una montura sin armar se ve «sin verificar», no como «ok» (2026-11-26, rama fix/montura-sin-verificar sobre fix/lazo-seccion-maxima)
+**Objetivo.** Que al abrir una receta con monturas la GUI no parezca decir que todo está bien: el estado de la montura (choques, retención, imprimible) solo sale al armar la figura.
+**Hecho.**
+- `figure_window._mount_label`: la lista de monturas agrega «— sin verificar» mientras `builder.mount_status` es None; `FigureBuilder.mount_label` no cambia.
+- Al abrir una receta con monturas, el mensaje de estado suma «Montura sin verificar… Armala para ver si el arma entra por el hueco y si choca con el cuerpo» (claves `montura_sin_verificar` y `montura_aviso_al_abrir` en es/en/pt).
+**Pruebas.** `test_i18n` y `test_figure_builder_montura` pasan (22). La parte GTK no se probó acá (no hay GUI en el entorno): falta abrir la receta de Güemes y mirar la lista y el mensaje.
+
+### Todo List
+- [x] Done: etiqueta y mensaje al abrir, textos en 3 idiomas
+- [ ] Todo: probar en la GUI real
+- [ ] Todo (opcional): chequeos baratos de la montura al abrir (retención, imprimible, inclinación) sin armar la figura
+
+### Latest Blockers/Discoveries
+- Los choques con torso y muslo solo se conocen con la figura armada y en pose; por eso no hay validación completa al abrir.
+
 ## Current Focus — Fix: el hueco del lazo ignoraba el ensanchamiento de la hoja (2026-11-26, rama fix/lazo-seccion-maxima sobre main 2591803)
 **Objetivo.** Que la espada de Güemes (sable cuya hoja se ensancha hacia la punta) pase por el hueco de la montura `lazo`.
 **Causa.** `mount._build_bridge` medía el hueco solo con la hoja en el puente (`slab_extent` del tramo del puente): 3,24 × 2,17 mm + holgura = 3,74 × 2,67 mm. Pero la hoja, que entra por la punta, llega a 4,64 × 3,06 mm hacia los 28–31 mm del filo, así que no podía enhebrarse (y la punta, más baja que la base, tocaba el torso/pelvis).

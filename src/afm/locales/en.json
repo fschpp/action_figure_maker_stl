@@ -1260,6 +1260,8 @@
   "montura_pared_mm": "Wall (mm, 0 = the line's)",
   "montura_marca_un_accesorio": "First tick an accessory in «Accessories that go with the figure».",
   "montura_sin_armar": "The figure has not been built with this mount yet: the status appears after building.",
+  "montura_sin_verificar": "unverified",
+  "montura_aviso_al_abrir": "Mount not verified: the figure has not been built with it yet. Build it to see whether the weapon fits through the opening and whether it hits the body.",
   "montura_nota": "With the tip pointing down (−Z) gravity holds the weapon. The anchor goes on the flank of the piece: «afm montura-mapa» shows where there is room.",
   "montura_estado_ok": "No problems or warnings.",
   "montura_estado_aviso": "With warnings:",

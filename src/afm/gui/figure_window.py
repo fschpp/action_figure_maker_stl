@@ -351,7 +351,7 @@ class FigureBuilderWindow(Gtk.Window):
             n = len(b.mounts)
             cur = select if select is not None else (self._mount_index() or 0)
             cur = min(cur, n - 1) if n else None
-            self.dd_mount.set_model(Gtk.StringList.new([b.mount_label(i) for i in range(n)] or [""]))
+            self.dd_mount.set_model(Gtk.StringList.new([self._mount_label(i) for i in range(n)] or [""]))
             weapons = b.mount_weapons()
             self.dd_m_weapon.set_model(Gtk.StringList.new(weapons or [""]))
             places = list(b.mount_places())
@@ -379,6 +379,11 @@ class FigureBuilderWindow(Gtk.Window):
         self.btn_mount_bake.set_sensitive(ok and bool(b.mounts))
         self.box_mount_form.set_sensitive(ok)
         self.exp_mount.set_sensitive(bool(b.accessories) or bool(b.mounts))
+
+    def _mount_label(self, i: int) -> str:
+        """Texto de la lista: el del armador y, si todavía no se armó con esta montura, «sin verificar» (un estado ausente no es un «ok»)."""
+        txt = self.builder.mount_label(i)
+        return txt if self.builder.mount_status(i) is not None else f"{txt} — {tr('figure_window.montura_sin_verificar')}"
 
     def _mount_status_text(self, i: int) -> str:
         st = self.builder.mount_status(i)
@@ -1361,6 +1366,8 @@ class FigureBuilderWindow(Gtk.Window):
         msg = tr("figure_window.receta_abierta_path_retocala_y_guardala", path=path)
         if warns:
             msg += ('\n' + tr("figure_window.no_se_pudo_cargar_todo") + '\n') + "\n".join(f"• {w}" for w in warns)
+        if self.builder.mounts:                                   # el estado de la montura sale al armar: al abrir no se conoce
+            msg += '\n' + tr("figure_window.montura_aviso_al_abrir")
         self.lbl_result.set_text(msg)
         shown = self.builder.choices.get("torso")
         if shown:
