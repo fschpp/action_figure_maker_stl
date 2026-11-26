@@ -1,3 +1,23 @@
+## Current Focus — Plan de plugins de articulación: revisión contra el código (2026-11-25, clon local de main 00e2ab9, sin rama nueva ni push)
+**Objetivo.** Mejorar `PLAN_plugins_articulacion.md` (base vieja: 0d421b7) para que un corte se pueda mejorar con tipos de articulación enchufables, contrastando cada marca [V] con el código actual y sumando lo que mostraron las imágenes (DC 101, Action Force, render de brazo con pasador suelto).
+
+### Todo List
+- [x] Done: contrastar las marcas [V] del plan con main 00e2ab9 (mushroom_pin ×9, by_limb, mechanism, PIN_OF_CLASS, res.motion, goldens; `golden comparar muneco` idéntica; 2 tests fallan en main)
+- [x] Done: reescribir el plan v2 (`/home/claude/PLAN_plugins_articulacion.md`, también en el Project como `claude/PLAN_plugins_articulacion.md`) y enviarlo
+- [x] Done: revisar cifras y referencias del plan nuevo (corregidos: total de semanas, conteo de `res.motion`, `MeshNotManifold`, `PinSpec` por defecto en el boceto)
+- [x] Done: clonar el repo (shallow) y leer los otros planes del Project (rodilla/codo/cadera, piezas intercambiables)
+- [ ] Todo: respuestas del cliente a P1, P3 y P7 del plan (tipos y orden, pasador suelto, pie/tobillo) antes de la Fase 0
+- [ ] Todo: correr `golden comparar todos` con los STL reales (acá solo se corrió `muneco`) y la suite completa (acá solo 2 archivos)
+
+### Latest Blockers/Discoveries
+- main avanzó 5 commits desde 0d421b7 (UX de Parámetros, catálogos en línea D05–D07); el plan no los contempla: `paquete.json` ya tiene `requiere`/`conflicts` y `instalar.py` valida `motor`, o sea hay donde declarar tipos de articulación requeridos.
+- Hay más consumidores de lo que el plan decía: `PIN_OF_CLASS` en 5 módulos (capacity, guide, interface, pin_aid, ports) y `res.motion` desempaquetado como tupla de 4 en ~15 sitios de `pipeline.py`.
+- `tests/golden/` ya tiene 5 dorados (muneco, guemes, guemes_fbx, belgrano, mickey); no hay de azurduy (torso no estanco según `docs/PENDIENTES.md`).
+- La v1 sumaba mal: sus fases daban 34–53 días (7–11 semanas) y decía 6–9. La v2 da 39–59 días (8–12 semanas) con el trabajo agregado.
+- Fallan en main (verificado 2026-11-25): `test_catalog_import::test_parse_builds_the_arguments_of_catalog_ops` (`KeyError: 'bore_d'`) y `test_catalog_ops::test_every_catalog_subcommand_is_registered_for_the_window`.
+- `Params.from_dict` es estricto (`cls(**d)`): un campo nuevo (`Params.joints`) rompe la lectura en un motor viejo; hay que declarar `motor` en `paquete.json`.
+- Este seguimiento y el plan quedaron solo en el clon local (sin commit ni push; el acceso a `fschpp/action_figure_maker_stl` es de lectura).
+
 ## Current Focus — Catálogos en línea: D07 zips heredados (2026-11-25, rama feat/catalogos-online-d07 sobre main 8efad2d)
 **Objetivo.** Que los `catalogo.zip` que ya circulan (carpeta de catálogo comprimida a mano, sin `paquete.json`) se instalen con el mismo plan y la misma atomicidad que un paquete.
 **Hecho.**
