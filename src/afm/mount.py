@@ -323,6 +323,7 @@ FOOT_DEPTH = 1.0                                   # mm que el pie se hunde en l
 REST_GAP = 0.2                                     # mm entre la guarda y la cara del puente cuando la espada está enfundada
 STATION_SPACING = 8.0                              # mm entre centros de dos puentes
 TUNNEL_OVERRUN = 0.5                               # mm que el hueco sobresale del puente por cada lado (para cortar limpio)
+WIDEN_NOTE_MM = 0.05                               # mm: a partir de cuánto ensanchamiento de la hoja se avisa en las notas
 TIP_MARGIN = 2.0                                   # mm mínimos de hoja que tienen que quedar después del último puente
 RETENTION_OVERLAP = 0.8                            # mm que la guarda tiene que superar a la abertura para apoyar en el puente
 CLIP_SNAP = 0.45                                   # mm que cada labio del techo del `clip` avanza sobre el borde del hueco; retiene si supera la holgura
@@ -390,7 +391,14 @@ def _build_bridge(spec: MountSpec, prop, min_wall: float, normal=None, station: 
     stations = tuple(s1 + i * STATION_SPACING for i in range(n))
     if stations[0] - L / 2 < 0 or stations[-1] + L / 2 > prof.length - TIP_MARGIN:
         raise MountError(f"{n} puente(s) de {L:g} mm no entran en la hoja ({prof.length:.1f} mm; estaciones {stations[0]:.1f}…{stations[-1]:.1f})")
-    y0, z0, y1, z1 = slab_extent(prop, stations[0] - L / 2, stations[-1] + L / 2)
+    ly0, lz0, ly1, lz1 = slab_extent(prop, stations[0] - L / 2, stations[-1] + L / 2)      # la hoja en el puente
+    y0, z0, y1, z1 = ly0, lz0, ly1, lz1
+    if kind == "lazo":
+        # El lazo es un túnel cerrado: el arma entra por la punta y tiene que pasar entera por el hueco hasta que la guarda
+        # apoya. Si la hoja se ensancha hacia la punta (sable, yelmán, filo con peso en la punta), un hueco medido solo en el
+        # puente es más angosto que la punta y el arma no entra. El hueco se dimensiona con la caja que envuelve TODA la
+        # hoja desde el puente hasta la punta (clip y cuna no la enhebran: el arma se apoya desde arriba).
+        y0, z0, y1, z1 = slab_extent(prop, stations[0] - L / 2, prof.length)
     hole_w, hole_t = (y1 - y0) + 2 * c, (z1 - z0) + 2 * c
     yc = (y0 + y1) / 2
     lift = c - z0                                  # la hoja (cara de abajo) queda a `c` mm de la superficie
@@ -424,6 +432,10 @@ def _build_bridge(spec: MountSpec, prop, min_wall: float, normal=None, station: 
     guard_retains = prof.has_guard and (gw_over or gt_over)
     snap = max(0.0, CLIP_SNAP - c) if kind == "clip" else 0.0      # mm de interferencia por lado al encajar la hoja
     retains = guard_retains or snap > 0
+    widened = ((y1 - y0) - (ly1 - ly0) > WIDEN_NOTE_MM) or ((z1 - z0) - (lz1 - lz0) > WIDEN_NOTE_MM)
+    if widened:
+        notas.append(f"la hoja se ensancha hacia la punta ({ly1 - ly0:.2f} × {lz1 - lz0:.2f} mm en el puente, {y1 - y0:.2f} × {z1 - z0:.2f} mm "
+                     f"como máximo): el hueco se midió con la sección máxima para poder enhebrarla por la punta")
     if kind == "cuna":
         notas.append("cuna: guía a la hoja por los costados y la guarda apoya en el puente; no la retiene hacia afuera (la sostiene la gravedad)")
     if not retains or (kind != "clip" and not guard_retains):
@@ -439,6 +451,7 @@ def _build_bridge(spec: MountSpec, prop, min_wall: float, normal=None, station: 
             "pared_mm": round(wall, 3), "largo_puente_mm": L, "separacion_hoja_mm": round(c, 3),
             "alto_sobre_superficie_mm": round(hole_t + (wall if kind != "cuna" else 0.0), 3), "ancho_total_mm": round(hole_w + 2 * wall, 3),
             "retiene": bool(retains), "avisos": avisos, "notas": notas,
+            "hoja_en_puente_mm": [round(ly1 - ly0, 3), round(lz1 - lz0, 3)], "hoja_max_mm": [round(y1 - y0, 3), round(z1 - z0, 3)],
             "largo_arma_mm": round(float(prof.length), 3), "guarda_fin_mm": round(float(prof.guard_end), 3)}
     if kind == "clip":
         info.update(ranura_mm=round(slot_w, 3), interferencia_mm=round(snap, 3))

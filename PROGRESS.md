@@ -1,3 +1,20 @@
+## Current Focus — Fix: el hueco del lazo ignoraba el ensanchamiento de la hoja (2026-11-26, rama fix/lazo-seccion-maxima sobre main 2591803)
+**Objetivo.** Que la espada de Güemes (sable cuya hoja se ensancha hacia la punta) pase por el hueco de la montura `lazo`.
+**Causa.** `mount._build_bridge` medía el hueco solo con la hoja en el puente (`slab_extent` del tramo del puente): 3,24 × 2,17 mm + holgura = 3,74 × 2,67 mm. Pero la hoja, que entra por la punta, llega a 4,64 × 3,06 mm hacia los 28–31 mm del filo, así que no podía enhebrarse (y la punta, más baja que la base, tocaba el torso/pelvis).
+**Hecho.**
+- `lazo`: el hueco se dimensiona con la caja que envuelve la hoja desde el puente hasta la punta (con el sable de Güemes: 5,14 × 3,56 mm). `clip` y `cuna` no enhebran, quedan igual.
+- `info` agrega `hoja_en_puente_mm` y `hoja_max_mm`, y una nota cuando la hoja se ensancha más de `WIDEN_NOTE_MM` (0,05 mm).
+- Pruebas nuevas en `tests/test_mount_lazo.py` (3): hueco con la sección máxima, la punta ancha desliza sin chocar con el puente, y la hoja pareja no cambia. Las 2 primeras fallan sin el fix.
+
+### Todo List
+- [x] Done: causa, fix en `mount.py`, pruebas del lazo (22 pasan)
+- [/] In Progress: suite de monturas completa (corre en segundo plano)
+- [ ] Todo: regenerar Güemes sentado en la GUI y mirar si siguen los problemas «el arma no sale por su eje» (torso/pelvis) y «puente a 0,266 mm del muslo_izq»: dependen del ancla y la dirección elegidas, no de este fix
+- [ ] Todo: la mano de Güemes (Ø2,4 mm) no admite el vástago de la espada (Ø4,6 mm): problema aparte de `weapon_fit`/taladro de la mano
+
+### Latest Blockers/Discoveries
+- La suite completa de `tests/` excede los 300 s de una sola llamada; hay que correrla por archivos o en segundo plano.
+
 ## Current Focus — Catálogos en línea: D09 herramientas de autor `paquete init | github | empaquetar` (2026-11-26, sobre main edea708)
 **Objetivo.** Que un autor arme la carpeta de su paquete (un repo de GitHub) y que un push publique `<id>-<version>.zip` en un Release, que es lo que el índice (D12) toma solo.
 **Hecho.**

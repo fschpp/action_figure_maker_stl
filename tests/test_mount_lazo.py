@@ -195,3 +195,42 @@ def test_las_paredes_laterales_miden_la_pared():
 
     assert probe(edge - 0.1) > 0.9e-3 and probe(-(edge - 0.1)) > 0.9e-3
     assert probe(edge + 0.1) < 1e-9 and probe(-(edge + 0.1)) < 1e-9
+
+
+# ---------------------------------------------------------------- hoja que se ensancha hacia la punta (sable)
+def _swollen_blade():
+    """Hoja de 30 mm con guarda; 4 × 1 mm en la base y 6 × 2 mm en el último tercio (la punta pesa más que el puente)."""
+    guard = S.Manifold.cube((2.0, 10.0, 3.0)).translate((-2.0, -5.0, -1.5))
+    base = S.Manifold.cube((20.0, 4.0, 1.0)).translate((-22.0, -2.0, -0.5))
+    swell = S.Manifold.cube((10.0, 6.0, 2.0)).translate((-32.0, -3.0, -1.0))
+    return S.union(guard, base, swell)
+
+
+def test_lazo_mide_la_hoja_hasta_la_punta():
+    prop = _swollen_blade()
+    lz = build_lazo(_spec(), prop, MIN_WALL)
+    c = 0.25
+    assert lz.hole_w >= 6.0 + 2 * c - 1e-6 and lz.hole_t >= 2.0 + 2 * c - 1e-6
+    assert any("se ensancha" in n for n in lz.info["notas"])
+    assert lz.info["hoja_en_puente_mm"][0] == pytest.approx(4.0, abs=0.01)
+    assert lz.info["hoja_max_mm"][0] == pytest.approx(6.0, abs=0.01)
+
+
+def test_lazo_la_punta_ancha_pasa_por_el_hueco():
+    """El arma, deslizada por su eje desde la posición enfundada hasta sacarla, no toca el puente."""
+    from afm.mount import extraction_distance, handle_direction
+
+    lz = build_lazo(_spec(), _swollen_blade(), MIN_WALL)
+    bridge = S.difference(lz.outer, lz.tunnel)
+    u = handle_direction(lz)
+    d = 0.0
+    while d <= extraction_distance(lz):
+        w = lz.weapon.translate(tuple(float(c) * d for c in u))
+        assert S.intersection(w, bridge).volume() < 1e-3, f"la hoja choca con el puente a {d:.1f} mm"
+        d += 1.0
+
+
+def test_lazo_hoja_pareja_no_cambia():
+    lz = build_lazo(_spec(), _sword(), MIN_WALL)
+    assert not any("se ensancha" in n for n in lz.info["notas"])
+    assert lz.info["hoja_en_puente_mm"] == lz.info["hoja_max_mm"]
