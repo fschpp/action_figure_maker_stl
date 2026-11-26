@@ -179,6 +179,8 @@ class Port:
     face: PortFace | None = None
     sweep_deg: tuple | None = None     # (mín, máx) de giro libre que el miembro declara (cadera: 0…sit_angle + hip_margin)
     capacity: dict | None = None       # solo en tomas (torso, pelvis): lo que el cuerpo deja detrás de la cara (`capacity.measure`)
+    joint_type: str | None = None      # id del tipo de articulación (`joint_types`) con que se hizo este puerto; None = no se sabe (pieza vieja)
+    joint_hash: str | None = None      # huella de las medidas de acople de ese tipo (`joint_types.resolve.params_hash`)
 
     def __post_init__(self):
         if self.clase not in PORT_CLASSES:
@@ -187,7 +189,8 @@ class Port:
             raise PortError(f"rol de puerto desconocido: {self.rol!r} (hay {', '.join(ROLES)})")
 
     def transformed(self, T: np.ndarray) -> "Port":
-        return Port(self.clase, self.rol, self.frame.transformed(T), self.face, self.sweep_deg, self.capacity)
+        return Port(self.clase, self.rol, self.frame.transformed(T), self.face, self.sweep_deg, self.capacity,
+                    self.joint_type, self.joint_hash)
 
     def to_dict(self) -> dict:
         d = {"clase": self.clase, "rol": self.rol, **self.frame.to_dict()}
@@ -197,6 +200,10 @@ class Port:
             d["barrido_deg"] = [float(x) for x in self.sweep_deg]
         if self.capacity is not None:
             d["capacidad"] = dict(self.capacity)
+        if self.joint_type:                      # solo si se conoce: una pieza vieja se guarda idéntica
+            d["tipo_articulacion"] = self.joint_type
+            if self.joint_hash:
+                d["hash_articulacion"] = self.joint_hash
         return d
 
     @classmethod
@@ -204,7 +211,8 @@ class Port:
         return cls(d["clase"], d["rol"], PortFrame.from_dict(d),
                    PortFace.from_dict(d["cara"]) if d.get("cara") else None,
                    tuple(d["barrido_deg"]) if d.get("barrido_deg") is not None else None,
-                   dict(d["capacidad"]) if d.get("capacidad") else None)
+                   dict(d["capacidad"]) if d.get("capacidad") else None,
+                   d.get("tipo_articulacion") or None, d.get("hash_articulacion") or None)
 
 
 NEAR_FACE_MM = 3.0              # mm: cara «cercana» al plano del puerto (para decir cuánto está corrida o girada)
@@ -425,6 +433,24 @@ def face_iou(a: PortFace, b: PortFace) -> float:
     return float(sa.intersection(sb).area / union) if union > 1e-12 else 0.0
 
 
+def _joint_type_findings(a: Port, b: Port, params: Params, c: "Compat") -> None:
+    """Tipo de articulación del par (plan de plugins §3.7): dos puertos con tipos distintos no se acoplan aunque la cara coincida
+    («hombro: `detent` contra `mushroom`»); con el mismo tipo pero medidas de acople distintas, aviso. Un puerto sin tipo (pieza vieja)
+    no se juzga. Además, un tipo que no es el que la línea fija para la clase se avisa (al armar manda la línea, ver `pipeline`)."""
+    ta, tb = a.joint_type, b.joint_type
+    if ta and tb and ta != tb:
+        c.motivos.append(f"{a.clase}: tipo de articulación «{ta}» contra «{tb}» (las dos piezas tienen que usar el mismo tipo)")
+        return
+    if ta and tb and a.joint_hash and b.joint_hash and a.joint_hash != b.joint_hash:
+        c.avisos.append(f"{a.clase}: las dos piezas son de tipo «{ta}» pero con medidas de acople distintas ({a.joint_hash} y {b.joint_hash})")
+    from .joint_types.resolve import class_type_id
+    want = class_type_id(a.clase, params)
+    for p in (a, b):
+        if want and p.joint_type and p.joint_type != want:
+            c.avisos.append(f"{a.clase}: una pieza trae el tipo «{p.joint_type}» y la línea fija «{want}»")
+            break
+
+
 def port_compat(a: Port, b: Port, height_a: float | None = None, height_b: float | None = None,
                 params: Params | None = None) -> Compat:
     """Compatibilidad barata del par (a, b): clase y roles, IoU y escalón de las caras, margen del pasador y altura de figura.
@@ -441,6 +467,8 @@ def port_compat(a: Port, b: Port, height_a: float | None = None, height_b: float
     if COMPLEMENT[a.rol] != b.rol:
         c.motivos.append(f"roles que no se acoplan: {a.rol} con {b.rol} (hace falta enchufe con toma)"
                          if "soldado" not in (a.rol, b.rol) else f"roles que no se acoplan: {a.rol} con {b.rol}")
+    if a.clase == b.clase:
+        _joint_type_findings(a, b, params, c)
     if a.face is not None and b.face is not None:
         c.iou = face_iou(a.face, b.face)
         c.escalon_mm = abs(a.face.radius_eq - b.face.radius_eq)

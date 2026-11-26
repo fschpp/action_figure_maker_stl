@@ -127,6 +127,8 @@ def measure(mesh, port: Port, params: Params, inset_mm: float = 0.0) -> dict | N
         return None
     depths = [d + float(inset_mm) for d in depths]
     cap = {"profundidad_mm": round(min(depths), 3), "huella_radio_mm": round(radius, 3), "rayos": len(depths)}
+    from .joint_types.resolve import class_type_id
+    cap["tipo"] = class_type_id(port.clase, params)       # con qué tipo de la línea se midió (plan de plugins §3.7, punto 5)
     if mirrored and abs(float(fr.center[0])) > 1e-6:
         d = -np.asarray(fr.axis, float) / np.linalg.norm(fr.axis)
         cap["x_mm"] = round(abs(float(fr.center[0])), 3)
@@ -135,6 +137,15 @@ def measure(mesh, port: Port, params: Params, inset_mm: float = 0.0) -> dict | N
 
 
 # ---------------------------------------------------------------------------------------------------- comparar
+def stale(cap: dict | None, clase: str, params: Params) -> bool:
+    """True si la capacidad guardada se midió con otro tipo de articulación que el que hoy fija la línea para la clase.
+    Una capacidad sin `tipo` (medida antes de los plugins) no se considera vencida."""
+    if not cap or not cap.get("tipo"):
+        return False
+    from .joint_types.resolve import class_type_id
+    return cap["tipo"] != class_type_id(clase, params)
+
+
 def check(a: Port, b: Port, params: Params) -> tuple[list, list, dict]:
     """(motivos, avisos, márgenes) de la capacidad del par enchufe–toma. Sin par válido (clases o roles que no se acoplan,
     clase sin pasador) devuelve todo vacío: eso ya lo dice `port_compat`."""
@@ -145,7 +156,7 @@ def check(a: Port, b: Port, params: Params) -> tuple[list, list, dict]:
     if dem is None:
         return [], [], {}
     cap = sock.capacity
-    if not cap:
+    if not cap or stale(cap, sock.clase, params):
         return [], [], {}              # sin dato no se juzga (ver `missing`): un catálogo viejo no baja de nivel de golpe
     motivos, avisos, marg = [], [], {}
     need = dem["profundidad_mm"] + dem["pared_min_mm"]
@@ -176,4 +187,4 @@ def missing(a: Port, b: Port, params: Params) -> bool:
     if a.clase != b.clase or COMPLEMENT.get(a.rol) != b.rol or "toma" not in (a.rol, b.rol):
         return False
     sock = a if a.rol == "toma" else b
-    return demand(sock.clase, params) is not None and not sock.capacity
+    return demand(sock.clase, params) is not None and (not sock.capacity or stale(sock.capacity, sock.clase, params))

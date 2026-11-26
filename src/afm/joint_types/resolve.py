@@ -142,3 +142,24 @@ def class_pin_shift(clase: str, params) -> float:
     from . import get
     tid = class_type_id(clase, params)
     return float(get(tid).pin_shift(_class_jp(clase, params, tid), params, clase))
+
+
+# ---------------------------------------------------------------------------------------------------- firma de un puerto
+def params_hash(type_id: str, jp) -> str:
+    """Huella corta (8 hex) de las medidas de acople de un tipo: los campos del `params_cls` redondeados a 0,001 mm.
+    Dos piezas del mismo tipo con huellas distintas no acoplan igual (aviso en `ports.port_compat`)."""
+    import hashlib
+    if dataclasses.is_dataclass(jp):
+        items = [(f.name, getattr(jp, f.name)) for f in dataclasses.fields(jp)]
+    else:
+        items = []
+    txt = type_id + "|" + ";".join(f"{k}={round(v, 3) if isinstance(v, float) else v!r}" for k, v in sorted(items))
+    return hashlib.sha256(txt.encode()).hexdigest()[:8]
+
+
+def class_signature(clase: str, params) -> tuple[str, str] | None:
+    """(id del tipo, huella de sus medidas) que la línea fija para una clase de puerto; None si la clase no lleva pasador."""
+    tid = class_type_id(clase, params)
+    if tid is None:
+        return None
+    return tid, params_hash(tid, _class_jp(clase, params, tid))
