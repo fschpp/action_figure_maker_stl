@@ -1,10 +1,14 @@
-"""`afm catalogo remoto …` (plan de catálogos en línea, §5.6 y D14): buscar, ver, versiones, instalar y actualizar desde un índice.
+"""`afm catalogo remoto …` (plan de catálogos en línea, §5.6, D14 y D16): buscar, ver, versiones, instalar, actualizar y auditar desde un índice.
 
 Solo lee argumentos e imprime; la lógica está en `remoto.py` (red, búsqueda, resolución) y `instalar.py` (plan y aplicación atómica). Instalar y
 actualizar pasan por el **mismo** `paquete_cli._install_plan` que `afm catalogo instalar`: se muestra el plan, se pide confirmación y todo o nada.
 Los índices salen de `--indice URL` (repetible) o de `~/.config/afm/remoto.json`; el alta por `owner/repo` es D33.
 
-Códigos de salida: 0 ok · 1 el plan tiene errores o se canceló · 2 no se pudo hablar con el índice, no existe lo pedido o el zip no sirve.
+D16: `instalar` y `actualizar` resuelven `requiere` por el índice (`dependencias.resolve`) y, si hay que instalar más de un paquete, muestran **un único plan** y
+lo aplican todo o nada (`dependencias.install_chain`); `--sin-dependencias` instala solo el pedido (queda el aviso de lo que falta). `auditar` avisa de lo ya
+instalado que el índice retiró o bloqueó, sin borrar nada.
+
+Códigos de salida: 0 ok · 1 el plan tiene errores o se canceló (en `auditar`: hay alertas) · 2 no se pudo hablar con el índice, no existe lo pedido o el zip no sirve.
 """
 from __future__ import annotations
 
@@ -12,11 +16,12 @@ import os
 import sys
 
 from . import __version__
+from . import dependencias as D
 from . import instalar as I
 from . import paquete as Q
 from . import remoto as R
 from .catalog import CatalogError
-from .paquete_cli import _install_plan
+from .paquete_cli import _ask, _install_plan
 from .ziplector import ZipError
 
 
@@ -52,7 +57,8 @@ def add_parsers(cs) -> None:
     g = i.add_mutually_exclusive_group()
     g.add_argument("--en", default=None, metavar="RUTA", help="catálogo de destino (por defecto ~/.local/share/afm/catalogos/<línea>; no mira $AFM_CATALOGO)")
     g.add_argument("--como-linea", action="store_true")
-    i.add_argument("--permitir-retirada", action="store_true", help="instalar aunque la versión figure como retirada")
+    i.add_argument("--permitir-retirada", action="store_true", help="instalar aunque la versión figure como retirada (un bloqueo no se salta)")
+    i.add_argument("--sin-dependencias", action="store_true", help="instalar solo este paquete, sin resolver su `requiere`")
     _install_flags(i)
     common(i)
     a = rs.add_parser("actualizar", help="instalar la versión nueva de lo ya instalado (aditivo: no toca lo que usan tus recetas)")
@@ -61,6 +67,9 @@ def add_parsers(cs) -> None:
     _install_flags(a)
     a.set_defaults(como_linea=False)
     common(a)
+    au = rs.add_parser("auditar", help="avisar de lo instalado que el índice retiró o bloqueó (no borra nada)")
+    au.add_argument("--en", default=None, metavar="RUTA", help="catálogo (por defecto, todos los de ~/.local/share/afm/catalogos con paquetes)")
+    common(au)
 
 
 def _install_flags(p) -> None:
@@ -133,6 +142,8 @@ def _run(args) -> int:
         return _compat(args, e) if args.compat and code == 0 else code
     if cmd == "instalar":
         return _instalar(args, indexes)
+    if cmd == "auditar":
+        return _auditar(args, indexes)
     return _actualizar(args, indexes)
 
 
@@ -160,7 +171,9 @@ def _ver(e) -> int:
             pass
     if e.experimental:
         print("\nAVISO: el paquete se marcó como experimental.")
-    if not e.visible:
+    if e.bloqueado:
+        print(f"\nAVISO: este paquete está {e.bloqueado}; no se puede instalar.")
+    elif not e.visible:
         print("\nAVISO: el repo o el Release de este paquete no responden ahora; no se puede instalar.")
     print("\nListar no es verificar: el índice no revisa el contenido a mano; la licencia y el origen los declara quien lo publicó.")
     return 0
@@ -195,7 +208,7 @@ def _versiones(e) -> int:
     have = R.installed_version(e)
     for r in rels:
         marks = [m for m, on in (("última", e.latest is not None and r.version == e.latest.version), ("prerelease", r.prerelease),
-                                 ("RETIRADA", r.version in e.retiradas), ("instalada", r.version == have)) if on]
+                                 ("RETIRADA", r.version in e.retiradas), ("BLOQUEADA", bool(e.block_of(r))), ("instalada", r.version == have)) if on]
         print(f"{r.version:<12} {r.publicado[:10] or '—':<11} {_size(r.tamano) if r.tamano else '—':>9}  {' · '.join(marks)}")
     return 0
 
@@ -215,9 +228,70 @@ def _instalar(args, indexes) -> int:
             print(f"AVISO: $AFM_CATALOGO está definida ({os.environ['AFM_CATALOGO']}) y se ignora al instalar; se usa {root}. Elegí otra ruta con --en.")
     if e.experimental:
         print("AVISO: el paquete se marcó como experimental.")
-    print(f"Descargando {e.folder} {rel.version} ({_size(rel.tamano) if rel.tamano else 'tamaño desconocido'})…", file=sys.stderr)
-    plan = R.plan_entry(e, root, version=version, como_linea=args.como_linea, allow_fbx=args.permitir_fbx, allow_retirada=args.permitir_retirada)
-    return _install_plan(args, plan, I)
+    return _install_with_deps(args, indexes, root, e, version)
+
+
+def _install_with_deps(args, indexes, root: str, e, version: str | None) -> int:
+    """Resuelve `requiere`; sin nada más que instalar sigue el camino de siempre (`plan_entry` + `_install_plan`); con dependencias, un solo plan todo o nada."""
+    retirada = getattr(args, "permitir_retirada", False)
+    want = e.release(version) or e.latest
+    if want is not None and want.version in e.retiradas and not retirada:                # lo pedido directo: error de uso, como antes de D16
+        raise R.RemoteError(f"la versión {want.version} de «{e.id}» fue retirada por sus responsables; no se instala")
+    if getattr(args, "sin_dependencias", False):
+        dep = None
+    else:
+        dep = D.resolve(indexes, root, [(e, version)], allow_retirada=retirada)
+        if dep.errors:
+            for line in dep.describe():
+                print(line)
+            print(f"FALLA: no se puede instalar «{e.folder}»: {len(dep.errors)} error(es) en sus dependencias. No se instaló nada.")
+            return 1
+    if dep is None or len(dep.pasos) <= 1:
+        for w in (dep.warnings if dep else []):
+            print(w)
+        print(f"Descargando {e.folder} {(e.release(version) or e.latest).version}…", file=sys.stderr)
+        plan = R.plan_entry(e, root, version=version, como_linea=args.como_linea, allow_fbx=args.permitir_fbx, allow_retirada=retirada)
+        return _install_plan(args, plan, I)
+    print(f"«{e.folder}» necesita {len(dep.pasos) - 1} paquete(s) más; se instalan todos o ninguno:")
+    for n, s_ in enumerate(dep.pasos, 1):
+        print(f"  {n}. {s_.entry.folder} {s_.release.version}" + ("" if s_.por == "pedido" else f"  ({s_.por})"))
+    print("Descargando…", file=sys.stderr)
+    chain = D.plan_chain(dep, como_linea=args.como_linea, allow_fbx=args.permitir_fbx, allow_retirada=retirada)
+    return _install_chain(args, chain, dep)
+
+
+def _install_chain(args, chain, dep) -> int:
+    for line in chain.describe():
+        print(line)
+    for i in dep.warnings:
+        print(i)
+    if not chain.ok:
+        print(f"FALLA: no se puede instalar: {len(chain.errors)} error(es). No se instaló nada.")
+        return 1
+    if args.simular:
+        print("Simulación: no se escribió nada.")
+        return 0
+    if chain.nada_que_hacer:
+        print(f"Nada que instalar: todo ya está en {chain.raiz}.")
+        return 0
+    print("Aviso: la licencia y el origen los declara quien hizo cada paquete; la app no los verifica (listar no es verificar).")
+    if chain.cambia_origen and not args.aceptar_cambio_origen:
+        print("ERROR: algún paquete cambia de origen respecto de lo instalado; confirmalo con --aceptar-cambio-origen.", file=sys.stderr)
+        return 1
+    if not args.si and _ask(f"¿Instalar los {len(chain.pasos)} paquetes? [s/N] ").lower() not in ("s", "si", "sí", "y", "yes"):
+        print("Cancelado: no se escribió nada.")
+        return 1
+    try:
+        results = D.install_chain(chain, confirmar_origen=args.aceptar_cambio_origen)
+    except (I.InstallError, CatalogError, OSError) as exc:
+        print(f"ERROR: no se instaló nada: {exc}", file=sys.stderr)
+        return 1
+    for res in results:
+        print(f"Instalado «{res.paquete.id}» {res.paquete.version}: {len(res.piezas)} pieza(s), {len(res.recetas)} receta(s), {len(res.roles)} rol(es) de paleta"
+              + (f"; {len(res.omitidas)} ya estaban" if res.omitidas else "") + ".")
+        for w in res.avisos:
+            print("AVISO:", w)
+    return 0
 
 
 def _actualizar(args, indexes) -> int:
@@ -236,8 +310,27 @@ def _actualizar(args, indexes) -> int:
                 continue
             hubo = True
             print(f"\n{e.id}: {have} → {e.latest.version} (en {root})")
-            plan = R.plan_entry(e, root, allow_fbx=args.permitir_fbx)
-            rc = max(rc, _install_plan(args, plan, I))
+            rc = max(rc, _install_with_deps(args, indexes, root, e, None))
+        for alert in D.audit(indexes, root):
+            print(f"AVISO: {alert}")
     if not hubo:
         print("Todo está al día." if not ident else f"«{ident}» no tiene actualizaciones (o no está instalado).")
     return rc
+
+
+def _auditar(args, indexes) -> int:
+    roots = [args.en] if args.en else R.catalog_roots()
+    if not roots:
+        print("No hay catálogos con paquetes instalados.")
+        return 0
+    found = 0
+    for root in roots:
+        alerts = D.audit(indexes, root)
+        found += len(alerts)
+        for a in alerts:
+            print(f"{a}   [{root}]")
+    if not found:
+        print("Nada que avisar: ningún paquete instalado figura como retirado ni bloqueado.")
+        return 0
+    print(f"{found} alerta(s). No se borró nada: decidí vos qué hacer con cada paquete.")
+    return 1

@@ -353,6 +353,93 @@
           }
         }
       }
+    },
+    "bloqueados": {
+      "type": "array",
+      "description": "Lo que el índice se niega a listar (D16/D24): exactamente uno de `id`, `autor` o `sha256` por línea, con motivo y fecha. Clave aditiva.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "maxLength": 64
+          },
+          "autor": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "motivo": {
+            "type": "string"
+          },
+          "fecha": {
+            "type": "string"
+          }
+        },
+        "oneOf": [
+          {
+            "required": [
+              "id"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "autor"
+                  ]
+                },
+                {
+                  "required": [
+                    "sha256"
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "required": [
+              "autor"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "id"
+                  ]
+                },
+                {
+                  "required": [
+                    "sha256"
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "required": [
+              "sha256"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "id"
+                  ]
+                },
+                {
+                  "required": [
+                    "autor"
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
     }
   }
 }

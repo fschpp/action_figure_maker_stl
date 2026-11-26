@@ -207,9 +207,15 @@ def entry_from_zip(zip_path: str, *, url: str, autor: str = "", tag: str = "", p
     return entry
 
 
-def build_index(entries, *, generado: str | None = None) -> dict:
-    """`index.json` entero: encabezado (`schema_version`, `generado`, `cantidad`, `categorias` usadas) y las entradas en orden de carpeta."""
+def build_index(entries, *, generado: str | None = None, bloqueados=None) -> dict:
+    """`index.json` entero: encabezado (`schema_version`, `generado`, `cantidad`, `categorias` usadas) y las entradas en orden de carpeta.
+
+    `bloqueados` (D16/D24, clave **aditiva**): lo que el índice se niega a listar, `[{id | autor | sha256, motivo, fecha}]`; el cliente lo usa para no
+    instalar, ocultar y avisar de lo ya instalado. Sin lista, la clave no se escribe (un índice viejo y uno nuevo sin bloqueos son idénticos)."""
     items = sorted(entries, key=lambda e: e["folder"])
     cats = sorted({c for e in items for c in e.get("categorias", [])})
-    return {"schema_version": INDEX_SCHEMA_VERSION, "generado": generado or datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            "cantidad": len(items), "categorias": cats, "paquetes": items}
+    out = {"schema_version": INDEX_SCHEMA_VERSION, "generado": generado or datetime.now(timezone.utc).isoformat(timespec="seconds"),
+           "cantidad": len(items), "categorias": cats, "paquetes": items}
+    if bloqueados:
+        out["bloqueados"] = [dict(b) for b in bloqueados]
+    return out
