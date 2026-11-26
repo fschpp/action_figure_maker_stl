@@ -3,7 +3,7 @@
 `check_type(t)` arma el tipo sobre un corte sintético (un bloque hijo pegado a un bloque padre) y devuelve la lista de verificaciones
 con su resultado. Lo corre un test sobre CADA tipo de `REGISTRY` (también los internos): quien escribe un tipo nuevo lo prueba igual.
 
-Hecho en la Fase 0: 1 determinismo · 2 piezas estancas, volumen > 0, sin NaN · 3 giro libre en todas las poses del recorrido ·
+Hecho en la Fase 0: 1 determinismo · 2 piezas y cortadores válidos (manifold), volumen > 0, sin NaN · 3 giro libre en todas las poses del recorrido ·
 5 pared del padre alrededor de la cavidad · 6 espejo (`S.mirror_x`) · 7 `requires()` coherente · 8 solo importa la superficie pública
 permitida. Falta (necesita `Motion` general, Fase 2): 4 retención por desplazamiento ±1 mm.
 """
@@ -50,16 +50,16 @@ def _volume(mf: S.Manifold) -> float:
     return float(mf.volume())
 
 
-def _sound(mf: S.Manifold, printable: bool = True) -> tuple[bool, str]:
-    """Pieza sana: sin NaN, volumen > 0 y, si va a imprimirse (`printable`), malla estanca al soldar vértices.
-    Un cortador no se exporta nunca: le basta ser un manifold válido con volumen."""
-    tm = S.to_trimesh(mf)
-    if not np.isfinite(tm.vertices).all():
+def _sound(mf: S.Manifold) -> tuple[bool, str]:
+    """Pieza sana: manifold válido (`status()` sin error), sin NaN y con volumen > 0. El soldado de aristas para el laminador lo
+    resuelve el motor al exportar (`S.to_printable_trimesh`, pymeshfix), no el tipo: una pieza recién salida de las booleanas puede
+    dejar aristas de más de 2 caras que ahí se limpian."""
+    if str(mf.status()) != "Error.NoError":
+        return False, f"manifold inválido: {mf.status()}"
+    if not np.isfinite(S.to_trimesh(mf).vertices).all():
         return False, "vértices con NaN o infinito"
     if _volume(mf) <= 0:
         return False, f"volumen {_volume(mf):.4g} ≤ 0"
-    if printable and not S.to_printable_trimesh(mf).is_watertight:
-        return False, "la malla imprimible no es estanca"
     return True, ""
 
 
@@ -71,7 +71,7 @@ def _signature(r) -> dict:
 def check_type(t, site: JointSite | None = None, parent: S.Manifold | None = None) -> list[Check]:
     """Corre las verificaciones sobre `t` y devuelve una `Check` por cada una (no lanza: un fallo es `ok=False`)."""
     if site is None:
-        site, parent = synthetic_site(t)
+        site, parent = t.test_site() if hasattr(t, "test_site") else synthetic_site(t)
     out: list[Check] = []
 
     try:
@@ -81,32 +81,32 @@ def check_type(t, site: JointSite | None = None, parent: S.Manifold | None = Non
     s1, s2 = _signature(r1), _signature(r2)
     out.append(Check(1, "determinismo", s1 == s2, "" if s1 == s2 else "dos corridas dieron volúmenes distintos"))
 
-    items = [(k, v, True) for k, v in r1.pieces.items()]
-    items += [(f"cortador {k}[{i}]", c, False) for k, cs in r1.cutters.items() for i, c in enumerate(cs)]
-    bad = [f"{k}: {why}" for k, v, printable in items for ok, why in [_sound(v, printable)] if not ok]
-    out.append(Check(2, "piezas estancas, volumen > 0, sin NaN", not bad, "; ".join(bad)))
+    items = list(r1.pieces.items()) + [(f"cortador {k}[{i}]", c) for k, cs in r1.cutters.items() for i, c in enumerate(cs)]
+    bad = [f"{k}: {why}" for k, v in items for ok, why in [_sound(v)] if not ok]
+    out.append(Check(2, "piezas y cortadores válidos (manifold), volumen > 0, sin NaN", not bad, "; ".join(bad)))
 
-    worst, free = 0.0, True
-    if parent is not None:
-        cut = parent
+    # Contra qué gira la hija: la pieza proximal (si el tipo parte el miembro: bisagra) o el padre ya tallado por sus cortadores
+    target = r1.pieces.get("prox")
+    if target is None and parent is not None:
+        target = parent
         for c in r1.cutters.get("parent", []):
-            cut = S.difference(cut, c)
+            target = S.difference(target, c)
+    worst, free = 0.0, True
+    if target is not None:
         motion = r1.motion.revolute()
         for T in (motion.poses(TURN_STEP_DEG) if motion is not None else []):
             moved = r1.motion.limb.transform(T[:3, :])
-            worst = max(worst, _volume(S.intersection(moved, cut)))
+            worst = max(worst, _volume(S.intersection(moved, target)))
         free = worst < FREE_TURN_TOL_MM3
     out.append(Check(3, "giro libre en todo el recorrido", free, f"interferencia máxima {worst:.4g} mm³" if not free else ""))
 
     wall_ok, wall_msg = True, ""
     if parent is not None:
-        req = t.requires(site.jp, site.params, site.slot)
         cav = S.union(*r1.cutters.get("parent", [S.Manifold()]))
         left = S.difference(parent, cav)
-        # pared: lo que queda del padre debe tener volumen; y la cavidad no puede cruzar el padre de lado a lado
+        # el padre debe conservar material: la cavidad resta algo y no se lleva todo
         wall_ok = _volume(left) > 0 and _volume(left) < _volume(parent)
         wall_msg = "" if wall_ok else "la cavidad no resta nada o se lleva todo el padre"
-        _ = req
     out.append(Check(5, "el padre conserva material alrededor de la cavidad", wall_ok, wall_msg))
 
     mirrored = {k: S.mirror_x(v) for k, v in r1.pieces.items()}
@@ -115,8 +115,8 @@ def check_type(t, site: JointSite | None = None, parent: S.Manifold | None = Non
 
     try:
         req = t.requires(site.jp, site.params, site.slot)
-        d = req.to_dict()
-        req_ok = all(np.isfinite(v) and v >= 0 for v in d.values()) and d["profundidad_mm"] > 0
+        d = req.to_dict() if req is not None else None      # None: el tipo no le pide nada al anfitrión
+        req_ok = d is None or (all(np.isfinite(v) and v >= 0 for v in d.values()) and d["profundidad_mm"] > 0)
         out.append(Check(7, "requires() coherente", bool(req_ok), "" if req_ok else f"valores no válidos: {d}"))
     except Exception as exc:
         out.append(Check(7, "requires() coherente", False, f"lanzó {type(exc).__name__}: {exc}"))

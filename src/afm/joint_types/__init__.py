@@ -33,9 +33,12 @@ def ids() -> list[str]:
     return sorted(REGISTRY)
 
 
-from .mushroom import Mushroom  # noqa: E402  (se registra al importar el paquete)
+from .detent import Detent  # noqa: E402  (los internos se registran al importar el paquete)
+from .hinge import Hinge  # noqa: E402
+from .mushroom import Mushroom  # noqa: E402
 
-register(Mushroom())
+for _t in (Mushroom(), Detent(), Hinge()):
+    register(_t)
 
 __all__ = ["API_VERSION", "REGISTRY", "FaceRequirements", "Finding", "JointResult", "JointSite", "JointType", "Motion",
            "RevoluteMotion", "get", "ids", "register", "rotation_axis", "rotation_matrix", "sweep_angles"]

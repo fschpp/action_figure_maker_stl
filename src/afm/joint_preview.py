@@ -22,7 +22,9 @@ import numpy as np
 import trimesh
 
 from . import solids as S
-from .joints import JointBuild, JointSpec, build_joint
+from . import joint_types as JT
+from .joint_types import JointSite
+from .joints import JointBuild, JointSpec
 from .limbs import ContactFace, LimbSpec, separate_limb
 from .params import Params
 from .planes import Plane
@@ -130,7 +132,8 @@ def preview_joint(limb: S.Manifold, face: ContactFace, joint: JointSpec, p: Para
     cropped = S.intersection(limb, _crop_box(joint.axis_center, crop_mm)) if crop_mm else limb
     if cropped.is_empty():
         raise ValueError(f"«{joint.name}»: el eje queda fuera del miembro (revisá su posición)")
-    jb = build_joint(cropped, joint, face.center, fast, PREVIEW_SEGMENTS, PREVIEW_ROD_STEP)
+    jb = JT.get("hinge").build(JointSite(slot=joint.name, side="izq", child=cropped, face=face, params=fast, jp=joint,
+                                         segments=PREVIEW_SEGMENTS, opts={"rod_step": PREVIEW_ROD_STEP})).native
     n = np.asarray(joint.plane.normal, float)
     n = n / np.linalg.norm(n)
     if (np.asarray(face.center, float) - joint.plane.origin) @ n < 0:
@@ -252,7 +255,6 @@ def preview_hip(half: S.Manifold, limb: S.Manifold, face: ContactFace, spec: Lim
     ignora la parte del muslo que queda fuera de ella (la forma del hueco cerca del pasador es la misma)."""
     from . import detent as DT
     from .limbs import pin_margin
-    from .pins import mushroom_pin
     from .pipeline import _detent_sweep, _pin_spec, _rotation_axis, _sweep_range
 
     if spec.kind not in ("leg", "arm"):
@@ -271,17 +273,14 @@ def preview_hip(half: S.Manifold, limb: S.Manifold, face: ContactFace, spec: Lim
     dspec = DT.detent_spec_for(spec, p)
     if dspec is not None:
         rng = _detent_sweep(spec, p) or (0.0, 0.0)
-        dl = DT.build_detent_limb(spec.name, limb_c, face, axis, dspec, fast, pin, float(p.sit_angle), rng)
-        distal, sweep, mech = dl.limb, dl.sweep, "clic"
+        jr = JT.get("detent").build(JointSite(slot=spec.name, side="izq", child=limb_c, face=face, params=fast, jp=dspec, flex=rng,
+                                              print_hint={"print_angle": float(p.sit_angle)}, opts={"pin": pin}))
+        mech = "clic"
     else:
-        distal = S.union(limb_c, mushroom_pin(face.center, face.outward, pin))
-        grown = S.dilate(distal, p.clearance, PREVIEW_SEGMENTS)
-        a0, a1 = _sweep_range(spec, p)
-        angles = np.arange(a0, a1 + 1e-9, fast.sweep_step) if a1 > a0 else [a0]
-        if len(angles) > 1 and angles[-1] < a1 - 1e-9:
-            angles = np.append(angles, a1)
-        sweep = S.union(*[S.rotate_about_axis(grown, center, axis, float(a)) for a in angles])
+        jr = JT.get("mushroom").build(JointSite(slot=spec.name, side="izq", child=limb_c, face=face, params=fast, jp=pin,
+                                                flex=_sweep_range(spec, p), segments=PREVIEW_SEGMENTS))
         mech = "hongo"
+    distal, sweep = jr.pieces["child"], jr.cutters["parent"][0]
     a0, a1 = _sweep_range(spec, p)
     proximal = S.difference(torso_c, sweep)
     margin = pin_margin(face, pin.shaft_d)

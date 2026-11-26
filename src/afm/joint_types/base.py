@@ -108,7 +108,8 @@ class JointSite:
     parent: S.Manifold | None = None          # solo lectura: mide espacio; None en la vista previa
     host: S.Manifold | None = None            # el torso/anfitrión, solo lectura
     flex: tuple | None = None                 # rango pedido (a0, a1) en grados, o None = el del tipo
-    print_hint: dict = field(default_factory=dict)
+    print_hint: dict = field(default_factory=dict)   # pose impresa: «print_angle» (° del miembro al imprimir)
+    opts: dict = field(default_factory=dict)          # opciones propias de cada tipo: «pin» (PinSpec del hongo del clic), «rod_step» (bisagra)
     segments: int = 12                        # resolución de la cavidad; la vista previa de la GUI baja este valor
     say: Callable[[str], None] = lambda _msg: None   # avance («Cavidad de pierna…»)
 
@@ -124,6 +125,8 @@ class JointResult:
     warnings: list[str] = field(default_factory=list)
     extras: dict[str, S.Manifold] = field(default_factory=dict)   # piezas SUELTAS (un pasador aparte)
     assembly: str = "print_in_place"                      # «post_assembly» si `extras` no está vacío
+    native: object = None                                 # resultado propio del tipo (`DetentLimb`, `JointBuild`) mientras sus consumidores
+                                                          # (lengüetas del clic, validación de cadena) sigan leyéndolo; se achica en fases siguientes
 
 
 @dataclass(frozen=True)
@@ -143,5 +146,5 @@ class JointType(Protocol):
     slots: frozenset[str]             # en qué lugares tiene sentido
 
     def default_params(self, params: Params, slot: str) -> object: ...
-    def requires(self, jp, params: Params, slot: str | None = None) -> FaceRequirements: ...
+    def requires(self, jp, params: Params, slot: str | None = None) -> FaceRequirements | None: ...   # None = no pide nada al anfitrión
     def build(self, site: JointSite) -> JointResult: ...

@@ -238,19 +238,18 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
         axis = _rotation_axis(face)
         dspec = DT.detent_spec_for(spec, p)
         if dspec is not None:
-            say(f"Clic de {spec.name}…")
             th = _print_angle(spec, p, dspec, sit)
             rng = _detent_sweep(spec, p)
-            dl = DT.build_detent_limb(spec.name, limb_raw, face, axis, dspec, p, _pin_spec(spec, p), th, rng)
+            jr = JT.get("detent").build(JT.JointSite(slot=spec.name, side="izq", child=limb_raw, face=face, params=p, jp=dspec,
+                                                     flex=rng, print_hint={"print_angle": th},
+                                                     opts={"pin": _pin_spec(spec, p)}, say=say))
+            dl = jr.native
             detents[spec.name] = dl
-            torso_half = S.difference(torso_half, dl.sweep)
-            cutters.append(dl.sweep)
-            angles = np.arange(rng[0], rng[1] + 1e-9, p.sweep_step) if rng and rng[1] > rng[0] else [0.0]
-            if len(angles) > 1 and angles[-1] < rng[1] - 1e-9:
-                angles = np.append(angles, rng[1])
+            for c in jr.cutters["parent"]:
+                torso_half = S.difference(torso_half, c)
+                cutters.append(c)
             built[spec.name] = {"limb": dl.limb, "face": face, "axis": axis, "spec": spec,
-                                "angles": [float(a) for a in angles], "print_angle": th,
-                                "pin_margin": pin_margin(face, _pin_spec(spec, p).shaft_d)}
+                                "angles": jr.report["angles"], "print_angle": th, "pin_margin": jr.report["pin_margin"]}
             continue
         jt = JT.get("mushroom")                  # el pasador de fricción lo construye el tipo registrado (plan de plugins, Fase 0)
         jr = jt.build(JT.JointSite(slot=spec.name, side="izq", child=limb_raw, face=face, params=p, jp=_pin_spec(spec, p),
@@ -263,8 +262,9 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
                             "angles": jr.report["angles"], "pin_margin": jr.report["pin_margin"]}
     joint_builds: dict[str, JointBuild] = {}
     for lname, j in by_limb.items():
-        say(f"Articulación {j.name}…")
-        joint_builds[lname] = build_joint(built[lname]["limb"], j, built[lname]["face"].center, p)
+        jr = JT.get("hinge").build(JT.JointSite(slot=j.name, side="izq", child=built[lname]["limb"], face=built[lname]["face"],
+                                                params=p, jp=j, say=say))
+        joint_builds[lname] = jr.native
     carved: dict[str, float] = {}
     for lname, jb in joint_builds.items():
         if built[lname]["spec"].kind == "leg" or jb.sweep is None:

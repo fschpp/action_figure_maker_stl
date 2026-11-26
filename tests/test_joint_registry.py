@@ -90,3 +90,58 @@ def test_build_result_motion_is_revolute_for_every_limb():
     body = S.to_manifold(make_doll())
     res = build(body, proj.limbs, proj.params, sym=None, sit=True, joints=proj.joints)
     assert res.motion and all(isinstance(m, JT.RevoluteMotion) for m in res.motion.values())
+
+
+def _spy(monkeypatch, type_id):
+    """Cuenta las llamadas a `build` del tipo registrado (lo que haga `pipeline.build` pasa por el registro)."""
+    t = JT.get(type_id)
+    calls = []
+    orig = type(t).build
+
+    def wrapper(self, site):
+        calls.append(site.slot)
+        return orig(self, site)
+
+    monkeypatch.setattr(type(t), "build", wrapper)
+    return calls
+
+
+def _doll_joints():
+    """Rodilla y codo del muñeco (las mismas de tests/test_joints.py)."""
+    from afm.joints import JointSpec
+    from afm.params import HingeSpec
+    from afm.planes import Plane
+    return [JointSpec(name="rodilla", limb="pierna", kind="knee", plane=Plane.from_normal((0, 0, 14.0), (0, 0, 1), "art"),
+                      axis_center=(9.0, 0.0, 17.4)),
+            JointSpec(name="codo", limb="brazo", kind="elbow", plane=Plane.from_normal((0, 0, 59.0), (0, 0, 1), "art"),
+                      axis_center=(18.5, 0.0, 62.0), hinge=HingeSpec(pin_d=2.0, pin_len=0.6, tongue_t=2.0, end_r=3.0))]
+
+
+def _doll_build(joints=False, **over):
+    import dataclasses
+    from afm import solids as S
+    from afm.pipeline import build
+    from afm.project import demo_project
+    from afm.testfigure import make_doll
+    proj = demo_project()
+    params = dataclasses.replace(proj.params, decimate=0, **over)
+    return proj, build(S.to_manifold(make_doll()), proj.limbs, params, sym=None, sit=True,
+                             joints=_doll_joints() if joints else None)
+
+
+def test_pipeline_builds_mushroom_and_hinge_through_the_registry(monkeypatch):
+    mush, hinge, detent = _spy(monkeypatch, "mushroom"), _spy(monkeypatch, "hinge"), _spy(monkeypatch, "detent")
+    proj, res = _doll_build(joints=True)
+    assert sorted(mush) == sorted(l.name for l in proj.limbs)          # un hongo por miembro
+    assert sorted(hinge) == ["codo", "rodilla"]
+    assert detent == []
+    assert set(res.joints) == {"codo", "rodilla"}
+
+
+def test_pipeline_builds_the_detent_through_the_registry(monkeypatch):
+    mush, detent = _spy(monkeypatch, "mushroom"), _spy(monkeypatch, "detent")
+    proj, res = _doll_build(shoulder_detent=True)
+    arms = [l.name for l in proj.limbs if l.kind == "arm"]
+    assert sorted(detent) == sorted(arms) and arms
+    assert sorted(mush) == sorted(l.name for l in proj.limbs if l.kind != "arm")
+    assert set(res.detent) == set(arms)
