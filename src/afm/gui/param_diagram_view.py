@@ -154,17 +154,25 @@ class ParamDiagramView(Gtk.Box):
             return False
 
     def _draw(self, _area, cr, w, h) -> None:
-        pal = D.DARK if self._dark() else D.LIGHT
-        cv = CairoCanvas(cr)
-        cr.select_font_face("sans-serif")
-        cr.set_source_rgb(*_rgb(pal["bg"]))
-        cr.paint()
         anim = self._anim.value(time.monotonic())
         cur = self._anim.key
 
         def v(k: str) -> float:
             return anim if (anim is not None and k == cur) else self._get(k)
 
-        sid = D.scene_id_for_key(self._key)
-        frame = D.build_scene(sid, D.reference_values(_RANGES, self._get)).bbox()
-        D.render(cv, D.build_scene(sid, v), self._key, w, h, pal, frame=frame)
+        draw_scene(cr, w, h, self._key, v, self._get, self._dark())
+
+
+def draw_scene(cr, w: float, h: float, key: str, value: Callable[[str], float], fixed: Callable[[str], float],
+               dark: bool) -> None:
+    """Dibuja la escena del parámetro `key` con sus cotas (la de la cabecera de «Parámetros» y la del cuadro flotante).
+
+    `value` da los valores del dibujo; `fixed` los que fijan el encuadre (así el dibujo no se reescala al animar o editar)."""
+    pal = D.DARK if dark else D.LIGHT
+    cv = CairoCanvas(cr)
+    cr.select_font_face("sans-serif")
+    cr.set_source_rgb(*_rgb(pal["bg"]))
+    cr.paint()
+    sid = D.scene_id_for_key(key)
+    frame = D.build_scene(sid, D.reference_values(_RANGES, fixed)).bbox()
+    D.render(cv, D.build_scene(sid, value), key, w, h, pal, frame=frame)

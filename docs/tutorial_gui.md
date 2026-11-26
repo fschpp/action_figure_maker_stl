@@ -295,7 +295,7 @@ Cómo se usa la lista (son unos 45 parámetros, en grupos plegables: Generales, 
 - **Buscador** arriba: escribí una o más palabras (sin importar mayúsculas ni acentos, p. ej. «vastago cadera»); los grupos con resultados se abren solos.
 - **En negrita** los valores que cambiaste respecto del por defecto; al lado aparece **↺** para volver al valor por defecto (el tooltip lo dice) y **«Restaurar todos»** vuelve todos juntos (se puede deshacer con Ctrl+Z).
 - Lo que es sí / no («Torso espejado», «mecanismo de clic», bulón con cuello, bastago pasante) es un **interruptor**, no un número.
-- Pasá el puntero sobre la etiqueta para ver la explicación del parámetro.
+- Pasá el puntero sobre el nombre del parámetro: aparece un cuadro flotante (como en Bambu Studio) con qué hace, qué pasa si lo subís o lo bajás, su rango, el valor por defecto y el actual, y el dibujo acotado con ese parámetro resaltado.
 
 - **Perfil de línea:** escribí un nombre y **Guardar** para dejar estos parámetros en `~/.config/afm/perfiles/`; en la próxima figura elegí el perfil y **Cargar**. Las siluetas y los planos no se tocan.
 - **Probetas:** elegí el pasador (cadera, hombro o la bisagra de rodilla/codo) y **Generar probetas de articulación…**. En la carpeta quedan:

@@ -22,6 +22,7 @@ from .catalog_manager import can_retune_joint, find_piece, piece_label  # noqa: 
 from .controller import EXPORT_ONLY_PARAMS, JOINT_PREFIX, TRIM_OP_LABELS, TRIM_SHAPES, Controller, Mode  # noqa: E402
 from ..progress import CancelToken, TaskCancelled
 from . import param_meta as PM
+from . import param_tooltip
 from . import settings as _settings
 from .progress_panel import ProgressPanel  # noqa: E402
 from .render import SceneRenderer  # noqa: E402
@@ -531,8 +532,7 @@ class MainWindow(Gtk.ApplicationWindow):
             hint = (hint + " " if hint else "") + tr("window.se_aplica_al_exportar_no_obliga")
         row = Gtk.Box(spacing=6)
         lbl = Gtk.Label(label=short, xalign=0, hexpand=True, wrap=True)
-        if hint:
-            lbl.set_tooltip_text(hint)
+        param_tooltip.attach(lbl, key, short, hint, self.ctrl.get_param, self.ctrl.param_default, lo, hi, digits)   # cuadro flotante con la explicación y el dibujo
         click = Gtk.GestureClick()                                          # clic en la etiqueta: el diagrama anima el parámetro
         click.connect("pressed", lambda *_, k=key: self.param_diagram.animate(k))
         lbl.add_controller(click)

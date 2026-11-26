@@ -38,6 +38,28 @@ def group_of(key: str) -> str:
     return PARAM_GROUPS[0]
 
 
+_PIN_JOINTS = frozenset({"shoulder_pin", "hip_pin", "waist_pin", "hand_pin"})
+_PIN_PARTS = frozenset({"shaft_d", "shaft_len", "head_d", "head_h"})
+
+
+def help_key(key: str) -> str:
+    """Clave del texto de ayuda en `param_help.*` (los cuatro pasadores comparten el texto de cada medida)."""
+    pre, _, rest = key.partition(".")
+    if pre in _PIN_JOINTS and rest in _PIN_PARTS:
+        return f"pin_{rest}"
+    return key.replace(".", "_")
+
+
+def help_text(key: str) -> str:
+    """Qué hace el parámetro y qué pasa si se sube o se baja (lo que muestra el cuadro flotante). Vacío si no hay texto."""
+    hk = help_key(key)
+    pre = key.partition(".")[0]
+    kw = {"joint": tr(f"param_help.joint_{pre}")} if hk.startswith("pin_") else {}
+    full = f"param_help.{hk}"
+    text = tr(full, **kw)
+    return "" if text == full else text
+
+
 _PAREN = re.compile(r"^(?P<base>.*?) \((?P<inner>.*)\)$")
 _ONOFF = re.compile(r"^1 = (?P<on>[^,]+), 0 = (?P<off>.+)$")
 

@@ -79,3 +79,20 @@ def test_reset_all_is_a_single_undo_step_and_undoable(ctrl):
 
 def test_reset_with_nothing_modified_says_so(ctrl):
     assert ctrl.reset_params() == 0 and "ya tienen" in ctrl.message
+
+
+def test_every_param_has_help_text_in_every_language():
+    from afm import i18n
+    try:
+        for lang in ("es", "en", "pt"):
+            i18n.set_language(lang)
+            for key, *_ in PARAM_FIELDS:
+                text = PM.help_text(key)
+                assert text and "%{" not in text, (lang, key)
+    finally:
+        i18n.set_language("es")
+
+
+def test_pin_help_names_the_joint():
+    assert "hombro" in PM.help_text("shoulder_pin.shaft_d") and "cadera" in PM.help_text("hip_pin.shaft_d")
+    assert PM.help_key("hinge_pin.pin_d") == "hinge_pin_pin_d" and PM.help_key("hand_pin.head_h") == "pin_head_h"
