@@ -170,3 +170,22 @@ def test_cli_paquete_fichas(zip_brazo, tmp_path, capsys, monkeypatch):
     assert main(["catalogo", "paquete", "fichas", zip_brazo]) == 0
     assert json.loads(capsys.readouterr().out)["formato"] == "afm-fichas-1"
     assert main(["catalogo", "paquete", "fichas", str(tmp_path / "no.zip")]) == 2
+
+
+def test_bloqueados_se_escriben_validan_y_los_lee_el_cliente(zip_brazo):
+    """D16: la clave aditiva `bloqueados` hace ida y vuelta (`build_index` → esquema → `remoto.parse_index`) y sin lista no aparece."""
+    e = X.entry_from_zip(zip_brazo, url="https://github.com/o/r/a.zip", autor="owner")
+    assert "bloqueados" not in X.build_index([e]) and "bloqueados" not in X.build_index([e], bloqueados=[])
+    bloqueos = [{"id": e["id"], "motivo": "reclamo de derechos", "fecha": "2026-11-25"}, {"autor": "otro"}, {"sha256": "ab" * 32, "motivo": "re-subido"}]
+    idx = X.build_index([e], bloqueados=bloqueos)
+    validator("indice").validate(idx)
+    got = R.parse_index(json.dumps(idx))
+    assert got.avisos == [] and [(b.id, b.autor, b.sha256[:2]) for b in got.bloqueados] == [(e["id"], "", ""), ("", "otro", ""), ("", "", "ab")]
+    assert got.entries[0].bloqueado.startswith(f"bloqueado por id «{e['id']}» (reclamo de derechos)") and not got.entries[0].visible
+
+
+def test_el_esquema_de_bloqueados_pide_exactamente_una_clave(zip_brazo):
+    e = X.entry_from_zip(zip_brazo, url="https://github.com/o/r/a.zip")
+    v = validator("indice")
+    for malo in ({"motivo": "sin clave"}, {"id": "a", "autor": "b"}, {"sha256": "corto"}, {"id": "Mayúsculas"}):
+        assert list(v.iter_errors(X.build_index([e], bloqueados=[malo]))), malo

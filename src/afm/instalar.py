@@ -533,10 +533,14 @@ def _dump(obj) -> bytes:
     return (json.dumps(obj, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
 
 
-def apply(plan: InstallPlan, *, confirmar_origen: bool = False, now: datetime | None = None) -> InstallResult:
+def apply(plan: InstallPlan, *, confirmar_origen: bool = False, now: datetime | None = None, journal: "_Journal | None" = None) -> InstallResult:
     """Instala lo que dice `plan` (ver el docstring del módulo). Ante **cualquier** fallo el catálogo queda idéntico al de antes
     (si el destino era una línea nueva, la carpeta que se creó se borra). `confirmar_origen` es obligatorio cuando el id estaba instalado
-    desde otro repo (`plan.cambia_origen`)."""
+    desde otro repo (`plan.cambia_origen`).
+
+    `journal` (D16, lo usa `dependencias.install_chain`): un diario **compartido** entre varios `apply` seguidos. Si se pasa, un fallo limpia el
+    staging y vuelve a lanzar la excepción **sin** deshacer lo escrito ni borrar la carpeta: quien lo pasó llama a `journal.rollback()` una sola vez
+    y el catálogo queda como antes de la cadena entera."""
     if not plan.ok:
         raise InstallError("el plan tiene errores: " + "; ".join(str(i) for i in plan.errors[:3]))
     if plan.cambia_origen and not confirmar_origen:
@@ -547,7 +551,8 @@ def apply(plan: InstallPlan, *, confirmar_origen: bool = False, now: datetime | 
     root = plan.root
     created_root = not os.path.exists(root)
     staging = None
-    journal = _Journal(root)
+    shared = journal is not None
+    journal = journal if shared else _Journal(root)
     when = (now or datetime.now(timezone.utc)).isoformat(timespec="seconds")
     try:
         os.makedirs(root, exist_ok=True)
@@ -602,11 +607,12 @@ def apply(plan: InstallPlan, *, confirmar_origen: bool = False, now: datetime | 
             reg["paquetes"][pkg.id]["heredado_sha256"] = plan.heredado_sha256
         journal.write(os.path.join(root, REGISTRY_FILE), _dump(reg))            # al final: es lo que da la instalación por hecha
     except BaseException:
-        journal.rollback()
         if staging:
             shutil.rmtree(staging, ignore_errors=True)
-        if created_root:
-            shutil.rmtree(root, ignore_errors=True)
+        if not shared:
+            journal.rollback()
+            if created_root:
+                shutil.rmtree(root, ignore_errors=True)
         raise
     shutil.rmtree(staging, ignore_errors=True)
     return InstallResult(paquete=pkg, root=root, piezas=refs["piezas"], recetas=refs["recetas"], roles=refs["roles"],

@@ -250,6 +250,35 @@ def _index_cache_paths(url: str, cache: str) -> tuple[str, str]:
 # ------------------------------------------------------------------------------------------------------------------------ el índice
 
 @dataclass(frozen=True)
+class Block:
+    """Una línea de `bloqueados` del índice (§5.5, D16/D24): lo que el índice se niega a listar, con motivo y fecha.
+
+    Bloquea por **`id`**, por **autor** o por **`sha256`** del zip (exactamente uno de los tres): un reclamo no se esquiva volviendo a subir lo
+    mismo con otro nombre. El que bloquea por `sha256` afecta a esa versión; por `id` o autor, a todo el paquete.
+    """
+
+    id: str = ""
+    autor: str = ""
+    sha256: str = ""
+    motivo: str = ""
+    fecha: str = ""
+
+    def matches(self, entry: "Entry", release: "Release | None" = None) -> bool:
+        if self.id:
+            return entry.id == self.id
+        if self.autor:
+            return bool(entry.autor) and entry.autor.casefold() == self.autor.casefold()
+        if self.sha256:
+            rels = [release] if release is not None else ([entry.latest] if entry.latest else []) + list(entry.versiones)
+            return any(r.sha256 == self.sha256 for r in rels)
+        return False
+
+    def describe(self) -> str:
+        what = f"id «{self.id}»" if self.id else f"autor «{self.autor}»" if self.autor else f"sha256 {self.sha256[:12]}…"
+        return f"bloqueado por {what}" + (f" ({self.motivo})" if self.motivo else "") + (f", {self.fecha}" if self.fecha else "")
+
+
+@dataclass(frozen=True)
 class Release:
     """Un zip publicado: lo que el índice sabe de él (el `sha256` es el que manda)."""
 
@@ -291,12 +320,29 @@ class Entry:
     update_check: str = ""
     descargas: dict | None = None         # `null` (no hay contador) ≠ {"total": 0}
     indice: str = ""                      # URL del índice de donde sale
+    bloqueos: tuple = ()                  # los `Block` del índice de donde sale (D16)
     raw: dict = field(default_factory=dict)
 
     @property
+    def bloqueado(self) -> str:
+        """El motivo si el índice bloquea el paquete entero (por `id` o autor); "" si no. Un bloqueo por `sha256` es de una versión: `block_of`."""
+        for b in self.bloqueos:
+            if (b.id or b.autor) and b.matches(self):
+                return b.describe()
+        return ""
+
+    def block_of(self, release: "Release | None" = None) -> str:
+        """Por qué no se puede instalar `release` (o la última): paquete bloqueado, o su `sha256` bloqueado; "" si se puede."""
+        rel = release or self.latest
+        for b in self.bloqueos:
+            if b.matches(self, rel):
+                return b.describe()
+        return ""
+
+    @property
     def visible(self) -> bool:
-        """`inaccesible` se oculta en «Explorar» (no se borra del índice: vuelve sola si el repo se recupera)."""
-        return self.update_check != "inaccesible"
+        """`inaccesible` o bloqueado se oculta en «Explorar» (no se borra del índice: lo primero vuelve solo si el repo se recupera)."""
+        return self.update_check != "inaccesible" and not self.bloqueado
 
     @property
     def instalable(self) -> bool:
@@ -319,6 +365,7 @@ class Index:
     generado: str = ""
     categorias: list = field(default_factory=list)
     entries: list = field(default_factory=list)
+    bloqueados: list = field(default_factory=list)  # `Block` (clave aditiva `bloqueados` del índice, D16)
     avisos: list = field(default_factory=list)      # entradas saltadas, claves raras…
     origen: str = "red"                              # red (200) | validado (304) | guardado (sin red)
     error_red: str = ""                              # por qué se usó el guardado
@@ -402,6 +449,29 @@ def _entry(d: dict, base_url: str, avisos: list, n: int) -> Entry | None:
     return e
 
 
+def _blocks(items, avisos: list) -> list:
+    """`bloqueados` del índice → `Block`. Tolerante: una línea rara se salta con aviso (nunca invalida el índice)."""
+    if items is None:
+        return []
+    if not isinstance(items, list):
+        avisos.append("«bloqueados» no es una lista; se ignora")
+        return []
+    out = []
+    for n, b in enumerate(items, 1):
+        if not isinstance(b, dict):
+            avisos.append(f"bloqueo {n}: no es un objeto; se salta")
+            continue
+        keys = [k for k in ("id", "autor", "sha256") if isinstance(b.get(k), str) and b[k]]
+        if len(keys) != 1:
+            avisos.append(f"bloqueo {n}: tiene que tener exactamente uno de id, autor o sha256; se salta")
+            continue
+        if keys[0] == "sha256" and not _SHA_RE.match(b["sha256"]):
+            avisos.append(f"bloqueo {n}: el sha256 no es válido; se salta")
+            continue
+        out.append(Block(**{keys[0]: b[keys[0]]}, motivo=_str(b, "motivo"), fecha=_str(b, "fecha")))
+    return out
+
+
 def parse_index(data, *, url: str = "") -> Index:
     """`index.json` → `Index`. Tolerante con claves y entradas raras; estricto solo con la forma mínima y la `schema_version`."""
     try:
@@ -419,6 +489,7 @@ def parse_index(data, *, url: str = "") -> Index:
     if not isinstance(items, list):
         raise IndexInvalid("al índice le falta la lista «paquetes»")
     idx = Index(url=url, schema_version=sv, generado=_str(d, "generado"), categorias=_str_list(d, "categorias"))
+    idx.bloqueados = _blocks(d.get("bloqueados"), idx.avisos)
     seen = set()
     for n, item in enumerate(items, 1):
         if not isinstance(item, dict):
@@ -427,6 +498,7 @@ def parse_index(data, *, url: str = "") -> Index:
         e = _entry(item, url, idx.avisos, n)
         if e is None:
             continue
+        e.bloqueos = tuple(idx.bloqueados)
         if e.folder in seen:
             idx.avisos.append(f"entrada «{e.folder}» repetida; se queda la primera")
             continue
@@ -526,6 +598,9 @@ def download_package(entry: Entry, *, version: str | None = None, policy: Policy
     rel = entry.release(version)
     if rel is None:
         raise RemoteError(f"«{entry.id}» no tiene {'la versión ' + version if version else 'una versión instalable'} en el índice")
+    why = entry.block_of(rel)
+    if why:
+        raise RemoteError(f"«{entry.id}» {rel.version} no se instala: {why}")          # un bloqueo no se salta con ninguna opción
     if rel.version in entry.retiradas and not allow_retirada:
         raise RemoteError(f"la versión {rel.version} de «{entry.id}» fue retirada por sus responsables; no se instala")
     policy = policy or policy_for(entry.indice or rel.url)
@@ -669,6 +744,8 @@ def resolve(indexes, ident: str, *, instalable: bool = False) -> Entry:
     if len(found) > 1:
         raise RemoteError(f"«{ident}» está en más de un lugar ({', '.join(f'{e.folder} de {e.indice}' for e in found)}): usá Autor@id o elegí un índice con --indice")
     e = found[0]
+    if instalable and e.bloqueado:
+        raise RemoteError(f"«{e.folder}» no se puede instalar: {e.bloqueado}")
     if instalable and not e.visible:
         raise RemoteError(f"«{e.folder}» figura como inaccesible (su repo o su Release no responden); probá más tarde")
     return e
@@ -688,6 +765,8 @@ def installed_version(entry: Entry, root: str | None = None) -> str | None:
 
 def state(entry: Entry, root: str | None = None) -> str:
     """`no instalado` · `instalado X` · `actualización X` (instalado una versión más vieja que `latest`) · `inaccesible` · `sin versión instalable`."""
+    if entry.bloqueado:
+        return "bloqueado"
     if not entry.visible:
         return "inaccesible"
     have = installed_version(entry, root)
