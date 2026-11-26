@@ -462,7 +462,7 @@ Además, todo Release que el bot adopta pasa `afm catalogo paquete validar --est
 ### Cómo leer las fichas
 **Depende de** = tiene que estar hecha. **Paralelo con** = se puede hacer en otro turno sin esperarla. Cada tarea cierra con un patch `git am` y sus pruebas; las nuevas van en `tests/test_paquete*.py`, `test_instalar.py`, `test_remoto.py`, `test_catalog_online.py` salvo que se indique otra cosa.
 
-**Estado (2026-11-25):** hechas además **D11** (`indice.py` y esquemas), **D13**, **D14** y **D15** (`compat_remota.py`); antes, **D02** (`paquete.py`), **D03** (`exportar`), **D04** y **D08** (`validar.py`, `ziplector.py`), **D05** (`instalar.py`) y **D06** (`afm catalogo instalar`) y **D07** (zips heredados; falta probarlo con el `proceres-127.zip` real). Siguen CK305 y los topes definitivos de `ziplector`; D00 y D01 esperan al cliente.
+**Estado (2026-11-26):** hecha además **D09** (`autor.py`: `paquete init | github | empaquetar` y el workflow de Release); **Estado (2026-11-25):** hechas además **D11** (`indice.py` y esquemas), **D13**, **D14** y **D15** (`compat_remota.py`); antes, **D02** (`paquete.py`), **D03** (`exportar`), **D04** y **D08** (`validar.py`, `ziplector.py`), **D05** (`instalar.py`) y **D06** (`afm catalogo instalar`) y **D07** (zips heredados; falta probarlo con el `proceres-127.zip` real). Siguen CK305 y los topes definitivos de `ziplector`; D00 y D01 esperan al cliente.
 
 ### Orden y paralelismo
 

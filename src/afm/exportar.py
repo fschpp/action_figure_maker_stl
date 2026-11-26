@@ -309,6 +309,32 @@ def _read_text(path: str, what: str) -> bytes:
 # ---------------------------------------------------------------------------------------------------- exportar
 
 
+def write_zip(out: str, entries: list) -> None:
+    """Escribe `out` con `entries` (`_Entry`, en ese orden): fecha, permisos y compresión fijos, así que el mismo contenido da el mismo zip.
+
+    Se escribe aparte (`out.tmp`) y se mueve al final; `ExportError` si no se puede escribir. Lo comparten `export_package` y
+    `autor.pack_dir` (D09)."""
+    tmp = out + ".tmp"
+    try:
+        with zipfile.ZipFile(tmp, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=ZIP_LEVEL) as zf:
+            for e in entries:
+                zi = zipfile.ZipInfo(e.arcname, date_time=ZIP_DATE)
+                zi.compress_type = zipfile.ZIP_DEFLATED
+                zi.external_attr = 0o100644 << 16
+                zi.create_system = 3
+                if e.data is None:
+                    with open(e.path, "rb") as src:
+                        zf.writestr(zi, src.read(), compresslevel=ZIP_LEVEL)
+                else:
+                    zf.writestr(zi, e.data, compresslevel=ZIP_LEVEL)
+        os.replace(tmp, out)
+    except OSError as exc:
+        raise ExportError(f"no se pudo escribir «{out}»: {exc}") from None
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+
 def export_package(cat: Catalog, out: str, *, piezas=(), recetas=(), linea_completa: bool = False, incluir_fbx: bool = False,
                    base: Paquete | None = None, id: str = "", nombre: str = "", version: str = "", descripcion: str = "",
                    tipo: str = "", autores=(), licencia: str = "", origen: str = "", github: str = "", categorias=(),
@@ -410,25 +436,7 @@ def export_package(cat: Catalog, out: str, *, piezas=(), recetas=(), linea_compl
     manifest = _entry_from_data(MANIFEST_FILE, pkg.to_json().encode("utf-8"))
 
     # ---- zip (determinista; se escribe aparte y se mueve al final)
-    tmp = out + ".tmp"
-    try:
-        with zipfile.ZipFile(tmp, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=ZIP_LEVEL) as zf:
-            for e in [manifest] + [entries[k] for k in sorted(entries)]:
-                zi = zipfile.ZipInfo(e.arcname, date_time=ZIP_DATE)
-                zi.compress_type = zipfile.ZIP_DEFLATED
-                zi.external_attr = 0o100644 << 16
-                zi.create_system = 3
-                if e.data is None:
-                    with open(e.path, "rb") as src:
-                        zf.writestr(zi, src.read(), compresslevel=ZIP_LEVEL)
-                else:
-                    zf.writestr(zi, e.data, compresslevel=ZIP_LEVEL)
-        os.replace(tmp, out)
-    except OSError as exc:
-        raise ExportError(f"no se pudo escribir «{out}»: {exc}") from None
-    finally:
-        if os.path.exists(tmp):
-            os.remove(tmp)
+    write_zip(out, [manifest] + [entries[k] for k in sorted(entries)])
     return ExportResult(path=out, paquete=pkg, archivos={k: e.size for k, e in sorted(entries.items())}, avisos=avisos,
                         sha256=P.sha256_file(out), tamano=os.path.getsize(out))
 

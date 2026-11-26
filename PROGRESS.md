@@ -1,3 +1,21 @@
+## Current Focus — Catálogos en línea: D09 herramientas de autor `paquete init | github | empaquetar` (2026-11-26, sobre main edea708)
+**Objetivo.** Que un autor arme la carpeta de su paquete (un repo de GitHub) y que un push publique `<id>-<version>.zip` en un Release, que es lo que el índice (D12) toma solo.
+**Hecho.**
+- `src/afm/autor.py`: `init_package_dir` (paquete.json, README, LICENSE con texto SPDX, CREDITOS.md, `.gitignore`, `.github/workflows/publicar-paquete.yml`; exige licencia, origen y autor/github: cada persona responde por su contenido; devuelve `pendientes`), `set_github` (equivale a `set-github` + `add-release-workflow` de modkit: edita el JSON tal cual, conserva claves desconocidas y no pisa un workflow modificado sin `--sobrescribir-workflow`), `pack_dir` (zip determinista desde la carpeta; recalcula `archivos` y `contenido`, completa la línea desde `linea.json`, `--version-paquete` cambia la versión solo en el zip) y `workflow_text`.
+- Workflow: en cada push a `main` instala afm, **empaqueta → valida `--estricto` → publica** el Release `v<versión>` con el asset `<id>-<version>.zip`; un Release existente no se pisa; versión `X-pre` ⇒ prerelease; `[release X.Y.Z]` en el commit se lee con `git log` dentro del script (el mensaje nunca se interpola en el YAML) y `AFM_REF` fija qué afm arma el paquete.
+- `exportar.write_zip` (extraído de `export_package`, sin cambio de formato): lo usan exportar y empaquetar, así que el mismo contenido da el mismo zip.
+- CLI: `afm catalogo paquete init DIR --id … --autor … --licencia … --origen … [--perfil heroe|piezas|linea|coleccion --github --linea --altura-mm --categoria]`, `paquete github OWNER/REPO [DIR]`, `paquete empaquetar [DIR] [-o zip] [--version-paquete X.Y.Z] [--sobrescribir]` (salida por defecto `dist/<id>-<version>.zip`). Salida 0 ok · 2 dato faltante o carpeta que no sirve.
+**Pruebas.** `tests/test_autor.py` (16): init y perfiles, datos obligatorios, workflow (orden de pasos, sin inyección, YAML válido), github (idempotente, claves futuras, workflow propio), empaquetar (pasa `validar --estricto`, determinista, no cambia la carpeta, versión solo en el zip, enlaces simbólicos, sin portada ⇒ falla estricto), lo empaquetado se instala con `afm catalogo instalar`, CLI. Con exportar, paquete, remoto_cli, portabilidad e i18n pasan.
+
+### Todo List
+- [x] Done: D02–D09, D11, D13, D14, D15
+- [ ] Todo: D10 `paquete enviar` (necesita D12); D12 repo del índice (G0/D00); D17 lógica de la GUI en línea
+- [ ] Todo: probar el workflow en un repo real (hoy solo se validó el YAML con `yaml.safe_load`, no corrió en Actions)
+
+### Latest Blockers/Discoveries
+- `autor.py` (adjunto por el cliente) importaba `write_zip`, que no existía en `exportar.py`, y usaba `Q.sha256_file` (vive en `parts`): corregidos.
+- El workflow instala afm desde `git+https://github.com/fschpp/action_figure_maker_stl.git@main`: hasta que este patch esté en main, `paquete empaquetar` no existe allí. Conviene fijar `AFM_REF` a una etiqueta cuando haya una.
+
 ## Current Focus — Plugins de articulación, Fase 1 (tareas 1–2: datos y `FaceRequirements`) (2026-11-26, rama plugins_fase1 sobre main de7157c)
 **Objetivo.** Que el tipo de articulación y sus medidas sean DATOS del proyecto y de la línea, sin cambiar un byte de lo guardado (`docs/PLAN_plugins_articulacion.md` §3.6, §5 Fase 1). Es la primera de varias tareas de la Fase 1.
 **Hecho.**

@@ -1,4 +1,5 @@
-"""Subcomandos de paquetes de `afm catalogo …` (plan de catálogos en línea, §5.6): `exportar` (D03), `paquete validar` (D04) e `instalar` (D06).
+"""Subcomandos de paquetes de `afm catalogo …` (plan de catálogos en línea, §5.6): `exportar` (D03), `paquete validar` (D04), `instalar` (D06)
+y las herramientas de autor `paquete init|github|empaquetar` (D09).
 
 Se enchufa desde `catalog_cli.add_parsers` / `_run` para no engordar ese archivo; los siguientes (`paquete …`, `remoto …`)
 cuelgan de acá. La lógica vive en `exportar.py`: este módulo solo lee argumentos e imprime.
@@ -60,7 +61,7 @@ def add_parsers(cs, root) -> None:
     i.add_argument("--autor", action="append", default=[], metavar="NOMBRE[:github]", help="solo zips heredados (repetible)")
     i.add_argument("--id", default="", help="solo zips heredados: id del paquete (por defecto el nombre de la línea)")
     i.add_argument("--version-paquete", default="", metavar="X.Y.Z", help="solo zips heredados (por defecto 1.0.0)")
-    pq = cs.add_parser("paquete", help="herramientas de paquetes .zip (validar, fichas)")
+    pq = cs.add_parser("paquete", help="herramientas de paquetes .zip (validar, fichas) y de autor (init, github, empaquetar)")
     ps = pq.add_subparsers(dest="paqcmd", required=True)
     v = ps.add_parser("validar", help="revisar un paquete .zip (lint CK101–CK403): manifiesto, hashes, archivos, color, línea y `verify` del contenido")
     v.add_argument("zip", metavar="paquete.zip")
@@ -71,6 +72,36 @@ def add_parsers(cs, root) -> None:
     f.add_argument("zip", metavar="paquete.zip")
     f.add_argument("-o", "--salida", default="", metavar="FICHAS.json", help="archivo de salida (sin -o se imprime en la consola)")
     f.add_argument("--sobrescribir", action="store_true")
+    _add_author_parsers(ps)
+
+
+def _add_author_parsers(ps) -> None:
+    """D09: `paquete init`, `paquete github` y `paquete empaquetar` (trabajan sobre la carpeta del paquete, no sobre un catálogo)."""
+    from .autor import PROFILES
+
+    n = ps.add_parser("init", help="crear la carpeta de un paquete nuevo (paquete.json, README, LICENSE, CREDITOS.md y el workflow que publica el Release)")
+    n.add_argument("dir", metavar="DIR", help="carpeta nueva (o vacía)")
+    n.add_argument("--id", required=True, help="id del paquete (minúsculas, números y guiones)")
+    n.add_argument("--perfil", default="heroe", choices=list(PROFILES), help="heroe (por defecto), piezas, linea o coleccion")
+    n.add_argument("--nombre", default="")
+    n.add_argument("--descripcion", default="", help="una o dos frases (el texto largo va en el README)")
+    n.add_argument("--version-paquete", default="0.1.0", metavar="X.Y.Z")
+    n.add_argument("--autor", action="append", default=[], metavar="NOMBRE[:github]", help="repetible; obligatorio salvo que se dé --github")
+    n.add_argument("--licencia", default="", metavar="SPDX", help="obligatoria (p. ej. CC-BY-4.0): cada persona responde por su contenido")
+    n.add_argument("--origen", default="", choices=["", *Q.ORIGINS], help="obligatorio")
+    n.add_argument("--github", default="", metavar="owner/repo", help="repo donde se publica (activa el seguimiento del índice)")
+    n.add_argument("--linea", default="", help="nombre de la línea (si no, se toma de linea.json al empaquetar)")
+    n.add_argument("--altura-mm", type=float, default=0.0, help="altura de la línea en mm")
+    n.add_argument("--categoria", action="append", default=[], metavar="CAT", help=f"1 a {Q.CATEGORIES_MAX} de: {', '.join(Q.CATEGORIES)}")
+    g = ps.add_parser("github", help="fijar `github` en paquete.json y dejar el workflow de Release (como set-github + add-release-workflow de modkit)")
+    g.add_argument("repo", metavar="OWNER/REPO")
+    g.add_argument("dir", nargs="?", default=".", metavar="DIR", help="carpeta del paquete (por defecto la actual)")
+    g.add_argument("--sobrescribir-workflow", action="store_true", help="reemplazar el workflow aunque tenga cambios propios")
+    e = ps.add_parser("empaquetar", help="armar <id>-<version>.zip desde la carpeta del paquete (recalcula archivos y contenido); lo usa el workflow")
+    e.add_argument("dir", nargs="?", default=".", metavar="DIR", help="carpeta del paquete (por defecto la actual)")
+    e.add_argument("-o", "--salida", default="", metavar="paquete.zip", help="por defecto dist/<id>-<version>.zip dentro de DIR")
+    e.add_argument("--version-paquete", default="", metavar="X.Y.Z", help="usar esta versión solo en el zip (el manifiesto del repo no cambia)")
+    e.add_argument("--sobrescribir", action="store_true")
 
 
 def run_exportar(cat: Catalog, args) -> int:
@@ -94,8 +125,53 @@ def run_exportar(cat: Catalog, args) -> int:
 
 
 def run_paquete(args) -> int:
-    """`afm catalogo paquete validar|fichas ZIP`."""
+    """`afm catalogo paquete validar|fichas|init|github|empaquetar`."""
+    if args.paqcmd in ("init", "github", "empaquetar"):
+        return run_autor(args)
     return run_fichas(args) if args.paqcmd == "fichas" else run_validar(args)
+
+
+def run_autor(args) -> int:
+    """`paquete init|github|empaquetar` (D09). 0 = hecho; 2 = falta un dato o la carpeta no sirve (el mensaje dice qué corregir)."""
+    from . import autor as A
+
+    try:
+        if args.paqcmd == "init":
+            res = A.init_package_dir(
+                args.dir, id=args.id, perfil=args.perfil, nombre=args.nombre, descripcion=args.descripcion, version=args.version_paquete,
+                autores=args.autor, licencia=args.licencia, origen=args.origen, github=args.github, linea=args.linea,
+                altura_mm=args.altura_mm, categorias=args.categoria)
+            print(f"Paquete «{res.paquete.id}» ({res.paquete.tipo}) creado en {res.dir}:")
+            for rel in res.archivos:
+                print(f"  {rel}")
+            if res.pendientes:
+                print("Falta para que `afm catalogo paquete validar --estricto` pase:")
+                for t in res.pendientes:
+                    print(f"  - {t}")
+            if not res.paquete.github:
+                print("Cuando tengas el repo: `afm catalogo paquete github OWNER/REPO` fija `github` y deja el workflow.")
+            return 0
+        if args.paqcmd == "github":
+            changed, wrote = A.set_github(args.dir, args.repo, overwrite_workflow=args.sobrescribir_workflow)
+            print(f"github = {args.repo}" + ("" if changed else " (ya estaba)"))
+            print(f"{A.WORKFLOW_PATH}: " + ("escrito" if wrote else "ya está al día"))
+            return 0
+        out = args.salida
+        if not out:
+            _p, raw = A._read_manifest_raw(args.dir)
+            ver = args.version_paquete or str(raw.get("version", ""))
+            out = os.path.join(args.dir, A.DIST_DIR, f"{raw.get('id', '')}-{ver}.zip")
+        res = A.pack_dir(args.dir, out, version=args.version_paquete, overwrite=args.sobrescribir)
+    except A.AutorError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    p = res.paquete
+    print(f"Paquete «{p.id}» {p.version} ({p.tipo}) → {res.path}")
+    print(f"  {len(p.contenido.piezas)} pieza(s), {len(p.contenido.recetas)} receta(s), paleta: {'sí' if p.contenido.paleta else 'no'}; "
+          f"{len(res.archivos) + 1} archivos, {res.tamano / 1e6:.2f} MB, sha256 {res.sha256}")
+    for w in res.avisos:
+        print("AVISO:", w)
+    return 0
 
 
 def run_fichas(args) -> int:
@@ -238,4 +314,4 @@ def _install_plan(args, plan, I) -> int:
     return 0
 
 
-__all__ = ["ExportError", "add_parsers", "run_exportar", "run_validar", "run_paquete", "run_fichas", "run_instalar"]
+__all__ = ["ExportError", "add_parsers", "run_exportar", "run_validar", "run_paquete", "run_fichas", "run_instalar", "run_autor"]
