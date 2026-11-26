@@ -4,9 +4,11 @@ Se guardan en ~/.config/afm/perfiles/<nombre>.json (o en el directorio indicado)
 """
 from __future__ import annotations
 
+import copy
 import json
 import os
-from dataclasses import replace
+import tempfile
+from dataclasses import asdict, replace
 
 from .params import Params
 
@@ -26,6 +28,9 @@ def _path(name: str, directory: str | None = None) -> str:
 
 
 def default_for_nozzle(nozzle: float) -> Params:
+    own = app_defaults()
+    if abs(own.nozzle - nozzle) < 1e-9 and app_defaults_changes():
+        return own                       # valores por defecto propios (p. ej. de las probetas) para esta boquilla: mandan
     p = Params()
     p.nozzle = nozzle
     p.clearance = NOZZLE_CLEARANCE.get(round(nozzle, 2), p.clearance)
@@ -101,28 +106,125 @@ def probe_cell_summary(manifest: dict, cell: dict) -> str:
     return f"holgura {cell.get('holgura', '?')} mm"
 
 
-def apply_probe_cell(params: Params, manifest: dict, n: int, archivo: str | None = None) -> tuple[Params, str]:
-    """Pasa a los parámetros la celda `n` de una tirada de probetas: devuelve (parámetros nuevos, resumen en una línea).
+def probe_cell_changes(manifest: dict, n: int, archivo: str | None = None) -> dict:
+    """Los valores que fija la celda `n`, como `{ruta con puntos: valor}` (p. ej. `{"clearance": 0.4, "hip_pin.shaft_d": 4.1}`).
 
-    · hongo: holgura (la general de la figura) y Ø del vástago del pasador de la tirada (cadera u hombro);
-    · bisagra: holgura radial (la general), holgura axial y Ø del bulón;
-    · clic: la `DetentSpec` completa de la celda.
-    La montura de armas no tiene parámetro global (la holgura se pasa en cada `MountSpec`)."""
+    Es lo único que hay que propagar (perfil, línea del catálogo, valores por defecto): el resto de los parámetros de cada
+    destino no se toca.
+      · hongo: `clearance` y el Ø de vástago del pasador de la tirada (cadera u hombro);
+      · bisagra: `clearance`, `axial_clearance` y `hinge_pin.pin_d`;
+      · clic: la `DetentSpec` completa de la celda."""
     from .params import DetentSpec
 
     cell = probe_cell(manifest, n, archivo)
     tipo = manifest.get("tipo")
     if tipo == "hongo":
-        which = "hip" if manifest.get("pasador") == "cadera" else "shoulder"
-        out = apply_probe_result(params, float(cell["holgura"]), float(cell["vastago"]), which)
-    elif tipo == "bisagra":
-        out = replace(params, clearance=float(cell["holgura"]), axial_clearance=float(cell["holgura_axial"]))
-        out.hinge_pin = replace(params.hinge_pin, pin_d=float(cell["bulon"]))
-    elif tipo == "clic":
-        out = replace(params, detent=DetentSpec(**cell["detent"]))
-    else:
-        raise ValueError("la probeta de montura no guarda nada en el perfil: pasá la holgura elegida como `holgura` de la montura")
-    return out, probe_cell_summary(manifest, cell)
+        pin = "hip_pin" if manifest.get("pasador") == "cadera" else "shoulder_pin"
+        return {"clearance": float(cell["holgura"]), f"{pin}.shaft_d": float(cell["vastago"])}
+    if tipo == "bisagra":
+        return {"clearance": float(cell["holgura"]), "axial_clearance": float(cell["holgura_axial"]),
+                "hinge_pin.pin_d": float(cell["bulon"])}
+    if tipo == "clic":
+        return {"detent": asdict(DetentSpec(**cell["detent"]))}
+    raise ValueError("la probeta de montura no guarda nada en el perfil: pasá la holgura elegida como `holgura` de la montura")
+
+
+def apply_changes(params: Params, changes: dict) -> Params:
+    """Copia de `params` con `changes` (`{ruta con puntos: valor}`) aplicados; no modifica el original."""
+    d = copy.deepcopy(params.to_dict())
+    for path, value in changes.items():
+        *head, last = path.split(".")
+        obj = d
+        for k in head:
+            obj = obj[k]
+        if last not in obj:
+            raise KeyError(f"parámetro desconocido: {path}")
+        obj[last] = copy.deepcopy(value)
+    return Params.from_dict(d)
+
+
+def format_changes(changes: dict) -> list[str]:
+    """Una línea por valor (`clearance = 0.4`); una `DetentSpec` se muestra campo por campo en una sola línea."""
+    out = []
+    for k, v in changes.items():
+        if isinstance(v, dict):
+            v = ", ".join(f"{a}={b:g}" if isinstance(b, (int, float)) and not isinstance(b, bool) else f"{a}={b}" for a, b in v.items())
+        out.append(f"{k} = {v:g}" if isinstance(v, float) else f"{k} = {v}")
+    return out
+
+
+def update_profile(name: str, changes: dict, base: Params, directory: str | None = None) -> tuple[str, bool]:
+    """Pone `changes` en el perfil `name`. Si el perfil ya existe se le aplican solo esos valores (conserva el resto de lo que
+    tenía); si no existe se crea a partir de `base` (los parámetros de la figura abierta, que ya los traen). Devuelve (ruta, existía)."""
+    path = _path(name, directory)
+    existed = os.path.isfile(path)
+    params = apply_changes(load_profile(name, directory), changes) if existed else base
+    return save_profile(name, params, directory), existed
+
+
+def apply_probe_cell(params: Params, manifest: dict, n: int, archivo: str | None = None) -> tuple[Params, str]:
+    """Pasa a los parámetros la celda `n` de una tirada de probetas: devuelve (parámetros nuevos, resumen en una línea).
+
+    Los valores que fija cada tipo están en `probe_cell_changes`. La montura de armas no tiene parámetro global (la holgura
+    se pasa en cada `MountSpec`)."""
+    cell = probe_cell(manifest, n, archivo)
+    return apply_changes(params, probe_cell_changes(manifest, n, archivo)), probe_cell_summary(manifest, cell)
+
+
+# ---------------------------------------------------------------- valores por defecto de la aplicación
+DEFAULTS_FORMAT = "afm-defecto-1"
+
+
+def app_defaults_path() -> str:
+    """`$AFM_DEFAULTS`, o `$XDG_CONFIG_HOME/afm/defecto.json`, o `~/.config/afm/defecto.json`."""
+    env = os.environ.get("AFM_DEFAULTS")
+    if env:
+        return env
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
+    return os.path.join(base, "afm", "defecto.json")
+
+
+def app_defaults_changes() -> dict:
+    """Los valores que el usuario puso como por defecto (`{ruta con puntos: valor}`); vacío si no hay o el archivo no sirve."""
+    try:
+        with open(app_defaults_path(), encoding="utf-8") as fh:
+            d = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(d, dict) or d.get("formato") != DEFAULTS_FORMAT or not isinstance(d.get("cambios"), dict):
+        return {}
+    return d["cambios"]
+
+
+def app_defaults() -> Params:
+    """Parámetros de una figura nueva: los de fábrica con los valores por defecto propios encima. Si el archivo trae algo que
+    ya no existe (otra versión), se usan los de fábrica: nunca falla."""
+    try:
+        return apply_changes(Params(), app_defaults_changes())
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return Params()
+
+
+def save_app_defaults(changes: dict) -> str:
+    """Suma `changes` a los valores por defecto propios (lo que ya había y no se menciona se conserva). Devuelve la ruta."""
+    apply_changes(Params(), changes)                   # valida las rutas y los valores antes de escribir
+    merged = {**app_defaults_changes(), **changes}
+    path = app_defaults_path()
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path) or ".", suffix=".tmp")
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        json.dump({"formato": DEFAULTS_FORMAT, "cambios": merged}, fh, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
+    return path
+
+
+def clear_app_defaults() -> bool:
+    """Vuelve a los valores de fábrica. True si había algo que borrar."""
+    try:
+        os.remove(app_defaults_path())
+    except FileNotFoundError:
+        return False
+    return True
 
 
 def detent_profile(nozzle: float = 0.4) -> Params:

@@ -1066,7 +1066,19 @@
   "no_se_pudo_leer_la_tirada_de_probetas": "Não foi possível ler a série de corpos de prova: %{error}",
   "tirada_de_probetas_cargada": "Série de corpos de prova carregada (%{celdas} células). Escolha o número do melhor.",
   "no_hay_una_tirada_de_probetas_para_elegir": "Gere ou carregue primeiro uma série de corpos de prova.",
-  "probetas_celda_elegida": "Corpos de prova: célula %{n} → %{detalle}. Ficou nos parâmetros; salve o perfil para guardá-la."
+  "probetas_celda_elegida": "Corpos de prova: célula %{n} → %{detalle}. Ficou nos parâmetros; salve o perfil para guardá-la.",
+  "no_hay_una_celda_elegida_para_propagar": "Não há célula escolhida para propagar: use primeiro «Usar esta célula».",
+  "propagar_perfil_actualizado": "✓ Perfil «%{name}» atualizado (%{path})",
+  "propagar_perfil_creado": "✓ Perfil «%{name}» criado (%{path})",
+  "propagar_fallo_perfil": "✗ Não foi possível salvar o perfil «%{name}»: %{error}",
+  "propagar_catalogo_actualizado": "✓ Linha «%{name}» atualizada (%{root}): «Montar figura a partir do catálogo» já a usa",
+  "propagar_catalogo_capacidad": "Se o pino ou a folga mudaram, `afm catalogo capacidad %{root} --escribir` mede os encaixes de novo.",
+  "propagar_fallo_catalogo": "✗ Não foi possível atualizar o catálogo %{root}: %{error}",
+  "propagar_por_defecto_guardado": "✓ Valores padrão do aplicativo salvos (%{path})",
+  "propagar_fallo_por_defecto": "✗ Não foi possível salvar os valores padrão: %{error}",
+  "propagar_nada_elegido": "Nenhum destino escolhido: nada foi escrito.",
+  "valores_por_defecto_de_fabrica": "Valores padrão de fábrica restaurados. As figuras novas começam com eles.",
+  "sin_valores_por_defecto_propios": "Não havia valores padrão próprios: já são os de fábrica."
  },
  "figure_builder": {
   "sin_soportes_resumen": "Sem suportes: corte a %{corte} mm sobre a cauda; braços girados para frente: %{giro}",
@@ -1737,7 +1749,8 @@
   "probetas_resultado": "Resultado do teste: qual número ficou melhor?",
   "usar_esta_celda": "Usar esta célula",
   "cargar_tirada_anterior": "Carregar uma série anterior (probetas.json)…",
-  "sin_tirada_de_probetas": "(sem série: gere ou carregue uma)"
+  "sin_tirada_de_probetas": "(sem série: gere ou carregue uma)",
+  "olvidar_valores_por_defecto_propios": "Esquecer os valores padrão próprios"
  },
  "plane_panel": {
   "planos_del_proyecto": "Planos do projeto",
@@ -2110,7 +2123,19 @@
   "agarre_centro_al_final": "centro no fim da mão",
   "agarre_aviso_titulo": "Aviso: o furo não cumpre as medidas recomendadas",
   "agarre_aviso_sigue": "Continuando com a sua escolha manual: o que você vê na tela prevalece sobre a medição automática. Confira o resultado antes de imprimir.",
-  "tirada_de_probetas_json": "Série de corpos de prova (probetas.json)"
+  "tirada_de_probetas_json": "Série de corpos de prova (probetas.json)",
+  "propagar_titulo": "Célula %{n}: levá-la para outros lugares",
+  "propagar_resumen": "Célula escolhida: %{detalle}. Já está na figura aberta (é preciso Gerar de novo).",
+  "propagar_donde_mas": "Onde mais você quer deixar estes valores? Só eles mudam: o resto de cada destino fica como estava.",
+  "propagar_perfil": "Salvar em um perfil de linha:",
+  "propagar_perfil_ayuda": "Se o perfil já existe, só estes valores mudam; senão, ele é criado com os da figura aberta.",
+  "propagar_catalogos": "Linha de um catálogo (usada por «Montar figura a partir do catálogo»; as peças não são tocadas):",
+  "propagar_sin_catalogos": "Não há catálogo aberto nem lembrado.",
+  "propagar_por_defecto": "Usar como valores padrão do aplicativo",
+  "propagar_por_defecto_ayuda": "As figuras e os catálogos novos começam com estes valores. Dá para esquecê-los em Parâmetros.",
+  "propagar_ahora_no": "Agora não",
+  "propagar_aplicar": "Aplicar",
+  "propagar_resultado": "Valores da célula propagados"
  },
  "color": {
   "ayuda_desde": "FBX com a textura de cor da mesma figura (modo B): além dos STL, grava piezas_color/ (OBJ+MTL+PNG por peça) e <nome>_ensamblada.glb. Os STL não mudam",

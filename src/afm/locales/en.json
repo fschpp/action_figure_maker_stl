@@ -1066,7 +1066,19 @@
   "no_se_pudo_leer_la_tirada_de_probetas": "Could not read the test coupon batch: %{error}",
   "tirada_de_probetas_cargada": "Test coupon batch loaded (%{celdas} cells). Pick the number of the best one.",
   "no_hay_una_tirada_de_probetas_para_elegir": "Generate or load a test coupon batch first.",
-  "probetas_celda_elegida": "Test coupons: cell %{n} → %{detalle}. It is now in the parameters; save the profile to keep it."
+  "probetas_celda_elegida": "Test coupons: cell %{n} → %{detalle}. It is now in the parameters; save the profile to keep it.",
+  "no_hay_una_celda_elegida_para_propagar": "There is no chosen cell to propagate: use “Use this cell” first.",
+  "propagar_perfil_actualizado": "✓ Profile “%{name}” updated (%{path})",
+  "propagar_perfil_creado": "✓ Profile “%{name}” created (%{path})",
+  "propagar_fallo_perfil": "✗ Could not save profile “%{name}”: %{error}",
+  "propagar_catalogo_actualizado": "✓ Line “%{name}” updated (%{root}): “Build figure from catalog” already uses it",
+  "propagar_catalogo_capacidad": "If the shaft or the clearance changed, `afm catalogo capacidad %{root} --escribir` measures the sockets again.",
+  "propagar_fallo_catalogo": "✗ Could not update catalog %{root}: %{error}",
+  "propagar_por_defecto_guardado": "✓ Application defaults saved (%{path})",
+  "propagar_fallo_por_defecto": "✗ Could not save the defaults: %{error}",
+  "propagar_nada_elegido": "No destination chosen: nothing was written.",
+  "valores_por_defecto_de_fabrica": "Factory defaults restored. New figures start with them.",
+  "sin_valores_por_defecto_propios": "There were no own defaults: they are already the factory ones."
  },
  "figure_builder": {
   "sin_soportes_resumen": "No supports: cut %{corte} mm above the tail; arms rotated forward: %{giro}",
@@ -1737,7 +1749,8 @@
   "probetas_resultado": "Test result: which number was best?",
   "usar_esta_celda": "Use this cell",
   "cargar_tirada_anterior": "Load a previous batch (probetas.json)…",
-  "sin_tirada_de_probetas": "(no batch: generate or load one)"
+  "sin_tirada_de_probetas": "(no batch: generate or load one)",
+  "olvidar_valores_por_defecto_propios": "Forget my own defaults"
  },
  "plane_panel": {
   "planos_del_proyecto": "Project planes",
@@ -2110,7 +2123,19 @@
   "agarre_centro_al_final": "center at the far end of the hand",
   "agarre_aviso_titulo": "Warning: the bore does not meet the recommended measurements",
   "agarre_aviso_sigue": "Continuing with your manual choice: what you see on screen takes precedence over the automatic measurement. Check the result before printing.",
-  "tirada_de_probetas_json": "Test coupon batch (probetas.json)"
+  "tirada_de_probetas_json": "Test coupon batch (probetas.json)",
+  "propagar_titulo": "Cell %{n}: use it elsewhere",
+  "propagar_resumen": "Chosen cell: %{detalle}. It is already in the open figure (generate again).",
+  "propagar_donde_mas": "Where else do you want these values? Only they change: everything else in each destination stays as it was.",
+  "propagar_perfil": "Save to a line profile:",
+  "propagar_perfil_ayuda": "If the profile already exists only these values change; otherwise it is created from the open figure.",
+  "propagar_catalogos": "Line of a catalog (used by “Build figure from catalog”; pieces are not touched):",
+  "propagar_sin_catalogos": "There is no open or remembered catalog.",
+  "propagar_por_defecto": "Use as the application defaults",
+  "propagar_por_defecto_ayuda": "New figures and catalogs start with these values. You can forget them from Parameters.",
+  "propagar_ahora_no": "Not now",
+  "propagar_aplicar": "Apply",
+  "propagar_resultado": "Cell values propagated"
  },
  "color": {
   "ayuda_desde": "FBX with the colour texture of the same figure (mode B): besides the STLs it writes piezas_color/ (OBJ+MTL+PNG per part) and <name>_ensamblada.glb. The STLs do not change",

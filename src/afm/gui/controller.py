@@ -251,6 +251,7 @@ class Controller:
         self.busy = False                            # generando la figura (la ventana bloquea la edición)
         self.probe_manifest: dict | None = None      # última tirada de probetas generada o cargada (`probetas.json`)
         self.probe_table: str = ""                   # su tabla (número -> valores), para mostrarla en la ventana
+        self.probe_applied: dict | None = None       # última celda usada con «Usar esta celda»: {"n", "resumen", "cambios"} (la lee el diálogo de propagar)
         self.generated_once = False                  # ya se generó una figura en esta sesión (para avisar cuando deja de valer)
         self._saved_text: str | None = None          # estado del proyecto al abrir / guardar por última vez (para el «*» de cambios sin guardar)
         self.history = History()                     # deshacer / rehacer global por instantáneas del proyecto (ver history.py)
@@ -1248,14 +1249,14 @@ class Controller:
         return float(getattr(obj, last))
 
     def param_default(self, key: str) -> float:
-        """Valor por defecto del parámetro (el de `Params()`)."""
+        """Valor por defecto del parámetro (el de `Params()` o el que el usuario puso como por defecto de la aplicación)."""
         cache = self.__dict__.get("_param_defaults")
         if cache is None:                          # una sola vez: se consulta en cada refresco de la ventana
-            from ..params import Params
+            from ..profile import app_defaults
 
             cache = {}
             for k, *_ in PARAM_FIELDS:
-                obj = Params()
+                obj = app_defaults()                # los de fábrica con los valores por defecto propios (si hay)
                 *path, last = k.split(".")
                 for p in path:
                     obj = getattr(obj, p)
@@ -1514,8 +1515,87 @@ class Controller:
             return False
         self.session.project.params = params
         self.session.outcome = None
+        self.probe_applied = {"n": cell["n"], "resumen": resumen,
+                              "cambios": profile.probe_cell_changes(m, cell["n"], cell.get("archivo"))}
         self._changed(tr("controller.probetas_celda_elegida", n=cell["n"], detalle=resumen), scene=False)
         return True
+
+    def known_catalogs(self) -> list[tuple[str, str]]:
+        """Catálogos a los que se le puede propagar un valor: `[(nombre de la línea, carpeta)]`, primero el abierto y después los
+        recordados que todavía existen."""
+        from . import settings as GUI_SETTINGS
+
+        out: list[tuple[str, str]] = []
+        seen: set[str] = set()
+        if self.session.catalog_root:
+            root = os.path.abspath(self.session.catalog_root)
+            try:
+                out.append((self.session.catalog_name(), root))
+                seen.add(root)
+            except ValueError:
+                pass
+        for line, root in sorted(GUI_SETTINGS.load()["catalogos"].items()):
+            root = os.path.abspath(root)
+            if root not in seen and os.path.isfile(os.path.join(root, "linea.json")):
+                out.append((line, root))
+                seen.add(root)
+        return out
+
+    def propagate_probe(self, profile_name: str | None = None, catalog_roots=(), as_default: bool = False,
+                        profile_dir: str | None = None) -> list[str]:
+        """Lleva los valores de la última celda usada (`probe_applied`) a los destinos que se pidan, cada uno por separado (si uno
+        falla, los demás se hacen igual). Solo se escriben esos valores: lo demás de cada destino queda como estaba.
+          · `profile_name`: perfil de línea (si existe se le aplican solo esos valores; si no, se crea con los de la figura abierta);
+          · `catalog_roots`: carpetas de catálogo; se escribe en su `linea.json`, que es lo que usa «Armar figura desde catálogo»;
+          · `as_default`: valores por defecto de la aplicación (figuras y catálogos nuevos).
+        Devuelve una línea por destino (también queda en `message`); los errores empiezan con «✗»."""
+        from .. import profile
+        from ..catalog import Catalog, CatalogError
+
+        pend = self.probe_applied
+        if not pend:
+            self._changed(tr("controller.no_hay_una_celda_elegida_para_propagar"), scene=False)
+            return [self.message]
+        changes = pend["cambios"]
+        lines: list[str] = []
+        name = (profile_name or "").strip()
+        if name:
+            try:
+                path, existed = profile.update_profile(name, changes, self.session.project.params, profile_dir)
+                lines.append(tr("controller.propagar_perfil_actualizado" if existed else "controller.propagar_perfil_creado",
+                                name=name, path=path))
+            except (OSError, ValueError, KeyError) as exc:
+                lines.append(tr("controller.propagar_fallo_perfil", name=name, error=exc))
+        for root in catalog_roots:
+            try:
+                cat = Catalog.open(root)
+                warns = cat.update_params(changes)
+                lines.append(tr("controller.propagar_catalogo_actualizado", name=cat.name, root=cat.root))
+                lines += [f"  ⚠ {w}" for w in warns]
+                if changes.keys() & {"clearance", "axial_clearance"} or any(k.endswith("_pin.shaft_d") or k.startswith("hinge_pin") for k in changes):
+                    lines.append("  " + tr("controller.propagar_catalogo_capacidad", root=cat.root))
+            except (CatalogError, OSError, ValueError, KeyError) as exc:
+                lines.append(tr("controller.propagar_fallo_catalogo", root=root, error=exc))
+        if as_default:
+            try:
+                path = profile.save_app_defaults(changes)
+                self.__dict__.pop("_param_defaults", None)      # `param_default` los vuelve a leer
+                lines.append(tr("controller.propagar_por_defecto_guardado", path=path))
+            except (OSError, ValueError, KeyError) as exc:
+                lines.append(tr("controller.propagar_fallo_por_defecto", error=exc))
+        if not lines:
+            lines.append(tr("controller.propagar_nada_elegido"))
+        self._changed("\n".join(lines), scene=False)
+        return lines
+
+    def clear_app_defaults(self) -> bool:
+        """Vuelve a los valores de fábrica de la aplicación (borra los que se habían puesto como por defecto)."""
+        from .. import profile
+
+        had = profile.clear_app_defaults()
+        self.__dict__.pop("_param_defaults", None)
+        self._changed(tr("controller.valores_por_defecto_de_fabrica" if had else "controller.sin_valores_por_defecto_propios"), scene=False)
+        return had
 
     def apply_probe_result(self, clearance: float, shaft_d: float, which: str = "both") -> None:
         """Guarda en los parámetros la combinación holgura / Ø de vástago elegida con las probetas."""

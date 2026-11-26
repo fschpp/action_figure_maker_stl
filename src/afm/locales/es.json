@@ -1066,7 +1066,19 @@
   "no_se_pudo_leer_la_tirada_de_probetas": "No se pudo leer la tirada de probetas: %{error}",
   "tirada_de_probetas_cargada": "Tirada de probetas cargada (%{celdas} celdas). Elegí el número de la que quedó mejor.",
   "no_hay_una_tirada_de_probetas_para_elegir": "Primero generá o cargá una tirada de probetas.",
-  "probetas_celda_elegida": "Probetas: celda %{n} → %{detalle}. Quedó en los parámetros; guardá el perfil para conservarla."
+  "probetas_celda_elegida": "Probetas: celda %{n} → %{detalle}. Quedó en los parámetros; guardá el perfil para conservarla.",
+  "no_hay_una_celda_elegida_para_propagar": "No hay una celda elegida para propagar: usá primero «Usar esta celda».",
+  "propagar_perfil_actualizado": "✓ Perfil «%{name}» actualizado (%{path})",
+  "propagar_perfil_creado": "✓ Perfil «%{name}» creado (%{path})",
+  "propagar_fallo_perfil": "✗ No se pudo guardar el perfil «%{name}»: %{error}",
+  "propagar_catalogo_actualizado": "✓ Línea «%{name}» actualizada (%{root}): «Armar figura desde catálogo» ya la usa",
+  "propagar_catalogo_capacidad": "Si cambió el vástago o la holgura, `afm catalogo capacidad %{root} --escribir` vuelve a medir las tomas.",
+  "propagar_fallo_catalogo": "✗ No se pudo actualizar el catálogo %{root}: %{error}",
+  "propagar_por_defecto_guardado": "✓ Valores por defecto de la aplicación guardados (%{path})",
+  "propagar_fallo_por_defecto": "✗ No se pudieron guardar los valores por defecto: %{error}",
+  "propagar_nada_elegido": "No elegiste ningún destino: no se escribió nada.",
+  "valores_por_defecto_de_fabrica": "Valores por defecto de fábrica restaurados. Las figuras nuevas arrancan con ellos.",
+  "sin_valores_por_defecto_propios": "No había valores por defecto propios: ya son los de fábrica."
  },
  "figure_builder": {
   "sin_soportes_resumen": "Sin soportes: corte a %{corte} mm sobre la cola; brazos girados hacia adelante: %{giro}",
@@ -1737,7 +1749,8 @@
   "probetas_resultado": "Resultado de la prueba: ¿qué número quedó mejor?",
   "usar_esta_celda": "Usar esta celda",
   "cargar_tirada_anterior": "Cargar una tirada anterior (probetas.json)…",
-  "sin_tirada_de_probetas": "(sin tirada: generá o cargá una)"
+  "sin_tirada_de_probetas": "(sin tirada: generá o cargá una)",
+  "olvidar_valores_por_defecto_propios": "Olvidar los valores por defecto propios"
  },
  "plane_panel": {
   "planos_del_proyecto": "Planos del proyecto",
@@ -2110,7 +2123,19 @@
   "agarre_centro_al_final": "centro al final de la mano",
   "agarre_aviso_titulo": "Aviso: el taladro no cumple las medidas recomendadas",
   "agarre_aviso_sigue": "Se continúa con tu elección manual: lo que ves en pantalla manda sobre la medición automática. Revisá el resultado antes de imprimir.",
-  "tirada_de_probetas_json": "Tirada de probetas (probetas.json)"
+  "tirada_de_probetas_json": "Tirada de probetas (probetas.json)",
+  "propagar_titulo": "Celda %{n}: llevarla a otros lados",
+  "propagar_resumen": "Celda elegida: %{detalle}. Ya está en la figura abierta (hay que Generar de nuevo).",
+  "propagar_donde_mas": "¿Dónde más querés dejar estos valores? Solo se cambian ellos: el resto de cada destino queda como estaba.",
+  "propagar_perfil": "Guardar en un perfil de línea:",
+  "propagar_perfil_ayuda": "Si el perfil ya existe, solo se le cambian estos valores; si no, se crea con los de la figura abierta.",
+  "propagar_catalogos": "Línea de un catálogo (la usa «Armar figura desde catálogo»; las piezas no se tocan):",
+  "propagar_sin_catalogos": "No hay un catálogo abierto ni recordado.",
+  "propagar_por_defecto": "Usar como valores por defecto de la aplicación",
+  "propagar_por_defecto_ayuda": "Las figuras y los catálogos nuevos arrancan con estos valores. Se pueden olvidar desde Parámetros.",
+  "propagar_ahora_no": "Ahora no",
+  "propagar_aplicar": "Aplicar",
+  "propagar_resultado": "Valores de la celda propagados"
  },
  "color": {
   "ayuda_desde": "FBX con la textura de color de la misma figura (modo B): además de los STL, deja piezas_color/ (OBJ+MTL+PNG por pieza) y <nombre>_ensamblada.glb. Los STL no cambian",

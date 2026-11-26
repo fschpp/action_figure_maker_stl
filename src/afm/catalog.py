@@ -182,6 +182,28 @@ class Catalog:
         """Perfil de la línea (parámetros comunes a todas las figuras)."""
         return Params.from_dict(self.line["params"])
 
+    def update_params(self, changes: dict) -> list[str]:
+        """Pone `changes` (`{ruta con puntos: valor}`, p. ej. el resultado de una probeta) en el perfil de la línea (`linea.json`).
+
+        Es lo que usan «Armar figura desde catálogo» y las figuras armadas con piezas de este catálogo: las piezas son crudas y
+        las cavidades y pasadores se rehacen con estos valores en cada armado, así que no hace falta tocarlas. Solo se cambian
+        los valores nombrados; la altura de la línea (`ref_height`) no se toca nunca. Devuelve los avisos (por ahora, los del
+        contrato de interfaz que el perfil nuevo ya no cumpla); la escritura se hace igual."""
+        from .profile import apply_changes
+
+        changes = {k: v for k, v in changes.items() if k.split(".")[0] != "ref_height"}
+        if not changes:
+            return []
+        new = apply_changes(self.params, changes)          # falla antes de escribir si una ruta no existe
+        self.line["params"] = new.to_dict()
+        self._write_line()
+        try:
+            self.write_index()                              # CATALOGO.md muestra la holgura de la línea
+        except OSError:
+            pass
+        contract = self.contract()
+        return [f"contrato de interfaz: {x}" for x in contract.problems(new)] if contract else []
+
     # ------------------------------------------------------------------ contrato de interfaz (plan de compatibilidad, Fase 1)
     def contract(self):
         """Contrato de interfaz de la línea (`interface.Contract`), o None si `linea.json` no trae la clave `interfaz`."""

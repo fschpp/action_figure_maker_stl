@@ -26,6 +26,7 @@ from ..waist import WAIST_NAME, WaistSpec, waist_plane
 from ..joints import JOINT_KIND_BY_LIMB, JointSpec, min_shoulder
 from ..limbs import CROSS_THICKNESS_MM, LimbCut, LimbSpec, PinPreview, check_limb_plane, contact_preview, effective_cut_offset, plane_is_lateral, plane_on_symmetry
 from ..params import PinSpec
+from ..profile import app_defaults
 
 from ..planes import Plane, floor_height, floor_plane
 from ..project import ColorSpec, Project
@@ -120,7 +121,7 @@ def json_sig(obj) -> str:
 
 class Session:
     def __init__(self, project: Project | None = None):
-        self.project = project or Project()
+        self.project = project or Project(params=app_defaults())      # los de fábrica o los que el usuario puso por defecto
         self.stl_path: str | None = None
         self.project_path: str | None = None      # el .proyecto abierto o guardado por el usuario: «Guardar» lo sobrescribe
         self.report: meshio.LoadReport | None = None

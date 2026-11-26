@@ -664,7 +664,10 @@ def main(argv=None) -> int:
     pq = sub.add_parser("probe-resultado", help="pasar a un perfil la celda ganadora de una tirada de probetas (el número en relieve)")
     pq.add_argument("manifiesto", help="probetas.json de la carpeta donde se generaron (o la carpeta)")
     pq.add_argument("celda", type=int, help="número de la celda elegida (el que lleva en relieve y en probetas.txt)")
-    pq.add_argument("--perfil", required=True, help="nombre del perfil donde guardar (se crea con los valores de fábrica si no existe)")
+    pq.add_argument("--perfil", default=None, help="nombre del perfil donde guardar (si existe solo se le cambian los valores de la celda; si no, se crea con los de fábrica)")
+    pq.add_argument("--catalogo", action="append", default=[], metavar="RUTA",
+                    help="carpeta de un catálogo: se escribe la celda en el perfil de su línea (linea.json), que es lo que usa «armar figura desde catálogo»; se puede repetir")
+    pq.add_argument("--defecto", action="store_true", help="dejar la celda también como valor por defecto de la aplicación (figuras y catálogos nuevos; ~/.config/afm/defecto.json)")
     pq.add_argument("--archivo", default=None, help="solo clic: la placa (el .stl) de la celda, si hay varias")
     pq.add_argument("--directorio", default=None, help="carpeta de perfiles (por defecto ~/.config/afm/perfiles)")
     ag = sub.add_parser("agarre", help="taladrar un agujero de agarre en la mano estándar y generar espadas de prueba con empuñadura dentada (snap-fit)")
@@ -722,20 +725,48 @@ def main(argv=None) -> int:
         return _run_ajustar_cm(args)
     if args.cmd == "probe-resultado":
         from . import profile as PF
+        from .catalog import Catalog, CatalogError
         from .params import Params
+        if not (args.perfil or args.catalogo or args.defecto):
+            print("ERROR: indicá a dónde llevar la celda: --perfil NOMBRE, --catalogo RUTA y/o --defecto", file=sys.stderr)
+            return 2
         try:
             manifest = PF.load_probe_manifest(args.manifiesto)
-            try:
-                base = PF.load_profile(args.perfil, args.directorio)
-            except FileNotFoundError:
-                base = Params()
-            params, resumen = PF.apply_probe_cell(base, manifest, args.celda, args.archivo)
+            cambios = PF.probe_cell_changes(manifest, args.celda, args.archivo)
+            resumen = PF.probe_cell_summary(manifest, PF.probe_cell(manifest, args.celda, args.archivo))
         except (OSError, ValueError, KeyError) as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
             return 2
-        path = PF.save_profile(args.perfil, params, args.directorio)
-        print(f"Celda {args.celda}: {resumen}\nPerfil «{args.perfil}» guardado en {path}")
-        return 0
+        print(f"Celda {args.celda}: {resumen}")
+        rc = 0
+        if args.perfil:
+            try:
+                try:
+                    base = PF.load_profile(args.perfil, args.directorio)
+                except FileNotFoundError:
+                    base = Params()
+                path, existia = PF.update_profile(args.perfil, cambios, PF.apply_changes(base, cambios), args.directorio)
+                print(f"Perfil «{args.perfil}» {'actualizado' if existia else 'creado'} en {path}")
+            except (OSError, ValueError, KeyError) as exc:
+                print(f"ERROR (perfil): {exc}", file=sys.stderr)
+                rc = 2
+        for root in args.catalogo:
+            try:
+                cat = Catalog.open(root)
+                for w in cat.update_params(cambios):
+                    print(f"  aviso: {w}")
+                print(f"Línea «{cat.name}» actualizada en {os.path.join(cat.root, 'linea.json')} "
+                      "(si cambió vástago u holgura, `afm catalogo capacidad RUTA --escribir` vuelve a medir las tomas)")
+            except (CatalogError, OSError, ValueError, KeyError) as exc:
+                print(f"ERROR (catálogo {root}): {exc}", file=sys.stderr)
+                rc = 2
+        if args.defecto:
+            try:
+                print(f"Valores por defecto de la aplicación guardados en {PF.save_app_defaults(cambios)}")
+            except (OSError, ValueError, KeyError) as exc:
+                print(f"ERROR (por defecto): {exc}", file=sys.stderr)
+                rc = 2
+        return rc
     os.makedirs(args.out, exist_ok=True)
     if args.cmd == "montura-mapa":
         from .catalog import CatalogError
@@ -857,7 +888,7 @@ def main(argv=None) -> int:
         print(f"\nArchivos en {args.out}: " + ", ".join(sorted(files)))
         if "probetas.json" in files:
             print("Cada pieza lleva su número en relieve (el de la tabla); el .3mf trae un objeto con nombre por celda. "
-                  "Cuando elijas la ganadora: afm probe-resultado " + os.path.join(args.out, "probetas.json") + " NÚMERO --perfil NOMBRE")
+                  "Cuando elijas la ganadora: afm probe-resultado " + os.path.join(args.out, "probetas.json") + " NÚMERO --perfil NOMBRE [--catalogo RUTA] [--defecto]")
         return 0
     if args.cmd == "demo":
         stl = os.path.join(args.out, "muneco.stl")

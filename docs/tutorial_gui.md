@@ -308,6 +308,15 @@ Cómo se usa la lista (son unos 45 parámetros, en grupos plegables: Generales, 
   de vástago —o el bulón y la holgura axial— a los parámetros) → guardá el perfil. Si cerraste el programa mientras se imprimía, **Cargar una tirada
   anterior (probetas.json)…** vuelve a poner la tabla y la lista. Lo mismo por consola: `afm probe-resultado out/probetas/probetas.json 7 --perfil mi_linea`.
   Ojo: la holgura radial es una sola para toda la figura, así que la de la bisagra y la del hongo se pisan; probá cada una y quedate con la más justa que gire en todas.
+  **Llevar la celda a otros lados:** al apretar **Usar esta celda** se abre un diálogo con los valores que fija esa celda (p. ej.
+  `clearance = 0.4`, `shoulder_pin.shaft_d = 4.3`) y tres destinos opcionales; solo se escriben esos valores, lo demás de cada destino queda como estaba:
+  · **Perfil de línea** (`~/.config/afm/perfiles/`): si el perfil ya existe se le cambian solo esos valores; si no, se crea con los de la figura abierta.
+  · **Línea de un catálogo** (`linea.json`): es lo que usa «Armar figura desde catálogo» y toda figura armada con piezas de ese catálogo. Las piezas
+    son crudas (cavidades y pasadores se rehacen en cada armado), así que no hay que volver a cortar nada; si cambió el vástago o la holgura, conviene
+    `afm catalogo capacidad RUTA --escribir` para volver a medir las tomas. Se ofrece el catálogo abierto y los recordados.
+  · **Valores por defecto de la aplicación** (`~/.config/afm/defecto.json`): las figuras y los catálogos nuevos arrancan con estos valores y el botón de
+    restaurar de cada parámetro vuelve a ellos. «Olvidar los valores por defecto propios» (en Perfil de línea) vuelve a los de fábrica.
+  Lo mismo por consola: `afm probe-resultado out/probetas/probetas.json 7 --perfil mi_linea --catalogo RUTA --defecto` (todos los destinos son opcionales, hace falta al menos uno).
 
 ### 7.2c Rodilla y codo (bisagras)
 

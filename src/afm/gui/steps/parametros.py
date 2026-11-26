@@ -48,6 +48,7 @@ def build(win) -> None:
     row.append(win.ent_profile)
     row.append(win._button(tr("common.guardar"), lambda *_: win._on_save_profile()))
     sec.append(row)
+    sec.append(win._button(tr("parametros.olvidar_valores_por_defecto_propios"), lambda *_: win._on_clear_app_defaults()))
 
     sec = _collapsible(box, tr("parametros.parametros_de_articulacion"))
     bar = Gtk.Box(spacing=6)

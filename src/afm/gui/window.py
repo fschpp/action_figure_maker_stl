@@ -2339,8 +2339,79 @@ class MainWindow(Gtk.ApplicationWindow):
         self.btn_probe_use.set_sensitive(self.ctrl.probe_manifest is not None)
 
     def _on_probe_use(self) -> None:
-        if self.ctrl.probe_manifest is not None:
-            self.ctrl.apply_probe_choice(self.dd_probe_cell.get_selected())
+        if self.ctrl.probe_manifest is not None and self.ctrl.apply_probe_choice(self.dd_probe_cell.get_selected()):
+            self._probe_propagate_dialog()
+
+    def _probe_propagate_dialog(self) -> None:
+        """Después de «Usar esta celda»: ofrece llevar esos mismos valores a un perfil de línea, a la línea de uno o más catálogos
+        (lo que usa «Armar figura desde catálogo») y a los valores por defecto de la aplicación. Cada destino es opcional."""
+        from .. import profile as PF
+
+        pend = self.ctrl.probe_applied
+        if not pend:
+            return
+        win = Gtk.Window(title=tr("window.propagar_titulo", n=pend["n"]), transient_for=self, modal=True, resizable=False)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_top=12, margin_bottom=12,
+                      margin_start=12, margin_end=12)
+        box.append(Gtk.Label(label=tr("window.propagar_resumen", detalle=pend["resumen"]), xalign=0, wrap=True, max_width_chars=60))
+        vals = Gtk.Label(label="\n".join(PF.format_changes(pend["cambios"])), xalign=0, wrap=True, selectable=True, max_width_chars=60)
+        vals.add_css_class("monospace")
+        box.append(vals)
+        box.append(Gtk.Label(label=tr("window.propagar_donde_mas"), xalign=0, wrap=True, max_width_chars=60))
+
+        # perfil de línea
+        names = self.ctrl.profile_names()
+        sel = self.dd_profile.get_selected() if names else 0
+        typed = self.ent_profile.get_text().strip()
+        chk_prof = Gtk.CheckButton(label=tr("window.propagar_perfil"), active=True)
+        box.append(chk_prof)
+        ent_prof = Gtk.Entry(text=typed or (names[sel] if names and sel < len(names) else "mi_linea"), hexpand=True, margin_start=24)
+        box.append(ent_prof)
+        box.append(Gtk.Label(label=tr("window.propagar_perfil_ayuda"), xalign=0, wrap=True, max_width_chars=60, margin_start=24,
+                             css_classes=["dim-label"]))
+
+        # catálogos
+        cats = self.ctrl.known_catalogs()
+        box.append(Gtk.Label(label=tr("window.propagar_catalogos"), xalign=0, wrap=True, max_width_chars=60))
+        cat_chks: list[tuple[Gtk.CheckButton, str]] = []
+        for i, (name, root) in enumerate(cats):
+            chk = Gtk.CheckButton(label=f"{name} — {root}", active=(i == 0 and root == self.ctrl.session.catalog_root), margin_start=24)
+            box.append(chk)
+            cat_chks.append((chk, root))
+        if not cats:
+            box.append(Gtk.Label(label=tr("window.propagar_sin_catalogos"), xalign=0, wrap=True, max_width_chars=60, margin_start=24,
+                                 css_classes=["dim-label"]))
+
+        # valores por defecto de la aplicación
+        chk_def = Gtk.CheckButton(label=tr("window.propagar_por_defecto"))
+        box.append(chk_def)
+        box.append(Gtk.Label(label=tr("window.propagar_por_defecto_ayuda"), xalign=0, wrap=True, max_width_chars=60, margin_start=24,
+                             css_classes=["dim-label"]))
+
+        row = Gtk.Box(spacing=6, halign=Gtk.Align.END, margin_top=6)
+        cancel = Gtk.Button(label=tr("window.propagar_ahora_no"))
+        ok = Gtk.Button(label=tr("window.propagar_aplicar"))
+        ok.add_css_class("suggested-action")
+        row.append(cancel)
+        row.append(ok)
+        box.append(row)
+        win.set_child(box)
+        cancel.connect("clicked", lambda *_: win.close())
+
+        def apply(*_):
+            lines = self.ctrl.propagate_probe(profile_name=ent_prof.get_text() if chk_prof.get_active() else None,
+                                              catalog_roots=[r for c, r in cat_chks if c.get_active()],
+                                              as_default=chk_def.get_active())
+            pnames = self.ctrl.profile_names()
+            self.dd_profile.set_model(Gtk.StringList.new(pnames or [tr("parametros.sin_perfiles")]))
+            win.close()
+            Gtk.AlertDialog(message=tr("window.propagar_resultado"), detail="\n".join(lines)).show(self)
+
+        ok.connect("clicked", apply)
+        win.present()
+
+    def _on_clear_app_defaults(self) -> None:
+        self.ctrl.clear_app_defaults()
 
     def _on_probe_load(self) -> None:
         def loaded(path: str) -> None:
