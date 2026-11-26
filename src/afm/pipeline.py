@@ -12,6 +12,7 @@ import trimesh
 
 from . import solids as S
 from . import detent as DT
+from . import joint_types as JT
 from .hand import (HAND_MIN_SHAFT_D, HAND_NAME, HandError, HandSpec, WristFrame, WristSplit, apply_hand, attach_hand,
                    load_standard_hand)
 from .head import HEAD_NAME, MIN_BASE_IOU, HeadSpec, below_neck, build_head, neck_plane, split_head
@@ -19,7 +20,6 @@ from .joints import JOINT_KIND_BY_LIMB, JointBuild, JointSpec, build_joint, flex
 from .assembly import AssemblyError, PartChoice, PlacedPart, hip_notes, place_part, swap_pelvis
 from .limbs import LimbSpec, ContactFace, check_limb_plane, limb_prism, pin_margin, separate_limb
 from .params import Params
-from .pins import mushroom_pin
 from .planes import Plane
 from .trims import Trim, apply_trims
 from .waist import PELVIS_NAME, WAIST_NAME, WaistBuild, WaistSpec, build_waist
@@ -86,10 +86,7 @@ def _pin_spec(spec: LimbSpec, p: Params):
     return p.hip_pin if spec.kind == "leg" else p.shoulder_pin
 
 
-def _rotation_axis(face: ContactFace) -> np.ndarray:
-    """Eje de giro: el del pasador, orientado de modo que +ángulo = hacia adelante (+Y) para -Z."""
-    ax = face.outward / np.linalg.norm(face.outward)
-    return ax if ax[0] >= 0 else -ax
+_rotation_axis = JT.rotation_axis       # el eje de giro del pasador vive en el contrato de los tipos (`joint_types.base`)
 
 
 def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None = None,
@@ -255,20 +252,15 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
                                 "angles": [float(a) for a in angles], "print_angle": th,
                                 "pin_margin": pin_margin(face, _pin_spec(spec, p).shaft_d)}
             continue
-        pin = mushroom_pin(face.center, face.outward, _pin_spec(spec, p))
-        limb = S.union(limb_raw, pin)
-        say(f"Cavidad de {spec.name}…")
-        grown = S.dilate(limb, p.clearance)
-        a0, a1 = _sweep_range(spec, p)
-        angles = np.arange(a0, a1 + 1e-9, p.sweep_step) if a1 > a0 else [a0]
-        if len(angles) > 1 and angles[-1] < a1 - 1e-9:
-            angles = np.append(angles, a1)
-        sweep = S.union(*[S.rotate_about_axis(grown, face.center, axis, a) for a in angles])
-        torso_half = S.difference(torso_half, sweep)
-        cutters.append(sweep)
+        jt = JT.get("mushroom")                  # el pasador de fricción lo construye el tipo registrado (plan de plugins, Fase 0)
+        jr = jt.build(JT.JointSite(slot=spec.name, side="izq", child=limb_raw, face=face, params=p, jp=_pin_spec(spec, p),
+                                   flex=_sweep_range(spec, p), say=say))
+        limb = jr.pieces["child"]
+        cutters.extend(jr.cutters["parent"])
+        for c in jr.cutters["parent"]:
+            torso_half = S.difference(torso_half, c)
         built[spec.name] = {"limb": limb, "face": face, "axis": axis, "spec": spec,
-                            "angles": [float(a) for a in angles],
-                            "pin_margin": pin_margin(face, _pin_spec(spec, p).shaft_d)}
+                            "angles": jr.report["angles"], "pin_margin": jr.report["pin_margin"]}
     joint_builds: dict[str, JointBuild] = {}
     for lname, j in by_limb.items():
         say(f"Articulación {j.name}…")
@@ -303,7 +295,7 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
         limb = b["limb"]
         hip_sit = sit and b["spec"].kind == "leg"
         th = b.get("print_angle", p.sit_angle if hip_sit else 0.0)       # giro de la pose impresa alrededor del pasador
-        res_motion[name] = (b["limb"], b["face"].center, b["axis"], (b["angles"][0], b["angles"][-1]))
+        res_motion[name] = JT.RevoluteMotion(b["limb"], b["face"].center, b["axis"], (b["angles"][0], b["angles"][-1]))
         jb = joint_builds.get(name)
         if jb is None:
             if th:
@@ -392,7 +384,7 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
             report["head"]["replacement"] = split.replacement
         if head_build.pin_margin is not None:
             report["head"]["pin_margin_mm"] = round(float(head_build.pin_margin), 3)
-        res_motion[HEAD_NAME] = (head_build.head, head_build.face.center, head_build.axis, (0.0, 90.0))   # giro libre sobre el cuello: se valida 0–90°
+        res_motion[HEAD_NAME] = JT.RevoluteMotion(head_build.head, head_build.face.center, head_build.axis, (0.0, 90.0))   # giro libre sobre el cuello: se valida 0–90°
     # Manifold es perezoso: las booleanas devuelven al instante y el cómputo ocurre en la primera consulta de la malla.
     # Se fuerza acá (el resultado se necesita igual más abajo) para que «Reduciendo triángulos» mida solo la decimación.
     say("Evaluando las piezas…")
@@ -410,7 +402,7 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
         return _memo[id(m)]
 
     pieces = {n: _compact(m) for n, m in pieces.items()}
-    res_motion = {n: (_compact(v[0]),) + tuple(v[1:]) for n, v in res_motion.items()}
+    res_motion = {n: v._replace(limb=_compact(v.limb)) for n, v in res_motion.items()}
     if p.decimate > 0:
         say("Reduciendo triángulos…")
         n0 = pieces["torso"].num_tri()

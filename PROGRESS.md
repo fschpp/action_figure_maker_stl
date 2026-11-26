@@ -1,3 +1,17 @@
+## Current Focus — Plugins de articulación, Fase 0 (paso 1: contrato, registro y el tipo `mushroom`) (2026-11-25, rama plugins_articulacion sobre main 9c1aeb0)
+**Objetivo.** Separar el corte (núcleo) del tipo de articulación (punto de extensión) sin cambiar ni un STL (`docs/PLAN_plugins_articulacion.md` §3 y §9, pasos 1–4).
+**Hecho.**
+- `src/afm/joint_types/`: `base.py` (`JointSite`, `JointResult`, `FaceRequirements`, `Finding`, `Motion`/`RevoluteMotion`, `JointType`, `rotation_axis`, `sweep_angles`), `__init__.py` (`REGISTRY`, `register` con error claro por `id` repetido o API distinta, `get`, `ids`), `mushroom.py` (el hongo que estaba escrito a mano en `pipeline.build`, movido sin cambiar la cuenta) y `testing.py` (kit de conformidad §3.8).
+- `pipeline.build` arma el hongo por el registro (`JT.get("mushroom").build(JointSite(...))`). `BuildResult.motion` guarda `RevoluteMotion` (`NamedTuple` idéntica a la tupla de antes: los 29 sitios que la desempaquetan no se tocaron); `_compact` usa `_replace`. `pipeline._rotation_axis` queda como alias de `JT.rotation_axis` (lo importan `joint_preview` y `figure_builder`).
+- Kit de conformidad `joint_types.testing.check_type`: 1 determinismo · 2 piezas estancas, volumen > 0, sin NaN · 3 giro libre en el recorrido · 5 el padre conserva material · 6 espejo · 7 `requires()` coherente · 8 solo importa la superficie permitida. Un test lo corre sobre cada tipo de `REGISTRY`. **Falta el 4** (retención ±1 mm): necesita el `Motion` general de la Fase 2/4.
+**Pruebas.** `tests/test_joint_registry.py` (9; incluye que `Mushroom.requires` da lo mismo que `capacity.demand` y que un tipo sin cavidad falla el giro libre).
+**Verificado.** `tools/golden.py comparar muneco`: idéntica a la dorada (antes y después). `comparar guemes`: **difiere de la dorada con y sin este cambio**, con los mismos números (holguras 0,4772 → 0,465 en brazos, 0,462/0,4716 en piernas; volúmenes sin cambio) ⇒ la refactorización es idéntica a `main` y el dorado de `guemes` ya estaba desactualizado: hay que decidir si se regenera (`guardar guemes`) antes de seguir con clic y bisagra. Sin correr: belgrano, mickey, guemes_fbx.
+
+### Todo List
+- [x] Done: Fase 0, paso 1 (hongo por el registro)
+- [ ] Todo: envolver el clic (`detent.build_detent_limb`) y la bisagra (`joints.build_joint`) como tipos; `LimbSpec.mechanism` = id del registro; `joint_preview`/`joint_edit` por el registro (Fase 0 completa)
+- [ ] Decidir: regenerar el dorado de `guemes` (ver arriba); correr `comparar todos` en la máquina del cliente
+
 ## Current Focus — Catálogos en línea: D11 esquemas e `indice.py` + D15 compatibilidad antes de descargar (2026-11-25, rama feat/catalogos-online-d11-d15 sobre main aa79b00)
 **Objetivo.** Fijar el formato del feed que publica el índice (D11) y, con sus fichas, medir qué piezas de un paquete encajan en el catálogo propio sin bajar ningún STL (D15).
 **Hecho.**
