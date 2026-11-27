@@ -371,6 +371,8 @@ class CutMeasure:
     limb: object = field(default=None, repr=False)   # el miembro cortado (Manifold en el marco de la figura), para el choque sentado
     as_plug: Coverage | None = None     # la pieza de esta figura contra las tomas del catálogo
     as_socket: Coverage | None = None   # el torso de esta figura contra los enchufes del catálogo
+    tipos: list = field(default_factory=list)   # `joint_types.Offer`: qué tipos de articulación admite este corte (plan de plugins §3.5)
+    profundidad_mm: float | None = None  # cuerpo detrás de la cara, medido sobre el torso de la figura (None si no se midió)
 
     def socket_port(self) -> Port | None:
         """La toma que esta cara deja en el torso de la figura: mismo centro, eje opuesto, cara con v invertida."""
@@ -412,7 +414,16 @@ def _measure_port(lugar: str, clase: str, port: Port, params: Params) -> CutMeas
                 m.cara_chica = (g["circulo_d"], pin.shaft_d + 2 * params.min_wall)
         elif g["margen"] < params.min_wall:
             m.avisos.append(f"pared de {g['margen']:.2f} mm alrededor del vástago (mínimo {params.min_wall:g} mm)")
+    refresh_offer(m, params)
     return m
+
+
+def refresh_offer(m: CutMeasure, params: Params) -> None:
+    """Calcula `m.tipos`: los tipos de articulación registrados que admiten el lugar de este corte, con la cara medida y, si ya se
+    midió, la profundidad detrás de ella (`joint_types.offer`). Un corte sin tipos para su lugar (el cuello) queda con la lista vacía."""
+    from .joint_types import offer
+
+    m.tipos = [] if m.port is None else offer(params, m.clase, m.port.face, m.profundidad_mm)
 
 
 def _measure(lugar: str, clase: str, face, center, ref_prefer, params: Params) -> CutMeasure:
@@ -479,6 +490,8 @@ def measure_cuts(project, body: S.Manifold, cat: Catalog | None = None, params: 
         m.limb = limb
         out.append(m)
 
+    _measure_depths(out, half, p)
+
     if cat is not None:
         contract = contract_of(cat)
         for m in out:                                           # talle y posición frente al contrato de la línea, si lo hay
@@ -513,6 +526,29 @@ def measure_cuts(project, body: S.Manifold, cat: Catalog | None = None, params: 
             m.as_plug = coverage_of_port(m.port, p.ref_height, clash=plug_clash, **kw)
             m.as_socket = coverage_of_port(m.socket_port(), p.ref_height, clash=socket_clash, **kw)
     return out
+
+
+def _measure_depths(cuts: list, body: S.Manifold, params: Params) -> None:
+    """Mide, sobre el torso de la figura, cuánto cuerpo hay detrás de la cara de cada miembro (`capacity.measure`, la misma cuenta que
+    la capacidad de una toma del catálogo) y rehace la oferta de tipos con ese dato. La huella es la del pasador de la línea: para los
+    tipos que se ofrecen en un mismo lugar (hongo y clic) es la misma cabeza. Un corte que no se puede medir queda con la oferta de la cara."""
+    from .capacity import measure
+
+    todo = [m for m in cuts if m.port is not None and m.limb is not None and m.tipos]
+    if not todo:
+        return
+    try:
+        mesh = S.to_trimesh(body)
+    except Exception:                                  # noqa: BLE001  una malla que no se pasa a trimesh no frena la guía
+        return
+    for m in todo:
+        try:
+            cap = measure(mesh, m.socket_port(), params)
+        except (ValueError, KeyError):
+            cap = None
+        if cap is not None:
+            m.profundidad_mm = float(cap["profundidad_mm"])
+            refresh_offer(m, params)
 
 
 # ---------------------------------------------------------------------------------------------------- ajuste del corte (Fase 4)
@@ -868,6 +904,28 @@ def format_coverage(cov: Coverage, indent: str = "    ", all_fits: bool = False)
     return lines
 
 
+def format_types(m: CutMeasure) -> list:
+    """Líneas de la oferta de tipos de un corte: «tipos de articulación que admite», uno por tipo con su nivel, margen y motivos."""
+    if not m.tipos:
+        return []
+    from .joint_types import REGISTRY
+
+    lines = ["  tipos de articulación que admite este corte:"]
+    if m.profundidad_mm is not None:
+        lines.append(f"    (cuerpo detrás de la cara: {_c(m.profundidad_mm)} mm)")
+    for o in m.tipos:
+        t = REGISTRY.get(o.type_id)
+        name = (getattr(t, "labels", None) or {}).get("es", o.type_id)
+        det = ""
+        if o.margen_pared_mm is not None:
+            det += f" · pared {_c(o.margen_pared_mm)} mm"
+        if o.margen_profundidad_mm is not None:
+            det += f" · profundidad {'sobran' if o.margen_profundidad_mm >= 0 else 'faltan'} {_c(abs(o.margen_profundidad_mm))} mm"
+        lines.append(f"    {o.type_id:<10} {name:<8} {o.nivel}{det}")
+        lines += [f"      {why}" for why in o.motivos]
+    return lines
+
+
 def format_measure(m: CutMeasure, all_fits: bool = False) -> list:
     """Líneas de texto de un corte medido (para `afm guia`)."""
     head = f"{m.lugar} ({m.clase})"
@@ -889,6 +947,7 @@ def format_measure(m: CutMeasure, all_fits: bool = False) -> list:
     if m.cara_chica:
         lines.append(f"  AVISO: la cara admite un círculo de Ø{_c(m.cara_chica[0], 1)} mm y el pasador con pared pide "
                      f"Ø{_c(m.cara_chica[1], 1)} mm: no entra en ninguna posición")
+    lines += format_types(m)
     for label, cov in (("como enchufe (la pieza de esta figura en otras)", m.as_plug),
                        ("como toma (el torso de esta figura con piezas de otras)", m.as_socket)):
         if cov is not None:

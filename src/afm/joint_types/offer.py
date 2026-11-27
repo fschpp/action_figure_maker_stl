@@ -38,6 +38,23 @@ def _face_radius(face) -> float | None:
     return float(shape.boundary.distance(pt)) if shape.contains(pt) else -float(shape.boundary.distance(pt))
 
 
+def _de(what: str) -> str:
+    """«el vástago» → «del vástago»; «la cabeza» → «de la cabeza»."""
+    return "del " + what[3:] if what.startswith("el ") else "de " + what
+
+
+def _face_footprint(t, jp, params: Params, slot: str, req) -> tuple[float, str]:
+    """Qué parte del tipo tiene que caber DENTRO de la cara del corte: (radio, «de qué»). Por defecto la cabeza (`huella_radio_mm`): es
+    lo que pasa cuando el corte parte el miembro y la cabeza queda alojada en la misma sección (swivel). Un tipo cuya cabeza queda
+    escondida en el anfitrión (hongo y clic: la cabeza va dentro del torso) lo dice con el método opcional `face_radius(jp, params, slot)`
+    — el vástago es lo que atraviesa la cara — y `face_what` (por defecto «el vástago»)."""
+    fn = getattr(t, "face_radius", None)
+    if fn is None:
+        return float(req.huella_radio_mm), "la cabeza"
+    r = fn(jp, params, slot)
+    return (float(req.huella_radio_mm), "la cabeza") if r is None else (float(r), getattr(t, "face_what", "el vástago"))
+
+
 def offer_one(t, params: Params, slot: str, face=None, depth_mm: float | None = None, jp=None) -> Offer:
     """El veredicto de un tipo para un corte. `face`: `PortFace` (o geometría shapely) en (u, v) con el centro del pasador en (0, 0);
     `depth_mm`: profundidad detrás de la cara; `jp`: medidas propias (por defecto las del tipo para la línea)."""
@@ -52,13 +69,14 @@ def offer_one(t, params: Params, slot: str, face=None, depth_mm: float | None = 
     wall = depth = None
     r = _face_radius(face)
     if r is not None:
-        wall = r - req.huella_radio_mm
+        need_r, what = _face_footprint(t, jp, params, slot, req)
+        wall = r - need_r
         if wall < 0:
             level = "no"
-            motivos.append(f"la cabeza (radio {req.huella_radio_mm:.2f} mm) no entra en la cara: queda un radio libre de {max(r, 0.0):.2f} mm")
+            motivos.append(f"{what} (radio {need_r:.2f} mm) no entra en la cara: queda un radio libre de {max(r, 0.0):.2f} mm")
         elif wall < req.pared_min_mm:
             level = "aviso" if level == "ok" else level
-            motivos.append(f"poca pared alrededor de la cabeza: {wall:.2f} mm (mínimo {req.pared_min_mm:g} mm)")
+            motivos.append(f"poca pared alrededor {_de(what)}: {wall:.2f} mm (mínimo {req.pared_min_mm:g} mm)")
     if depth_mm is not None:
         need = req.profundidad_mm + req.pared_min_mm
         depth = float(depth_mm) - need

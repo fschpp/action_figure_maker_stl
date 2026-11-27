@@ -36,6 +36,12 @@ class Mushroom:
     def pin_shift(self, jp: PinSpec, params: Params, slot: str | None = None) -> float:
         return 0.0
 
+    face_what = "el vástago"
+
+    def face_radius(self, jp: PinSpec, params: Params, slot: str | None = None) -> float:
+        """Lo que tiene que caber en la cara del corte: el vástago (la cabeza queda escondida dentro del torso)."""
+        return float(jp.shaft_d) / 2
+
     def build(self, site: JointSite) -> JointResult:
         face, p = site.face, site.params
         axis = rotation_axis(face)

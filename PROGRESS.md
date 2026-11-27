@@ -1,3 +1,12 @@
+## Current Focus — Plugins de articulación, Fase 2 (corte 2): oferta de tipos en la guía de cortes (2026-11-27, sobre main f79f141)
+**Objetivo.** Que «mejorar un corte» sea visible: cada corte medido lista qué tipos de articulación admite (ok / aviso / no, con el motivo), en `afm guia` y en la ventana «Guía de cortes» (mismo texto, `format_measure`). Un tipo instalado aparece solo (`docs/PLAN_plugins_articulacion.md` §3.5, §5 Fase 2).
+**Hecho.**
+- `guide.CutMeasure.tipos` (`[Offer]`) y `profundidad_mm`; `refresh_offer`, `_measure_depths` (mide el cuerpo detrás de la cara de cada miembro con `capacity.measure` sobre el torso de la figura, la misma cuenta que la capacidad de una toma) y `format_types`. Un corte sin tipos para su lugar (cuello) no imprime nada; si la profundidad no se puede medir queda la oferta de la cara.
+- **Corrección de la regla de cara de `offer`** (el corte 1 la tenía solo bien para swivel): en hongo y clic la cabeza queda escondida en el torso y lo que atraviesa la cara es el VÁSTAGO, así que `offer_one` usa el método opcional `face_radius(jp, params, slot)` del tipo (hongo y clic: radio del vástago; sin el método, la cabeza, como swivel). Con eso la oferta coincide con el margen del pasador que ya mostraba la guía (muñeco: hombro 0,57 mm → aviso; cadera 1,50 mm).
+- `tests/test_guide_offer.py` (10).
+**Verificado.** 69 tests (guía, oferta, swivel, registro) en verde; `golden comparar muneco` idéntica. Fallo ya existente en main: `test_ports::test_extract_tolerates_a_slightly_tilted_cut_plane`. La ventana GTK no se probó (el texto sale del controller).
+**Pendiente de Fase 2.** Probeta de `swivel` (H1, `probes.py`), ejemplo en `examples/`, tobillo (espera la respuesta a P7: ¿el pie es parte de la pierna?) y `afm catalogo explicar`.
+
 ## Current Focus — Catálogos en línea: D22 importar `.zip` y arrastrar y soltar (2026-11-27, rama feat/catalogos-online-d22 sobre main 165b664)
 **Objetivo.** Que un `.zip` elegido o soltado en la ventana llegue al **mismo diálogo** de confirmación que «Instalar» de «Explorar», con soporte de zips heredados (D07).
 **Hecho.**

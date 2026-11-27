@@ -34,6 +34,14 @@ class Detent:
         """El hongo queda `disc_h` detrás del disco de clic."""
         return float(jp.disc_h)
 
+    face_what = "el vástago"
+
+    def face_radius(self, jp: DetentSpec, params: Params, slot: str | None = None) -> float:
+        """Igual que el hongo del lugar: el vástago atraviesa la cara y la cabeza queda en el torso."""
+        from .resolve import class_pin
+        pin = class_pin(slot or "", params) or Mushroom().default_params(params, slot or "")
+        return float(pin.shaft_d) / 2
+
     def build(self, site: JointSite) -> JointResult:
         p, face = site.params, site.face
         pin: PinSpec = site.opts.get("pin") or Mushroom().default_params(p, site.slot)
