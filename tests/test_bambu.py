@@ -166,3 +166,74 @@ def test_off_by_default_and_recolor_keeps_file(params, res, meshes, tmp_path):
         cz(n, m, res)
     out = cz.write(str(tmp_path), FIG)
     assert "bambu" not in out and not list(tmp_path.glob("*_bambu*"))
+
+
+# ------------------------------------------------------------------ accesorios (armas) en el 3MF
+def _sword_mesh():
+    """Hoja acostada de 40 × 4 × 1 mm (pose de impresión), sin color propio."""
+    m = trimesh.creation.box(extents=(40.0, 4.0, 1.0))
+    m.apply_translation(-m.bounds[0])
+    return m
+
+
+def _bake(res, meshes, params, d, extras=None):
+    cz = Colorizer(ColorSource(doll_textured(), spacing_mm=0.1), params, texel_mm=0.3, bambu=3)
+    for n, m in meshes.items():
+        cz(n, m, res)
+    return cz, cz.write(str(d), FIG, extras=extras)
+
+
+def test_el_3mf_lleva_el_arma(res, meshes, params, tmp_path):
+    cz, out = _bake(res, meshes, params, tmp_path, extras=[("sword-01", _sword_mesh())])
+    b = out["bambu"]
+    assert b["accesorios"] == ["sword-01"]
+    root = _model(tmp_path, f"{FIG}_bambu")
+    objs = [o for o in root.findall(".//m:resources/m:object", NS) if o.find("m:mesh", NS) is not None]
+    assert sorted(o.get("name") for o in objs) == sorted(list(meshes) + ["sword-01"])
+    n = len(b["colores"])
+    assert n <= 3                                                   # el arma no suma un color nuevo: usa uno de la figura (tope de filamentos)
+    sw = next(o for o in objs if o.get("name") == "sword-01")
+    assert len({int(t.get("p1")) for t in sw.findall("m:mesh/m:triangles/m:triangle", NS)}) == 1       # un color liso
+    assert b["triangulos"] == sum(len(o.findall("m:mesh/m:triangles/m:triangle", NS)) for o in objs)
+    assert sum(c["area_pct"] for c in b["colores"]) == pytest.approx(100.0, abs=0.5)
+    assert "sword-01" in open(tmp_path / b["obj"]).read()
+
+
+def test_el_arma_queda_donde_se_la_puso(res, meshes, params, tmp_path):
+    """No se vuelve a orientar: las coordenadas del 3MF son las de la malla recibida."""
+    sw = _sword_mesh()
+    sw.apply_translation([500.0, 0.0, 0.0])
+    _cz, out = _bake(res, meshes, params, tmp_path, extras=[("sword-01", sw)])
+    root = _model(tmp_path, f"{FIG}_bambu")
+    o = next(o for o in root.findall(".//m:resources/m:object", NS) if o.get("name") == "sword-01")
+    xs = [float(v.get("x")) for v in o.findall("m:mesh/m:vertices/m:vertex", NS)]
+    assert min(xs) == pytest.approx(500.0, abs=1e-3) and max(xs) == pytest.approx(540.0, abs=1e-3)
+
+
+def test_sin_armas_el_3mf_no_cambia(res, meshes, params, tmp_path):
+    _cz, out = _bake(res, meshes, params, tmp_path)
+    assert "accesorios" not in out["bambu"]
+    root = _model(tmp_path, f"{FIG}_bambu")
+    assert sorted(o.get("name") for o in root.findall(".//m:resources/m:object", NS) if o.find("m:mesh", NS) is not None) == sorted(meshes)
+
+
+def test_exportar_ahora_y_la_vista_previa_llevan_el_arma(res, meshes, params, tmp_path):
+    cz, out = _bake(res, meshes, params, tmp_path, extras=[("sword-01", _sword_mesh())])
+    assert cz.write_bambu()["accesorios"] == ["sword-01"]
+    assert "sword-01" in [p.name for p in cz.bambu_preview().pieces]
+
+
+def test_export_de_la_figura_pasa_las_armas_al_3mf(res, params, tmp_path):
+    """`pipeline.export` pone el arma al lado de la figura (como el STL ensamblado) y la entrega al 3MF con su nombre."""
+    from afm import pipeline as P
+
+    cz = Colorizer(ColorSource(doll_textured(), spacing_mm=0.1), params, texel_mm=0.3, bambu=3)
+    info = P.export(res, str(tmp_path), FIG, params=params, extras=[_sword_mesh()], extras_names=["sword-01"], colorize=cz)
+    assert info["color"]["bambu"]["accesorios"] == ["sword-01"]
+    root = _model(tmp_path, f"{FIG}_bambu")
+    names = [o.get("name") for o in root.findall(".//m:resources/m:object", NS) if o.find("m:mesh", NS) is not None]
+    assert "sword-01" in names
+    asm = trimesh.load(str(tmp_path / f"{FIG}_ensamblada.stl"))
+    o = next(o for o in root.findall(".//m:resources/m:object", NS) if o.get("name") == "sword-01")
+    xs = [float(v.get("x")) for v in o.findall("m:mesh/m:vertices/m:vertex", NS)]
+    assert min(xs) >= asm.bounds[0][0] and max(xs) <= asm.bounds[1][0] + 1e-3        # mismo lugar que en el STL ensamblado

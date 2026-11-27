@@ -2710,7 +2710,7 @@ class Session:
                 colorize.bambu = bambu_opt
         files = P.export(self.outcome.result, outdir, name, orient=orient, max_angle=max_angle,
                          flat=self.project.params.flat_depth if flat else None, params=self.project.params,
-                         progress=progress, extras=[i["mesh"] for i in items], **extra)
+                         progress=progress, extras=[i["mesh"] for i in items], extras_names=[i["ficha"]["id"] for i in items], **extra)
         acc_info = finish_export(items, outdir, name, progress)
         if acc_info:
             files["accesorios"] = [a["archivo"] for a in acc_info]

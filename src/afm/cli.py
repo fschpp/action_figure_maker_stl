@@ -197,7 +197,7 @@ def run(stl_path: str, project: Project, outdir: str, name: str, progress=print,
     items = load_project_items(project, progress=print)
     progress("Exportando las piezas…")
     files = P.export(res, outdir, name, orient=orient, max_angle=max_angle, flat=flat, params=project.params,
-                     extras=[i["mesh"] for i in items], colorize=colorize)
+                     extras=[i["mesh"] for i in items], extras_names=[i["ficha"]["id"] for i in items], colorize=colorize)
     acc_info = finish_export(items, outdir, name, progress=print)
     if acc_info:
         files["accesorios"] = [a["archivo"] for a in acc_info]
@@ -323,7 +323,7 @@ def run_armar(recipe_path: str, outdir: str, name: str | None = None, catalog_ro
     progress("Exportando las piezas…")
     extra = {"colorize": colorize} if colorize is not None else {}
     files = P.export(asm.res, outdir, name, orient=orient, max_angle=max_angle, flat=flat, params=asm.params,
-                     progress=progress, extras=[i["mesh"] for i in items], **extra)
+                     progress=progress, extras=[i["mesh"] for i in items], extras_names=[i["ficha"]["id"] for i in items], **extra)
     from .accessories import finish_export
 
     acc_info = finish_export(items, outdir, name, progress)

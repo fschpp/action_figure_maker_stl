@@ -37,6 +37,7 @@ DEFAULT_MAX_COLORS = 8
 DEFAULT_MIN_AREA_PCT = 0.5
 DEFAULT_DESPECKLE = 2
 NO_LABEL = 255
+ACCESSORY_RGB = (192, 192, 192)       # las armas y accesorios no traen color: salen del color de la figura más parecido a este gris acero
 DETECT_MAX = 24                       # a lo sumo tantos colores candidatos en el selector
 _HEX_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 # 4 muestras por triángulo (coordenadas baricéntricas): el centro y un punto cerca de cada vértice
@@ -370,8 +371,12 @@ def _apply_chosen(col: Collected, chosen) -> tuple | None:
     return cc[order], new_id[final], len(cc) - len(order)
 
 
-def build_from(col: Collected, orientation, opt: BambuOptions) -> BambuResult:
-    """Un color por cara para toda la figura a partir de lo ya reunido (`collect`) y las opciones (tope y área mínima, o `chosen`; luego `remap`)."""
+def build_from(col: Collected, orientation, opt: BambuOptions, extras=None) -> BambuResult:
+    """Un color por cara para toda la figura a partir de lo ya reunido (`collect`) y las opciones (tope y área mínima, o `chosen`; luego `remap`).
+
+    `extras`: `[(nombre, V, F)]` de los accesorios (armas), ya en su lugar final (al lado de la figura, con la orientación aplicada: no se vuelven a
+    girar). No llevan color: cada uno sale de UN color liso, el de los que ya usa la figura más parecido a `ACCESSORY_RGB` (así no se pasa del
+    tope de colores/filamentos). Sin ellos el 3MF no tenía el arma."""
     if not col.names:
         return BambuResult([], np.zeros((0, 3), np.uint8))
     chosen = opt.chosen
@@ -403,6 +408,17 @@ def build_from(col: Collected, orientation, opt: BambuOptions) -> BambuResult:
         w_by_color += np.bincount(idx, weights=area, minlength=k)
         n_by_color += np.bincount(idx, minlength=k)
         out.append(BambuPiece(name, V2, F2, idx))
+    if extras:
+        gray = int(np.argmin(np.linalg.norm(_lab(np.asarray(centers, np.uint8)) - _lab(np.array([ACCESSORY_RGB], np.uint8)), axis=1)))
+        for name, V, F in extras:
+            V2, F2, _keep = _merge_vertices(np.asarray(V, np.float64), np.asarray(F, np.int64))
+            if not len(F2):
+                continue
+            T = V2[F2]
+            area = 0.5 * np.linalg.norm(np.cross(T[:, 1] - T[:, 0], T[:, 2] - T[:, 0]), axis=1)
+            w_by_color[gray] += float(area.sum())
+            n_by_color[gray] += len(F2)
+            out.append(BambuPiece(str(name), V2, F2, np.full(len(F2), gray, np.int64)))
     total = float(w_by_color.sum()) or 1.0
     return BambuResult(out, centers, [round(100.0 * float(x) / total, 2) for x in w_by_color], [int(n) for n in n_by_color], smoothed, merged)
 
@@ -506,10 +522,10 @@ def write_obj(outdir: str, base: str, res: BambuResult) -> tuple[str, str]:
 
 
 def write_bambu(outdir: str, fig_name: str, pieces: dict, role_hex: dict | None, orientation, opt: BambuOptions,
-                col: "Collected | None" = None) -> dict:
+                col: "Collected | None" = None, extras=None) -> dict:
     """Escribe `<fig>_bambu.3mf`, `<fig>_bambu.obj` y `<fig>_bambu.mtl` en `outdir` y devuelve el informe (serializable).
-    `col`: lo ya calculado por `collect` para esas mismas piezas (si no, se calcula acá)."""
-    res = build_from(col if col is not None else collect(pieces, role_hex), orientation, opt)
+    `col`: lo ya calculado por `collect` para esas mismas piezas (si no, se calcula acá). `extras`: los accesorios, `[(nombre, V, F)]` (ver `build_from`)."""
+    res = build_from(col if col is not None else collect(pieces, role_hex), orientation, opt, extras=extras)
     base = f"{fig_name}_bambu"
     os.makedirs(outdir, exist_ok=True)
     write_3mf(os.path.join(outdir, f"{base}.3mf"), res, fig_name)
@@ -518,4 +534,5 @@ def write_bambu(outdir: str, fig_name: str, pieces: dict, role_hex: dict | None,
             "colores": [{"hex": _hex(c), "area_pct": a, "caras": n} for c, a, n in zip(res.colors, res.area_pct, res.faces)],
             "opciones": {"max_colores": opt.max_colors, "area_minima_pct": opt.min_area_pct, "despeckle": opt.despeckle,
                          **({"colores_elegidos": list(opt.chosen)} if opt.chosen else {}), **({"cambios": dict(opt.remap)} if opt.remap else {})},
-            "triangulos": int(sum(len(p.F) for p in res.pieces)), "caras_suavizadas": int(res.smoothed), "colores_fundidos": int(res.merged)}
+            "triangulos": int(sum(len(p.F) for p in res.pieces)), "caras_suavizadas": int(res.smoothed), "colores_fundidos": int(res.merged),
+            **({"accesorios": [n for n, _v, _f in extras]} if extras else {})}

@@ -50,6 +50,7 @@ class Colorizer:
         self.bambu = BambuOptions.coerce(bambu)
         self._last_write: tuple | None = None              # T45: argumentos del último `write`, para que `recolor` reescriba los mismos archivos
         self._bambu_col = None                             # `bambu.Collected` de las piezas de ahora (selector y vista previa); se rehace si cambian
+        self._extras: list = []                            # [(nombre, malla)] de los accesorios del último `write`, ya al lado de la figura (van al 3MF de Bambu)
 
     # ------------------------------------------------------------------ fuente de cada pieza
     def source_for(self, name: str, res=None):
@@ -130,6 +131,10 @@ class Colorizer:
             self._bambu_col = collect({n: (v[0], v[1]) for n, v in self.pieces.items()}, (self.palette_report or {}).get("roles"))
         return self._bambu_col
 
+    def _bambu_extras(self) -> list:
+        """Los accesorios del último `write` como `[(nombre, V, F)]` para `bambu.build_from` (ya en su lugar final)."""
+        return [(n, np.asarray(m.vertices, np.float64), np.asarray(m.faces, np.int64)) for n, m in self._extras]
+
     def bambu_candidates(self) -> list:
         """Los colores que ofrece el selector de la salida para Bambu (`bambu.candidates`); `[]` si todavía no hay piezas."""
         from .bambu import candidates
@@ -145,7 +150,8 @@ class Colorizer:
         if not self.pieces:
             raise ValueError("no hay piezas con color")
         opt = BambuOptions.coerce(self.bambu if opt is None else opt) or BambuOptions()
-        return build_from(self.bambu_collected(), None if (self._last_write is None or not oriented) else self._last_write[2], opt)
+        return build_from(self.bambu_collected(), None if (self._last_write is None or not oriented) else self._last_write[2], opt,
+                          extras=self._bambu_extras() if (oriented and self._last_write is not None) else None)
 
     def write_bambu(self, opt=None) -> dict:
         """Reescribe SOLO `<fig>_bambu.3mf / .obj / .mtl` con `opt` (por defecto, las opciones de la salida) en la carpeta del último `write`,
@@ -157,7 +163,8 @@ class Colorizer:
         opt = BambuOptions.coerce(self.bambu if opt is None else opt) or BambuOptions()
         outdir, fig_name, orientation = self._last_write[:3]
         return write_bambu(outdir, fig_name, {n: (v[0], v[1]) for n, v in self.pieces.items()},
-                           (self.palette_report or {}).get("roles"), orientation, opt, col=self.bambu_collected())
+                           (self.palette_report or {}).get("roles"), orientation, opt, col=self.bambu_collected(),
+                           extras=self._bambu_extras())
 
     def _follow_bambu_roles(self, old: dict, new: dict) -> None:
         """Si un rol cambió de color (`recolor`), la selección manual de la salida para Bambu (`chosen` / `remap`) lo sigue (`bambu.follow_roles`)."""
@@ -247,13 +254,15 @@ class Colorizer:
             self.palette_report["cambios"] = {str(k): used.hex_of(k) for k in sorted(overrides)}
         out: dict = {"piezas": sorted(luts), "sin_etiquetas": sorted(n for n in self.pieces if n not in luts)}
         if rewrite and self._last_write is not None:
-            out["salida"] = self.write(*self._last_write, textures_only=True)
+            out["salida"] = self.write(*self._last_write, textures_only=True, extras=self._extras)
         out["segundos"] = round(float(time.perf_counter() - t0), 3)
         return out
 
-    def write(self, outdir: str, fig_name: str, orientation=None, accesorios_sin_color: int = 0, *, textures_only: bool = False) -> dict:
+    def write(self, outdir: str, fig_name: str, orientation=None, accesorios_sin_color: int = 0, *, textures_only: bool = False,
+              extras=None) -> dict:
         """Escribe OBJ + MTL + PNG por pieza, el GLB ensamblado y el informe. `orientation` es la 4×4 de la orientación de impresión
-        (la `T` de `print_orientation`): se aplica a las mallas de salida igual que a los STL.
+        (la `T` de `print_orientation`): se aplica a las mallas de salida igual que a los STL. `extras`: `[(nombre, malla)]` de los accesorios
+        (armas) ya puestos al lado de la figura, como en el STL ensamblado: no llevan color propio, pero van al 3MF de Bambu (`bambu.build_from`).
 
         `textures_only` (lo usa `recolor`, T45): no reescribe los OBJ ni los MTL (por pieza y ensamblado), que solo dependen de la geometría
         y de los nombres de los PNG y por eso salen byte a byte iguales; escribe los PNG, el GLB y el informe. Devuelve lo mismo que sin él."""
@@ -261,6 +270,7 @@ class Colorizer:
         from PIL import Image
 
         self._last_write = (outdir, fig_name, orientation, accesorios_sin_color)
+        self._extras = list(extras or [])
         cdir = os.path.join(outdir, COLOR_DIR)
         os.makedirs(cdir, exist_ok=True)
         scene = trimesh.Scene()
@@ -305,7 +315,8 @@ class Colorizer:
             from .bambu import write_bambu
 
             out["bambu"] = write_bambu(outdir, fig_name, {n: (v[0], v[1]) for n, v in self.pieces.items()},
-                                       (self.palette_report or {}).get("roles"), orientation, self.bambu, col=self.bambu_collected())
+                                       (self.palette_report or {}).get("roles"), orientation, self.bambu, col=self.bambu_collected(),
+                                       extras=self._bambu_extras())
         out["segundos"] = round(float(sum(i["segundos"] for *_x, i in self.pieces.values())), 2)
         with open(os.path.join(outdir, out["informe"]), "w", encoding="utf-8") as fh:
             json.dump(out, fh, ensure_ascii=False, indent=2, default=float)

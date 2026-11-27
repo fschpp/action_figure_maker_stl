@@ -1,3 +1,21 @@
+## Current Focus — Fix: el 3MF de Bambu no llevaba las armas (2026-11-26, rama fix/3mf-accesorios sobre main f6b37a0)
+**Objetivo.** Que `<fig>_bambu.3mf` / `.obj` incluya los accesorios (armas) de la figura, como ya lo hace el STL ensamblado.
+**Causa.** `Colorizer.write` arma el 3MF solo con `self.pieces` (las piezas con color); los accesorios no pasan por el colorizador (`accesorios_sin_color` en el informe), así que nunca llegaban a `bambu.write_bambu`.
+**Hecho.**
+- `pipeline.export` (único punto por donde pasan CLI, GUI y armador desde catálogo) guarda los accesorios ya puestos al lado de la figura (`place_beside`) con su nombre (`extras_names`, el id del accesorio; los 3 llamadores lo pasan) y los entrega a `colorize.write(extras=…)`.
+- `bambu.build_from(extras=[(nombre, V, F)])`: cada arma es un objeto más del 3MF/OBJ, en su lugar final (no se vuelve a orientar) y con UN color liso: el de los que ya usa la figura más parecido a un gris acero (`ACCESSORY_RGB`), así no pasa del tope de colores/filamentos.
+- `Colorizer` recuerda los accesorios del último `write`: «Exportar ahora», la vista previa orientada y `recolor` los conservan. El informe de Bambu agrega `accesorios`.
+- Pruebas nuevas en `tests/test_bambu.py` (5): arma en el 3MF y el OBJ, sin color nuevo, sin reorientar, sin armas todo igual, y de punta a punta por `pipeline.export`.
+
+### Todo List
+- [x] Done: causa, fix, pruebas de bambu (15 pasan)
+- [/] In Progress: pruebas relacionadas (selector, GUI de Bambu) en segundo plano
+- [ ] Todo: abrir el 3MF en Bambu Studio y ver el arma junto a la figura, con el filamento que tiene que ser
+- [ ] Todo (opcional): color elegible para las armas en el selector de Bambu
+
+### Latest Blockers/Discoveries
+- El arma sale al lado de la figura, no enfundada en la montura: igual que el STL ensamblado.
+
 ## Current Focus — GUI: una montura sin armar se ve «sin verificar», no como «ok» (2026-11-26, rama fix/montura-sin-verificar sobre fix/lazo-seccion-maxima)
 **Objetivo.** Que al abrir una receta con monturas la GUI no parezca decir que todo está bien: el estado de la montura (choques, retención, imprimible) solo sale al armar la figura.
 **Hecho.**

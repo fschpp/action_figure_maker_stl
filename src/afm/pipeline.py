@@ -1884,11 +1884,12 @@ def attach_accessories_to_parts_list(outdir: str, name: str, accesorios: list[di
 
 def export(res: BuildResult, outdir: str, name: str = "figura", orient: bool | str = False,
            max_angle: float = 45.0, extra_tilts=(0.0,), flat: float | None = None, params: Params | None = None,
-           progress=None, extras=None, colorize=None) -> dict:
+           progress=None, extras=None, colorize=None, extras_names=None) -> dict:
     """Escribe el ensamblado y un STL por parte. Con `orient=True` apoya todo el conjunto en la cama en la pose de
     la vista previa (sentada, cabeza arriba); con `orient="auto"` lo gira a la orientación de menor voladizo.
     En ambos casos informa la orientación. Con `flat` (altura del corte en mm sobre la cola; `Params.flat_depth`) antes se aplana la base y se
     giran los brazos para imprimir sin soportes (`flat_for_print`); el informe va en `info["sin_soportes"]`.
+    `extras_names`: nombre de cada accesorio de `extras` (el que lleva su objeto en el 3MF de Bambu; por defecto `accesorio_N`).
     `colorize` (opcional, `colorexport.Colorizer`): por cada pieza se llama `colorize(nombre, malla, res)` con la malla en su pose,
     antes de la orientación de impresión, y al final `colorize.write(...)` deja los archivos de color en `info["color"]`. No cambia
     ningún STL (plan T15, D7)."""
@@ -1933,16 +1934,20 @@ def export(res: BuildResult, outdir: str, name: str = "figura", orient: bool | s
         meshes.append(tm)
     say("Escribiendo la figura ensamblada…")
     asm = trimesh.util.concatenate(meshes)
+    placed_extras: list = []
     if extras:                      # accesorios (armas): al lado de la figura, en el mismo archivo; sus STL propios los escribe quien llama
         from .accessories import place_beside
 
-        asm = trimesh.util.concatenate([asm] + place_beside(asm, list(extras)))
+        placed = place_beside(asm, list(extras))
+        names = list(extras_names or [])
+        placed_extras = [(names[i] if i < len(names) else f"accesorio_{i + 1}", m) for i, m in enumerate(placed)]
+        asm = trimesh.util.concatenate([asm] + placed)
         info["accesorios_en_ensamblada"] = len(extras)
     asm.export(os.path.join(outdir, f"{name}_ensamblada.stl"))
     info.update({"ensamblada": f"{name}_ensamblada.stl", "piezas": sorted(res.pieces)})
     if colorize is not None:
         say("Escribiendo los archivos de color…")
-        info["color"] = colorize.write(outdir, name, T, accesorios_sin_color=len(extras or []))
+        info["color"] = colorize.write(outdir, name, T, accesorios_sin_color=len(extras or []), extras=placed_extras)
     say("Escribiendo la lista de piezas…")
     lst = parts_list(res, name)
     if lst is not None:
