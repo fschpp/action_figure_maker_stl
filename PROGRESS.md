@@ -1,3 +1,19 @@
+## Current Focus — Plugins de articulación, Fase 3 (corte 3): cadenas en la impresión plana y en el registro de color (2026-11-27, sobre main cc66c19)
+**Objetivo.** Que lo que ya sabía hacer una rodilla o un codo funcione con una cadena (rodilla + tobillo): `flat_for_print` y las semillas de color por pieza.
+**Hecho.**
+- `flat_for_print` (paso 0, «piernas estiradas»): agrupa por miembro y compone la cadena con `_chain_pieces` (antes habría pisado piezas de cada articulación por separado). `info["rodillas_estiradas"]` lista todas.
+- `colorreg`: `_ancestors` (articulaciones previas por `report["joints"][…]["cadena"]["previa"]`); `_axes_for_piece` y `_joint_seeds` suman los pasos de las anteriores (la distal de la rodilla sigue igual; el pie lleva tobillo + rodilla + cadera). Una sola articulación: mismas semillas y mismo orden.
+- `tests/test_joint_chain.py` (+2): impresión plana con cadena y semillas de color.
+**No hecho.** `joint_preview`/`joint_edit` por el registro; GUI (lista de articulaciones por miembro, `controller.py:2536` ya usa `posed_pieces`, que sí compone); `swivel` en cadena y el lugar `tobillo`; ejemplo en `examples/`; dorados de figuras reales.
+
+### Todo List
+- [x] Done: cadena en `flat_for_print` y en las semillas de color
+- [/] In Progress: Fase 3 — `joint_preview`/`joint_edit` por el registro
+- [ ] Todo: lugar `tobillo` + `swivel` en cadena; ejemplo en `examples/`
+
+### Latest Blockers/Discoveries
+- Corrida larga: los tests de color/mount/flat tardan más de 10 min en este entorno; se corren en segundo plano.
+
 ## Current Focus — Plugins de articulación, Fase 3 (corte 2): armar la cadena de bisagras en `pipeline.build` (2026-11-27, sobre main 839256a)
 **Objetivo.** Que un miembro lleve 2 o más articulaciones (rodilla + tobillo, codo + otra) y salgan 3 o más piezas, del torso a la punta (`docs/PLAN_plugins_articulacion.md` §5 Fase 3).
 **Hecho.**

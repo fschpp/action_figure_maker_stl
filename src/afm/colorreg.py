@@ -125,6 +125,16 @@ def _joint_info(owner, key: str):
     return None
 
 
+def _ancestors(owner, jn: str) -> list:
+    """Las articulaciones que preceden a `jn` en su cadena, la más cercana primero: `[(nombre, informe)]` (vacío si es la primera)."""
+    rep = getattr(owner, "report", {}).get("joints", {})
+    out, cur = [], rep.get(jn, {}).get("cadena", {}).get("previa")
+    while cur is not None and cur in rep and cur in getattr(owner, "joints", {}):
+        out.append((cur, rep[cur]))
+        cur = rep[cur].get("cadena", {}).get("previa")
+    return out
+
+
 def _axes_for_piece(piece_name: str, res):
     """Ejes de giro de la pieza, en el orden de la cadena y ya reflejados en `_der`: `[(centro, eje)]`.
 
@@ -140,6 +150,9 @@ def _axes_for_piece(piece_name: str, res):
         mo = owner.motion[r["limb"]]
         if idx == 1:
             out.append((np.asarray(jb.center, float), np.asarray(jb.axis, float)))
+            for an, _ar in _ancestors(owner, jn):             # cadena: la pieza también gira con las articulaciones anteriores
+                ab = owner.joints[an]
+                out.append((np.asarray(ab.center, float), np.asarray(ab.axis, float)))
         out.append((np.asarray(mo[1], float), np.asarray(mo[2], float)))
     elif key in owner.motion:
         out.append((np.asarray(owner.motion[key][1], float), np.asarray(owner.motion[key][2], float)))
@@ -162,8 +175,15 @@ def _joint_seeds(owner, key, jn, r, idx, params) -> list:
     if idx == 0:
         return [[(c_h, ax_h, a)] for a in hips]
     jc, jax = np.asarray(jb.center, float).tolist(), np.asarray(jb.axis, float).tolist()
+    anc = [(np.asarray(owner.joints[an].center, float).tolist(), np.asarray(owner.joints[an].axis, float).tolist(),
+            float(owner.joints[an].sign), float(ar.get("print_flex", 0.0))) for an, ar in _ancestors(owner, jn)]
     flexes = _uniq([sg * pf, -sg * pf, 0.0])
-    return [[(jc, jax, f), (c_h, ax_h, a)] for f in flexes for a in hips]
+    out = []
+    for f in flexes:
+        for mult in ((1.0, -1.0, 0.0) if anc else (1.0,)):     # cadena: flexión impresa de las anteriores (±) o sin flexión
+            steps = [(jc, jax, f)] + [(c, a, mult * sgn * pfl) for c, a, sgn, pfl in anc]
+            out.extend([steps + [(c_h, ax_h, h)] for h in hips])
+    return out
 
 
 def seeds_for_piece(piece_name: str, res, params) -> list:
