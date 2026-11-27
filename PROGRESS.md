@@ -1,3 +1,20 @@
+## Current Focus — Plugins de articulación, Fase 3 (corte 1): agrupar, ordenar y encadenar las articulaciones de un miembro (2026-11-27, sobre main 9c7c972)
+**Objetivo.** Dejar listo el criterio de «varias articulaciones por miembro» (`docs/PLAN_plugins_articulacion.md` §5 Fase 3) sin tocar geometría: bíceps + codo + muñeca, o el tobillo sobre la rodilla (`docs/PLAN_pie_tobillo.md`, camino A).
+**Hecho.**
+- `src/afm/joint_chain.py` (puro datos): `group_by_limb` (miembro inexistente y nombre repetido, con error claro), `order_along` (del torso a la punta por distancia firmada del plano; empate = error) y `check_names` (la distal de una articulación es la proximal de la siguiente; sin piezas repetidas).
+- `pipeline.build` agrupa con `group_by_limb`. Con 2 o más en un miembro sigue rechazando («por ahora una sola articulación por miembro»), pero ahora explica el motivo si la cadena es incoherente. Una articulación por miembro: idéntico a antes.
+- `tests/test_joint_chain.py` (4). Con `test_joints`, `test_joint_registry`, `test_params_joints` y `test_joint_swivel`: 71 pasan.
+**No hecho (siguiente corte).** Armar la cadena: `by_limb` pasa de dict a lista ordenada, la hija de una articulación es el padre de la siguiente, `res_joints`/`report["joints"]` y `_place_hand_piece` por cada una, `joint_preview` y `joint_edit` por el registro, y el ejemplo de `swivel` en `examples/`.
+
+### Todo List
+- [x] Done: agrupar/ordenar/encadenar nombres (`joint_chain.py`) y su prueba
+- [/] In Progress: Fase 3 — armar la cadena en `pipeline.build` (con `tools/golden.py comparar todos` antes y después)
+- [ ] Todo: `joint_preview` / `joint_edit` por el registro; ejemplo de `swivel`
+
+### Latest Blockers/Discoveries
+- El entorno de análisis no traía las dependencias del motor (se instalaron con pip); la corrida de esos 5 archivos tarda ~3 min.
+- Los dorados de figuras reales (guemes, belgrano, mickey) no se corrieron acá: necesitan sus STL.
+
 ## Current Focus — Catálogo en una sola pantalla: dos botones en la ventana principal (2026-11-27, rama feat/catalogo-una-pantalla sobre main 9cbcef8)
 **Objetivo.** Sacar el desplegable «Catálogo ▾» de «Lugares de la figura» y dejar en su lugar dos botones («Administrar catálogo…», «Explorar catálogos en línea…»); toda la gestión de catálogos pasa a la ventana de administración.
 **Hecho.**
