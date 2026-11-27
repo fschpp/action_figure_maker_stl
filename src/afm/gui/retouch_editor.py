@@ -13,6 +13,7 @@ import numpy as np
 from ..retouch import MIN_DOT, Retouch
 from .camera import OrbitCamera
 from .catalog_manager import preview_camera, view_bounds, widget_to_image
+from . import retouch_shapes as SH
 from .picking import Picker
 from .retouch_session import ERASE, FILL, ORPHAN, PAINT, RetouchSession
 
@@ -54,6 +55,10 @@ def _rgba(hex_color: str | None, alpha: float = 1.0):
     return tuple(int(hex_color[i:i + 2], 16) / 255.0 for i in (1, 3, 5)) + (alpha,)
 
 
+def radius_clipped(a, b) -> bool:
+    return SH.radius_of(a, b) > SH.MAX_RADIUS_MM
+
+
 class RetouchEditor:
     def __init__(self, catalog, meta, mesh, retouch: Retouch | None = None):
         self.meta, self.mesh = meta, mesh
@@ -65,6 +70,7 @@ class RetouchEditor:
         self.message = ""
         self.result_shown = False                  # la vista ya muestra el color real del retoque sin guardar («Ver resultado»)
         self._hover: np.ndarray | None = None      # aristas (E, 2, 3) de lo que el pincel pintaría bajo el mouse (None = nada)
+        self._sd: dict | None = None               # arrastre de una forma en curso: {"a", "n", "u", "v", "b"} (None = no hay)
 
     # ------------------------------------------------------------------ picking
     def camera(self, image_size, yaw_off: float, pitch_off: float, zoom: float, pan) -> OrbitCamera:
@@ -98,8 +104,65 @@ class RetouchEditor:
             return None
         return np.asarray(self.mesh.triangles, float)[self._face]
 
+    # ------------------------------------------------------------------ formas (línea, círculo, cuadrado)
+    def _project(self, P, n, tol: float):
+        """Proyecta `P` sobre la pieza con un rayo en dirección `-n` desde `tol + 1` mm por encima: `(impacto, normal)` o `None` si no hay pieza
+        a menos de `tol` mm del plano tangente o la cara no mira hacia `n`."""
+        P, n = np.asarray(P, float), np.asarray(n, float)
+        if self._picker is None:
+            self._picker = Picker(self.mesh)
+        res = self._picker.pick(P + n * (tol + 1.0), -n, snap_radius=0.0)
+        if res is None:
+            return None
+        hit = np.asarray(res.hit, float)
+        if abs(float((hit - P) @ n)) > tol:
+            return None
+        nrm = np.asarray(res.normal, float)
+        if float(nrm @ n) < 0:
+            nrm = -nrm
+        return (hit, nrm) if float(nrm @ n) >= MIN_DOT else None
+
+    def _shape_press(self, x, y, widget_size, image_size, yaw_off=0.0, pitch_off=0.0, zoom=1.0, pan=(0.0, 0.0)) -> bool:
+        p = self.pick(x, y, widget_size, image_size, yaw_off, pitch_off, zoom, pan)
+        if p is None:
+            return False
+        a, n = p
+        right = self.camera(image_size, yaw_off, pitch_off, zoom, pan).view()[0, :3]
+        u, v = SH.tangent_basis(n, right)
+        self._sd = {"a": a, "n": n, "u": u, "v": v, "b": a}
+        self.result_shown = False
+        self._hover = SH.outline(self.session.shape, a, a, n, u, v)
+        return True
+
+    def _shape_move(self, x, y, widget_size, image_size, yaw_off=0.0, pitch_off=0.0, zoom=1.0, pan=(0.0, 0.0)) -> int:
+        d = self._sd
+        p = self.pick(x, y, widget_size, image_size, yaw_off, pitch_off, zoom, pan)
+        if p is not None:                                          # fuera de la pieza se queda el último punto bueno
+            d["b"] = p[0]
+            self._hover = SH.outline(self.session.shape, d["a"], d["b"], d["n"], d["u"], d["v"])
+        return 0
+
+    def _shape_release(self) -> int:
+        d, self._sd = self._sd, None
+        self._hover = None
+        items = SH.samples(self.session.shape, d["a"], d["b"], d["n"], d["u"], d["v"], self.session.radius, self._project)
+        try:
+            n = self.session.add_shape(items)
+        except Exception as exc:                                   # noqa: BLE001  (RetouchError: no entran / sin rol)
+            self.message = str(exc)
+            return 0
+        if SH.CIRCLE == self.session.shape and radius_clipped(d["a"], d["b"]):
+            self.message = f"círculo recortado al radio máximo ({SH.MAX_RADIUS_MM:g} mm)"
+        return n
+
+    @property
+    def shaping(self) -> bool:
+        return self._sd is not None
+
     def press(self, *pick_args, **pick_kw) -> bool:
         """Empieza un trazo donde se hizo clic. `False` si ahí no hay pieza."""
+        if self.session.shape:
+            return self._shape_press(*pick_args, **pick_kw)
         p = self.pick(*pick_args, **pick_kw)
         if p is None:
             return False
@@ -109,12 +172,16 @@ class RetouchEditor:
 
     def move(self, *pick_args, **pick_kw) -> int:
         """Sigue el trazo; devuelve las pinceladas agregadas (0 si el mouse salió de la pieza)."""
+        if self._sd is not None:
+            return self._shape_move(*pick_args, **pick_kw)
         if not self.session.stroking:
             return 0
         p = self.pick(*pick_args, **pick_kw)
         return 0 if p is None else self.session.add_point(*p, tri=self._tri())
 
     def release(self) -> int:
+        if self._sd is not None:
+            return self._shape_release()
         n = self.session.end_stroke()
         if self.session.truncated:
             self.message = f"máx. de pinceladas alcanzado ({len(self.session)})"
@@ -123,7 +190,10 @@ class RetouchEditor:
     # ------------------------------------------------------------------ resaltado bajo el mouse
     def hover(self, *pick_args, **pick_kw) -> bool:
         """El mouse está sobre la vista: calcula las aristas de las caras que se pintarían con un clic ahí (el pincel actual; en «Rellenar»,
-        la cara donde empezaría el relleno). Devuelve `True` si el resaltado cambió (hay que redibujar)."""
+        la cara donde empezaría el relleno). Devuelve `True` si el resaltado cambió (hay que redibujar).
+        Con una forma elegida no hay resaltado del pincel (mientras se arrastra, el contorno de la forma lo pone `move`)."""
+        if self.session.shape:
+            return False if self._sd is not None else self.clear_hover()
         p = self.pick(*pick_args, **pick_kw)
         if p is None:
             return self.clear_hover()

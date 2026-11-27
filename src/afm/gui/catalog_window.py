@@ -26,6 +26,7 @@ from .progress_panel import ProgressPanel  # noqa: E402
 from .retouch_editor import RetouchEditor  # noqa: E402
 from .retouch_session import ERASE, FILL, ORPHAN, PAINT  # noqa: E402
 from .retouch_replace_window import ReplaceColorDialog  # noqa: E402
+from .retouch_shapes import CIRCLE as SHAPE_CIRCLE, LINE as SHAPE_LINE, SQUARE as SHAPE_SQUARE  # noqa: E402
 from .retouch_toolbox import RetouchToolbox  # noqa: E402
 from ..parts import STATES  # noqa: E402
 from .widgets import WrapRow, no_scroll_change as _no_scroll_change  # noqa: E402
@@ -1339,7 +1340,8 @@ class CatalogManagerWindow(Gtk.Window):
         self.dd_rrole.connect("notify::selected", self._on_retouch_role)
         self.spin_rradius.connect("value-changed", self._on_retouch_radius)
         self.spin_rreach.connect("value-changed", self._on_retouch_reach)
-        for t in (self.tgl_rpaint, self.tgl_rerase, self.tgl_rfill):
+        self.tgl_rline, self.tgl_rcircle, self.tgl_rsquare = tb.tgl_line, tb.tgl_circle, tb.tgl_square
+        for t in (self.tgl_rpaint, self.tgl_rerase, self.tgl_rfill, self.tgl_rline, self.tgl_rcircle, self.tgl_rsquare):
             t.connect("toggled", self._on_retouch_mode)
         self.chk_rpoly.connect("toggled", self._on_retouch_polygon)
         self.btn_rundo.connect("clicked", lambda *_: self._on_retouch_undo())
@@ -1477,7 +1479,7 @@ class CatalogManagerWindow(Gtk.Window):
         ids = ed.session.palette_ids
         if 0 <= i < len(ids):
             ed.session.set_role(ids[i])
-            if ed.session.mode == PAINT:                      # elegir un rol vuelve a pintar (si se estaba rellenando, se sigue rellenando)
+            if ed.session.mode == PAINT and ed.session.shape is None:      # elegir un rol vuelve a pintar (si se estaba rellenando o dibujando una forma, se sigue)
                 self._rupdating = True
                 try:
                     self.tgl_rpaint.set_active(True)
@@ -1501,7 +1503,15 @@ class CatalogManagerWindow(Gtk.Window):
 
     def _on_retouch_mode(self, *_) -> None:
         if self._reditor is not None and not self._rupdating:
-            self._reditor.session.set_mode(FILL if self.tgl_rfill.get_active() else PAINT if self.tgl_rpaint.get_active() else ERASE)
+            ses = self._reditor.session
+            shape = (SHAPE_LINE if self.tgl_rline.get_active() else SHAPE_CIRCLE if self.tgl_rcircle.get_active()
+                     else SHAPE_SQUARE if self.tgl_rsquare.get_active() else None)
+            if shape is not None:                                      # una forma pinta con el rol elegido (modo «pintar») y no deja resaltado del pincel
+                ses.set_shape(shape)
+            else:
+                ses.set_mode(FILL if self.tgl_rfill.get_active() else PAINT if self.tgl_rpaint.get_active() else ERASE)
+            self._reditor.clear_hover()
+            self._redraw()
 
     def _on_retouch_polygon(self, *_) -> None:
         if self._reditor is not None and not self._rupdating:

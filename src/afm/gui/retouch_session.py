@@ -33,6 +33,7 @@ class RetouchSession:
         self.paint_orphan = False          # «pintar» también pinta lo que la fuente de color no cubre (suma una pincelada «sin origen» por cada una normal); la ventana lo activa
         self.polygon = False               # «Polígono entero»: pintar / borrar / sin origen actúan sobre el triángulo de la pieza bajo el mouse, no sobre una bola
         self._last_tri = None
+        self.shape: str | None = None      # forma que se dibuja arrastrando (`retouch_shapes`: línea, círculo, cuadrado); `None` = pincel normal
         self.truncated = False            # el último trazo se cortó porque la pieza llegó al máximo de pinceladas
 
     # ------------------------------------------------------------------ herramienta
@@ -51,6 +52,17 @@ class RetouchSession:
         if mode not in (PAINT, ERASE, FILL, ORPHAN):
             raise RetouchError(f"modo desconocido: {mode!r}")
         self.mode = mode
+        self.shape = None                           # elegir pintar / borrar / rellenar / sin origen deja la forma
+
+    def set_shape(self, kind: str | None) -> None:
+        """Elige la forma a dibujar (o `None` para volver al pincel). Dibujar una forma pinta con el rol elegido (modo «pintar»)."""
+        from .retouch_shapes import SHAPES
+
+        if kind is not None and kind not in SHAPES:
+            raise RetouchError(f"forma desconocida: {kind!r}")
+        if kind is not None:
+            self.mode = PAINT
+        self.shape = kind
 
     def set_radius(self, r: float) -> float:
         """Fija el radio recortado al rango válido y lo devuelve."""
@@ -169,6 +181,25 @@ class RetouchSession:
         if added:
             self._last_c = new.c
         return added
+
+    def add_shape(self, items) -> int:
+        """Suma las pinceladas `(centro, radio, normal)` de una forma como **un solo trazo** (se deshace de una vez). Con «pintar» + «sin origen»
+        cada pincelada se escribe también como «sin origen». Devuelve cuántas se sumaron; `RetouchError` si no entran y entonces no cambia nada."""
+        items = list(items)
+        if self._open is not None:
+            self.end_stroke()
+        if not items:
+            return 0
+        if not self.can_paint or self.role is None:
+            raise RetouchError("no hay rol elegido para pintar")
+        flags = self._flags()
+        new = [Stroke(c, min(max(r, MIN_RADIUS_MM), MAX_RADIUS_MM), self.role, n, huerfana=orphan) for c, r, n in items for orphan in flags]
+        if len(self._strokes) + len(new) > MAX_STROKES:
+            raise RetouchError(f"no entran: la pieza tiene {len(self._strokes)} pinceladas y la forma suma {len(new)} (máximo {MAX_STROKES})")
+        self._strokes.extend(new)
+        self._undo.append(len(new))
+        self._redo.clear()
+        return len(new)
 
     def end_stroke(self) -> int:
         """Cierra el trazo: queda como una entrada de la pila de deshacer. Devuelve cuántas pinceladas tenía."""

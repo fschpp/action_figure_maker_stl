@@ -110,6 +110,9 @@ class RetouchToolbox(Gtk.Window):
         self.tgl_poly = Gtk.ToggleButton()
         self.btn_undo = Gtk.Button()
         self.btn_redo = Gtk.Button()
+        self.tgl_line = Gtk.ToggleButton(group=self.tgl_paint)           # formas: se arrastran sobre la pieza; borde y relleno llevan el color elegido
+        self.tgl_circle = Gtk.ToggleButton(group=self.tgl_paint)
+        self.tgl_square = Gtk.ToggleButton(group=self.tgl_paint)
         _style_tool(self.tgl_paint, ("document-edit-symbolic", "applications-graphics-symbolic"), tr("catalog_window.retocar_pintar"),
                     tr("catalog_window.retocar_pintar_tip"))
         _style_tool(self.tgl_erase, ("edit-clear-all-symbolic", "edit-clear-symbolic", "edit-delete-symbolic"), tr("catalog_window.retocar_borrar"),
@@ -120,7 +123,13 @@ class RetouchToolbox(Gtk.Window):
                     tr("catalog_window.retocar_poligono_tip"))
         _style_tool(self.btn_undo, ("edit-undo-symbolic",), tr("catalog_window.retocar_deshacer"), tr("catalog_window.retocar_deshacer_tip"))
         _style_tool(self.btn_redo, ("edit-redo-symbolic",), tr("catalog_window.retocar_rehacer"), tr("catalog_window.retocar_rehacer_tip"))
-        for i, b in enumerate((self.tgl_paint, self.tgl_erase, self.tgl_fill, self.tgl_poly, self.btn_undo, self.btn_redo)):
+        _style_tool(self.tgl_line, ("draw-line-symbolic", "list-remove-symbolic"), tr("catalog_window.retocar_linea"), tr("catalog_window.retocar_linea_tip"))
+        _style_tool(self.tgl_circle, ("media-record-symbolic", "draw-ellipse-symbolic"), tr("catalog_window.retocar_circulo"),
+                    tr("catalog_window.retocar_circulo_tip"))
+        _style_tool(self.tgl_square, ("media-playback-stop-symbolic", "draw-rectangle-symbolic"), tr("catalog_window.retocar_cuadrado"),
+                    tr("catalog_window.retocar_cuadrado_tip"))
+        for i, b in enumerate((self.tgl_paint, self.tgl_erase, self.tgl_fill, self.tgl_poly, self.tgl_line, self.tgl_circle, self.tgl_square,
+                               self.btn_undo, self.btn_redo)):
             grid.attach(b, i % 2, i // 2, 1, 1)
         top.append(grid)
 
@@ -159,6 +168,7 @@ class RetouchToolbox(Gtk.Window):
         root.append(top)
         self.tgl_fill.connect("toggled", lambda *_: self.reach_box.set_visible(self.tgl_fill.get_active()))
         self.tgl_poly.connect("toggled", lambda *_: self._sync_size_enabled())
+        self.tgl_circle.connect("toggled", lambda *_: self._sync_size_enabled())
 
         # --- color actual + paleta
         cur = Gtk.Box(spacing=8)
@@ -283,4 +293,5 @@ class RetouchToolbox(Gtk.Window):
             self._syncing = False
 
     def _sync_size_enabled(self) -> None:
-        self.size_box.set_sensitive(not self.tgl_poly.get_active())          # con el polígono entero el radio no cuenta
+        # con el polígono entero el radio no cuenta (y con una forma el polígono tampoco); el círculo fija su radio arrastrando
+        self.size_box.set_sensitive(not self.tgl_poly.get_active() and not self.tgl_circle.get_active())
