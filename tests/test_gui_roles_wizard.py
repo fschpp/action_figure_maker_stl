@@ -291,3 +291,13 @@ def test_window_module_parses_and_its_keys_exist_in_three_languages():
         for k in keys:
             assert i18n.tr(k, n=1, hex="#000000", pct="1 %", error="e", rol="r", ref="x", roles="a", ruta="p", lista="1") != k, (lang, k)
     i18n.set_language("es")
+
+
+def test_index_of_ref_keeps_the_chosen_piece():
+    """La pieza elegida en el catálogo es la que queda elegida en el asistente (y `_after_saved` no la pierde al rehacer la lista)."""
+    refs = ["a@1", "b@1", "b@2"]
+    assert RW.index_of_ref(refs, "b@1") == 1
+    assert RW.index_of_ref(refs, "b@2") == 2
+    assert RW.index_of_ref(refs, "zzz@1") is None
+    assert RW.index_of_ref(refs, None) is None
+    assert RW.index_of_ref([], "a@1") is None

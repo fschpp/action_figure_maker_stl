@@ -20,14 +20,14 @@ from gi.repository import Gdk, GLib, Gtk  # noqa: E402
 
 from ..palette import hex_to_rgb  # noqa: E402
 from .catalog_manager import PreviewRenderer  # noqa: E402
-from .roles_wizard import RolesWizard, RolesWizardError, RolesWizardFrontError  # noqa: E402
+from .roles_wizard import RolesWizard, RolesWizardError, RolesWizardFrontError, index_of_ref  # noqa: E402
 
 DEFAULT_K = 10
 VIEWS = ("clusters", "roles", "pieza")             # vista previa: colores encontrados / roles elegidos / la pieza con el color real (O09, tras «Probar en la pieza»)
 
 
 class RolesWizardWindow(Gtk.Window):
-    def __init__(self, parent: Gtk.Window, ctrl, on_saved=None):
+    def __init__(self, parent: Gtk.Window, ctrl, on_saved=None, initial_ref: str | None = None):
         super().__init__(title=tr("roles_wizard.titulo"), transient_for=parent, default_width=1100, default_height=720)
         self.ctrl = ctrl
         self.wiz = RolesWizard(ctrl)
@@ -60,11 +60,25 @@ class RolesWizardWindow(Gtk.Window):
         outer.append(self._build_bar())
         self.set_child(outer)
         self.connect("destroy", self._on_destroy)
+        self.select_piece(initial_ref)                 # la pieza que estaba elegida en el catálogo (si no, queda la primera)
         self._refresh()
 
     def _on_destroy(self, *_a) -> None:
         self._closed = True
         self.preview.close()
+
+    def select_piece(self, ref: str | None) -> None:
+        """Deja elegida en «Pieza» la `ref` dada (si existe en la lista). No hace nada si `ref` es `None` o no está."""
+        idx = index_of_ref(self._refs, ref)
+        if idx is not None and self.drop_piece.get_selected() != idx:
+            self.drop_piece.set_selected(idx)
+
+    def _set_refs(self) -> None:
+        """Vuelve a leer las piezas del catálogo **sin mover la elección**: cambiar el modelo de un `Gtk.DropDown` lo manda a la primera."""
+        keep = self._current_ref()
+        self._refs = self.wiz.piece_refs()
+        self.drop_piece.set_model(Gtk.StringList.new(self._refs))
+        self.select_piece(keep)
 
     # ------------------------------------------------------------ construcción
     def _build_source(self) -> Gtk.Widget:
@@ -837,8 +851,7 @@ class RolesWizardWindow(Gtk.Window):
         dlg.save(self, None, done)
 
     def _after_saved(self, text: str) -> None:
-        self._refs = self.wiz.piece_refs()                         # la versión nueva ya está en el catálogo
-        self.drop_piece.set_model(Gtk.StringList.new(self._refs))
+        self._set_refs()                                           # la versión nueva ya está en el catálogo; la pieza elegida no se mueve
         self._rebuild()
         self._say(text)
         if self._on_saved is not None:

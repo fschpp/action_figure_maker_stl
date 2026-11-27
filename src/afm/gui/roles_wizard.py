@@ -33,6 +33,11 @@ DIM_MIX = 0.55                       # los demás clusters se ven con su color l
 DIM_TO = (215, 215, 215)
 
 
+def index_of_ref(refs: list[str], ref: str | None) -> int | None:
+    """Posición de `ref` en `refs`; `None` si no hay `ref` o no está (sin GTK, para poder probarlo)."""
+    return refs.index(ref) if ref in refs else None
+
+
 class RolesWizardError(ValueError):
     """Lo pedido no se puede hacer (rol inexistente, clusters sin decidir, sin catálogo…). El mensaje está listo para mostrarse."""
 

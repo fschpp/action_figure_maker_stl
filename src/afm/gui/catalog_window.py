@@ -487,11 +487,14 @@ class CatalogManagerWindow(Gtk.Window):
         """«Roles de color desde un FBX…»: abre el asistente (una sola ventana; si ya está abierta, la trae al frente)."""
         from .roles_wizard_window import RolesWizardWindow
 
+        sel = self._selected_refs()
+        ref = sel[0] if sel else None                  # la pieza elegida en la lista: el asistente arranca con esa, no con la primera
         win = getattr(self, "_roles_win", None)
         if win is not None and win.get_visible():
+            win.select_piece(ref)
             win.present()
             return
-        win = RolesWizardWindow(self, self.ctrl, on_saved=self.refresh_if_changed)
+        win = RolesWizardWindow(self, self.ctrl, on_saved=self.refresh_if_changed, initial_ref=ref)
         self._roles_win = win
         win.connect_after("close-request", lambda w, *_: self._forget_window("_roles_win", w) or False)
         win.connect("destroy", lambda w, *_: self._forget_window("_roles_win", w))
