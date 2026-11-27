@@ -101,3 +101,24 @@ def test_print_flex_round_trips_and_is_omitted_when_unset():
     knee, ankle = _chain_joints()
     assert "print_flex" not in knee.to_dict() and JointSpec.from_dict(knee.to_dict()).print_flex is None
     assert JointSpec.from_dict(ankle.to_dict()).print_flex == 0.0
+
+
+def test_flat_for_print_straightens_every_joint_of_the_chain(chain_build):
+    res, p, _proj, _j = chain_build
+    pieces, info = P.flat_for_print(res, 1.0, p)
+    assert set(info["rodillas_estiradas"]) == {"rodilla", "tobillo"}
+    assert {"muslo_izq", "pantorrilla_izq", "pie_izq", "pie_der"} <= set(pieces)
+    # estirada: la pieza del pie queda en línea con la pantorrilla (misma altura de pose, sin la flexión de la rodilla)
+    straight = P.posed_pieces(res, res.report["joints"]["rodilla"]["print_hip"], {"rodilla": 0.0, "tobillo": 0.0})
+    for nm in ("pantorrilla_izq", "pie_izq"):
+        assert pieces[nm].volume() > 0 and straight[nm].volume() > 0
+
+
+def test_color_seeds_of_a_chained_piece_carry_every_previous_joint(chain_build):
+    from afm.colorreg import _axes_for_piece, seeds_for_piece
+    res, p, _proj, _j = chain_build
+    assert len(_axes_for_piece("pie_izq", res)) == 3 and len(_axes_for_piece("pantorrilla_izq", res)) == 2   # tobillo+rodilla+cadera / rodilla+cadera
+    assert len(_axes_for_piece("muslo_izq", res)) == 1
+    seeds = seeds_for_piece("pie_izq", res, p)
+    assert seeds and all(len(sd) == 3 for sd in seeds)
+    assert all(len(sd) == 2 for sd in seeds_for_piece("pantorrilla_izq", res, p))

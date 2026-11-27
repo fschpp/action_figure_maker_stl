@@ -1706,17 +1706,23 @@ def flat_for_print(res: BuildResult, depth: float = 1.0, p: Params | None = None
     # 0. piernas estiradas: con rodilla, la pantorrilla pasa de la flexión de la pose impresa a 0° y queda en línea con el
     #    muslo (ambos horizontales con la cadera sentada), para que las dos piezas apoyen sobre el plano del corte
     stretched: dict = {}
-    for jn, fl in straight_leg_flex(res).items():
-        r = res.report["joints"][jn]
-        jb = res.joints[jn]
-        _l, hc, hax, _rng = res.motion[r["limb"]]
-        th = float(r.get("print_hip", p.sit_angle))
-        for nm, mf in zip(r["piezas"], (jb.proximal, jb.rotate_distal(fl))):
+    straight_by_limb: dict = {}
+    for jn, fl in straight_leg_flex(res).items():             # en el orden de la cadena (el informe se arma así)
+        straight_by_limb.setdefault(res.report["joints"][jn]["limb"], []).append((jn, fl))
+    for limb_name, links in straight_by_limb.items():
+        rs = [res.report["joints"][jn] for jn, _fl in links]
+        jbs = [res.joints[jn] for jn, _fl in links]
+        _l, hc, hax, _rng = res.motion[limb_name]
+        th = float(rs[0].get("print_hip", p.sit_angle))
+        names = [rs[0]["piezas"][0]] + [r["piezas"][1] for r in rs]
+        posed = _chain_pieces([jbs[0].proximal] + [jb.proximal for jb in jbs[1:]] + [jbs[-1].distal], jbs, [fl for _jn, fl in links])
+        for nm, mf in zip(names, posed):
             if th:
                 mf = S.rotate_about_axis(mf, hc, hax, th)
             pieces[f"{nm}_izq"] = mf
             pieces[f"{nm}_der"] = S.mirror_x(mf)
-        stretched[jn] = {"flexion_grados": fl, "flexion_impresa_grados": r["print_flex"]}
+        for (jn, fl), r in zip(links, rs):
+            stretched[jn] = {"flexion_grados": fl, "flexion_impresa_grados": r["print_flex"]}
     info["rodillas_estiradas"] = stretched
     arm_limbs = [n for n, (_l, _c, _a, (a0, a1)) in res.motion.items() if n != HEAD_NAME and a1 <= a0 and n not in res.detent]
     info["clic_brazos"] = flat_click_advice(res, depth)
