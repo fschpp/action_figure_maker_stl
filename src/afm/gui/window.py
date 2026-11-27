@@ -2325,7 +2325,7 @@ class MainWindow(Gtk.ApplicationWindow):
 
     def _on_probes(self) -> None:
         dlg = Gtk.FileDialog(title=tr("window.carpeta_donde_guardar_las_probetas"))
-        which = ("hip", "shoulder", "hinge")[self.dd_probe.get_selected()]
+        which = ("hip", "shoulder", "hinge", "grip")[self.dd_probe.get_selected()]
 
         def finished(d, res):
             try:

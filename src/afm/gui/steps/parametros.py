@@ -143,7 +143,7 @@ def build(win) -> None:
     sec.append(win.lbl_jprev)
 
     sec = _collapsible(box, tr("parametros.probetas_de_articulacion"), expanded=False)
-    win.dd_probe = Gtk.DropDown.new_from_strings([tr("common.pasador_de_cadera"), tr("common.pasador_de_hombro"), tr("parametros.bisagra_de_rodilla_codo")])
+    win.dd_probe = Gtk.DropDown.new_from_strings([tr("common.pasador_de_cadera"), tr("common.pasador_de_hombro"), tr("parametros.bisagra_de_rodilla_codo"), tr("parametros.agarre_mano_mango")])
     sec.append(win.dd_probe)
     _help(sec, tr("parametros.probetas_ayuda"))
     sec.append(win._button(tr("parametros.generar_probetas_de_articulacion"), lambda *_: win._on_probes()))

@@ -1,3 +1,21 @@
+## Current Focus — Probeta de agarre mano / mango y selección del par (2026-11-27, rama probeta_agarre sobre main 7e9f43a)
+**Objetivo.** Poder probar qué par «mano (taladro) + mango (dentado)» sujeta mejor un accesorio sin imprimir una mano entera, y elegir el par ganador.
+**Hecho.**
+- `probes.grip_probe_*` + `afm probe --tipo agarre`: manos de prueba (bloque con taladro pasante, número en plaqueta) y mangos (paleta + `props.grip_stub`, número en relieve), `probetas.stl/.3mf/.txt/.json`; tabla de pares con `props.grip_compat` (interferencia, holgura radial, ε, nivel). Opciones `--taladros --dentados --vastago --ranura --largo-lengueta --largo-canal --mano`.
+- Elección del par: `afm probe-resultado MANIFIESTO --mano N --mango M` (imprime la línea de `afm agarre`; no usa `--perfil`/`--catalogo`/`--defecto`); `profile.probe_pair`, `grip_from_cell`, `grip_command`. El agarre no va a `Params`/perfil (hoy vive en `Controller.grip_spec`).
+- GUI: opción «Agarre mano + mango» en Probetas de articulación; «Usar esta celda» carga taladro, vástago, ranura, lengüeta y dentado en la sección «Agarre». Claves i18n `parametros.agarre_mano_mango` y `controller.agarre_mano_mango` (es/en/pt).
+- `docs/PROTOCOLO_probeta_agarre.md`. Pruebas: `tests/test_probe_grip.py` y una en `tests/test_gui_params.py`.
+
+### Todo List
+- [x] Done: motor de la probeta, CLI, selección de par, GUI (controlador + desplegable), docs y pruebas
+- [ ] Todo: imprimir la probeta (Bambu A1) y anotar el par ganador; probar con `--mano` el canal real de Güemes
+- [ ] Todo: probar la ventana GTK a mano (el desplegable de 4 opciones no tiene prueba automática)
+
+### Latest Blockers/Discoveries
+- Con canal < 7,6 mm y lengüeta de 8 mm la empuñadura no entra (`props._check_grip`): la probeta lo informa como error claro; bajar `--largo-lengueta`.
+- El mensaje «celda elegida» de la GUI sigue diciendo «quedó en los parámetros» también para el agarre (queda en la sección Agarre): texto a pulir.
+- Rebase sobre `main` (que sumó `--tipo giro` y `probe-resultado --catalogo/--defecto`): conflictos en cli, profile y locales resueltos a mano.
+
 ## Current Focus — Plugins de articulación: el pie y el tobillo «como la mano» (plan) (2026-11-27, sobre main 88f0f39)
 **Hecho.** `docs/PLAN_pie_tobillo.md` (solo plan): lo que hace hoy la mano de punta a punta (`hand.py`, `pipeline`, catálogo, CLI, GUI: no es un tipo del registro sino una función entera) y dos caminos: **A** tobillo como articulación de la pierna (tipo `swivel` en el lugar `tobillo`, sobre la Fase 3) y **B** pie estándar compartido, la mano repetida (21–34 d [I]). Recomendación: A primero. P7 de `PLAN_plugins_articulacion.md` marcada como respondida.
 **Pendiente del cliente.** ¿A, B o A y después B? (§5 del plan: intercambiables entre figuras, giro libre o flexión, tope, altura de la línea).

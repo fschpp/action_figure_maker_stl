@@ -13,6 +13,7 @@ import numpy as np
 from . import solids as S
 from .params import Params, PinSpec
 from .pins import mushroom_pin
+from .props import GripSpec
 
 DEFAULT_CLEARANCES = (0.3, 0.4, 0.5, 0.6)
 DEFAULT_SHAFT_DELTAS = (-0.2, 0.0, 0.2)
@@ -575,6 +576,153 @@ def mount_labels_text(cells: list[MountProbeCell], lazos: list, blade_w: float, 
     return head + "\n" + "\n".join(rows)
 
 
+# --------------------------------------------------------------------------------------------------
+# Probeta de agarre mano / mango: ¿con qué par «mano (taladro) + mango (dentado)» se sujeta mejor un accesorio?
+# --------------------------------------------------------------------------------------------------
+# No hace falta imprimir una mano entera: la «mano de prueba» es un bloque con el taladro y el largo de canal de la mano
+# estándar (`props.carve_grip`); el «mango de prueba» es una empuñadura dentada (`props.grip_stub`) con una paleta para agarrarla.
+# Cada mano lleva su número en relieve (plaqueta, como las demás probetas) y cada mango el suyo sobre la paleta. Se prueba
+# cada mango en cada mano: el par que entra sin forzar, no baila y no se suelta es el elegido (`afm probe-resultado … --mano N --mango M`).
+GRIP_PROBE_MAX = 6                   # manos o mangos por tirada (la fila cabe en la cama y el número es de un dígito)
+GRIP_PROBE_HOLE_LEN = 8.0            # mm de canal por defecto: con lengüetas de 8 mm la empuñadura necesita ≥ 7,6
+GRIP_PROBE_BLOCK = 10.0              # lado (mm) del bloque de la mano de prueba
+GRIP_PROBE_PITCH = 14.0              # paso (mm) entre bloques y entre mangos
+GRIP_PROBE_BARB_STEPS = (0.3, 0.5, 0.7)      # dentado por defecto = taladro de referencia + esto (2,7 / 2,9 / 3,1 con Ø2,4)
+GRIP_PROBE_BORE_STEPS = (-0.2, 0.0, 0.2)     # taladros por defecto = el de referencia + esto
+GRIP_PROBE_BLADE = (20.0, 8.0, 0.8)          # paleta del mango: largo × ancho × espesor (cabe un dígito en relieve)
+
+
+@dataclass
+class GripProbeHand:
+    n: int
+    bore_d: float                    # Ø del taladro de esta mano de prueba
+
+
+@dataclass
+class GripProbeHandle:
+    n: int
+    spec: GripSpec                   # barb_d propio; bore_d = el de referencia con que se armó (no cambia la forma)
+
+
+def _grip_values(values, name: str, what: str) -> list[float]:
+    vals = [float(v) for v in values]
+    if not vals:
+        raise ValueError(f"falta al menos un {what}")
+    if len(vals) > GRIP_PROBE_MAX:
+        raise ValueError(f"la probeta de agarre admite hasta {GRIP_PROBE_MAX} {name} (pidió {len(vals)})")
+    if min(vals) <= 0:
+        raise ValueError(f"los {name} son positivos")
+    if len(set(vals)) != len(vals):
+        raise ValueError(f"los {name} no pueden repetirse")
+    return vals
+
+
+def grip_probe_cells(spec: GripSpec | None = None, bores=None, barbs=None) -> tuple[list[GripProbeHand], list[GripProbeHandle]]:
+    """Las manos (una por Ø de taladro) y los mangos (uno por Ø de dentado) de la probeta.
+
+    `spec`: de dónde salen vástago, ranura y lengüeta (por defecto `GripSpec()`; el vástago se pone en taladro − 0,4 mm
+    si no se pasó uno, como `weapon.line_grip`). Sin `bores` se prueba el taladro de `spec` ±0,2 mm y sin `barbs`,
+    el taladro + 0,3 / 0,5 / 0,7 mm."""
+    spec = spec or GripSpec()
+    bs = _grip_values(bores if bores is not None else [round(spec.bore_d + d, 3) for d in GRIP_PROBE_BORE_STEPS], "taladros", "taladro")
+    ref = sorted(bs)[len(bs) // 2]                                  # taladro de referencia (el del medio)
+    ds = _grip_values(barbs if barbs is not None else [round(ref + d, 3) for d in GRIP_PROBE_BARB_STEPS], "dentados", "dentado")
+    hands = [GripProbeHand(i + 1, b) for i, b in enumerate(bs)]
+    handles = [GripProbeHandle(j + 1, replace(spec, bore_d=ref, barb_d=d)) for j, d in enumerate(ds)]
+    return hands, handles
+
+
+def _grip_hand_cell(hand: GripProbeHand, hole_len: float, block: float = GRIP_PROBE_BLOCK) -> S.Manifold:
+    """Mano de prueba: bloque de `hole_len` de alto con el taladro pasante (Ø de `hand`) y su número en una plaqueta delante.
+    Se imprime parado (el taladro vertical sale más redondo que acostado)."""
+    if hand.bore_d + 2 * 2.0 > block:
+        raise ValueError(f"el taladro Ø{hand.bore_d:g} mm no cabe en el bloque de {block:g} mm con paredes de 2 mm")
+    blk = S.Manifold.cube((block, block, hole_len), center=False).translate((-block / 2, -block / 2, 0.0))
+    bore = S.Manifold.cylinder(hole_len + 2.0, hand.bore_d / 2, hand.bore_d / 2, 48).translate((0.0, 0.0, -1.0))
+    return S.union(S.difference(blk, bore), number_plaque(hand.n, 0.0, -block / 2, 0.0, block))
+
+
+def _grip_handle_cell(handle: GripProbeHandle, hole_len: float) -> S.Manifold:
+    """Mango de prueba (marco del accesorio, acostado: ver `props`): paleta + guarda + empuñadura dentada, con el número
+    en relieve sobre la paleta. El fondo queda en z = 0."""
+    from . import props as PR
+
+    sp = handle.spec
+    bl, bw, bt = GRIP_PROBE_BLADE
+    prop = PR.make_prop(sp, hole_len, blade_len=bl, blade_w=bw, blade_t=bt)
+    guard_t = 2.0
+    r = sp.shaft_d / 2
+    txt = str(handle.n)
+    label = text_solid(txt).translate((-guard_t - 7.0 - text_width(txt) / 2, -3.5, -r + bt - 0.01))
+    return S.union(prop, label).translate((0.0, 0.0, r))
+
+
+def grip_pairs(hands: list[GripProbeHand], handles: list[GripProbeHandle], hole_len: float) -> list[dict]:
+    """Todos los pares mano × mango con lo que dice la compatibilidad del catálogo (`props.grip_compat`) para ese par."""
+    from . import props as PR
+
+    rows = []
+    for h in hands:
+        hand_d = {"diametro_taladro_mm": h.bore_d, "largo_canal_mm": float(hole_len)}
+        for m in handles:
+            sp = replace(m.spec, bore_d=h.bore_d)
+            c = PR.grip_compat(hand_d, PR.accessory_grip(sp, hole_len))
+            rows.append({"n": len(rows) + 1, "mano": h.n, "mango": m.n, "taladro": h.bore_d, "dentado": sp.barb_d,
+                         "vastago": sp.shaft_d, "ranura": sp.slit_w, "largo_lengueta": sp.finger_len,
+                         "interferencia": c.margenes_mm["interferencia"], "holgura_radial": c.margenes_mm["holgura_radial"],
+                         "deformacion_pct": round(100 * PR.grip_strain(sp), 3), "nivel": c.nivel,
+                         "motivos": list(c.motivos), "avisos": list(c.avisos)})
+    return rows
+
+
+def build_grip_probe(hands: list[GripProbeHand], handles: list[GripProbeHandle], hole_len: float = GRIP_PROBE_HOLE_LEN) -> list[tuple[str, S.Manifold]]:
+    """[(nombre, malla)] ya en su lugar: las manos en una fila (con su plaqueta hacia −Y) y los mangos debajo, uno por renglón."""
+    out = []
+    for i, h in enumerate(hands):
+        out.append((f"mano {h.n} taladro {h.bore_d:g}", _grip_hand_cell(h, hole_len).translate((i * GRIP_PROBE_PITCH, 0.0, 0.0))))
+    y0 = -(GRIP_PROBE_BLOCK / 2 + PLAQUE_LEN + 7.0)
+    for j, m in enumerate(handles):
+        out.append((f"mango {m.n} dentado {m.spec.barb_d:g}",
+                    _grip_handle_cell(m, hole_len).translate((2.0 + GRIP_PROBE_BLADE[0] - GRIP_PROBE_BLOCK / 2, y0 - j * GRIP_PROBE_PITCH, 0.0))))
+    return out
+
+
+def grip_labels_text(hands: list[GripProbeHand], handles: list[GripProbeHandle], pairs: list[dict], hole_len: float) -> str:
+    sp = handles[0].spec
+    head = (f"Agarre mano / mango. Canal de la mano {hole_len:g} mm; vástago Ø{sp.shaft_d:g} mm, ranura {sp.slit_w:g} mm, lengüeta {sp.finger_len:g} mm.\n"
+            "Imprimir con las mismas capas y boquilla que las figuras: las manos PARADAS (taladro vertical) y los mangos ACOSTADOS "
+            "(las lengüetas flexionan en el plano de la cama).\n"
+            "Probar cada mango en cada mano, empujándolo por la cara de la plaqueta hasta que el dentado pase. Anotar por par: ¿entra sin forzar?, "
+            "¿baila?, ¿al tirar se suelta o aguanta?, ¿se rompió una lengüeta? Elegir el par que entra sin forzar, no baila y no se suelta.\n"
+            "Después: afm probe-resultado probetas.json --mano N --mango M  (imprime los valores para `afm agarre`).")
+    rows = [f"mano {h.n}: taladro Ø{h.bore_d:g} mm" for h in hands] + [f"mango {m.n}: dentado Ø{m.spec.barb_d:g} mm" for m in handles]
+    for r in pairs:
+        tag = {"ok": "ok", "aviso": "aviso", "no": "NO"}[r["nivel"]]
+        extra = "; ".join(r["motivos"] + r["avisos"])
+        rows.append(f"par {r['n']} (mano {r['mano']} + mango {r['mango']}): interferencia {r['interferencia']:.2f} mm/lado, holgura radial "
+                    f"{r['holgura_radial']:.2f} mm, ε {r['deformacion_pct']:.2f} % → {tag}" + (f" ({extra})" if extra else ""))
+    return head + "\n" + "\n".join(rows)
+
+
+def grip_probe_files(spec: GripSpec | None = None, bores=None, barbs=None, hole_len: float | None = None) -> tuple[dict[str, bytes], str]:
+    """Archivos de la probeta de agarre (mismos nombres que las otras tiradas: `probetas.stl/.3mf/.txt/.json`)."""
+    hole = GRIP_PROBE_HOLE_LEN if hole_len is None else float(hole_len)
+    hands, handles = grip_probe_cells(spec, bores, barbs)
+    for m in handles:                       # valida cada mango (lengüeta más larga que la empuñadura, dentado ≤ taladro, ε) antes de armar nada
+        from . import props as PR
+        PR._check_grip(m.spec, hole)
+    pairs = grip_pairs(hands, handles, hole)
+    parts = build_grip_probe(hands, handles, hole)
+    text = grip_labels_text(hands, handles, pairs, hole)
+    sp = handles[0].spec
+    manifest = _manifest("agarre", pairs, largo_canal=hole, vastago=sp.shaft_d, ranura=sp.slit_w, largo_lengueta=sp.finger_len,
+                         manos=[{"n": h.n, "taladro": h.bore_d} for h in hands],
+                         mangos=[{"n": m.n, "dentado": m.spec.barb_d} for m in handles])
+    mesh = S.union(*[m for _n, m in parts])
+    return {"probetas.stl": _stl_bytes(mesh), "probetas.3mf": write_3mf(_objects([n for n, _m in parts], [m for _n, m in parts]), "Probeta de agarre"),
+            "probetas.txt": (text + "\n").encode(), "probetas.json": manifest}, text
+
+
 def _stl_bytes(mesh) -> bytes:
     return S.to_trimesh(mesh).export(file_type="stl")
 
@@ -591,7 +739,8 @@ def _manifest(tipo: str, cells: list[dict], **extra) -> bytes:
 
 def probe_files(tipo: str = "hongo", clearances=None, deltas=None, axiales=None, boquilla: float = 0.4,
                 gaps=None, espesores=None, hoja=None, pared=None, pasador: str = "hombro",
-                params: Params | None = None) -> tuple[dict[str, bytes], str]:
+                params: Params | None = None, taladros=None, dentados=None, vastago=None, ranura=None,
+                largo_lengueta=None, largo_canal=None) -> tuple[dict[str, bytes], str]:
     """Genera las probetas de calibración como archivos en memoria: ({nombre: bytes}, texto de la tabla).
 
     Es la única implementación: la usan `afm probe` (CLI), la ventana y la página (Pyodide), así que dan los mismos archivos:
@@ -603,6 +752,13 @@ def probe_files(tipo: str = "hongo", clearances=None, deltas=None, axiales=None,
     import dataclasses
 
     p = params or Params()
+    if tipo == "agarre":
+        kw = {k: float(v) for k, v in (("shaft_d", vastago), ("slit_w", ranura), ("finger_len", largo_lengueta)) if v is not None}
+        spec = GripSpec(**kw)
+        if vastago is None:                          # como `weapon.line_grip`: vástago = taladro − 0,4 mm
+            ref = sorted(float(t) for t in taladros)[len(taladros) // 2] if taladros else spec.bore_d
+            spec = replace(spec, shaft_d=round(ref - 0.4, 3))
+        return grip_probe_files(spec, taladros, dentados, largo_canal)
     if tipo == "clic":
         from . import detent as DT
         p = dataclasses.replace(p, nozzle=boquilla, detent=DT.spec_for_nozzle(boquilla))

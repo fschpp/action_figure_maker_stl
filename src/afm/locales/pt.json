@@ -1093,7 +1093,8 @@
   "propagar_fallo_por_defecto": "✗ Não foi possível salvar os valores padrão: %{error}",
   "propagar_nada_elegido": "Nenhum destino escolhido: nada foi escrito.",
   "valores_por_defecto_de_fabrica": "Valores padrão de fábrica restaurados. As figuras novas começam com eles.",
-  "sin_valores_por_defecto_propios": "Não havia valores padrão próprios: já são os de fábrica."
+  "sin_valores_por_defecto_propios": "Não havia valores padrão próprios: já são os de fábrica.",
+  "agarre_mano_mango": "pegada (mão + cabo)"
  },
  "figure_builder": {
   "sin_soportes_resumen": "Sem suportes: corte a %{corte} mm sobre a cauda; braços girados para frente: %{giro}",
@@ -1773,7 +1774,8 @@
   "usar_esta_celda": "Usar esta célula",
   "cargar_tirada_anterior": "Carregar uma série anterior (probetas.json)…",
   "sin_tirada_de_probetas": "(sem série: gere ou carregue uma)",
-  "olvidar_valores_por_defecto_propios": "Esquecer os valores padrão próprios"
+  "olvidar_valores_por_defecto_propios": "Esquecer os valores padrão próprios",
+  "agarre_mano_mango": "Pegada: mão + cabo"
  },
  "plane_panel": {
   "planos_del_proyecto": "Planos do projeto",

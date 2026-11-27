@@ -1093,7 +1093,8 @@
   "propagar_fallo_por_defecto": "✗ Could not save the defaults: %{error}",
   "propagar_nada_elegido": "No destination chosen: nothing was written.",
   "valores_por_defecto_de_fabrica": "Factory defaults restored. New figures start with them.",
-  "sin_valores_por_defecto_propios": "There were no own defaults: they are already the factory ones."
+  "sin_valores_por_defecto_propios": "There were no own defaults: they are already the factory ones.",
+  "agarre_mano_mango": "grip (hand + handle)"
  },
  "figure_builder": {
   "sin_soportes_resumen": "No supports: cut %{corte} mm above the tail; arms rotated forward: %{giro}",
@@ -1773,7 +1774,8 @@
   "usar_esta_celda": "Use this cell",
   "cargar_tirada_anterior": "Load a previous batch (probetas.json)…",
   "sin_tirada_de_probetas": "(no batch: generate or load one)",
-  "olvidar_valores_por_defecto_propios": "Forget my own defaults"
+  "olvidar_valores_por_defecto_propios": "Forget my own defaults",
+  "agarre_mano_mango": "Grip: hand + handle"
  },
  "plane_panel": {
   "planos_del_proyecto": "Project planes",

@@ -105,7 +105,37 @@ def probe_cell_summary(manifest: dict, cell: dict) -> str:
         d = cell["detent"]
         return (f"muesca {d['notch_depth']:g} mm, lengüeta {d['finger_t']:g} mm, "
                 f"holgura de punta {d['detent_gap']:g} mm")
+    if tipo == "agarre":
+        return (f"mano {cell['mano']} (taladro Ø{cell['taladro']:g} mm) + mango {cell['mango']} (dentado Ø{cell['dentado']:g} mm), "
+                f"interferencia {cell['interferencia']:.2f} mm/lado, ε {cell['deformacion_pct']:.2f} %")
     return f"holgura {cell.get('holgura', '?')} mm"
+
+
+def probe_pair(manifest: dict, mano: int, mango: int) -> dict:
+    """La celda de la probeta de agarre para el par «mano N + mango M» (los números en relieve de cada pieza)."""
+    if manifest.get("tipo") != "agarre":
+        raise ValueError("--mano y --mango son de la probeta de agarre (afm probe --tipo agarre)")
+    found = [c for c in manifest["celdas"] if c.get("mano") == mano and c.get("mango") == mango]
+    if not found:
+        raise ValueError(f"la tirada no tiene el par mano {mano} + mango {mango} "
+                         f"(manos: {[m['n'] for m in manifest.get('manos', [])]}, mangos: {[m['n'] for m in manifest.get('mangos', [])]})")
+    return found[0]
+
+
+def grip_from_cell(manifest: dict, cell: dict, base=None):
+    """`GripSpec` del par elegido: taladro de la mano, dentado del mango y el vástago, la ranura y la lengüeta con que se imprimió."""
+    from dataclasses import replace as _rep
+
+    from .props import GripSpec
+
+    return _rep(base or GripSpec(), bore_d=float(cell["taladro"]), barb_d=float(cell["dentado"]), shaft_d=float(cell["vastago"]),
+                slit_w=float(cell["ranura"]), finger_len=float(cell["largo_lengueta"]))
+
+
+def grip_command(cell: dict) -> str:
+    """Línea de `afm agarre` con los valores del par elegido (la mano estándar va en MANO.stl)."""
+    return (f"afm agarre MANO.stl --taladro {cell['taladro']:g} --vastago {cell['vastago']:g} --ranura {cell['ranura']:g} "
+            f"--largo-lengueta {cell['largo_lengueta']:g} --dentados {cell['dentado']:g}")
 
 
 def probe_cell_changes(manifest: dict, n: int, archivo: str | None = None) -> dict:
@@ -132,6 +162,8 @@ def probe_cell_changes(manifest: dict, n: int, archivo: str | None = None) -> di
                 "hinge_pin.pin_d": float(cell["bulon"])}
     if tipo == "clic":
         return {"detent": asdict(DetentSpec(**cell["detent"]))}
+    if tipo == "agarre":
+        raise ValueError("el agarre no se guarda en el perfil: usá los valores del par con `afm agarre` (o «Usar esta celda» en la ventana)")
     raise ValueError("la probeta de montura no guarda nada en el perfil: pasá la holgura elegida como `holgura` de la montura")
 
 

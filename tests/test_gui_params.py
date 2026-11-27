@@ -71,3 +71,15 @@ def test_hinge_params_are_editable_and_used_by_the_next_joint(tmp_path):
     assert not c.set_param("hinge_pin.pin_d", 1.0)           # menor que el mínimo imprimible del motor (2,0)
     hp = c.session.project.params.hinge_pin
     assert (hp.pin_d, hp.pin_len, hp.tongue_t, hp.end_r) == (2.0, 1.0, 2.0, 3.0)
+
+
+def test_grip_probe_choose_pair_sets_grip_section(tmp_path):
+    c = Controller()
+    out = c.export_probes(str(tmp_path / "g"), which="grip")
+    assert out is not None and out["celdas"] == 9 and c.probe_manifest["tipo"] == "agarre"
+    choices = c.probe_choices()
+    assert len(choices) == 9 and "mano 1" in choices[0] and "mango 1" in choices[0]
+    params_before = c.session.project.params
+    assert c.apply_probe_choice(5) is True                    # par 6 = mano 2 + mango 3
+    assert (c.grip_spec.bore_d, c.grip_spec.barb_d) == (2.4, 3.1) and c.grip_barbs == (3.1,)
+    assert c.session.project.params is params_before          # el agarre no toca los parámetros de la figura

@@ -1428,7 +1428,10 @@ class Controller:
                 kw["clearances"] = clearances
             if shaft_deltas is not None:      # hongo: Ø del vástago; bisagra: Ø del bulón
                 kw["deltas"] = shaft_deltas
-            if which == "hinge":
+            if which == "grip":
+                files, text = probes.probe_files("agarre", params=p, taladros=[round(self.grip_spec.bore_d + d, 3) for d in probes.GRIP_PROBE_BORE_STEPS],
+                                                 vastago=self.grip_spec.shaft_d, ranura=self.grip_spec.slit_w, largo_lengueta=self.grip_spec.finger_len)
+            elif which == "hinge":
                 files, text = probes.probe_files("bisagra", params=p, **kw)
             else:
                 files, text = probes.probe_files("hongo", params=p, pasador="cadera" if which == "hip" else "hombro", **kw)
@@ -1451,7 +1454,8 @@ class Controller:
             return None
         self.probe_manifest = info["datos"]                  # para «usar esta celda» sin releer el archivo
         self.probe_table = info["texto"]
-        kind = {"hip": "cadera", "shoulder": "hombro", "hinge": tr("controller.bisagra_de_rodilla_codo")}.get(which, which)
+        kind = {"hip": "cadera", "shoulder": "hombro", "hinge": tr("controller.bisagra_de_rodilla_codo"),
+                "grip": tr("controller.agarre_mano_mango")}.get(which, which)
         self._changed(tr("controller.probetas_celdas_articulaciones_pasador_de", celdas=info['celdas'], kind=kind, outdir=outdir),
                       scene=False)
         return info
@@ -1508,6 +1512,11 @@ class Controller:
             self._changed(tr("controller.no_hay_una_tirada_de_probetas_para_elegir"), scene=False)
             return False
         cell = m["celdas"][index]
+        if m.get("tipo") == "agarre":          # el agarre no va en los parámetros de la figura: va a la sección «Agarre»
+            self.grip_spec = profile.grip_from_cell(m, cell, self.grip_spec)
+            self.grip_barbs = (float(cell["dentado"]),)
+            self._changed(tr("controller.probetas_celda_elegida", n=cell["n"], detalle=profile.probe_cell_summary(m, cell)), scene=False)
+            return True
         try:
             params, resumen = profile.apply_probe_cell(self.session.project.params, m, cell["n"], cell.get("archivo"))
         except ValueError as exc:

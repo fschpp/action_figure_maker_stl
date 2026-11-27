@@ -1093,7 +1093,8 @@
   "propagar_fallo_por_defecto": "✗ No se pudieron guardar los valores por defecto: %{error}",
   "propagar_nada_elegido": "No elegiste ningún destino: no se escribió nada.",
   "valores_por_defecto_de_fabrica": "Valores por defecto de fábrica restaurados. Las figuras nuevas arrancan con ellos.",
-  "sin_valores_por_defecto_propios": "No había valores por defecto propios: ya son los de fábrica."
+  "sin_valores_por_defecto_propios": "No había valores por defecto propios: ya son los de fábrica.",
+  "agarre_mano_mango": "agarre (mano + mango)"
  },
  "figure_builder": {
   "sin_soportes_resumen": "Sin soportes: corte a %{corte} mm sobre la cola; brazos girados hacia adelante: %{giro}",
@@ -1773,7 +1774,8 @@
   "usar_esta_celda": "Usar esta celda",
   "cargar_tirada_anterior": "Cargar una tirada anterior (probetas.json)…",
   "sin_tirada_de_probetas": "(sin tirada: generá o cargá una)",
-  "olvidar_valores_por_defecto_propios": "Olvidar los valores por defecto propios"
+  "olvidar_valores_por_defecto_propios": "Olvidar los valores por defecto propios",
+  "agarre_mano_mango": "Agarre mano + mango"
  },
  "plane_panel": {
   "planos_del_proyecto": "Planos del proyecto",

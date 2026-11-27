@@ -649,10 +649,18 @@ def main(argv=None) -> int:
     pr.add_argument("--out", default="out/probetas")
     pr.add_argument("--clearances", default=None, help="holguras radiales a probar (mm)")
     pr.add_argument("--deltas", default=None, help="variación del Ø de vástago (hongo, giro) o de bulón (bisagra), en mm")
-    pr.add_argument("--tipo", default="hongo", choices=("hongo", "bisagra", "clic", "montura", "giro"),
+    pr.add_argument("--tipo", default="hongo", choices=("hongo", "bisagra", "clic", "montura", "giro", "agarre"),
                     help="hongo = cadera/hombro (§8.11); giro = pivote (swivel) de bíceps, muslo y canilla (PLAN_plugins_articulacion.md §4.1); bisagra = rodilla/codo (plan de articulaciones, Fase 6); "
                          "clic = disco con muescas + lengüetas (PLAN_mecanismo_clic_hombro_cadera.md, Fase 0); "
-                         "montura = puente para enganchar un arma al cuerpo + tira de hoja (PLAN_enganche_armas_cuerpo.md, M09)")
+                         "montura = puente para enganchar un arma al cuerpo + tira de hoja (PLAN_enganche_armas_cuerpo.md, M09); "
+                         "agarre = manos de prueba (taladro) + mangos (dentado) para elegir el par que mejor sujeta un accesorio")
+    pr.add_argument("--taladros", default=None, help="solo agarre: Ø de taladro de cada mano de prueba (mm), p. ej. 2.2,2.4,2.6")
+    pr.add_argument("--dentados", default=None, help="solo agarre: Ø de dentado de cada mango (mm), p. ej. 2.7,2.9,3.1")
+    pr.add_argument("--vastago", type=float, default=None, help="solo agarre: Ø del vástago de los mangos (mm); por defecto taladro − 0,4")
+    pr.add_argument("--ranura", type=float, default=None, help="solo agarre: ancho de la ranura entre lengüetas (mm)")
+    pr.add_argument("--largo-lengueta", type=float, default=None, help="solo agarre: largo de la lengüeta (mm)")
+    pr.add_argument("--largo-canal", type=float, default=None, help="solo agarre: largo del canal de la mano (mm); por defecto 8")
+    pr.add_argument("--mano", default=None, help="solo agarre: STL de una mano ya taladrada; toma de su .mano.json el taladro y el largo del canal")
     pr.add_argument("--boquilla", type=float, default=0.4, help="solo clic: boquilla (mm); fija el espesor y largo de la lengüeta")
     pr.add_argument("--gaps", default=None, help="solo clic: holguras punta/muesca; una placa por valor (por defecto 0.2,0.3,0.4)")
     pr.add_argument("--espesores", default=None, help="solo clic: espesores de lengüeta a probar (mm)")
@@ -663,7 +671,9 @@ def main(argv=None) -> int:
                     help="solo hongo: de cuál pasador se parte (Ø de vástago, cabeza y largo del hombro o de la cadera)")
     pq = sub.add_parser("probe-resultado", help="pasar a un perfil la celda ganadora de una tirada de probetas (el número en relieve)")
     pq.add_argument("manifiesto", help="probetas.json de la carpeta donde se generaron (o la carpeta)")
-    pq.add_argument("celda", type=int, help="número de la celda elegida (el que lleva en relieve y en probetas.txt)")
+    pq.add_argument("celda", type=int, nargs="?", default=None, help="número de la celda elegida (el que lleva en relieve y en probetas.txt)")
+    pq.add_argument("--mano", type=int, default=None, help="solo agarre: número de la mano elegida")
+    pq.add_argument("--mango", type=int, default=None, help="solo agarre: número del mango elegido")
     pq.add_argument("--perfil", default=None, help="nombre del perfil donde guardar (si existe solo se le cambian los valores de la celda; si no, se crea con los de fábrica)")
     pq.add_argument("--catalogo", action="append", default=[], metavar="RUTA",
                     help="carpeta de un catálogo: se escribe la celda en el perfil de su línea (linea.json), que es lo que usa «armar figura desde catálogo»; se puede repetir")
@@ -727,6 +737,27 @@ def main(argv=None) -> int:
         from . import profile as PF
         from .catalog import Catalog, CatalogError
         from .params import Params
+        try:
+            man0 = PF.load_probe_manifest(args.manifiesto)
+        except (OSError, ValueError) as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
+        if man0.get("tipo") == "agarre":            # se elige por par y no se guarda en el perfil: se imprime la línea de `afm agarre`
+            try:
+                if args.mano is None or args.mango is None:
+                    raise ValueError("la probeta de agarre se elige por par: --mano N --mango M")
+                cell = PF.probe_pair(man0, args.mano, args.mango)
+            except ValueError as exc:
+                print(f"ERROR: {exc}", file=sys.stderr)
+                return 2
+            print(f"Par {args.mano}+{args.mango}: {PF.probe_cell_summary(man0, cell)}")
+            for m in cell.get("motivos", []) + cell.get("avisos", []):
+                print("  AVISO:", m)
+            print("Para taladrar la mano con ese agarre:\n  " + PF.grip_command(cell))
+            return 0
+        if args.celda is None:
+            print("ERROR: falta el número de celda", file=sys.stderr)
+            return 2
         if not (args.perfil or args.catalogo or args.defecto):
             print("ERROR: indicá a dónde llevar la celda: --perfil NOMBRE, --catalogo RUTA y/o --defecto", file=sys.stderr)
             return 2
@@ -877,16 +908,36 @@ def main(argv=None) -> int:
     if args.cmd == "probe":
         from . import probes
         fl = lambda t: [float(x) for x in t.split(",")] if t else None
-        files, text = probes.probe_files(
-            args.tipo, clearances=fl(args.clearances), deltas=fl(args.deltas), axiales=fl(args.axiales),
-            boquilla=args.boquilla, gaps=fl(args.gaps), espesores=fl(args.espesores), hoja=fl(args.hoja), pared=args.pared,
-            pasador=args.pasador)
+        taladros, largo_canal = fl(args.taladros), args.largo_canal
+        if args.tipo == "agarre" and args.mano:
+            import json as _json
+            from . import hand as _H
+            try:
+                with open(_H.meta_path(args.mano), encoding="utf-8") as fh:
+                    ag = _json.load(fh)["agarre"]
+            except (OSError, KeyError, ValueError):
+                print(f"ERROR: {args.mano}: no es una mano taladrada (falta la clave «agarre» en su .mano.json; usá `afm agarre`)", file=sys.stderr)
+                return 2
+            taladros = taladros or [float(ag["diametro_taladro_mm"])]
+            largo_canal = largo_canal or float(ag["largo_canal_mm"])
+        try:
+            files, text = probes.probe_files(
+                args.tipo, clearances=fl(args.clearances), deltas=fl(args.deltas), axiales=fl(args.axiales),
+                boquilla=args.boquilla, gaps=fl(args.gaps), espesores=fl(args.espesores), hoja=fl(args.hoja), pared=args.pared,
+                pasador=args.pasador, taladros=taladros, dentados=fl(args.dentados), vastago=args.vastago, ranura=args.ranura,
+                largo_lengueta=args.largo_lengueta, largo_canal=largo_canal)
+        except ValueError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
         for name, data in files.items():
             with open(os.path.join(args.out, name), "wb") as f:
                 f.write(data)
         print(text)
         print(f"\nArchivos en {args.out}: " + ", ".join(sorted(files)))
-        if "probetas.json" in files:
+        if args.tipo == "agarre":
+            print("Cada mano y cada mango lleva su número en relieve. Cuando elijas el mejor par: afm probe-resultado "
+                  + os.path.join(args.out, "probetas.json") + " --mano N --mango M")
+        elif "probetas.json" in files:
             print("Cada pieza lleva su número en relieve (el de la tabla); el .3mf trae un objeto con nombre por celda. "
                   "Cuando elijas la ganadora: afm probe-resultado " + os.path.join(args.out, "probetas.json") + " NÚMERO --perfil NOMBRE [--catalogo RUTA] [--defecto]")
         return 0
