@@ -44,6 +44,60 @@ def test_check_names_chains_distal_into_next_proximal():
         check_names([k, _j("tobillo", limb="pierna", kind="knee", z=-30.0, prox_name="canilla", dist_name="muslo")])
 
 
-def test_pipeline_still_refuses_two_joints_in_one_limb_with_the_old_message():
-    from afm import pipeline as PL
-    assert PL.group_by_limb is group_by_limb                       # el motor usa el mismo agrupador
+# --- Fase 3, corte 2: armar la cadena en pipeline.build ---------------------------------------------------------------
+
+import dataclasses
+
+import numpy as np
+
+from afm import pipeline as P, solids as S
+from afm.params import HingeSpec
+from afm.project import demo_project
+from afm.testfigure import make_doll
+
+
+def _chain_joints():
+    knee = JointSpec(name="rodilla", limb="pierna", kind="knee", plane=Plane.from_normal((0, 0, 14.0), (0, 0, 1), "art"),
+                     axis_center=(9.0, 0.0, 17.4), prox_name="muslo", dist_name="pantorrilla")
+    ankle = JointSpec(name="tobillo", limb="pierna", kind="knee", plane=Plane.from_normal((0, 0, 5.0), (0, 0, 1), "art"),
+                      axis_center=(9.0, 0.0, 8.4), prox_name="pantorrilla", dist_name="pie", flex_range=(-20, 30),
+                      print_flex=0.0, hinge=HingeSpec(pin_d=2.0, pin_len=0.5, tongue_t=2.0, end_r=2.5))
+    return knee, ankle
+
+
+@pytest.fixture(scope="module")
+def chain_build():
+    proj = demo_project()
+    p = dataclasses.replace(proj.params, decimate=0)
+    knee, ankle = _chain_joints()
+    res = P.build(S.to_manifold(make_doll()), proj.limbs, p, proj.symmetry, joints=[ankle, knee])     # desordenadas a propósito
+    return res, p, proj, [ankle, knee]
+
+
+def test_two_joints_in_one_limb_build_three_pieces_from_the_torso_to_the_tip(chain_build):
+    res, _p, _proj, _j = chain_build
+    legs = {n for n in res.pieces if n.endswith("_izq") and n.split("_")[0] in ("muslo", "pantorrilla", "pie", "pierna")}
+    assert legs == {"muslo_izq", "pantorrilla_izq", "pie_izq"}
+    assert list(res.report["joints"]) == ["rodilla", "tobillo"]                       # del torso a la punta, no en el orden dado
+    assert res.report["joints"]["tobillo"]["cadena"] == {"indice": 1, "previa": "rodilla"}
+    assert "cadena" not in res.report["joints"]["rodilla"] or res.report["joints"]["rodilla"]["cadena"]["previa"] is None
+    assert P._limb_piece_names(res, "pierna") == ["muslo", "pantorrilla", "pie"]
+    assert all(res.pieces[n].volume() > 100 for n in ("muslo_izq", "pantorrilla_izq", "pie_izq"))
+
+
+def test_chain_validates_clean_and_posed_pieces_compose_every_joint(chain_build):
+    res, p, proj, joints = chain_build
+    v = P.validate(res, p, proj.limbs, joints=joints)
+    assert v["problems"] == [], v["problems"]
+    straight = P.posed_pieces(res, 0.0, {"rodilla": 0.0, "tobillo": 0.0})
+    bent = P.posed_pieces(res, 0.0, {"rodilla": 40.0, "tobillo": 20.0})
+    assert {"muslo_izq", "pantorrilla_izq", "pie_izq"} <= set(straight)
+    assert np.allclose(np.asarray(straight["muslo_izq"].bounding_box()), np.asarray(bent["muslo_izq"].bounding_box()))   # la proximal no se mueve
+    c = lambda d, n: np.asarray(d[n].bounding_box(), float).reshape(2, 3).mean(axis=0)
+    assert np.linalg.norm(c(straight, "pie_izq") - c(bent, "pie_izq")) > np.linalg.norm(c(straight, "pantorrilla_izq") - c(bent, "pantorrilla_izq"))
+
+
+def test_print_flex_round_trips_and_is_omitted_when_unset():
+    knee, ankle = _chain_joints()
+    assert "print_flex" not in knee.to_dict() and JointSpec.from_dict(knee.to_dict()).print_flex is None
+    assert JointSpec.from_dict(ankle.to_dict()).print_flex == 0.0

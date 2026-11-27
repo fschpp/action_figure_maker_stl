@@ -17,7 +17,7 @@ from .hand import (HAND_MIN_SHAFT_D, HAND_NAME, HandError, HandSpec, WristFrame,
                    load_standard_hand)
 from .head import HEAD_NAME, MIN_BASE_IOU, HeadSpec, below_neck, build_head, neck_plane, split_head
 from .joints import JOINT_KIND_BY_LIMB, JointBuild, JointSpec, build_joint, flex_range, hinge_for, print_flex
-from .joint_chain import check_names as check_chain_names, group_by_limb
+from .joint_chain import check_names as check_chain_names, group_by_limb, order_along
 from .assembly import AssemblyError, PartChoice, PlacedPart, hip_notes, place_part, swap_pelvis
 from .limbs import LimbSpec, ContactFace, check_limb_plane, limb_prism, pin_margin, separate_limb
 from .params import Params
@@ -121,15 +121,9 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
     if limbs_right is not None:
         right_limbs, right_res = _build_right_side(body, limbs, limbs_right, p, sym, sit, say, trims, head, joints, hand, parts,
                                                    host_faces)
-    by_limb: dict[str, JointSpec] = {}
-    for lname, chain in group_by_limb(joints, (l.name for l in limbs)).items():
-        if len(chain) > 1:
-            try:
-                check_chain_names(chain)
-                why = f"la cadena de {', '.join(j.name for j in chain)} se arma en el siguiente corte de la Fase 3"
-            except ValueError as exc:                       # una cadena incoherente se explica aunque todavía no se arme
-                why = str(exc)
-            raise ValueError(f"«{lname}»: por ahora una sola articulación por miembro ({why})")
+    by_limb: dict[str, JointSpec] = {}                    # la primera articulación de cada miembro (la que sale del torso)
+    chains = group_by_limb(joints, (l.name for l in limbs))     # {miembro: [articulaciones]}; se ordenan al armar (`_order_chain`)
+    for lname, chain in chains.items():
         by_limb[lname] = chain[0]
     parts = dict(parts or {})
     parts_src = set(parts)
@@ -271,13 +265,25 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
             torso_half = S.difference(torso_half, c)
         built[spec.name] = {"limb": limb, "face": face, "axis": axis, "spec": spec,
                             "angles": jr.report["angles"], "pin_margin": jr.report["pin_margin"]}
-    joint_builds: dict[str, JointBuild] = {}
-    for lname, j in by_limb.items():
-        jr = JT.get(JT.resolve.joint_type_id(j, p)).build(JT.JointSite(slot=j.name, side="izq", child=built[lname]["limb"], face=built[lname]["face"],
+    joint_builds: dict[str, list[JointBuild]] = {}        # por miembro, del torso a la punta
+    for lname in list(by_limb):
+        chain = _order_chain(chains.get(lname) or [by_limb[lname]], built[lname])
+        chains[lname] = chain
+        by_limb[lname] = chain[0]
+        child, toward, jbs = built[lname]["limb"], built[lname]["face"].center, []
+        for k, j in enumerate(chain):
+            tid = JT.resolve.joint_type_id(j, p)
+            if k and tid != "hinge":
+                raise ValueError(f"«{lname}»: «{j.name}» es de tipo «{tid}»; en una cadena solo se arman bisagras por ahora")
+            jr = JT.get(tid).build(JT.JointSite(slot=j.name, side="izq", child=child, face=built[lname]["face"],
                                                 params=p, jp=j, say=say))
-        joint_builds[lname] = jr.native
-    carved: dict[str, float] = {}
-    for lname, jb in joint_builds.items():
+            if k:
+                jr.native.warnings.append(f"cadena: «{j.name}» se arma sobre la pieza distal de «{chain[k - 1].name}» a flexión 0°")
+            jbs.append(jr.native)
+            child = jr.native.distal
+        joint_builds[lname] = jbs
+    carved: dict[int, float] = {}                        # por `id(JointBuild)`: lo que su barrido le sacó al torso
+    for lname, jb in ((n, jb) for n, jbs in joint_builds.items() for jb in jbs):
         if built[lname]["spec"].kind == "leg" or jb.sweep is None:
             continue          # la pierna ya queda libre del torso con el barrido de cadera (la validación de cadena lo comprueba)
         # Brazo: el miembro cuelga pegado al torso y solo se talló estirado; el antebrazo flexionado entra en el torso.
@@ -285,7 +291,7 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
         before = torso_half.volume()
         torso_half = S.difference(torso_half, jb.sweep)
         cutters.append(jb.sweep)
-        carved[lname] = before - torso_half.volume()
+        carved[id(jb)] = before - torso_half.volume()
     if head_build is not None:
         say("Cavidad del cuello…")
         torso_half = S.difference(torso_half, head_build.pocket)
@@ -307,31 +313,36 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
         hip_sit = sit and b["spec"].kind == "leg"
         th = b.get("print_angle", p.sit_angle if hip_sit else 0.0)       # giro de la pose impresa alrededor del pasador
         res_motion[name] = JT.RevoluteMotion(b["limb"], b["face"].center, b["axis"], (b["angles"][0], b["angles"][-1]))
-        jb = joint_builds.get(name)
-        if jb is None:
+        jbs = joint_builds.get(name)
+        if jbs is None:
             if th:
                 limb = S.rotate_about_axis(limb, b["face"].center, b["axis"], th)
             pieces[f"{name}_izq"] = limb
             pieces[f"{name}_der"] = S.mirror_x(limb)
         else:
-            j = by_limb[name]
-            prox, dist = jb.proximal, jb.rotate_distal(print_flex(j, p))     # flexión de la pose impresa
-            if th:
-                prox = S.rotate_about_axis(prox, b["face"].center, b["axis"], th)
-                dist = S.rotate_about_axis(dist, b["face"].center, b["axis"], th)
-            pn, dn = j.names()
-            for nm, mf in ((pn, prox), (dn, dist)):
+            chain = chains[name]
+            names = check_chain_names(chain)                 # [proximal, …, distal]: la distal de una es la proximal de la siguiente
+            flexes = [print_flex(j, p) for j in chain]
+            posed = _chain_pieces([jb.proximal for jb in jbs] + [jbs[-1].distal],
+                                  jbs, flexes)
+            for nm, mf in zip(names, posed):
+                if th:
+                    mf = S.rotate_about_axis(mf, b["face"].center, b["axis"], th)
                 pieces[f"{nm}_izq"] = mf
                 pieces[f"{nm}_der"] = S.mirror_x(mf)
-            res_joints[j.name] = jb
-            report.setdefault("joints", {})[j.name] = {
-                "center": jb.center.tolist(), "axis": jb.axis.tolist(), "flex": list(jb.flex),
-                "shoulder_h": round(jb.shoulder_h, 3), "radius": round(jb.radius, 3), "avisos": jb.warnings,
-                "piezas": [pn, dn], "limb": name, "print_flex": print_flex(j, p), "print_hip": float(th)}
-            if name in carved:
-                report["joints"][j.name]["torso_tallado_mm3"] = round(2 * carved[name], 3)     # ambos lados (espejo)
+            for k, (j, jb) in enumerate(zip(chain, jbs)):
+                pn, dn = j.names()
+                res_joints[j.name] = jb
+                report.setdefault("joints", {})[j.name] = {
+                    "center": jb.center.tolist(), "axis": jb.axis.tolist(), "flex": list(jb.flex),
+                    "shoulder_h": round(jb.shoulder_h, 3), "radius": round(jb.radius, 3), "avisos": jb.warnings,
+                    "piezas": [pn, dn], "limb": name, "print_flex": flexes[k], "print_hip": float(th)}
+                if len(chain) > 1:
+                    report["joints"][j.name]["cadena"] = {"indice": k, "previa": chain[k - 1].name if k else None}
+                if id(jb) in carved:
+                    report["joints"][j.name]["torso_tallado_mm3"] = round(2 * carved[id(jb)], 3)     # ambos lados (espejo)
         if carrier == name:
-            hand_res = _place_hand_piece(hand_build, jb, by_limb.get(name), b, th, p, pieces)
+            hand_res = _place_hand_piece(hand_build, jbs or [], chains.get(name, []), b, th, p, pieces)
         report["limbs"][name] = {
             "pin_center": b["face"].center.tolist(), "pin_dir": b["face"].outward.tolist(),
             "contact_area": b["face"].area, "sweep": [b["angles"][0], b["angles"][-1]],
@@ -381,7 +392,7 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
             report["piezas"][name]["avisos"] = notes
         for name in report["piezas"]:
             if name in by_limb and name in parts_src:
-                report["piezas"][name]["articulaciones"] = [by_limb[name].name]
+                report["piezas"][name]["articulaciones"] = [j.name for j in chains[name]]
     if hand_build is not None:
         best = max(hand_cover, key=hand_cover.get) if hand_cover else None
         report["hand"] = {**hand_build.info, "miembro": best, "cobertura": None if best is None else round(hand_cover[best], 4)}
@@ -434,7 +445,7 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
         say("Cintura…")
         waist_build = build_waist(pieces["torso"], waist, p, skin=body)
         pieces["torso"], pieces[PELVIS_NAME] = waist_build.upper, waist_build.lower
-        report["waist"] = _waist_report(waist_build, built, by_limb, head_build is not None)
+        report["waist"] = _waist_report(waist_build, built, chains, head_build is not None)
     mounts_built: dict = {}
     host_bare: dict = {}
     if mounts:
@@ -487,14 +498,14 @@ def build_from_parts(parts: dict[str, PartChoice], p: Params, sit: bool = True, 
                  host_faces=host.faces)
 
 
-def _place_hand_piece(hb, jb, joint, b: dict, th: float, p: Params, pieces: dict) -> dict:
-    """Mano articulada: la pieza `mano` viaja con el miembro que la lleva (con codo, con el antebrazo a la flexión de la pose
-    impresa; luego con el giro de la pose impresa del miembro). Devuelve lo que necesita la validación y la pose."""
+def _place_hand_piece(hb, jbs, joints, b: dict, th: float, p: Params, pieces: dict) -> dict:
+    """Mano articulada: la pieza `mano` viaja con el miembro que la lleva (con articulaciones, con cada una a la flexión de la
+    pose impresa, de la punta al torso; luego con el giro de la pose impresa del miembro). Devuelve lo que necesita la validación y la pose."""
     center = np.asarray(hb.pin_origin, float)
     axis = -np.asarray(hb.frame.axis, float)                  # del lado de la mano hacia el brazo
     ends = np.vstack([center, center + axis])
     mano = hb.hand
-    if jb is not None:
+    for jb, joint in reversed(list(zip(jbs, joints))):
         flex = print_flex(joint, p)
         mano = jb.rotate_distal(flex, mano)
         ends = _rotate_pts(ends, jb.center, jb.axis, jb.raw(flex))
@@ -504,6 +515,26 @@ def _place_hand_piece(hb, jb, joint, b: dict, th: float, p: Params, pieces: dict
     pieces[f"{HAND_NAME}_izq"] = mano
     pieces[f"{HAND_NAME}_der"] = S.mirror_x(mano)
     return {"limb": b["spec"].name, "piece0": hb.hand, "center": ends[0], "axis": (ends[1] - ends[0]), "pin": hb.pin}
+
+
+def _order_chain(chain: list[JointSpec], b: dict) -> list[JointSpec]:
+    """La cadena del miembro del torso a la punta: la dirección es del centro de la cara de contacto al centro del miembro."""
+    if len(chain) < 2:
+        return list(chain)
+    lo, hi = np.asarray(b["limb"].bounding_box(), float).reshape(2, 3)
+    root = np.asarray(b["face"].center, float)
+    return order_along(chain, root, (lo + hi) / 2 - root)
+
+
+def _chain_pieces(pieces: list, jbs: list, flexes: list) -> list:
+    """Piezas de una cadena a sus flexiones: la pieza `k` (distal de la articulación `k − 1`) gira con la articulación
+    `k − 1` y luego con cada una de las anteriores, cada una alrededor de su propio eje de pie (de la punta al torso)."""
+    out = []
+    for k, mf in enumerate(pieces):
+        for i in range(min(k, len(jbs)) - 1, -1, -1):
+            mf = jbs[i].rotate_distal(flexes[i], mf)
+        out.append(mf)
+    return out
 
 
 def _other_side_half(body: S.Manifold, p: Params, head: HeadSpec | None, hand: HandSpec | None, hand_source=None):
@@ -539,14 +570,14 @@ def _hand_coverage(limb: S.Manifold, hand: S.Manifold) -> float:
     return float(S.intersection(limb, hand).volume()) / v
 
 
-def _waist_report(wb: WaistBuild, built: dict, by_limb: dict, has_head: bool) -> dict:
+def _waist_report(wb: WaistBuild, built: dict, chains: dict, has_head: bool) -> dict:
     """Informe de la cintura: datos del pasador y qué piezas quedan arriba (giran con el pecho) y cuáles abajo."""
     upper, lower = ["torso"], [PELVIS_NAME]
     if has_head:
         upper.append(HEAD_NAME)
     for name, b in built.items():
         side = float((b["face"].center - wb.plane.origin) @ wb.plane.normal)    # hombro: arriba; cadera: abajo
-        names = list(by_limb[name].names()) if name in by_limb else [name]
+        names = check_chain_names(chains[name]) if name in chains else [name]
         (upper if side > 0 else lower).extend(f"{x}{s}" for x in names for s in ("_izq", "_der"))
     return {**wb.info, "arriba": upper, "abajo": lower}
 
@@ -935,19 +966,25 @@ def posed_pieces(res: BuildResult, hip_angle: float, flex: dict | None = None,
     no participa. Es la misma composición que usa `build` para la pose sentada (plan de articulaciones, Fase 4)."""
     flex = flex or {}
     rep = res.report.get("joints", {})
-    by_limb = {r["limb"]: (jn, r) for jn, r in rep.items()}
+    by_limb: dict = {}
+    for jn, r in rep.items():                                 # en el orden de la cadena (el informe se arma así)
+        by_limb.setdefault(r["limb"], []).append((jn, r))
     out: dict = {}
     for name, (limb0, center, axis, (a0, a1)) in res.motion.items():
         if name == HEAD_NAME:
             continue
         turns = a1 > a0
         if name in by_limb:
-            jn, r = by_limb[name]
-            jb = res.joints[jn]
-            f = float(flex.get(jn, r["print_flex"]))
-            parts = {r["piezas"][0]: jb.proximal, r["piezas"][1]: jb.rotate_distal(f)}
+            links = by_limb[name]
+            jbs = [res.joints[jn] for jn, _r in links]
+            fl = [float(flex.get(jn, r["print_flex"])) for jn, r in links]
+            names = [links[0][1]["piezas"][0]] + [r["piezas"][1] for _jn, r in links]
+            parts = dict(zip(names, _chain_pieces([jbs[0].proximal] + [jb.proximal for jb in jbs[1:]] + [jbs[-1].distal], jbs, fl)))
             if res.hand is not None and res.hand["limb"] == name:
-                parts[HAND_NAME] = jb.rotate_distal(f, res.hand["piece0"])
+                hand = res.hand["piece0"]
+                for jb, f in zip(reversed(jbs), reversed(fl)):
+                    hand = jb.rotate_distal(f, hand)
+                parts[HAND_NAME] = hand
         else:
             parts = {name: limb0}
             if res.hand is not None and res.hand["limb"] == name:
@@ -1417,9 +1454,11 @@ def _limb_piece_names(res: BuildResult, limb: str) -> list[str]:
     """Piezas (sin sufijo de lado) que componen un miembro: una sola, o proximal + distal si tiene articulación; con la mano
     articulada, también la pieza `mano` en el miembro que la lleva."""
     names = [limb]
-    for r in res.report.get("joints", {}).values():
+    first = True
+    for r in res.report.get("joints", {}).values():             # en el orden de la cadena: la distal de una es la proximal de la siguiente
         if r["limb"] == limb:
-            names = list(r["piezas"])
+            names = list(r["piezas"]) if first else names + [r["piezas"][1]]
+            first = False
     if res.hand is not None and res.hand["limb"] == limb:
         names.append(HAND_NAME)
     return names

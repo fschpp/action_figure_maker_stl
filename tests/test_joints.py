@@ -116,8 +116,10 @@ def test_axis_below_plane_rejected(params):
 def test_one_joint_per_limb_and_unknown_limb(params):
     body = S.to_manifold(make_doll())
     proj = demo_project()
-    with pytest.raises(ValueError, match="una sola articulación"):
+    with pytest.raises(ValueError, match="mismo lugar"):          # dos en el mismo plano no son una cadena (Fase 3)
         P.build(body, proj.limbs, params, proj.symmetry, joints=[knee(), knee(name="otra")])
+    with pytest.raises(ValueError, match="único"):
+        P.build(body, proj.limbs, params, proj.symmetry, joints=[knee(), knee()])
     with pytest.raises(ValueError, match="no existe"):
         P.build(body, proj.limbs, params, proj.symmetry, joints=[knee(limb="cola")])
 

@@ -49,6 +49,7 @@ class JointSpec:
     dist_name: str | None = None
     type: str = "hinge"                # id del tipo de articulación en `joint_types.REGISTRY`; `kind` queda como LUGAR (rodilla/codo)
     type_params: dict | None = None    # medidas propias del tipo (claves de su `params_cls`; para `hinge`, las de HingeSpec)
+    print_flex: float | None = None    # flexión de la pose impresa; None = la de `Params` según el lugar (`knee_print_angle`/`elbow_print_angle`)
 
     def names(self) -> tuple[str, str]:
         d = DEFAULT_NAMES[self.kind]
@@ -90,6 +91,8 @@ class JointSpec:
             d["type"] = self.type
         if self.type_params:
             d["type_params"] = dict(self.type_params)
+        if self.print_flex is not None:
+            d["print_flex"] = float(self.print_flex)
         return d
 
     @classmethod
@@ -99,7 +102,8 @@ class JointSpec:
                    hinge=None if d.get("hinge") is None else HingeSpec(**d["hinge"]),
                    flex_range=None if d.get("flex_range") is None else tuple(d["flex_range"]),
                    flex_sign=d.get("flex_sign"), prox_name=d.get("prox_name"), dist_name=d.get("dist_name"),
-                   type=d.get("type") or "hinge", type_params=dict(d["type_params"]) if d.get("type_params") else None)
+                   type=d.get("type") or "hinge", type_params=dict(d["type_params"]) if d.get("type_params") else None,
+                   print_flex=None if d.get("print_flex") is None else float(d["print_flex"]))
 
 
 def hinge_for(joint: JointSpec, p: Params) -> HingeSpec:
@@ -120,6 +124,8 @@ def flex_range(joint: JointSpec, p: Params) -> tuple[float, float]:
 
 
 def print_flex(joint: JointSpec, p: Params) -> float:
+    if joint.print_flex is not None:
+        return float(joint.print_flex)
     return p.knee_print_angle if joint.kind == "knee" else p.elbow_print_angle
 
 
