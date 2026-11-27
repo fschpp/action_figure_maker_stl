@@ -24,6 +24,7 @@ from afm.gui.catalog_online_window import OnlineCatalogWindow  # noqa: E402
 from afm.i18n import set_language, tr  # noqa: E402
 from test_catalog_online import COVER, net, png_bytes, serve  # noqa: E402,F401
 from test_dependencias import ent, entorno  # noqa: E402,F401  (entorno es autouse)
+from test_instalar import dest  # noqa: E402,F401
 from test_remoto import POLICY, srv  # noqa: E402,F401
 
 
@@ -149,13 +150,16 @@ def test_instalar_llama_al_gancho_con_la_entrada(srv, tmp_path):
         w.destroy()
 
 
-def test_sin_gancho_avisa_que_no_se_instalo_nada(srv, tmp_path):
+def test_sin_gancho_abre_el_dialogo_de_confirmacion_y_no_escribe_nada(srv, tmp_path, dest):
     serve(srv, ent("guemes", nombre="Güemes"))
-    w = open_win(srv, tmp_path)
+    w = open_win(srv, tmp_path, root=dest.root)
     try:
         select(w, "Güemes")
-        w.btn_install.emit("clicked")                                          # no explota: abre el aviso
-        pump()
+        w.btn_install.emit("clicked")                                          # D19: abre el diálogo (acá el zip de la entrada no existe: falla sin escribir)
+        d = w.install_dialog
+        pump(lambda: d._task is None)
+        assert d.flow.stage in ("fallo", "confirmando") and not d.btn_install.get_sensitive()
+        d.destroy()
     finally:
         w.destroy()
 

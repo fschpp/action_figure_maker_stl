@@ -4,8 +4,8 @@ Solo dibuja: todo lo que decide (qué se lista, qué dice cada estado, qué se p
 sale de `catalog_online.OnlineState`, que se prueba sin GTK. Lo que tarda o toca la red (leer índices, medir compatibilidad, bajar la portada)
 corre en un hilo (`Task`) y la ventana solo recibe el aviso por `GLib.idle_add`, así que no se congela y se puede cancelar.
 
-«Instalar» no instala por su cuenta: llama a `on_install(entry, card)`, que es el diálogo de confirmación (D19). Hasta que ese paso esté, la
-ventana avisa que no se instaló nada. Se abre desde la pestaña «Catálogo» de la ventana principal.
+«Instalar» no instala por su cuenta: llama a `on_install(entry, card)`, que por defecto abre el diálogo de confirmación (D19,
+`install_confirm_window`); sin confirmar no se escribe nada. Se abre desde la pestaña «Catálogo» de la ventana principal.
 """
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ class OnlineCatalogWindow(Gtk.Window):
         if ctrl is not None and getattr(ctrl, "session", None) is not None:
             root = ctrl.session.catalog_root or ""
         self.st = state or CO.OnlineState(root=root)
-        self.on_install = on_install or self._install_not_ready
+        self.on_install = on_install or self._open_install
         self._cards: list[CO.Card] = []
         self._rows: list[Gtk.ListBoxRow] = []
         self._task: CO.Task | None = None
@@ -364,8 +364,12 @@ class OnlineCatalogWindow(Gtk.Window):
     def _error(self, text: str) -> None:
         self._message(tr("catalog_online_window.error_titulo"), text)
 
-    def _install_not_ready(self, entry: R.Entry, card: CO.Card) -> None:
-        self._message(card.titulo, tr("catalog_online_window.instalar_pronto"))
+    def _open_install(self, entry: R.Entry, card: CO.Card) -> None:
+        """«Instalar» / «Actualizar»: el diálogo de confirmación (D19). Al terminar bien se vuelven a dibujar los estados de la lista."""
+        from .install_confirm_window import InstallConfirmDialog
+
+        self.install_dialog = InstallConfirmDialog(self, self.st, entry, on_installed=lambda results: self._populate())
+        self.install_dialog.present()
 
     def _on_add_index(self, *_) -> None:
         win = Gtk.Window(title=tr("catalog_online_window.indice_titulo"), transient_for=self, modal=True, default_width=520)

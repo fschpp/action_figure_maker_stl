@@ -523,11 +523,12 @@ class OnlineState:
 
     # ---- instalar
     def propose(self, e: R.Entry, version: str | None = None, *, como_linea: bool = False, allow_fbx: bool = False, allow_retirada: bool = False,
-                progress=None) -> Proposal:
+                progress=None, root: str = "") -> Proposal:
         """Resuelve lo que el paquete `requiere`, baja y verifica cada zip (`sha256` del índice) y arma el plan. **No escribe en el catálogo.**
 
         Errores de uso como excepción (`remoto.RemoteError`): versión inexistente, retirada, bloqueado o inaccesible. Errores del plan (línea
-        de otra altura, colisión…) quedan en `Proposal.errors` para mostrarlos en el diálogo."""
+        de otra altura, colisión…) quedan en `Proposal.errors` para mostrarlos en el diálogo. `root` elige otra carpeta de destino (D19: la de su línea
+        cuando se instala «como línea nueva»); vacío = el catálogo abierto o la carpeta de la línea del paquete."""
         rel = e.release(version)
         if rel is None:
             raise R.RemoteError(tr("catalog_online.sin_version_pedida", id=e.id, version=version) if version else tr("catalog_online.sin_version", id=e.id))
@@ -537,7 +538,7 @@ class OnlineState:
             raise R.RemoteError(tr("catalog_online.inaccesible_error", folder=e.folder))
         if rel.version in e.retiradas and not allow_retirada:
             raise R.RemoteError(tr("catalog_online.retirada_error", id=e.id, version=rel.version))
-        root = self._dest(e)
+        root = root or self._dest(e)
         if not root:
             raise R.RemoteError(tr("catalog_online.sin_destino", id=e.id))
         dep = D.resolve(self.indexes, root, [(e, version)], allow_retirada=allow_retirada)

@@ -1,3 +1,28 @@
+## Pruebas de `main` que fallan desde antes: IGNORAR (pedido del cliente, 2026-11-26)
+Estas dos fallan en `main` sin que importe la rama. **No investigarlas, no arreglarlas, no mencionarlas en el resumen ni frenar una tarea por ellas**; se corren las demás pruebas y listo. Si cambia la lista, el cliente la actualiza acá.
+- `tests/test_catalog_ops.py::test_every_catalog_subcommand_is_registered_for_the_window` (subcomandos `retoque`, `guardar-montura`).
+- `tests/test_catalog_import.py::test_parse_builds_the_arguments_of_catalog_ops`.
+
+## Current Focus — Catálogos en línea: D19 diálogo de confirmación e instalación (2026-11-26, sobre main 885be4b)
+**Objetivo.** Que «Instalar» / «Actualizar» de «Explorar catálogos en línea…» muestre autor, licencia, origen, tamaño, qué agrega, línea destino, conflictos y avisos **antes** de escribir, instale solo con la confirmación y deje el informe con `verificar` y `cobertura`.
+**Hecho.**
+- `src/afm/gui/install_confirm.py` (nuevo, sin GTK): `InstallFlow(state, entry, version=None)` con etapas `INICIO → PROPONIENDO → CONFIRMANDO → INSTALANDO → LISTO` (`FALLO`, `CANCELADO`). `task_propose()` baja y verifica (no escribe); `confirmation` (`Confirmation`: título, botón, `puede_instalar`, filas Autor/Licencia/Repositorio/Origen/Línea de destino/Carpeta/Descarga, «Trae…», secciones paquetes en orden / piezas / recetas / roles / ya están / descartados, errores, avisos, «listado no verificado», `pide_origen`, `crea_linea`, `nada_que_hacer`, `ofrece_su_linea`, `ofrece_fbx`); `task_install(acepto=True)` escribe (todo o nada; sin `acepto` no escribe nada) y arma `report` (`Report`: lo instalado, `verificar`, `cobertura` de hasta 8 piezas nuevas). Una falla al medir no deshace lo instalado. Los datos del paquete salen del zip bajado (no del índice).
+- «Instalar como línea nueva» usa la carpeta de su línea (`remoto.default_root`), porque `--como-linea` necesita una carpeta que todavía no sea un catálogo; se ofrece cuando el plan lo sugiere o cuando `resolve` dice que el paquete es de otra línea. `OnlineState.propose(..., root=)` (aditivo) permite elegir esa carpeta.
+- `src/afm/gui/install_confirm_window.py`: `InstallConfirmDialog(parent, state, entry, version=None, *, flow=None, on_installed=None, start=True)`; casillas para confirmar el cambio de origen, instalar como línea nueva y permitir FBX (las dos últimas proponen de nuevo); cerrar o «Cancelar» antes de «Instalar» no escribe nada y mientras se escribe no se cierra. `OnlineCatalogWindow` lo abre por defecto desde «Instalar» (se quitó el aviso «se habilita en el próximo paso» y su clave) y repinta los estados al terminar.
+- Claves es/en/pt: `install_confirm.*` e `install_confirm_window.*`.
+**Pruebas.** `tests/test_install_confirm.py` (16, sin GTK, con `http.server` y zips reales): confirmación y que no escribe (`tree_digest`), sin `acepto` no se escribe, informe con `verificar`/`cobertura`, fallo a mitad con `I.apply` → catálogo igual y reintento, falla al medir, cambio de origen, ya instalado, línea de otra altura → como línea nueva, destino sin catálogo, propuesta imposible, cancelar la descarga, textos en es/en/pt. `tests/test_install_confirm_window_real.py` (6, **GTK 4.14 real bajo `xvfb-run -a`**). `test_catalog_online_window_real.py`: el test del gancho sin `on_install` ahora abre el diálogo. 377 pasan en las suites de catálogos, instalar, remoto, exportar, autor, i18n y portabilidad.
+
+### Todo List
+- [x] Done: D02–D09, D11, D13–D19
+- [ ] Todo: D20 «Paquetes instalados»/actualizaciones (Actualizar ya puede usar `InstallConfirmDialog` con `version`), D22 importar `.zip` y arrastrar y soltar con el mismo diálogo, D33 índices propios, D10, D12, D31
+- [ ] Todo: probar a mano en la app real el diálogo con un paquete de un índice de verdad (aspecto de `heading`, `success`, `warning`, `error` con el tema del usuario)
+
+### Latest Blockers/Discoveries
+- El borrador de `test_install_confirm.py` esperaba el autor «Ana (@owner)», pero el zip de la fixture trae «Ana Pérez:owner» (`test_instalar.export` pisa el autor con `OWNER`): el diálogo muestra el nombre completo y el test se ajustó.
+- `--como-linea` falla si el destino ya es un catálogo; por eso «como línea nueva» cambia la carpeta de destino y no solo la bandera.
+- Cuando `resolve` rechaza por línea distinta no hay `Chain`: la confirmación muestra el autor/licencia/origen que dice el índice y los errores, sin «Trae…».
+- Las pruebas de ventana corren con `xvfb-run -a pytest …` (`apt install gir1.2-gtk-4.0 xvfb`).
+
 ## Current Focus — Catálogos en línea: D18 ventana «Explorar catálogos en línea…» (2026-11-26, rama feat/catalogos-online-d18 sobre main a341cc7)
 **Objetivo.** Dibujar en GTK 4 lo que `gui/catalog_online.py` (D17) ya decide, sin congelar la app y sin instalar nada por su cuenta.
 **Hecho.**
