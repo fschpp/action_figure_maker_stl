@@ -388,9 +388,12 @@ class CatalogManagerWindow(Gtk.Window):
             self._import_entry(kind, label) for kind, label in CI.LABELS.items()
         ])
         self.menu_cat = self._build_catalog_menu()
+        self.menu_share = self._make_menu(tr("catalog_window.menu_compartir"), tr("catalog_window.menu_compartir_tip"), [
+            self._menu_entry(tr("publish_window.menu_publicar"), self._open_publish, tr("publish_window.menu_publicar_tip"), self._menu_buttons),
+        ])
         self.menu_view = self._make_menu(tr("catalog_window.menu_vista"), tr("catalog_window.menu_vista_tip"), list(self._view_items))
         bar = WrapRow(spacing=6)
-        for mb in (self.menu_piece, self.menu_edit, self.menu_color, self.menu_analysis, self.menu_import, self.menu_cat, self.menu_view):
+        for mb in (self.menu_piece, self.menu_edit, self.menu_color, self.menu_analysis, self.menu_import, self.menu_cat, self.menu_share, self.menu_view):
             bar.append(mb)
         wrap = Gtk.Box(margin_top=6, margin_bottom=6, margin_start=8, margin_end=8)
         wrap.append(bar)
@@ -433,6 +436,20 @@ class CatalogManagerWindow(Gtk.Window):
         ]
         self._btn_save_proposal = reg[-2]
         return self._make_menu(tr("common.catalogo"), tr("catalog_window.menu_catalogo_tip"), items)
+
+    def _open_publish(self) -> None:
+        """«Compartir → Publicar…» (D21): el asistente que arma, valida y deja listo un paquete (una sola ventana; si ya está abierta, la trae al frente)."""
+        from .publish_window import PublishWindow
+
+        win = getattr(self, "_publish_win", None)
+        if win is not None and win.get_visible():
+            win.present()
+            return
+        win = PublishWindow(self, self.ctrl.catalog_root)
+        self._publish_win = win
+        win.connect_after("close-request", lambda w, *_: self._forget_window("_publish_win", w) or False)
+        win.connect("destroy", lambda w, *_: self._forget_window("_publish_win", w))
+        win.present()
 
     def _open_palette(self) -> None:
         """«Paleta de la línea…»: abre la ventana de roles de color (una sola; si ya está abierta, la trae al frente)."""

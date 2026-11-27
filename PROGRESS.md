@@ -1,3 +1,16 @@
+## Current Focus — Catálogos en línea: D21 «Publicar…» (2026-11-27, sobre main ff7ce1f)
+**Objetivo.** Que alguien publique un paquete sin usar la terminal: elegir piezas o recetas del catálogo, completar los datos, ver qué significa cada licencia y origen, validar con resultados legibles y salir con un `.zip`, la carpeta del repo o la carpeta del alta en el índice.
+**Hecho.**
+- `src/afm/gui/publish.py` (sin GTK): `PublishFlow(root)` con `Form`, `problems()` (lo que falta, en español, antes de armar), `warnings_before()` (NC, derivada con licencia más libre, referencia), `task_validate()`/`validate()` (arma con `exportar.export_package` en una carpeta temporal y valida con `validar.validate_package(estricto=True)`; el `Report` trae errores y avisos como `Issue` con qué corregir), `export_zip`, `prepare_repo(dest, repo)` (desempaqueta + `autor.set_github`: `paquete.json` con `github` y el workflow) y `prepare_alta(dest)` (`<Autor>@<id>/` con `meta.json` de `indice.meta_from_paquete`, `descripcion.md` y portada). Las salidas exigen que la validación sin errores sea **con lo que hoy dice el formulario** (`validated`). Ayudas: `license_help`, `origin_help`, `suggest_id`, `parse_authors`.
+- `src/afm/gui/publish_window.py`: `PublishWindow(parent, root)`, asistente de cuatro pasos con la tarea en un hilo; menú «Compartir ▾ → Publicar…» en `catalog_window.py` (`_open_publish`, una sola ventana).
+- Claves es/en/pt: `publish.*`, `publish_window.*` y `catalog_window.menu_compartir*`.
+**Pruebas.** `tests/test_publish.py` (sin GTK): problemas, avisos, validación sin tocar el catálogo, errores legibles y salidas bloqueadas, cambiar un dato invalida la validación, `.zip` instalable, créditos, carpeta del repo (se vuelve a empaquetar con `pack_dir`), alta con `meta.json` contra el esquema, receta con piezas, claves en los tres idiomas. La ventana solo se compila aquí (sin PyGObject).
+
+### Todo List
+- [x] Done: D02–D09, D11, D13–D21
+- [ ] Todo: D22 importar `.zip` y arrastrar y soltar con el mismo diálogo, D23 licencia efectiva y créditos, D10 (`paquete enviar`), D12, D31, D33
+- [ ] Todo: probar a mano la ventana «Publicar…» con GTK real (el aspecto de los pasos y los selectores de archivo no se probaron)
+
 ## Pruebas de `main` que fallan desde antes: IGNORAR (pedido del cliente, 2026-11-26)
 Estas dos fallan en `main` sin que importe la rama. **No investigarlas, no arreglarlas, no mencionarlas en el resumen ni frenar una tarea por ellas**; se corren las demás pruebas y listo. Si cambia la lista, el cliente la actualiza acá.
 - `tests/test_catalog_ops.py::test_every_catalog_subcommand_is_registered_for_the_window` (subcomandos `retoque`, `guardar-montura`).

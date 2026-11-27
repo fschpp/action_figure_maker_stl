@@ -40,7 +40,7 @@ COMMANDS: dict[str, tuple[str, bool, bool]] = {
     "capacidad": (GUI, True, True),            # «Capacidad» de la pieza y «Medir y guardar capacidad…» del menú (sin rayo de selección de tolerancia)
     "estado": (GUI, False, True),             # «Estado: … Aplicar a las elegidas» (en lote)
     "color": (CONSOLE, False, True),           # T42: versión nueva de una pieza con roles de color; el asistente de la ventana es T47
-    "exportar": (CONSOLE, False, False),       # D03 (PLAN_catalogos_online.md): paquete .zip; «Compartir → Exportar paquete…» de la ventana es D21
+    "exportar": (CONSOLE, False, False),       # D03 (PLAN_catalogos_online.md): paquete .zip; «Compartir → Publicar…» de la ventana es D21 (`gui/publish_window.py`)
     "instalar": (CONSOLE, False, True),        # D06: paquete .zip → catálogo (escribe); «Compartir → Importar paquete .zip…» de la ventana es D22
     "remoto": (CONSOLE, True, True),           # D14: buscar/ver/versiones/instalar/actualizar desde un índice; «Explorar catálogos en línea…» de la ventana es D18
     "paquete": (CONSOLE, False, False),        # D04: `paquete validar`; «Publicar…» de la ventana (D21) lo usa
