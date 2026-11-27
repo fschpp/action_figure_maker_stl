@@ -1,3 +1,14 @@
+## Current Focus — Plugins de articulación, Fase 2 (corte 3): probeta de giro (swivel), hilo físico H1 (2026-11-27, sobre main 6990f7e)
+**Objetivo.** Poder imprimir y calibrar el `swivel` antes de usarlo en una figura (`docs/PLAN_plugins_articulacion.md` §4.1, §5 hilo físico).
+**Hecho.**
+- `probes.py`: `SwivelProbeCell`, `swivel_probe_cells` (holgura × Ø de vástago, 4 × 3 = 12 celdas; parte de `joint_types.swivel.DEFAULT_PIN`), `_swivel_cell`, `build_swivel_probe(_cells)`, `swivel_cell_text`, `swivel_labels_text`. Cada celda se arma con el MISMO `Swivel.build` sobre un bloque cuadrado partido por un plano (lo que se imprime es lo que haría la figura), con el eje en Z, la mitad proximal abajo (en la cama) y la distal con su pasador arriba, mango en T y número en relieve. Son dos piezas sueltas por celda.
+- `probe_files("giro")` da `probetas.stl`, `.3mf` (un objeto por celda), `.txt` y `probetas.json` (`tipo: "giro"`, celdas con `holgura` y `vastago`). `afm probe --tipo giro` (acepta `--clearances` y `--deltas`).
+- `profile`: `probe_cell_summary` y `probe_cell_changes` conocen `giro`. **Límite:** solo guarda `clearance`; el Ø de vástago del giro no tiene lugar en `Params` todavía (`Params.joints` admite hombro, cadera, rodilla y codo; los lugares de swivel llegan con la Fase 3), así que se anota en el resumen.
+- `tests/test_swivel_probe.py` (11): grilla, celda = bloque + miembro suelto, giro libre a 8 ángulos, retención (+1 mm choca, +0,1 mm no), cama y orientación, archivos, valores propios, `probe-resultado` y CLI.
+**No hecho.** La ventana (`gui/controller.py`, `which`) no ofrece todavía «giro» (no se puede probar GTK acá); el ejemplo en `examples/` espera a que el swivel entre en `pipeline.build` (Fase 3, varias articulaciones por miembro).
+**Verificado.** 11 nuevas + 64 de probetas, perfil, webapi y montura en verde. **No se imprimió**: la calibración real (qué celda gira libre, sin juego y sin salirse) es la del cliente.
+**Para el cliente (H1).** Imprimir con `afm probe --tipo giro --out out/giro`, elegir la celda y decirnos el número: sirve para fijar la holgura y el Ø de vástago por defecto del tipo.
+
 ## Current Focus — Plugins de articulación, Fase 2 (corte 2): oferta de tipos en la guía de cortes (2026-11-27, sobre main f79f141)
 **Objetivo.** Que «mejorar un corte» sea visible: cada corte medido lista qué tipos de articulación admite (ok / aviso / no, con el motivo), en `afm guia` y en la ventana «Guía de cortes» (mismo texto, `format_measure`). Un tipo instalado aparece solo (`docs/PLAN_plugins_articulacion.md` §3.5, §5 Fase 2).
 **Hecho.**

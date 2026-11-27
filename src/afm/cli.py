@@ -648,9 +648,9 @@ def main(argv=None) -> int:
     pr = sub.add_parser("probe", help="generar placa de probetas de articulación (§8.11)")
     pr.add_argument("--out", default="out/probetas")
     pr.add_argument("--clearances", default=None, help="holguras radiales a probar (mm)")
-    pr.add_argument("--deltas", default=None, help="variación del Ø de vástago (hongo) o de bulón (bisagra), en mm")
-    pr.add_argument("--tipo", default="hongo", choices=("hongo", "bisagra", "clic", "montura"),
-                    help="hongo = cadera/hombro (§8.11); bisagra = rodilla/codo (plan de articulaciones, Fase 6); "
+    pr.add_argument("--deltas", default=None, help="variación del Ø de vástago (hongo, giro) o de bulón (bisagra), en mm")
+    pr.add_argument("--tipo", default="hongo", choices=("hongo", "bisagra", "clic", "montura", "giro"),
+                    help="hongo = cadera/hombro (§8.11); giro = pivote (swivel) de bíceps, muslo y canilla (PLAN_plugins_articulacion.md §4.1); bisagra = rodilla/codo (plan de articulaciones, Fase 6); "
                          "clic = disco con muescas + lengüetas (PLAN_mecanismo_clic_hombro_cadera.md, Fase 0); "
                          "montura = puente para enganchar un arma al cuerpo + tira de hoja (PLAN_enganche_armas_cuerpo.md, M09)")
     pr.add_argument("--boquilla", type=float, default=0.4, help="solo clic: boquilla (mm); fija el espesor y largo de la lengüeta")

@@ -320,6 +320,85 @@ def hinge_labels_text(cells: list[HingeProbeCell]) -> str:
 
 
 # --------------------------------------------------------------------------------------------------
+# Probeta de giro (swivel: bíceps / muslo / canilla): PLAN_plugins_articulacion.md §4.1, hilo físico H1.
+# --------------------------------------------------------------------------------------------------
+SWIVEL_DIST_LEN = 5.0          # mm de la mitad distal (la que lleva el pasador y el mango)
+
+
+@dataclass
+class SwivelProbeCell:
+    label: str
+    clearance: float
+    pin: PinSpec
+
+
+def swivel_probe_cells(p: Params, base: PinSpec | None = None, clearances=DEFAULT_CLEARANCES,
+                       shaft_deltas=DEFAULT_SHAFT_DELTAS) -> list[SwivelProbeCell]:
+    """Todas las combinaciones holgura × Ø de vástago del tipo `swivel` (la cabeza se mantiene). Parte del pasador por defecto
+    del tipo (`joint_types.swivel.DEFAULT_PIN`), que es el de una figura de ~130 mm."""
+    from .joint_types.swivel import DEFAULT_PIN
+    base = base or DEFAULT_PIN
+    cells = []
+    for c in clearances:
+        for dd in shaft_deltas:
+            pin = replace(base, shaft_d=round(base.shaft_d + dd, 3))
+            cells.append(SwivelProbeCell(f"{c:.1f}/{pin.shaft_d:.1f}", float(c), pin))
+    return cells
+
+
+def _swivel_cell(cell: SwivelProbeCell, p: Params, pitch: float = 16.0, number: int | None = None) -> S.Manifold:
+    """Un giro de prueba: se arma con el MISMO código del tipo (`Swivel.build`) sobre un bloque cuadrado partido por un plano, así lo que se
+    imprime es lo que haría la figura. Se imprime con el eje en Z, la mitad proximal (con la cavidad y el collar) abajo y la distal (con el
+    pasador) arriba, con un mango en T para girarla con los dedos."""
+    from .joint_types.base import JointSite
+    from .joint_types.swivel import Swivel
+    from .limbs import ContactFace
+    from .planes import Plane
+
+    t = Swivel()
+    q = replace(p, clearance=cell.clearance)
+    w = pitch - 2.0
+    prox_len = t.requires(cell.pin, q).profundidad_mm + 2.0 * q.min_wall + q.clearance      # cuerpo para la cavidad + piel
+    total = prox_len + SWIVEL_DIST_LEN
+    child = S.Manifold.cube((w, w, total), center=False).translate((-w / 2, -w / 2, -total))
+    face = ContactFace(center=np.array([0.0, 0.0, 0.0]), outward=np.array([0.0, 0.0, 1.0]), area=w * w)
+    plane = Plane.from_normal((0.0, 0.0, -prox_len), (0.0, 0.0, 1.0), "giro")
+    res = t.build(JointSite(slot="canilla", side="izq", child=child, face=face, params=q, jp=cell.pin, plane=plane, flex=(0.0, 360.0),
+                            segments=24))
+    flip = lambda m: S.rotate_about_axis(m, (0, 0, 0), (1, 0, 0), 180.0)             # noqa: E731  la proximal queda abajo, apoyada en la cama
+    prox, dist = flip(res.pieces["prox"]), flip(res.pieces["dist"])
+    post = S.cylinder_along((0, 0, total - 0.01), (0, 0, 1), HANDLE_POST_R, HANDLE_POST_H + 0.01, 24, start=0)
+    bl, bw, bh = HANDLE_BAR
+    bar = S.Manifold.cube((bl, bw, bh), center=True).translate((0, 0, total + HANDLE_POST_H + bh / 2 - 0.01))
+    parts = [prox, S.union(dist, post, bar)]
+    if number is not None:
+        parts.append(number_plaque(number, 0.0, -w / 2, 0.0, w))
+    return S.union(*parts)
+
+
+def build_swivel_probe_cells(p: Params, cells: list[SwivelProbeCell], columns: int = 3, pitch: float = 16.0) -> list[S.Manifold]:
+    """Una malla por celda, ya en su lugar de la grilla (para el 3MF con un objeto con nombre por celda)."""
+    py = probe_pitch_y(pitch)
+    return [_swivel_cell(c, p, pitch=pitch, number=i + 1).translate(((i % columns) * pitch, -(i // columns) * py, 0))
+            for i, c in enumerate(cells)]
+
+
+def build_swivel_probe(p: Params | None = None, cells: list[SwivelProbeCell] | None = None, columns: int = 3,
+                       pitch: float = 16.0) -> S.Manifold:
+    p = p or Params()
+    return S.union(*build_swivel_probe_cells(p, cells or swivel_probe_cells(p), columns, pitch))
+
+
+def swivel_cell_text(i: int, c: SwivelProbeCell) -> str:
+    return f"#{i + 1}: holgura {c.clearance:.1f} mm, vástago Ø{c.pin.shaft_d:.1f} mm"
+
+
+def swivel_labels_text(cells: list[SwivelProbeCell]) -> str:
+    """Tabla en el orden de la grilla, para anotar cuál gira libre, sin juego ni roce y no se sale al tirar."""
+    return "\n".join(swivel_cell_text(i, c) for i, c in enumerate(cells))
+
+
+# --------------------------------------------------------------------------------------------------
 # Probeta de clic (hombro / cadera): PLAN_mecanismo_clic_hombro_cadera.md §5, Fase 0.
 # --------------------------------------------------------------------------------------------------
 DEFAULT_DETENT_DEPTH_DELTAS = (-0.2, 0.0, 0.2)       # sobre `DetentSpec.notch_depth`
@@ -564,6 +643,12 @@ def probe_files(tipo: str = "hongo", clearances=None, deltas=None, axiales=None,
         objs = _objects([hinge_cell_text(i, c) for i, c in enumerate(cells)], ms)
         manifest = _manifest("bisagra", [{"n": i + 1, "holgura": c.clearance, "holgura_axial": c.axial_clearance,
                                           "bulon": c.hinge.pin_d} for i, c in enumerate(cells)])
+    elif tipo == "giro":
+        cells = swivel_probe_cells(p, clearances=list(clearances or DEFAULT_CLEARANCES), shaft_deltas=list(deltas or DEFAULT_SHAFT_DELTAS))
+        ms = build_swivel_probe_cells(p, cells)
+        mesh, text = S.union(*ms), swivel_labels_text(cells)
+        objs = _objects([swivel_cell_text(i, c) for i, c in enumerate(cells)], ms)
+        manifest = _manifest("giro", [{"n": i + 1, "holgura": c.clearance, "vastago": c.pin.shaft_d} for i, c in enumerate(cells)])
     elif tipo == "hongo":
         if pasador not in ("hombro", "cadera"):
             raise ValueError(f"pasador desconocido: {pasador!r} (hombro o cadera)")
