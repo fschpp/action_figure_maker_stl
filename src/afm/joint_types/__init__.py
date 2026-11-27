@@ -36,8 +36,10 @@ def ids() -> list[str]:
 from .detent import Detent  # noqa: E402  (los internos se registran al importar el paquete)
 from .hinge import Hinge  # noqa: E402
 from .mushroom import Mushroom  # noqa: E402
+from .offer import Offer, offer, offer_one  # noqa: E402,F401
+from .swivel import Swivel  # noqa: E402
 
-BUILTIN: frozenset[str] = frozenset({"mushroom", "detent", "hinge"})   # los que viajan con el motor: su versión es la del motor
+BUILTIN: frozenset[str] = frozenset({"mushroom", "detent", "hinge", "swivel"})   # los que viajan con el motor: su versión es la del motor
 
 
 def type_version(t: JointType) -> int:
@@ -73,7 +75,7 @@ def cache_key_info(params: Params) -> dict:
     return out
 
 
-for _t in (Mushroom(), Detent(), Hinge()):
+for _t in (Mushroom(), Detent(), Hinge(), Swivel()):
     register(_t)
 
 from . import resolve  # noqa: E402,F401  (qué tipo y qué medidas le tocan a cada miembro/articulación)
