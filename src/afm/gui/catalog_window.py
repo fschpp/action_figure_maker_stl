@@ -19,6 +19,7 @@ from .. import catalog_ops as OPS  # noqa: E402
 from .catalog_manager import (ALL_STATES, ALL_TAGS, ALL_TYPES, COLUMNS, PIN_LEGEND, CatalogManager, JointEditor, PreviewRenderer,  # noqa: E402
                               WristCutter, can_cut_wrist, can_retouch, can_retune_joint, can_turn_color, detail_text, matches, next_row, row_cells, sort_pieces)
 from . import catalog_import as CI  # noqa: E402
+from . import import_zip_window as IZW  # noqa: E402
 from .catalog_manager import ZOOM_STEP, zoom_about  # noqa: E402
 from .catalog_manager import view_bounds as CM_view_bounds  # noqa: E402
 from .progress_panel import ProgressPanel  # noqa: E402
@@ -36,6 +37,9 @@ class CatalogManagerWindow(Gtk.Window):
     def __init__(self, parent: Gtk.Window, ctrl):
         super().__init__(title=tr("catalog_window.administrar_catalogo_de_piezas"), transient_for=parent, default_width=1240, default_height=780)
         self.ctrl = ctrl
+        # D22: importar un paquete .zip (menú Compartir) y soltar archivos sobre la ventana llegan a la misma cola y al mismo diálogo de confirmación
+        self._zip_queue = IZW.ImportQueue(self, lambda: self.ctrl.session.catalog_root or "", on_installed=lambda _results: self.refresh_if_changed())
+        self._zip_drop = IZW.attach_drop(self, self._zip_queue)
         self.mgr = CatalogManager(ctrl)
         self.preview = PreviewRenderer()
         self._rows: list = []                 # [(Gtk.ListBoxRow, PieceMeta)] de lo que muestra la lista
@@ -389,6 +393,7 @@ class CatalogManagerWindow(Gtk.Window):
         ])
         self.menu_cat = self._build_catalog_menu()
         self.menu_share = self._make_menu(tr("catalog_window.menu_compartir"), tr("catalog_window.menu_compartir_tip"), [
+            self._menu_entry(tr("import_zip_window.menu_importar"), self._import_zip, tr("import_zip_window.menu_importar_tip"), []),     # sin registro: no depende de lo ocupado
             self._menu_entry(tr("publish_window.menu_publicar"), self._open_publish, tr("publish_window.menu_publicar_tip"), self._menu_buttons),
         ])
         self.menu_view = self._make_menu(tr("catalog_window.menu_vista"), tr("catalog_window.menu_vista_tip"), list(self._view_items))
@@ -437,6 +442,10 @@ class CatalogManagerWindow(Gtk.Window):
         self._btn_save_proposal = reg[-2]
         return self._make_menu(tr("common.catalogo"), tr("catalog_window.menu_catalogo_tip"), items)
 
+    def _import_zip(self) -> None:
+        """«Compartir → Importar paquete .zip…» (D22): elige un archivo y abre el mismo diálogo de confirmación que «Instalar» de «Explorar»."""
+        IZW.pick_zip(self, lambda path: self._zip_queue.add([path]))
+
     def _open_publish(self) -> None:
         """«Compartir → Publicar…» (D21): el asistente que arma, valida y deja listo un paquete (una sola ventana; si ya está abierta, la trae al frente)."""
         from .publish_window import PublishWindow
@@ -445,7 +454,7 @@ class CatalogManagerWindow(Gtk.Window):
         if win is not None and win.get_visible():
             win.present()
             return
-        win = PublishWindow(self, self.ctrl.catalog_root)
+        win = PublishWindow(self, self.ctrl.session.catalog_root)
         self._publish_win = win
         win.connect_after("close-request", lambda w, *_: self._forget_window("_publish_win", w) or False)
         win.connect("destroy", lambda w, *_: self._forget_window("_publish_win", w))

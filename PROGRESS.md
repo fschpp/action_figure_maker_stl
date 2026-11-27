@@ -1,3 +1,22 @@
+## Current Focus — Catálogos en línea: D22 importar `.zip` y arrastrar y soltar (2026-11-27, rama feat/catalogos-online-d22 sobre main 165b664)
+**Objetivo.** Que un `.zip` elegido o soltado en la ventana llegue al **mismo diálogo** de confirmación que «Instalar» de «Explorar», con soporte de zips heredados (D07).
+**Hecho.**
+- `gui/import_zip.py` (sin GTK, de los adjuntos): `LocalZipFlow` (un `InstallFlow` para un zip local), `inspect_zip` (mira sin extraer), `LegacyData`, `LocalProposal`, `split_dropped`. Cambio mínimo: `LegacyData.clear_invalid_optionals()` (el id y la versión inválidos se vacían tras avisar; hay valor por defecto).
+- `gui/install_confirm.py`: `InstallFlow` ahora tiene ganchos (`_make_proposal`, `_write`, `_fallback_rows`, `_source_rows`, `_package_lines`, `_entry_warnings`, `_confirmation_title`, `_unverified_text`, `title`, `name`, `preparing_text`, `pide_datos`, `volver_a_datos`, `close`); `confirmation` y `task_install` los usan y el comportamiento de D19 no cambió. `catalog_online.Proposal.planificado` (un zip local lo redefine).
+- `gui/install_confirm_window.py`: formulario de un zip heredado (autores, licencia y origen explicados con `publish.license_help/origin_help`, id/nombre/versión opcionales), «Cambiar los datos», título y nombre del flujo, borrado de la carpeta de trabajo al cerrar.
+- `gui/import_zip_window.py` (de los adjuntos): `open_import`, `pick_zip`, `ImportQueue`, `attach_drop`. `gui/catalog_window.py`: «Compartir → Importar paquete .zip…» (no depende de lo ocupado), cola y soltar archivos sobre la ventana; **corregido** `_open_publish` (usaba `ctrl.catalog_root`, que no existe; es `ctrl.session.catalog_root`).
+- Claves es/en/pt: `import_zip.*` y `import_zip_window.*` (26 + 8 del formulario + `menu_importar_tip`).
+**Pruebas.** `test_import_zip.py` (22 sin GTK: 19 de los adjuntos + 3 nuevas: paridad de claves en los tres idiomas, opcionales inválidos, ganchos compartidos) y `test_import_zip_window_real.py` (7, GTK 4 real bajo xvfb) pasan; siguen verdes `test_install_confirm*`, `test_catalog_online*`, `test_dependencias`, `test_i18n`, `test_installed_packages_window_real`, `test_catalog_window_real`.
+
+### Todo List
+- [x] Done: D02–D09, D11, D13–D22
+- [ ] Todo: D23 licencia efectiva y créditos, D10 (`paquete enviar`), D12, D31, D33
+- [ ] Todo: probar a mano la ventana «Publicar…» y el formulario de zip heredado con una pantalla real (los selectores de archivo del sistema no se probaron)
+
+### Latest Blockers/Discoveries
+- `tests/test_publish.py` falla 10 de 18 **también en main limpio** (165b664): la puerta estricta rechaza el paquete de prueba (CK105 sin portada y «puerto muñeca sin mano»). No es de D22; hay que ajustar la fixture o la puerta.
+- Sigue fallando `test_catalog_ops::test_every_catalog_subcommand_is_registered_for_the_window` (`retoque`, `guardar-montura`).
+
 ## Current Focus — Catálogos en línea: D21 «Publicar…» (2026-11-27, sobre main ff7ce1f)
 **Objetivo.** Que alguien publique un paquete sin usar la terminal: elegir piezas o recetas del catálogo, completar los datos, ver qué significa cada licencia y origen, validar con resultados legibles y salir con un `.zip`, la carpeta del repo o la carpeta del alta en el índice.
 **Hecho.**

@@ -84,7 +84,9 @@ def _origin_text(origen: str) -> str:
 class InstallFlow:
     """El flujo de instalar un paquete del índice. `version=None` es la última versión; las opciones se fijan antes de `task_propose()`."""
 
-    def __init__(self, state: CO.OnlineState, entry: R.Entry, version: str | None = None):
+    pide_datos = False                                  # D22: un zip heredado pide autor, licencia y origen antes de proponer (`LocalZipFlow`)
+
+    def __init__(self, state: CO.OnlineState, entry: R.Entry | None, version: str | None = None):
         self.state = state
         self.entry = entry
         self.version = version
@@ -103,10 +105,7 @@ class InstallFlow:
         def work(task: CO.Task):
             self.stage, self.error, self.proposal, self.confirmar_origen = PROPONIENDO, "", None, False
             try:
-                def progress(done: int, total: int) -> None:
-                    task.progress(done, total, tr("catalog_online.descargando", nombre=self.entry.folder, hecho=CO.fmt_size(done), total=CO.fmt_size(total)))
-                prop = self.state.propose(self.entry, self.version, como_linea=self.como_linea, allow_fbx=self.allow_fbx,
-                                          allow_retirada=self.allow_retirada, progress=progress, root=self.line_root() if self.como_linea else "")
+                prop = self._make_proposal(task)
             except TaskCancelled:
                 self.stage = CANCELADO
                 raise
@@ -116,6 +115,70 @@ class InstallFlow:
             self.proposal, self.stage = prop, CONFIRMANDO
             return prop
         return CO.Task(work, notify=notify, name="afm-confirmar")
+
+    # ------------------------------------------------------------------------------------------------------------------ ganchos (D22)
+    # `import_zip.LocalZipFlow` cambia solo esto: de dónde sale el plan, qué dice la confirmación de su origen y cómo se escribe. El resto
+    # (etapas, opciones, `confirmation`, `task_install`, `report`) es el mismo código: el diálogo no distingue de dónde viene el paquete.
+    @property
+    def title(self) -> str:
+        return self.entry.nombre or self.entry.id
+
+    @property
+    def name(self) -> str:
+        return self.entry.id
+
+    @property
+    def preparing_text(self) -> str:
+        return tr("install_confirm_window.preparando")
+
+    def volver_a_datos(self) -> None:
+        """Solo un zip heredado tiene formulario al que volver."""
+
+    def close(self) -> None:
+        """Libera lo que el flujo haya dejado en disco (un zip heredado deja una carpeta de trabajo)."""
+
+    def _make_proposal(self, task: CO.Task) -> CO.Proposal:
+        def progress(done: int, total: int) -> None:
+            task.progress(done, total, tr("catalog_online.descargando", nombre=self.entry.folder, hecho=CO.fmt_size(done), total=CO.fmt_size(total)))
+        return self.state.propose(self.entry, self.version, como_linea=self.como_linea, allow_fbx=self.allow_fbx,
+                                  allow_retirada=self.allow_retirada, progress=progress, root=self.line_root() if self.como_linea else "")
+
+    def _write(self, prop: CO.Proposal) -> list:
+        return self.state.install(prop, acepto=True, confirmar_origen=self.confirmar_origen)
+
+    def _fallback_rows(self) -> list:
+        """Autor, licencia y origen según el índice, cuando el plan no se pudo armar (error de dependencias)."""
+        e, dash = self.entry, "—"
+        return [(tr("install_confirm.l_autor"), e.autor or dash), (tr("install_confirm.l_licencia"), e.licencia or dash),
+                (tr("install_confirm.l_origen"), _origin_text(e.origen))]
+
+    def _source_rows(self, prop: CO.Proposal) -> list:
+        return [(tr("install_confirm.l_descarga"), CO.fmt_size(prop.tamano_total))]
+
+    def _package_lines(self, prop: CO.Proposal, plans: list) -> list:
+        lines = []
+        for n, (s, p) in enumerate(zip(prop.pasos, plans), 1):
+            pk = p.paquete
+            meta = f" — {_authors(pk, github=False)} · {pk.licencia} · {pk.origen}" if pk is not None else ""
+            lines.append(f"{n}. {s.entry.folder} {s.release.version}{meta}" + ("" if s.por == "pedido" else f" ({s.por})"))
+        return lines
+
+    def _entry_warnings(self) -> list:
+        out = []
+        if self.entry.experimental:
+            out.append(tr("catalog_online.aviso_experimental"))
+        rel = self.entry.release(self.version)
+        if rel is not None and rel.prerelease:
+            out.append(tr("catalog_online.aviso_prerelease"))
+        return out
+
+    def _confirmation_title(self, paso) -> str:
+        rel = self.entry.release(self.version)
+        version = (paso.release.version if paso is not None else None) or (rel.version if rel else "")
+        return tr("install_confirm.titulo_instalar", id=self.entry.id, version=version)
+
+    def _unverified_text(self) -> str:
+        return tr("catalog_online.aviso_no_verificado")
 
     def line_root(self) -> str:
         """Carpeta donde se crea la línea nueva del paquete (`--como-linea` necesita una carpeta que todavía no sea un catálogo)."""
@@ -127,7 +190,6 @@ class InstallFlow:
         prop = self.proposal
         if prop is None:
             return None
-        e = self.entry
         paso = prop.pasos[-1] if prop.pasos else None            # el pedido va al final: sus dependencias se instalan antes
         plans = prop._plans()
         main = plans[-1].paquete if plans else None
@@ -139,43 +201,33 @@ class InstallFlow:
                 rows.append((tr("install_confirm.l_repo"), main.github))
             rows.append((tr("install_confirm.l_origen"), _origin_text(main.origen)))
         else:                                                    # el plan no se pudo armar (error de dependencias): lo que dice el índice
-            rows += [(tr("install_confirm.l_autor"), e.autor or dash), (tr("install_confirm.l_licencia"), e.licencia or dash),
-                     (tr("install_confirm.l_origen"), _origin_text(e.origen))]
+            rows += self._fallback_rows()
         crea = any(p.como_linea for p in plans)
         rows.append((tr("install_confirm.l_destino"), self._destination(prop, main, crea)))
         rows.append((tr("install_confirm.l_carpeta"), prop.root))
-        rows.append((tr("install_confirm.l_descarga"), CO.fmt_size(prop.tamano_total)))
+        rows += self._source_rows(prop)
 
         secciones: list = []
-        if prop.chain is not None:
-            lines = []
-            for n, (s, p) in enumerate(zip(prop.pasos, plans), 1):
-                pk = p.paquete
-                meta = f" — {_authors(pk, github=False)} · {pk.licencia} · {pk.origen}" if pk is not None else ""
-                lines.append(f"{n}. {s.entry.folder} {s.release.version}{meta}" + ("" if s.por == "pedido" else f" ({s.por})"))
-            secciones.append(Section(tr("install_confirm.sec_paquetes", n=len(prop.pasos)), lines))
+        has_plan = prop.planificado
+        if has_plan:
+            lines = self._package_lines(prop, plans)
+            secciones.append(Section(tr("install_confirm.sec_paquetes", n=len(lines)), lines))
             for titulo, names in (("sec_piezas", prop.piezas), ("sec_recetas", prop.recetas), ("sec_roles", prop.roles),
                                   ("sec_ya_estan", [i.name for p in plans for i in p.omitidas]),
                                   ("sec_descartados", [d for p in plans for d in p.descartados])):
                 if names:
                     secciones.append(Section(tr(f"install_confirm.{titulo}", n=len(names)), list(names)))
 
-        avisos = [str(i) for i in prop.warnings]
-        if e.experimental:
-            avisos.append(tr("catalog_online.aviso_experimental"))
-        rel = e.release(self.version)
-        if rel is not None and rel.prerelease:
-            avisos.append(tr("catalog_online.aviso_prerelease"))
-        if prop.chain is not None and prop.chain.cambia_origen:
+        avisos = [str(i) for i in prop.warnings] + self._entry_warnings()
+        if has_plan and prop.cambia_origen:
             avisos.append(tr("install_confirm.aviso_origen"))
         errores = [str(i) for i in prop.errors]
         pide = prop.cambia_origen
         puede = prop.ok and not prop.nada_que_hacer and (not pide or self.confirmar_origen)
-        version = (paso.release.version if paso is not None else None) or (rel.version if rel else "")
         return Confirmation(
-            titulo=tr("install_confirm.titulo_instalar", id=e.id, version=version),
-            boton=tr("install_confirm.boton_instalar"), puede_instalar=puede, rows=rows, trae=prop.headline() if prop.chain is not None else "",
-            secciones=secciones, errores=errores, avisos=avisos, no_verificado=tr("catalog_online.aviso_no_verificado"), pide_origen=pide,
+            titulo=self._confirmation_title(paso),
+            boton=tr("install_confirm.boton_instalar"), puede_instalar=puede, rows=rows, trae=prop.headline() if has_plan else "",
+            secciones=secciones, errores=errores, avisos=avisos, no_verificado=self._unverified_text(), pide_origen=pide,
             crea_linea=crea, nada_que_hacer=prop.nada_que_hacer,
             ofrece_su_linea=not self.como_linea and (any(p.sugerir_linea for p in plans) or any("--como-linea" in i.fix for i in prop.errors)),
             ofrece_fbx=not self.allow_fbx and any("fbx" in str(i).lower() for i in prop.errors))
@@ -211,7 +263,7 @@ class InstallFlow:
             task.progress(0, 0, tr("catalog_online.instalando"))
             task.lock_cancel()
             try:
-                results = self.state.install(prop, acepto=True, confirmar_origen=self.confirmar_origen)
+                results = self._write(prop)
             except Exception as exc:                         # noqa: BLE001 — todo o nada: el catálogo quedó como estaba
                 self.stage, self.error = FALLO, str(exc)
                 raise

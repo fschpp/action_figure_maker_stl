@@ -1,6 +1,7 @@
 """Diálogo de confirmación e instalación (D19): lo que se instala, de quién es, con qué licencia, qué toca y qué conflictos hay, **antes** de escribir.
 
-Solo dibuja: todo lo que decide sale de `install_confirm.InstallFlow`, que se prueba sin GTK. Lo lento (bajar y verificar los zips, instalar, verificar el
+Solo dibuja: todo lo que decide sale de `install_confirm.InstallFlow`, que se prueba sin GTK. Con un `import_zip.LocalZipFlow` (D22) es el mismo diálogo para un `.zip`
+que la persona eligió o soltó; si es un zip heredado (sin `paquete.json`) abre primero un formulario de autor, licencia y origen, y deja «Cambiar los datos». Lo lento (bajar y verificar los zips, instalar, verificar el
 catálogo y medir la cobertura) corre en un hilo (`Task`) y el diálogo solo recibe el aviso por `GLib.idle_add`. **Sin apretar «Instalar» no se escribe nada**:
 cerrar o cancelar deja el catálogo como estaba, y un fallo al instalar lo deshace todo. Se abre desde «Instalar» / «Actualizar» de la ficha de
 «Explorar catálogos en línea…» (`catalog_online_window`).
@@ -12,9 +13,11 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import GLib, Gtk, Pango  # noqa: E402
 
+from .. import paquete as Q  # noqa: E402
 from ..i18n import tr  # noqa: E402
 from . import catalog_online as CO  # noqa: E402
 from . import install_confirm as IC  # noqa: E402
+from . import publish as PB  # noqa: E402
 
 
 def _label(text: str = "", *, css: tuple = (), selectable: bool = True, wrap: bool = True) -> Gtk.Label:
@@ -42,7 +45,7 @@ class InstallConfirmDialog(Gtk.Window):
         self._build()
         self.connect("close-request", self._on_close)
         if start:
-            self.propose()
+            self._show_form() if self.flow.pide_datos else self.propose()
 
     # ------------------------------------------------------------------------------------------------------------------ armado
     def _build(self) -> None:
@@ -50,7 +53,7 @@ class InstallConfirmDialog(Gtk.Window):
         for side in ("start", "end", "top", "bottom"):
             getattr(outer, f"set_margin_{side}")(12)
         self.set_child(outer)
-        self.lbl_title = _label(self.flow.entry.nombre or self.flow.entry.id, css=("title-2",))
+        self.lbl_title = _label(self.flow.title, css=("title-2",))
         outer.append(self.lbl_title)
 
         self.body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -65,6 +68,11 @@ class InstallConfirmDialog(Gtk.Window):
         outer.append(self.progress_row)
 
         row = Gtk.Box(spacing=6, halign=Gtk.Align.END)
+        self.btn_change = None                                      # solo un zip heredado tiene datos que cambiar
+        if getattr(self.flow, "heredado", False):
+            self.btn_change = Gtk.Button(label=tr("import_zip_window.cambiar_datos"), visible=False)
+            self.btn_change.connect("clicked", lambda *_: self._on_change_data())
+            row.append(self.btn_change)
         self.btn_close = Gtk.Button(label=tr("install_confirm_window.cancelar"))
         self.btn_close.connect("clicked", lambda *_: self.close())
         self.btn_install = Gtk.Button(label=tr("install_confirm.boton_instalar"), sensitive=False)
@@ -117,11 +125,83 @@ class InstallConfirmDialog(Gtk.Window):
         self.bar.set_fraction(frac) if frac is not None else self.bar.pulse()
         return True
 
+    # ------------------------------------------------------------------------------------------------------------------ formulario de un zip heredado (D22)
+    def _show_form(self, problems=()) -> None:
+        """Autor, licencia y origen de un zip sin `paquete.json`: la app los explica pero no los verifica (igual que «Publicar…»). No escribe nada."""
+        d = self.flow.datos
+        self._clear()
+        self.lbl_title.set_text(tr("import_zip_window.datos_titulo"))
+        self.body.append(_label(tr("import_zip_window.datos_ayuda"), css=("dim-label",)))
+        self.body.append(_label(tr("import_zip_window.l_autores"), css=("heading",), selectable=False))
+        self.txt_autores = Gtk.TextView(wrap_mode=Gtk.WrapMode.WORD_CHAR, top_margin=4, bottom_margin=4, left_margin=6, right_margin=6)
+        self.txt_autores.get_buffer().set_text(d.autores)
+        self.body.append(Gtk.ScrolledWindow(min_content_height=64, hscrollbar_policy=Gtk.PolicyType.NEVER, child=self.txt_autores))
+        self.body.append(_label(tr("import_zip_window.l_licencia"), css=("heading",), selectable=False))
+        self.dd_lic = Gtk.DropDown.new_from_strings([tr("publish_window.elegir"), *Q.LICENSES])
+        self.dd_lic.set_selected(Q.LICENSES.index(d.licencia) + 1 if d.licencia in Q.LICENSES else 0)
+        self.body.append(self.dd_lic)
+        self.lbl_lic = _label("", css=("dim-label",))
+        self.body.append(self.lbl_lic)
+        self.body.append(_label(tr("import_zip_window.l_origen"), css=("heading",), selectable=False))
+        self.dd_org = Gtk.DropDown.new_from_strings([tr("publish_window.elegir"), *Q.ORIGINS])
+        self.dd_org.set_selected(Q.ORIGINS.index(d.origen) + 1 if d.origen in Q.ORIGINS else 0)
+        self.body.append(self.dd_org)
+        self.lbl_org = _label("", css=("dim-label",))
+        self.body.append(self.lbl_org)
+        self.entries = {}
+        for key, label, value in (("id", "l_id", d.id), ("nombre", "l_nombre", d.nombre), ("version", "l_version", d.version)):
+            self.body.append(_label(tr(f"import_zip_window.{label}"), css=("dim-label",), selectable=False))
+            self.entries[key] = Gtk.Entry(text=value)
+            self.body.append(self.entries[key])
+        self.lbl_form_err = _label("\n".join(f"• {t}" for t in problems), css=("error",))
+        self.body.append(self.lbl_form_err)
+        self.btn_form_go = Gtk.Button(label=tr("import_zip_window.seguir"), halign=Gtk.Align.END)
+        self.btn_form_go.add_css_class("suggested-action")
+        self.btn_form_go.connect("clicked", lambda *_: self._on_form_go())
+        self.body.append(self.btn_form_go)
+        for dd in (self.dd_lic, self.dd_org):
+            dd.connect("notify::selected", self._on_choice_changed)
+        self._on_choice_changed()
+        self.btn_install.set_visible(False)
+        if self.btn_change is not None:
+            self.btn_change.set_visible(False)
+        self.btn_close.set_label(tr("install_confirm_window.cancelar"))
+
+    @staticmethod
+    def _choice(dd: Gtk.DropDown, values) -> str:
+        n = dd.get_selected()
+        return values[n - 1] if 0 < n <= len(values) else ""
+
+    def _on_choice_changed(self, *_) -> None:
+        """Cada licencia y cada origen se explican al elegirlos (los mismos textos que «Publicar…»)."""
+        self.lbl_lic.set_text(PB.license_help(self._choice(self.dd_lic, Q.LICENSES)))
+        self.lbl_org.set_text(PB.origin_help(self._choice(self.dd_org, Q.ORIGINS)))
+
+    def _on_form_go(self, *_) -> None:
+        """Pasa lo del formulario al flujo; si falta algo lo dice y no avanza, si está todo prepara la confirmación (todavía sin escribir)."""
+        buf = self.txt_autores.get_buffer()
+        d = self.flow.datos
+        d.autores = buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False)
+        d.licencia, d.origen = self._choice(self.dd_lic, Q.LICENSES), self._choice(self.dd_org, Q.ORIGINS)
+        d.id, d.nombre, d.version = (self.entries[k].get_text().strip() for k in ("id", "nombre", "version"))
+        problems = self.flow.confirmar_datos()
+        if problems:
+            self._show_form(problems)
+        else:
+            self.propose()
+
+    def _on_change_data(self) -> None:
+        """«Cambiar los datos»: vuelve al formulario con lo ya cargado; la confirmación que se vio era de otros datos y no se escribió nada."""
+        if self._task is not None:
+            return
+        self.flow.volver_a_datos()
+        self._show_form()
+
     # ------------------------------------------------------------------------------------------------------------------ proponer
     def propose(self) -> None:
         """Baja y verifica los zips y arma el plan (no escribe). Al terminar muestra la confirmación."""
         self._clear()
-        self.body.append(_label(tr("install_confirm_window.preparando"), css=("dim-label",)))
+        self.body.append(_label(self.flow.preparing_text, css=("dim-label",)))
         self._start(self.flow.task_propose(notify=self._notify), self._after_propose)
 
     def _after_propose(self, t: CO.Task) -> None:
@@ -136,6 +216,8 @@ class InstallConfirmDialog(Gtk.Window):
         self._clear()
         self.body.append(_label(text, css=("error",)))
         self.btn_install.set_visible(False)
+        if self.btn_change is not None:
+            self.btn_change.set_visible(True)
         self.btn_close.set_label(tr("install_confirm_window.cerrar"))
 
     def _show_confirmation(self) -> None:
@@ -181,6 +263,8 @@ class InstallConfirmDialog(Gtk.Window):
         self.body.append(_label(c.no_verificado, css=("dim-label",)))
         self.btn_install.set_label(c.boton)
         self.btn_install.set_visible(True)
+        if self.btn_change is not None:
+            self.btn_change.set_visible(True)
         self.btn_install.set_sensitive(c.puede_instalar)
         self.btn_close.set_label(tr("install_confirm_window.cancelar"))
         self._updating = False
@@ -227,7 +311,7 @@ class InstallConfirmDialog(Gtk.Window):
 
     def _show_report(self, rep: IC.Report) -> None:
         self._clear()
-        self.lbl_title.set_text(tr("install_confirm_window.resultado_titulo", id=self.flow.entry.id))
+        self.lbl_title.set_text(tr("install_confirm_window.resultado_titulo", id=self.flow.name))
         self.body.append(_label("\n".join(rep.resumen), css=("success",)))
         self.body.append(_label(tr("install_confirm_window.carpeta", carpeta=rep.carpeta), css=("dim-label",)))
         self.body.append(_label(tr("install_confirm_window.verificar_ok" if rep.verificar_ok else "install_confirm_window.verificar_mal"),
@@ -240,6 +324,8 @@ class InstallConfirmDialog(Gtk.Window):
             ex.set_child(_label("\n".join(rep.cobertura)))
             self.body.append(ex)
         self.btn_install.set_visible(False)
+        if self.btn_change is not None:
+            self.btn_change.set_visible(False)
         self.btn_close.set_label(tr("install_confirm_window.cerrar"))
 
     # ------------------------------------------------------------------------------------------------------------------ cierre
@@ -250,6 +336,7 @@ class InstallConfirmDialog(Gtk.Window):
         self._closed = True
         if self._task is not None:
             self._task.cancel()
+        self.flow.close()                                          # un zip heredado deja una carpeta de trabajo: se borra
         return False
 
 

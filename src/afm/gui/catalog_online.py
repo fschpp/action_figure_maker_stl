@@ -133,6 +133,11 @@ class Proposal:
     chain: D.Chain | None = None                       # None si las dependencias tienen errores (no se bajó nada)
 
     @property
+    def planificado(self) -> bool:
+        """¿Hay plan de instalación armado? (False si las dependencias tienen errores y no se bajó nada.) D22: un zip local lo redefine."""
+        return self.chain is not None
+
+    @property
     def errors(self) -> list:
         return list(self.dep.errors) + (self.chain.errors if self.chain else [])
 
