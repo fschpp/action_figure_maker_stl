@@ -12,6 +12,7 @@ from ..retouch import MAX_RADIUS_MM, MAX_STROKES, MIN_RADIUS_MM, Retouch, Retouc
 
 PAINT, ERASE, FILL, ORPHAN = "pintar", "borrar", "rellenar", "sin_origen"      # ORPHAN (R11): pinta solo lo que la fuente de color no cubre
 DEFAULT_RADIUS_MM = 1.5
+REPLACE_CENTRE = (0.0, 0.0, 0.0)  # el reemplazo de color vale para toda la pieza: su centro y su radio no cuentan (solo cumplen el formato)
 DEFAULT_REACH_MM = 8.0          # alcance de «Rellenar región»: hasta dónde llega la región desde el clic
 SPACING_FACTOR = 0.5            # separación entre pinceladas de un mismo trazo, en radios (plan §4)
 
@@ -224,6 +225,36 @@ class RetouchSession:
         self._undo.append(len(strokes))
         self._redo.clear()
         return len(strokes)
+
+    # ------------------------------------------------------------------ reemplazar color de la pieza
+    def replace_stroke(self, desde: str, a: str) -> Stroke:
+        """La pincelada de «Reemplazar color de la pieza»: todo lo que hoy tiene el rol `desde` pasa a `a`. `RetouchError` si algún rol no está en la
+        paleta de la línea o si son el mismo (no hay nada que reemplazar)."""
+        for r in (desde, a):
+            if r not in self._palette:
+                raise RetouchError(f"el rol «{r}» no está en la paleta de la línea")
+        if desde == a:
+            raise RetouchError("el color a buscar y el nuevo son el mismo")
+        return Stroke(REPLACE_CENTRE, MIN_RADIUS_MM, a, desde=desde)
+
+    def preview_replace(self, desde: str, a: str) -> Retouch:
+        """El retoque de ahora con el reemplazo sumado, **sin guardarlo ni cambiar la sesión** (para «Previsualizar»)."""
+        stroke = self.replace_stroke(desde, a)
+        if len(self._strokes) >= MAX_STROKES:
+            raise RetouchError(f"la pieza ya tiene el máximo de {MAX_STROKES} pinceladas")
+        return Retouch(self._strokes + [stroke])
+
+    def add_replace(self, desde: str, a: str) -> int:
+        """«Aceptar» del reemplazo de color: suma la pincelada como **un trazo** (se deshace de una vez). Devuelve 1; si falla no cambia nada."""
+        stroke = self.replace_stroke(desde, a)
+        if self._open is not None:
+            self.end_stroke()
+        if len(self._strokes) >= MAX_STROKES:
+            raise RetouchError(f"la pieza ya tiene el máximo de {MAX_STROKES} pinceladas")
+        self._strokes.append(stroke)
+        self._undo.append(1)
+        self._redo.clear()
+        return 1
 
     def discard(self) -> bool:
         """«Descartar retoques»: vuelve a lo que hay guardado en el catálogo y vacía la pila de deshacer/rehacer. `True` si había algo que descartar."""

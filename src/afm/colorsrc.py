@@ -102,7 +102,10 @@ class ColorSource:
 
         R11: las pinceladas **«sin origen»** (`Stroke.huerfana`) no cambian ninguna muestra: la fuente solo las recuerda y `query` las aplica a los
         puntos consultados que **no tienen origen** (nada a ≤ `eps` con normal compatible), dentro de su radio. El informe suma `"sin_origen": n`.
-        Quedan en el orden en que llegaron: entre ellas la última gana; las del pincel normal no las pisan (solo cambian muestras, y un punto sin origen no lee muestras)."""
+        Quedan en el orden en que llegaron: entre ellas la última gana; las del pincel normal no las pisan (solo cambian muestras, y un punto sin origen no lee muestras).
+
+        Una pincelada de **reemplazo** (`Stroke.desde`) pasa a `rol` toda muestra que en ese momento tenga la etiqueta `desde` (y también las pinceladas «sin origen»
+        anteriores que pintaban con `desde`). El borrador devuelve las muestras a su etiqueta original, no a la reemplazada."""
         from .retouch import MIN_DOT, in_triangle_prism, triangle_of
 
         strokes = list(strokes)
@@ -111,18 +114,26 @@ class ColorSource:
         if self.sample_label is None or self._lut is None or self.label_roles is None:
             raise ValueError("la fuente no se armó con etiquetas de rol: no se puede retocar")
         index = {r: i for i, r in enumerate(self.label_roles)}
-        missing = sorted({s.rol for s in strokes if s.rol is not None and s.rol not in index})
+        missing = sorted({r for s in strokes for r in (s.rol, getattr(s, "desde", None)) if r is not None and r not in index})
         if missing:
             raise ValueError("la fuente no tiene etiqueta para los roles del retoque: " + ", ".join(missing))
         total = len(strokes)
-        orphans = [s for s in strokes if getattr(s, "huerfana", False)]
-        strokes = [s for s in strokes if not getattr(s, "huerfana", False)]
-        self._orphans.extend((s, index[s.rol]) for s in orphans)
+        n_orphans = 0
         if self._base_label is None:
             self._base_label = self.sample_label.copy()
         before = self.sample_label.copy()
         sample_normals = None
+        # un solo recorrido en el orden en que llegaron: el reemplazo de color también cambia las pinceladas «sin origen» anteriores
         for s in strokes:
+            if getattr(s, "huerfana", False):
+                self._orphans.append((s, index[s.rol]))
+                n_orphans += 1
+                continue
+            if getattr(s, "desde", None) is not None:           # «reemplazar color de la pieza»: toda la pieza, sin radio
+                a, b = index[s.desde], index[s.rol]
+                self.sample_label[self.sample_label == a] = np.uint8(b)
+                self._orphans = [(o, b if lab == a else lab) for o, lab in self._orphans]
+                continue
             if getattr(s, "tri", None) is not None:             # «polígono entero»: lo que cae sobre el triángulo, no una bola (el radio mínimo del pincel no llega a una muestra)
                 tc, tr_ = triangle_of(s.tri, TRI_EDGE_TOL_MM + TRI_DEPTH_BALL_MM)
                 idx = np.asarray(self._tree.query_ball_point(tc, tr_), np.int64)
@@ -145,8 +156,8 @@ class ColorSource:
             self.sample_label[idx] = self._base_label[idx] if s.rol is None else np.uint8(index[s.rol])
         self.sample_rgb = self._compose(self.sample_label)
         report = {"pinceladas": total, "muestras": int((self.sample_label != before).sum())}
-        if orphans:
-            report["sin_origen"] = len(orphans)
+        if n_orphans:
+            report["sin_origen"] = n_orphans
         return report
 
     def _fill_region(self, stroke, idx: np.ndarray) -> np.ndarray:

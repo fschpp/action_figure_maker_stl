@@ -25,6 +25,7 @@ from .catalog_manager import view_bounds as CM_view_bounds  # noqa: E402
 from .progress_panel import ProgressPanel  # noqa: E402
 from .retouch_editor import RetouchEditor  # noqa: E402
 from .retouch_session import ERASE, FILL, ORPHAN, PAINT  # noqa: E402
+from .retouch_replace_window import ReplaceColorDialog  # noqa: E402
 from .retouch_toolbox import RetouchToolbox  # noqa: E402
 from ..parts import STATES  # noqa: E402
 from .widgets import WrapRow, no_scroll_change as _no_scroll_change  # noqa: E402
@@ -1330,6 +1331,10 @@ class CatalogManagerWindow(Gtk.Window):
         self.btn_rexport, self.btn_rimport, self.btn_rbring = tb.btn_export, tb.btn_import, tb.btn_bring
         self.dd_rsource, self.chk_rmirror = tb.dd_source, tb.chk_mirror
         self.btn_rcancel, self.btn_rapply = tb.btn_cancel, tb.btn_apply
+        self.btn_rreplace = tb.btn_replace
+        self._rrepl = None                                           # diálogo «Reemplazar color de la pieza» abierto
+        self._rrepl_token = 0
+        self.btn_rreplace.connect("clicked", self._on_retouch_replace)
         self._rsources: list[str] = []
         self.dd_rrole.connect("notify::selected", self._on_retouch_role)
         self.spin_rradius.connect("value-changed", self._on_retouch_radius)
@@ -1588,6 +1593,78 @@ class CatalogManagerWindow(Gtk.Window):
             self.lbl_status.set_text(tr("catalog_window.retocar_sin_otras"))
             return
         self._retouch_add_strokes(rt.strokes, self._rsources[i])
+
+    # --- «Reemplazar color de la pieza»
+    def _on_retouch_replace(self, *_) -> None:
+        ed = self._reditor
+        if ed is None or self._rrepl is not None:
+            return
+        self._rtoolbox.btn_more.popdown()
+        roles = [(r.id, r.nombre, r.hex) for r in ed.palette.roles if r.id in ed.session.palette_ids]
+        if len(roles) < 2:
+            self.lbl_status.set_text(tr("catalog_window.reemplazar_sin_colores"))
+            return
+        saved = (self._color_shown, ed.result_shown)
+        state = {"previewed": False}
+        self._rrepl_token += 1
+        token = self._rrepl_token
+
+        def preview(desde, a):
+            try:
+                rt = ed.session.preview_replace(desde, a)
+            except Exception as exc:                                  # noqa: BLE001  (rol fuera de la paleta, tope de pinceladas)
+                self._rrepl.set_message(str(exc))
+                return
+            state["previewed"] = True
+            self._rrepl_token += 1
+            mine = self._rrepl_token
+            ref = ed.meta.ref
+            self._rrepl.set_message(tr("catalog_window.color_calculando"))
+
+            def work():
+                try:
+                    parts, err = self.mgr.color_parts_with(ref, rt), None
+                except Exception as exc:                              # noqa: BLE001
+                    parts, err = None, exc
+                GLib.idle_add(done, mine, ref, parts, err)
+
+            threading.Thread(target=work, daemon=True).start()
+
+        def done(mine, ref, parts, err):
+            if mine != self._rrepl_token or self._rrepl is None or self._reditor is None or self._reditor.meta.ref != ref:
+                return False                                          # llegó tarde: se aceptó, se canceló o hay otra previsualización
+            if err is not None:
+                self._rrepl.set_message(tr("catalog_window.color_error", ref=ref, exc=err))
+            else:
+                self._color_shown = (ref, parts) if parts else None
+                self._rrepl.set_message(tr("catalog_window.reemplazar_previsualizando"))
+                self._redraw()
+            return False
+
+        def accept(desde, a):
+            self._rrepl_token += 1                                    # descarta una previsualización en curso
+            self._rrepl = None
+            try:
+                ed.session.add_replace(desde, a)
+            except Exception as exc:                                  # noqa: BLE001
+                self._color_shown, ed.result_shown = saved
+                self.lbl_status.set_text(tr("catalog_window.retocar_no_entra", exc=exc))
+                self._redraw()
+                return
+            ed.result_shown = False
+            self.lbl_status.set_text(tr("catalog_window.reemplazar_hecho", desde=desde, a=a))
+            self._retouch_refresh()
+            self._on_retouch_view()                                   # muestra el color real del retoque con el reemplazo
+
+        def cancel():
+            self._rrepl_token += 1
+            self._rrepl = None
+            if state["previewed"] and self._reditor is not None:
+                self._color_shown, self._reditor.result_shown = saved   # vuelve al color que se veía antes
+                self._redraw()
+
+        self._rrepl = ReplaceColorDialog(self, roles, preview, accept, cancel)
+        self._rrepl.present()
 
     def _on_retouch_undo(self) -> None:
         if self._reditor is not None and self._reditor.session.undo():

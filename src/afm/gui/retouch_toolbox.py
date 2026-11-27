@@ -205,7 +205,9 @@ class RetouchToolbox(Gtk.Window):
         self.btn_export.set_tooltip_text(tr("catalog_window.retocar_exportar_tip"))
         self.btn_import = Gtk.Button(label=tr("catalog_window.retocar_importar"))
         self.btn_import.set_tooltip_text(tr("catalog_window.retocar_importar_tip"))
-        for b in (self.btn_view, self.btn_discard, self.btn_export, self.btn_import):
+        self.btn_replace = Gtk.Button(label=tr("catalog_window.reemplazar_boton"))
+        self.btn_replace.set_tooltip_text(tr("catalog_window.reemplazar_boton_tip"))
+        for b in (self.btn_replace, self.btn_view, self.btn_discard, self.btn_export, self.btn_import):
             b.set_halign(Gtk.Align.FILL)
             box.append(b)
         box.append(Gtk.Separator())

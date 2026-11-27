@@ -22,9 +22,11 @@ FORMAT = "afm-retoque-1"
 FORMAT_FILL = "afm-retoque-2"    # el mismo archivo pero con pinceladas de relleno; sin rellenos se sigue escribiendo `afm-retoque-1` (bytes idénticos)
 FORMAT_ORPHAN = "afm-retoque-3"  # con pinceladas «sin origen» (`huerfana`); sin ellas se sigue escribiendo `-1` o `-2` (bytes idénticos)
 FORMAT_TRI = "afm-retoque-4"     # con pinceladas de polígono (`tri`); sin ellas se sigue escribiendo `-1`, `-2` o `-3` (bytes idénticos)
-FORMATS = (FORMAT, FORMAT_FILL, FORMAT_ORPHAN, FORMAT_TRI)
+FORMAT_REPLACE = "afm-retoque-5"  # con pinceladas de reemplazo de color (`desde`); sin ellas se sigue escribiendo `-1` … `-4` (bytes idénticos)
+FORMATS = (FORMAT, FORMAT_FILL, FORMAT_ORPHAN, FORMAT_TRI, FORMAT_REPLACE)
 FILL_KIND = "relleno"
 ORPHAN_KIND = "huerfana"
+REPLACE_KIND = "reemplazo"
 MAX_STROKES = 20_000             # pinceladas por pieza
 MIN_RADIUS_MM, MAX_RADIUS_MM = 0.05, 15.0
 MIN_DOT = 0.3                    # el mismo criterio que el horneado (`bake_piece`): la normal de la muestra tiene que ser compatible con `n`
@@ -56,6 +58,7 @@ class Stroke:
     relleno: bool = False                        # True = «rellenar región»: `c` es la semilla, `r` el alcance máximo (mm) y `rol` no puede ser None
     huerfana: bool = False                       # True = «sin origen»: pinta con `rol`, dentro del radio, SOLO lo que la fuente de color no cubre (sin muestra a ≤ eps con normal compatible); `rol` no puede ser None
     tri: tuple | None = None                     # «polígono entero»: los 3 vértices (marco del STL) de un triángulo de la pieza; pinta todo lo que cae sobre él (no una bola). `c` es su centro y `r` lo cubre
+    desde: str | None = None                     # «reemplazar color de la pieza»: todo lo que tiene HOY el rol `desde` (en toda la pieza, sin importar `c` ni `r`) pasa a `rol`; `rol` no puede ser None ni igual a `desde`
 
     def __post_init__(self):
         object.__setattr__(self, "c", _vec3(self.c, "pincelada «c»"))
@@ -82,6 +85,15 @@ class Stroke:
             if np.linalg.norm(np.cross(np.subtract(tri[1], tri[0]), np.subtract(tri[2], tri[0]))) < 1e-12:
                 raise RetouchError("pincelada «tri»: el triángulo es degenerado")
             object.__setattr__(self, "tri", tri)
+        if self.desde is not None:
+            if not (isinstance(self.desde, str) and _ROLE_RE.match(self.desde)):
+                raise RetouchError(f"reemplazo: id de rol inválido {self.desde!r}")
+            if self.rol is None:
+                raise RetouchError("reemplazo de color: hace falta el rol por el que se reemplaza")
+            if self.rol == self.desde:
+                raise RetouchError(f"reemplazo de color: el color a buscar y el nuevo son el mismo («{self.rol}»)")
+            if self.relleno or self.huerfana or self.tri is not None or self.n is not None:
+                raise RetouchError("un reemplazo de color no puede ser a la vez de relleno, «sin origen», de polígono ni llevar normal")
         if self.n is not None:
             n = np.asarray(_vec3(self.n, "pincelada «n»"))
             norm = float(np.linalg.norm(n))
@@ -92,7 +104,10 @@ class Stroke:
     def to_dict(self) -> dict:
         d = {"c": [round(a, 4) for a in self.c], "r": round(self.r, 4), "rol": self.rol}
         d["n"] = None if self.n is None else [round(a, 4) for a in self.n]
-        if self.relleno:
+        if self.desde is not None:
+            d["k"] = REPLACE_KIND
+            d["d"] = self.desde
+        elif self.relleno:
             d["k"] = FILL_KIND
         elif self.huerfana:
             d["k"] = ORPHAN_KIND
@@ -105,9 +120,11 @@ class Stroke:
         if not isinstance(d, dict) or "c" not in d or "r" not in d:
             raise RetouchError("pincelada: faltan «c» o «r»")
         kind = d.get("k")
-        if kind not in (None, FILL_KIND, ORPHAN_KIND):
+        if kind not in (None, FILL_KIND, ORPHAN_KIND, REPLACE_KIND):
             raise RetouchError(f"pincelada: tipo desconocido {kind!r}")
-        return cls(d["c"], d["r"], d.get("rol"), d.get("n"), kind == FILL_KIND, kind == ORPHAN_KIND, d.get("t"))
+        if kind == REPLACE_KIND and d.get("d") is None:
+            raise RetouchError("pincelada de reemplazo: falta «d» (el rol a buscar)")
+        return cls(d["c"], d["r"], d.get("rol"), d.get("n"), kind == FILL_KIND, kind == ORPHAN_KIND, d.get("t"), d.get("d") if kind == REPLACE_KIND else None)
 
 
 class Retouch:
@@ -125,8 +142,12 @@ class Retouch:
         return isinstance(other, Retouch) and self.strokes == other.strokes
 
     def roles_used(self) -> list[str]:
-        """Roles que alguna pincelada pinta (sin repetir, en orden de primera aparición; el borrador no cuenta)."""
-        return list(dict.fromkeys(s.rol for s in self.strokes if s.rol is not None))
+        """Roles que alguna pincelada pinta (sin repetir, en orden de primera aparición; el borrador no cuenta). Un reemplazo de color suma además
+        el rol que busca (la paleta tiene que tenerlo para poder reconocerlo)."""
+        out = []
+        for s in self.strokes:
+            out.extend(r for r in (s.desde, s.rol) if r is not None)
+        return list(dict.fromkeys(out))
 
     def mirrored(self, axis: int = 0) -> "Retouch":
         """El mismo retoque reflejado en el eje `axis` (0 = X) del marco del STL: de una pieza izquierda a su par derecho (`mirror_x`, como el motor)."""
@@ -140,23 +161,25 @@ class Retouch:
         self.strokes.append(stroke)
 
     def to_dict(self) -> dict:
-        fmt = FORMAT_TRI if any(s.tri is not None for s in self.strokes) else FORMAT_ORPHAN if any(s.huerfana for s in self.strokes) else FORMAT_FILL if any(s.relleno for s in self.strokes) else FORMAT
+        fmt = FORMAT_REPLACE if any(s.desde is not None for s in self.strokes) else FORMAT_TRI if any(s.tri is not None for s in self.strokes) else FORMAT_ORPHAN if any(s.huerfana for s in self.strokes) else FORMAT_FILL if any(s.relleno for s in self.strokes) else FORMAT
         return {"formato": fmt, "pinceladas": [s.to_dict() for s in self.strokes]}
 
     @classmethod
     def from_dict(cls, d) -> "Retouch":
         if not isinstance(d, dict) or d.get("formato") not in FORMATS:
-            raise RetouchError(f"formato desconocido: {d.get('formato') if isinstance(d, dict) else d!r} (se esperaba «{FORMAT}», «{FORMAT_FILL}» o «{FORMAT_ORPHAN}»)")
+            raise RetouchError(f"formato desconocido: {d.get('formato') if isinstance(d, dict) else d!r} (se esperaba «{FORMAT}», «{FORMAT_FILL}», «{FORMAT_ORPHAN}», «{FORMAT_TRI}» o «{FORMAT_REPLACE}»)")
         items = d.get("pinceladas")
         if not isinstance(items, list):
             raise RetouchError("falta la lista «pinceladas»")
         rt = cls(items)
         if d["formato"] == FORMAT and any(s.relleno for s in rt.strokes):
             raise RetouchError(f"las pinceladas de relleno son del formato «{FORMAT_FILL}»")
-        if d["formato"] not in (FORMAT_ORPHAN, FORMAT_TRI) and any(s.huerfana for s in rt.strokes):
+        if d["formato"] not in (FORMAT_ORPHAN, FORMAT_TRI, FORMAT_REPLACE) and any(s.huerfana for s in rt.strokes):
             raise RetouchError(f"las pinceladas «sin origen» son del formato «{FORMAT_ORPHAN}»")
-        if d["formato"] != FORMAT_TRI and any(s.tri is not None for s in rt.strokes):
+        if d["formato"] not in (FORMAT_TRI, FORMAT_REPLACE) and any(s.tri is not None for s in rt.strokes):
             raise RetouchError(f"las pinceladas de polígono son del formato «{FORMAT_TRI}»")
+        if d["formato"] != FORMAT_REPLACE and any(s.desde is not None for s in rt.strokes):
+            raise RetouchError(f"los reemplazos de color son del formato «{FORMAT_REPLACE}»")
         return rt
 
     def digest(self) -> str:
@@ -202,7 +225,7 @@ def transform_strokes(strokes, M) -> list[Stroke]:
         # con una escala extrema el radio puede salirse del rango válido: se recorta en vez de fallar al armar
         r = float(np.clip(s.r * k, MIN_RADIUS_MM, MAX_RADIUS_MM))
         tri = None if s.tri is None else tuple(tuple(A @ np.asarray(v) + M[:3, 3]) for v in s.tri)
-        out.append(Stroke(tuple(A @ np.asarray(s.c) + M[:3, 3]), r, s.rol, n, s.relleno, s.huerfana, tri))
+        out.append(Stroke(tuple(A @ np.asarray(s.c) + M[:3, 3]), r, s.rol, n, s.relleno, s.huerfana, tri, s.desde))
     return out
 
 
