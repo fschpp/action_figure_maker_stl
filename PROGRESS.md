@@ -1,3 +1,23 @@
+## Current Focus — Plugins de articulación, Fase 3 (corte 2): armar la cadena de bisagras en `pipeline.build` (2026-11-27, sobre main 839256a)
+**Objetivo.** Que un miembro lleve 2 o más articulaciones (rodilla + tobillo, codo + otra) y salgan 3 o más piezas, del torso a la punta (`docs/PLAN_plugins_articulacion.md` §5 Fase 3).
+**Hecho.**
+- `pipeline.build`: `chains` por miembro (ordenadas con `joint_chain.order_along` desde la cara de contacto hacia el centro del miembro; da igual el orden en que se pasen). Cada bisagra se arma sobre la distal de la anterior (a 0°), `joint_builds` pasa a lista por miembro, `carved` va por `id(JointBuild)`. Una sola articulación por miembro: mismo camino (golden `muneco` idéntica).
+- Pose impresa: `_chain_pieces` compone las flexiones de la punta al torso, cada una sobre su propio eje de pie; `posed_pieces` (y con él `_validate_chain`) usa lo mismo, y la mano articulada (`_place_hand_piece`) viaja con todas.
+- `report["joints"][nombre]["cadena"] = {indice, previa}` solo en cadenas; `_limb_piece_names`, `_waist_report` y `report["piezas"][…]["articulaciones"]` conocen la cadena.
+- `JointSpec.print_flex` (opcional; `None` = según `Params`, no se escribe si es `None`): un tobillo no se imprime a la flexión de la rodilla.
+- Una cadena solo admite bisagras (error claro si no); nombres encadenados exigidos por `joint_chain.check_names`.
+**Pruebas.** `test_joint_chain.py` (+3: cadena rodilla + tobillo en el muñeco, validación sin problemas, pose compuesta, `print_flex` ida y vuelta); `test_joints.py` ajustada (dos en el mismo plano → «mismo lugar», mismo nombre → «único»). 124 + 218 de joints, golden, mano, cintura, pipeline, flat y assembly pasan; golden `muneco` idéntica.
+**No hecho.** `flat_for_print` (`straight_leg_flex`, rodillas estiradas) con cadenas: sin probar, y la validación de piernas apoyadas supone una articulación por pierna; `joint_preview`/`joint_edit` por el registro; GUI (lista de articulaciones por miembro); tipos que no sean bisagra en cadena (el `swivel` y el tobillo como en `docs/PLAN_pie_tobillo.md`); dorados de figuras reales (necesitan sus STL).
+
+### Todo List
+- [x] Done: cadena de bisagras en `pipeline.build`, pose, validación y mano
+- [/] In Progress: Fase 3 — `flat_for_print` con cadenas; `joint_preview`/`joint_edit` por el registro
+- [ ] Todo: `swivel` en cadena y ejemplo en `examples/`; tobillo (camino A del plan del pie)
+
+### Latest Blockers/Discoveries
+- Una cadena rodilla + tobillo con flexión de pose impresa de la rodilla en el tobillo chocaba (pie vs muslo): por eso `print_flex` propio.
+- El tipo `swivel` no es válido para el lugar «rodilla»/«codo» en `joint_type_id`: para que entre en cadena hay que dar lugares nuevos (bíceps, tobillo).
+
 ## Current Focus — Plugins de articulación, Fase 3 (corte 1): agrupar, ordenar y encadenar las articulaciones de un miembro (2026-11-27, sobre main 9c7c972)
 **Objetivo.** Dejar listo el criterio de «varias articulaciones por miembro» (`docs/PLAN_plugins_articulacion.md` §5 Fase 3) sin tocar geometría: bíceps + codo + muñeca, o el tobillo sobre la rodilla (`docs/PLAN_pie_tobillo.md`, camino A).
 **Hecho.**
