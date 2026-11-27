@@ -1372,6 +1372,44 @@ class FigureBuilderWindow(Gtk.Window):
         shown = self.builder.choices.get("torso")
         if shown:
             self._show_piece(shown)             # con «todas juntas» activo esto vuelve a dibujar el conjunto
+        self._offer_missing_pieces(path)
+
+    def _offer_missing_pieces(self, path: str) -> None:
+        """D20: si la receta pide piezas que el catálogo no tiene, avisa cuáles y ofrece buscarlas por `id@n` en los índices guardados (sin red).
+        «Buscar en Explorar» abre la ventana de catálogos en línea con el paquete que las trae; instalar sigue pasando por su confirmación."""
+        from . import catalog_online as CO
+        from . import installed_packages as IP
+
+        missing = IP.InstalledState.recipe_missing(self.builder.root, path)
+        if not missing:
+            return
+        online = CO.OnlineState(root=self.builder.root)
+        try:
+            online.refresh(offline=True)
+        except Exception:                                      # noqa: BLE001 — sin índice guardado solo se avisa de lo que falta
+            online.indexes = []
+        st = IP.InstalledState(online)
+        offers = st.find_pieces(missing)
+        found = [o for o in offers if o.encontrada]
+        detail = "\n".join(st.offer_lines(offers))
+        if not found:
+            detail += "\n\n" + tr("figure_window.faltan_piezas_sin_indice")
+        buttons = [tr("figure_window.cerrar")] + ([tr("figure_window.buscar_en_explorar")] if found else [])
+        dlg = Gtk.AlertDialog(message=tr("figure_window.faltan_piezas", n=len(missing)), detail=detail, buttons=buttons, cancel_button=0, default_button=len(buttons) - 1)
+
+        def answered(d, res):
+            try:
+                choice = d.choose_finish(res)
+            except GLib.Error:
+                return
+            if choice == 1:
+                from .catalog_online_window import OnlineCatalogWindow
+
+                first = found[0].entradas[0]
+                win = OnlineCatalogWindow(self, None, state=online, search_text=first.nombre or first.id)
+                win.present()
+
+        dlg.choose(self, None, answered)
 
     # ------------------------------------------------------------ vista previa
     def _on_toggle_all(self, *_) -> None:

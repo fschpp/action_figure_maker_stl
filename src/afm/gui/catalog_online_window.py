@@ -35,7 +35,8 @@ def _label(text: str = "", *, xalign: float = 0.0, wrap: bool = True, css: tuple
 class OnlineCatalogWindow(Gtk.Window):
     """`state` es un `OnlineState` (si no se pasa, se arma con el catálogo abierto en `ctrl`); `on_install(entry, card)` es el gancho de D19."""
 
-    def __init__(self, parent: Gtk.Window | None = None, ctrl=None, *, state: CO.OnlineState | None = None, on_install=None, refresh_on_open: bool = True):
+    def __init__(self, parent: Gtk.Window | None = None, ctrl=None, *, state: CO.OnlineState | None = None, on_install=None, refresh_on_open: bool = True,
+                 search_text: str = ""):
         super().__init__(title=tr("catalog_online_window.titulo"), transient_for=parent, default_width=1100, default_height=720)
         root = ""
         if ctrl is not None and getattr(ctrl, "session", None) is not None:
@@ -52,6 +53,8 @@ class OnlineCatalogWindow(Gtk.Window):
         self._dropdowns: dict[str, Gtk.DropDown] = {}
         self._dd_values: dict[str, list[str]] = {}
         self._build()
+        if search_text:                                    # D20: abrir ya buscando (p. ej. el paquete que trae una pieza que falta)
+            self.entry.set_text(search_text)
         self.connect("close-request", self._on_close)
         if refresh_on_open:
             self.refresh()
@@ -85,6 +88,9 @@ class OnlineCatalogWindow(Gtk.Window):
         self.btn_add_index = Gtk.Button(label=tr("catalog_online_window.agregar_indice"))
         self.btn_add_index.connect("clicked", self._on_add_index)
         bar.append(self.btn_add_index)
+        self.btn_installed = Gtk.Button(label=tr("catalog_online_window.paquetes_instalados"))
+        self.btn_installed.connect("clicked", self._on_installed)
+        bar.append(self.btn_installed)
         outer.append(bar)
 
         frow = Gtk.Box(spacing=6)
@@ -181,7 +187,7 @@ class OnlineCatalogWindow(Gtk.Window):
         self._populate()
 
     def _set_busy(self, busy: bool) -> None:
-        for w in (self.btn_refresh, self.btn_add_index, self.chk_offline):
+        for w in (self.btn_refresh, self.btn_add_index, self.btn_installed, self.chk_offline):
             w.set_sensitive(not busy)
 
     # ------------------------------------------------------------------------------------------------------------------ lista
@@ -370,6 +376,23 @@ class OnlineCatalogWindow(Gtk.Window):
 
         self.install_dialog = InstallConfirmDialog(self, self.st, entry, on_installed=lambda results: self._populate())
         self.install_dialog.present()
+
+    def _on_installed(self, *_) -> None:
+        """«Paquetes instalados…» (D20): una sola ventana, con los mismos índices y catálogos que esta. Si se instaló o quitó algo se redibujan los estados."""
+        win = getattr(self, "installed_win", None)
+        if win is not None:
+            win.present()
+            return
+        from .installed_packages_window import InstalledPackagesWindow
+
+        win = InstalledPackagesWindow(self, self.st, on_changed=self._populate)
+        win.connect("close-request", self._on_installed_closed)
+        self.installed_win = win
+        win.present()
+
+    def _on_installed_closed(self, *_) -> bool:
+        self.installed_win = None
+        return False
 
     def _on_add_index(self, *_) -> None:
         win = Gtk.Window(title=tr("catalog_online_window.indice_titulo"), transient_for=self, modal=True, default_width=520)

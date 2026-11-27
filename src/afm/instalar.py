@@ -601,7 +601,7 @@ def apply(plan: InstallPlan, *, confirmar_origen: bool = False, now: datetime | 
         reg["paquetes"][pkg.id] = {
             "version": pkg.version, "nombre": pkg.nombre, "github": pkg.github, "indice": plan.indice or prev.get("indice", ""), "sha256": plan.zip_sha256,
             "fecha": when, "licencia": pkg.licencia, "autores": [a.to_dict() for a in pkg.autores], "origen": pkg.origen,
-            "conflicts": list(pkg.conflicts), "refs": merged_refs,
+            "conflicts": list(pkg.conflicts), "requiere": list(pkg.requiere), "refs": merged_refs,
         }
         if plan.heredado_sha256:
             reg["paquetes"][pkg.id]["heredado_sha256"] = plan.heredado_sha256
