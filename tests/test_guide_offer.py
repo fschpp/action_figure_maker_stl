@@ -149,3 +149,39 @@ def test_controller_guide_text_includes_the_offer(tmp_path):
     c = make_ctrl(tmp_path)
     fill_limbs(c)
     assert "tipos de articulación que admite este corte:" in "\n".join(c.cut_guide_lines())
+
+
+# ------------------------------------------------------------------------------------------------ `afm catalogo explicar`
+EJEMPLO = os.path.join(os.path.dirname(__file__), "..", "catalogo", "ejemplo")
+
+
+@pytest.fixture()
+def cat_dir(tmp_path):
+    import shutil
+    dst = str(tmp_path / "linea")
+    shutil.copytree(EJEMPLO, dst, ignore=shutil.ignore_patterns("compat.json", "COMPATIBILIDAD.md"))
+    return dst
+
+
+def test_explain_lists_the_types_each_limb_or_socket_port_admits(cat_dir):
+    from afm import catalog_ops as OPS
+    from afm.catalog import Catalog
+
+    cat = Catalog.open(cat_dir)
+    lines = OPS.explain_lines(cat, "brazo-muneco-01")
+    text = "\n".join(lines)
+    assert lines[0].startswith("brazo-muneco-01@1")
+    assert "tipos de articulación que admite este corte:" in text and "mushroom" in text and "detent" in text
+    torso = "\n".join(OPS.explain_lines(cat, "torso-muneco-01"))
+    assert "hombro_izq (hombro/toma)" in torso and "cuerpo detrás de la cara:" not in torso      # el ejemplo no trae la capacidad medida
+    cat.measure_capacity("torso-muneco-01", write=True)
+    torso = "\n".join(OPS.explain_lines(Catalog.open(cat_dir), "torso-muneco-01"))
+    assert "cuerpo detrás de la cara:" in torso and "profundidad" in torso                         # con la capacidad guardada se usa
+    cabeza = "\n".join(OPS.explain_lines(cat, "cabeza-muneco-01"))
+    assert "tipos de articulación" not in cabeza                                   # el cuello es hongo fijo: nada que elegir
+
+
+def test_cli_catalogo_explicar_prints_the_offer(cat_dir, capsys):
+    assert main(["catalogo", "explicar", cat_dir, "brazo-muneco-01@1"]) == 0
+    out = capsys.readouterr().out
+    assert "tipos de articulación que admite este corte:" in out and "IoU" in out

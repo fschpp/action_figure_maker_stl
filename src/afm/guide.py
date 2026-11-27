@@ -904,16 +904,16 @@ def format_coverage(cov: Coverage, indent: str = "    ", all_fits: bool = False)
     return lines
 
 
-def format_types(m: CutMeasure) -> list:
-    """Líneas de la oferta de tipos de un corte: «tipos de articulación que admite», uno por tipo con su nivel, margen y motivos."""
-    if not m.tipos:
+def format_offers(tipos: list, profundidad_mm: float | None = None, indent: str = "  ") -> list:
+    """Líneas de una oferta de tipos (`joint_types.Offer`): uno por tipo con su nivel, margen y motivos. Vacía si no hay tipos."""
+    if not tipos:
         return []
     from .joint_types import REGISTRY
 
-    lines = ["  tipos de articulación que admite este corte:"]
-    if m.profundidad_mm is not None:
-        lines.append(f"    (cuerpo detrás de la cara: {_c(m.profundidad_mm)} mm)")
-    for o in m.tipos:
+    lines = [indent + "tipos de articulación que admite este corte:"]
+    if profundidad_mm is not None:
+        lines.append(f"{indent}  (cuerpo detrás de la cara: {_c(profundidad_mm)} mm)")
+    for o in tipos:
         t = REGISTRY.get(o.type_id)
         name = (getattr(t, "labels", None) or {}).get("es", o.type_id)
         det = ""
@@ -921,9 +921,14 @@ def format_types(m: CutMeasure) -> list:
             det += f" · pared {_c(o.margen_pared_mm)} mm"
         if o.margen_profundidad_mm is not None:
             det += f" · profundidad {'sobran' if o.margen_profundidad_mm >= 0 else 'faltan'} {_c(abs(o.margen_profundidad_mm))} mm"
-        lines.append(f"    {o.type_id:<10} {name:<8} {o.nivel}{det}")
-        lines += [f"      {why}" for why in o.motivos]
+        lines.append(f"{indent}  {o.type_id:<10} {name:<8} {o.nivel}{det}")
+        lines += [f"{indent}    {why}" for why in o.motivos]
     return lines
+
+
+def format_types(m: CutMeasure) -> list:
+    """Líneas de la oferta de tipos de un corte medido (ver `format_offers`)."""
+    return format_offers(m.tipos, m.profundidad_mm)
 
 
 def format_measure(m: CutMeasure, all_fits: bool = False) -> list:

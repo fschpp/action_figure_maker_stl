@@ -1,3 +1,8 @@
+## Current Focus — Plugins de articulación, Fase 2 (corte 4): oferta de tipos en `afm catalogo explicar` (2026-11-27, sobre main 5f00469)
+**Hecho.** `catalog_ops.port_offer_lines` (usada por `explain_lines`, o sea `afm catalogo explicar` y la ventana de administrar catálogo): bajo el encabezado de la pieza, qué tipos admite la cara de cada puerto de hombro/cadera (con la profundidad si la toma trae su `capacidad` medida). `guide.format_offers` (nuevo, con sangría) comparte el formato con `format_types`. El cuello y la muñeca no imprimen nada (no hay tipos registrados para ese lugar).
+**Pruebas.** `tests/test_guide_offer.py` (+2): brazo y torso del ejemplo, con y sin capacidad guardada, cuello sin oferta y CLI. Con `test_catalog_ops` y `test_certify`: 40 pasan; sigue fallando solo `test_every_catalog_subcommand_is_registered_for_the_window` (ya fallaba en main).
+**Decisión del cliente (P7).** El pie se corta como la mano: pieza aparte con su pasador. El tobillo se modela como `hand.py` (corte en el plano del tobillo + pasador fino, `fit_*_pin`), no como bisagra de `joints.py`. Es el siguiente corte de la Fase 2.
+
 ## Current Focus — Plugins de articulación, Fase 2 (corte 3): probeta de giro (swivel), hilo físico H1 (2026-11-27, sobre main 6990f7e)
 **Objetivo.** Poder imprimir y calibrar el `swivel` antes de usarlo en una figura (`docs/PLAN_plugins_articulacion.md` §4.1, §5 hilo físico).
 **Hecho.**

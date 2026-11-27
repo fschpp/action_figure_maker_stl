@@ -70,6 +70,23 @@ def coverage_lines(cat: Catalog, ref: str, all_fits: bool = False) -> list[str]:
     return out
 
 
+def port_offer_lines(meta, params) -> list[str]:
+    """Qué tipos de articulación admite la cara de cada puerto de la pieza (plan de plugins §3.5): con la cara del puerto y, en una toma que
+    trae su capacidad medida, la profundidad detrás de ella. Solo los puertos cuyo lugar tiene tipos registrados (hombro, cadera)."""
+    from .guide import format_offers
+    from .joint_types import offer
+
+    out: list[str] = []
+    for name, p in meta.puertos.items():
+        cap = getattr(p, "capacity", None) or {}
+        depth = cap.get("profundidad_mm")
+        tipos = offer(params, p.clase, p.face, None if depth is None else float(depth))
+        if tipos:
+            out.append(f"  {name} ({p.clase}/{p.rol}):")
+            out += format_offers(tipos, None if depth is None else float(depth), "    ")
+    return out
+
+
 def explain_lines(cat: Catalog, ref: str, tipo: str | None = None) -> list[str]:
     """Por qué `ref` se acopla (o no) con cada otra pieza (`afm catalogo explicar`). Levanta `CatalogError` si no existe."""
     from .ports import port_compat
@@ -87,6 +104,7 @@ def explain_lines(cat: Catalog, ref: str, tipo: str | None = None) -> list[str]:
         return f"{float(p.face.radius_eq):.2f}".replace(".", ",") + " mm" + extra
 
     out = [f"{me.ref} ({me.tipo}, altura de figura {me.altura_figura_mm}): " + ", ".join(f"{n} [{p.clase}/{p.rol}] r={rad(p)}" for n, p in me.puertos.items())]
+    out += port_offer_lines(me, cat.params)
     for other in cat.list(tipo):
         if other.id == me.id:
             continue
