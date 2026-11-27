@@ -17,6 +17,7 @@ from .hand import (HAND_MIN_SHAFT_D, HAND_NAME, HandError, HandSpec, WristFrame,
                    load_standard_hand)
 from .head import HEAD_NAME, MIN_BASE_IOU, HeadSpec, below_neck, build_head, neck_plane, split_head
 from .joints import JOINT_KIND_BY_LIMB, JointBuild, JointSpec, build_joint, flex_range, hinge_for, print_flex
+from .joint_chain import check_names as check_chain_names, group_by_limb
 from .assembly import AssemblyError, PartChoice, PlacedPart, hip_notes, place_part, swap_pelvis
 from .limbs import LimbSpec, ContactFace, check_limb_plane, limb_prism, pin_margin, separate_limb
 from .params import Params
@@ -121,12 +122,15 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
         right_limbs, right_res = _build_right_side(body, limbs, limbs_right, p, sym, sit, say, trims, head, joints, hand, parts,
                                                    host_faces)
     by_limb: dict[str, JointSpec] = {}
-    for j in joints:
-        if j.limb in by_limb:
-            raise ValueError(f"«{j.limb}»: por ahora una sola articulación por miembro")
-        if j.limb not in {l.name for l in limbs}:
-            raise ValueError(f"la articulación «{j.name}» apunta al miembro «{j.limb}», que no existe")
-        by_limb[j.limb] = j
+    for lname, chain in group_by_limb(joints, (l.name for l in limbs)).items():
+        if len(chain) > 1:
+            try:
+                check_chain_names(chain)
+                why = f"la cadena de {', '.join(j.name for j in chain)} se arma en el siguiente corte de la Fase 3"
+            except ValueError as exc:                       # una cadena incoherente se explica aunque todavía no se arme
+                why = str(exc)
+            raise ValueError(f"«{lname}»: por ahora una sola articulación por miembro ({why})")
+        by_limb[lname] = chain[0]
     parts = dict(parts or {})
     parts_src = set(parts)
     host_faces = dict(host_faces or {})
