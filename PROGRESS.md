@@ -1,3 +1,21 @@
+## Current Focus — Catálogos en línea: D18 ventana «Explorar catálogos en línea…» (2026-11-26, rama feat/catalogos-online-d18 sobre main a341cc7)
+**Objetivo.** Dibujar en GTK 4 lo que `gui/catalog_online.py` (D17) ya decide, sin congelar la app y sin instalar nada por su cuenta.
+**Hecho.**
+- `src/afm/gui/catalog_online_window.py` (nuevo): `OnlineCatalogWindow(parent, ctrl, state=None, on_install=None)`. Barra con búsqueda, «Solo compatibles», «Mostrar inaccesibles y bloqueados» (`incluir_ocultas`; por defecto se ocultan, D13), «Sin red», «Actualizar» y «Agregar índice…»; desplegables de tipo, categoría, línea y licencia (solo con lo que hay en la lista visible, conservan la elección al recargar) y orden (descargas / recientes / nombre); avisos de sin red, índices caídos, entradas saltadas y «listado no verificado»; lista de tarjetas (título, estado con color, línea · licencia · tamaño, descargas, categorías, «no encaja: motivo»); ficha con portada, estado, avisos, descripción, filas, «Medir compatibilidad con mi catálogo» (D15, en hilo) e «Instalar / Actualizar a X / Instalado».
+- Todo lo lento corre en un `Task` (barra que late o avanza + «Cancelar»); la ventana solo recibe `GLib.idle_add`. Una sola tarea a la vez; lo que llega tarde de una ficha anterior se descarta; cerrar la ventana cancela la tarea.
+- **«Instalar» no instala**: llama a `on_install(entry, card)`, que es el diálogo de confirmación de **D19**. Mientras tanto avisa «No se instaló nada».
+- `gui/catalog_online.py` (D17) suma `cover(e)` / `task_cover` (portada con tope de 2 MB, comprobada por los primeros bytes —PNG/JPEG/WebP—, en caché, sin red sale de la copia; **nunca falla**: sin imagen la ficha queda sin portada) y `add_index(texto)` (HTTPS —o http solo en loopback—, suma a `remoto.json` sobre lo que ya había, detecta repetidos normalizando; `owner/repo` y quitar índices son D33). Advertencia de confianza en el diálogo de alta.
+- Botón «Explorar catálogos en línea…» en el menú «Catálogo» (`steps/catalogo.py`; `window._on_catalog_online`, una sola ventana; el catálogo abierto es el destino, sin catálogo cada paquete va a la carpeta de su línea). Claves es/en/pt (`catalog_online_window.*`, `catalog_online.indice_*`, `catalogo.explorar_*`).
+**Pruebas.** `tests/test_catalog_online.py` (+6: portada, caché, sin red, no-imagen, tope, alta de índice) y `tests/test_catalog_online_window_real.py` (14, **GTK 4.14 real bajo `xvfb-run -a`**; se saltea sin GTK o pantalla): lista y orden, filtros y desplegables, ficha con portada que baja en un hilo, incompatibles, gancho de instalar, ocultos/inaccesibles/bloqueados, modo sin red desde la copia guardada, índice caído, compatibilidad en hilo, alta de índice con errores en el diálogo, cancelación al cerrar, botón de la pestaña. Con `test_i18n`: pasan.
+### Todo List
+- [x] Done: D02–D09, D11, D13–D18
+- [ ] Todo: D19 diálogo de confirmación e instalación (el gancho `on_install` ya está), D20 «Paquetes instalados»/actualizaciones, D33 índices propios (`owner/repo`, quitar), D10, D12, D31
+- [ ] Probar a mano en la app real: abrir con un índice de verdad y sin conexión (criterio «listo cuando» de D18); ver el aspecto de las clases CSS (`accent`, `success`, `warning`) con el tema del usuario
+### Latest Blockers/Discoveries
+- Las pruebas de ventana corren con `xvfb-run -a pytest …`; en el sandbox hizo falta `apt install gir1.2-gtk-4.0`.
+- Un 404 del índice **no** cuenta como «sin red» (solo errores de conexión y 5xx usan la copia guardada); es el comportamiento de D13.
+- Fallan en `main` (no son de esta rama): `test_catalog_ops::test_every_catalog_subcommand_is_registered_for_the_window` y `test_catalog_import::test_parse_builds_the_arguments_of_catalog_ops`.
+
 ## Current Focus — Catálogos en línea: D17 lógica de «Explorar catálogos en línea…» sin GTK (2026-11-26, rama feat/catalogos-online-d17 sobre main af44f35)
 **Objetivo.** Que todo el flujo de explorar, ver la ficha, medir la compatibilidad, confirmar e instalar se pueda conducir sin ventana, para que D18 (ventana «Explorar»), D19 (diálogo de confirmación) y D20 («Paquetes instalados») solo dibujen.
 **Hecho.**

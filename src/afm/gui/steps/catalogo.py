@@ -26,6 +26,8 @@ def build(win) -> None:
     win.btn_cat_fitcm.set_tooltip_text(tr("catalogo.mueve_el_plano_de_la_cintura"))
     win.btn_cat_manage = win._button(tr("catalogo.administrar_catalogo_piezas_certificacion"), win._on_catalog_manage)
     win.btn_cat_build = win._button(tr("catalogo.armar_figura_desde_catalogo_sin_stl"), win._on_catalog_build)
+    win.btn_cat_online = win._button(tr("catalogo.explorar_catalogos_en_linea"), win._on_catalog_online)
+    win.btn_cat_online.set_tooltip_text(tr("catalogo.explorar_catalogos_en_linea_tip"))
     win.btn_cat_forget = win._button(tr("catalogo.olvidar_el_catalogo_recordado"), lambda *_: win.ctrl.forget_catalog())
     win.btn_cat_forget.set_tooltip_text(tr("catalogo.cierra_el_catalogo_y_borra_lo"))
     win.btn_cat_review = win._button(tr("catalogo.revisar_las_piezas_elegidas_sin_generar"), win._on_catalog_review)
@@ -48,7 +50,7 @@ def build(win) -> None:
     pop_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
     popover = Gtk.Popover(child=pop_box)
     for b in (win.btn_cat_new, win.btn_cat_open, win.btn_cat_add, win.btn_cat_hero, win.btn_cat_guide, win.btn_cat_fitcm,
-              win.btn_cat_manage, win.btn_cat_build, win.btn_cat_forget):
+              win.btn_cat_manage, win.btn_cat_online, win.btn_cat_build, win.btn_cat_forget):
         b.add_css_class("flat")
         b.set_halign(Gtk.Align.FILL)
         if b.get_child() is not None:

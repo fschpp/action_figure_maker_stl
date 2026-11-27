@@ -448,3 +448,85 @@ def test_actualizaciones_y_alertas_de_lo_instalado(srv, tmp_path, dest):
     kinds = sorted((a.kind, a.paquete) for a in st.alerts())
     assert kinds == [("bloqueado", "vetado"), ("retirada", "mala")]
     assert I.load_registry(dest.root)["paquetes"]["mala"]["version"] == "1.0.0"          # no cambió nada
+
+
+# ------------------------------------------------------------------------------------------------------------------------ D18: portada e índices propios
+
+def png_bytes(w=8, h=8) -> bytes:
+    import struct
+    import zlib
+
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+    raw = b"".join(b"\x00" + b"\xff\x00\x00" * w for _ in range(h))
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
+
+
+COVER = "/data/paquetes/owner@a/portada.png"
+
+
+def test_is_image_por_los_primeros_bytes():
+    assert C.is_image(png_bytes()) and C.is_image(b"\xff\xd8\xff\xe0abc") and C.is_image(b"RIFF\x00\x00\x00\x00WEBPVP8 ")
+    assert not C.is_image(b"<html>") and not C.is_image(b"RIFF\x00\x00\x00\x00WAVEfmt ") and not C.is_image(b"")
+
+
+def test_la_portada_se_baja_una_vez_y_despues_sale_de_la_cache(srv, tmp_path):
+    serve(srv, ent("a"))
+    srv.routes[COVER] = (200, {"Content-Type": "image/png"}, png_bytes())
+    st = state(srv, tmp_path)
+    e = st.entries()[0]
+    assert C.is_image(st.cover(e)) and [p for p, _h in srv.log].count(COVER) == 1
+    srv.routes[COVER] = (503, {}, b"")                                      # el servidor falla: sale de la caché
+    assert C.is_image(st.cover(e)) and [p for p, _h in srv.log].count(COVER) == 1
+    off = C.OnlineState([srv.base], "", offline=True, **net(tmp_path))
+    off.refresh()
+    assert C.is_image(off.cover(off.entries()[0]))                          # sin red también
+
+
+def test_la_portada_nunca_rompe_la_ficha(srv, tmp_path):
+    serve(srv, ent("a"), ent("b", portada=""))
+    st = state(srv, tmp_path)
+    a, b = st.entries()
+    assert st.cover(a) is None                                              # 404
+    assert st.cover(b) is None                                              # el paquete no tiene portada
+    srv.routes[COVER] = (200, {}, b"<html>no soy una imagen</html>")
+    assert st.cover(a) is None
+    assert not os.path.exists(os.path.join(str(tmp_path / "cache"), "portadas")) or not os.listdir(str(tmp_path / "cache" / "portadas"))   # lo que no es imagen no se guarda
+    srv.routes[COVER] = (200, {}, png_bytes() + b"\0" * C.MAX_COVER_BYTES)  # más de 2 MB
+    assert st.cover(a) is None
+    off = C.OnlineState([srv.base], "", offline=True, **net(tmp_path))
+    off.refresh()
+    assert off.cover(off.entries()[0]) is None                              # sin red y sin copia
+
+
+def test_task_cover_en_un_hilo(srv, tmp_path):
+    serve(srv, ent("a"))
+    srv.routes[COVER] = (200, {}, png_bytes())
+    st = state(srv, tmp_path)
+    t = st.task_cover(st.entries()[0]).start()
+    assert t.join(10) and C.is_image(t.result)
+
+
+def test_agregar_indice_valida_guarda_y_no_pisa_la_configuracion(srv, tmp_path):
+    R.save_config(["https://uno.github.io/idx/data/index.json"])
+    st = C.OnlineState(["https://otro.example/data/index.json"], "", **net(tmp_path))      # la lista de la ventana puede diferir de lo guardado
+    url = st.add_index("  https://dos.github.io/idx/  ")
+    assert url == "https://dos.github.io/idx/data/index.json" and st.urls[-1] == url
+    assert R.load_config() == ["https://uno.github.io/idx/data/index.json", url]            # se sumó sobre lo que había
+    for bad, key in (("", "indice_vacio"), ("owner/repo", "indice_owner_repo"), ("http://dos.example/idx/", "indice_https"),
+                     ("ftp://x.example/i", "indice_https"), ("https://", "indice_https")):
+        with pytest.raises(R.RemoteError) as ei:
+            st.add_index(bad)
+        assert str(ei.value) == tr(f"catalog_online.{key}"), bad
+    for same in ("https://dos.github.io/idx/data/index.json", "https://uno.github.io/idx/", "https://otro.example/"):      # agregada, guardada, o en la lista de la ventana
+        with pytest.raises(R.RemoteError, match="ya está"):
+            st.add_index(same)
+    assert len(R.load_config()) == 2                                                        # lo rechazado no se guardó
+
+
+def test_agregar_indice_acepta_http_solo_en_loopback_y_se_puede_explorar(srv, tmp_path):
+    serve(srv, ent("a"))
+    st = C.OnlineState([], "", **net(tmp_path))
+    st.add_index(srv.base + "/")
+    st.refresh()
+    assert folders(st.cards()) == ["a"] and st.errors == []

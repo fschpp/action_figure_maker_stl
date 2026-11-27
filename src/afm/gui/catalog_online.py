@@ -15,7 +15,11 @@ Lo que tarda (leer índices, medir compatibilidad, bajar y planificar, instalar)
 """
 from __future__ import annotations
 
+import hashlib
+import os
+import re
 import threading
+import urllib.parse
 from dataclasses import dataclass, field
 
 from .. import __version__
@@ -28,6 +32,14 @@ from ..i18n import lz, tr
 from ..progress import CancelToken, TaskCancelled
 
 ALL = lz("catalog_online.todos")
+
+MAX_COVER_BYTES = 2 * 1024 * 1024         # el índice guarda la portada reencodada (2 MB máx., plan §5.5); más que eso no es una portada
+_OWNER_REPO = re.compile(r"^[\w.-]+/[\w.-]+$")
+
+
+def is_image(data: bytes) -> bool:
+    """PNG, JPEG o WebP por sus primeros bytes (no se confía en la extensión ni en el tipo que diga el servidor)."""
+    return data.startswith((b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff")) or (data[:4] == b"RIFF" and data[8:12] == b"WEBP")
 
 # estados de una tarjeta, de más a menos importante: lo bloqueado o inaccesible no se instala; el resto cambia qué botón se ofrece
 BLOQUEADO, INACCESIBLE, SIN_VERSION, RETIRADA, ACTUALIZACION, INSTALADO, NO_INSTALADO = (
@@ -461,6 +473,54 @@ class OnlineState:
         net = {k: v for k, v in self.net.items() if k in ("policy", "cache")}
         return CR.report_lines(CR.check(cat, CR.fetch_fichas(e, offline=self.offline, **net)))
 
+    def cover(self, e: R.Entry) -> bytes | None:
+        """La portada de la ficha (bytes de una imagen) o `None`: no tiene, no se pudo bajar o no es una imagen. Es opcional, así que **nunca**
+        falla: sin red sale de la caché y, si no hay, la ficha se muestra sin imagen. Es red: usar `task_cover`."""
+        if not e.portada:
+            return None
+        path = os.path.join(self.net.get("cache") or R.cache_dir(), "portadas", hashlib.sha256(e.portada.encode("utf-8")).hexdigest()[:24])
+        data = None
+        try:
+            with open(path, "rb") as f:
+                data = f.read(MAX_COVER_BYTES + 1)
+        except OSError:
+            pass
+        if data is None and not self.offline:
+            try:
+                policy = self.net.get("policy") or R.policy_for(e.indice or e.portada)
+                with R._request(e.portada, policy, timeout=R.TIMEOUT_S) as resp:
+                    data = R._read_capped(resp, MAX_COVER_BYTES, "la portada")
+            except (R.RemoteError, OSError):
+                return None
+            if is_image(data):                              # lo que no es una imagen no se guarda
+                try:
+                    R._atomic_write(path, data)
+                except OSError:
+                    pass
+        return data if data and len(data) <= MAX_COVER_BYTES and is_image(data) else None
+
+    # ---- índices propios
+    def add_index(self, text: str) -> str:
+        """«Agregar índice…»: valida la URL (HTTPS; `owner/repo` y la baja de índices son de D33), la suma a la configuración y a esta lista.
+
+        Devuelve la URL del `index.json`. Agregar un índice no instala nada ni baja ningún paquete; la advertencia de confianza la muestra la ventana."""
+        raw = text.strip()
+        if not raw:
+            raise R.RemoteError(tr("catalog_online.indice_vacio"))
+        if _OWNER_REPO.match(raw):
+            raise R.RemoteError(tr("catalog_online.indice_owner_repo"))
+        u = urllib.parse.urlsplit(raw)
+        loopback = (u.hostname or "") in ("127.0.0.1", "localhost", "::1")
+        if not u.hostname or not (u.scheme == "https" or (u.scheme == "http" and loopback)):
+            raise R.RemoteError(tr("catalog_online.indice_https"))
+        url = R.index_url(raw)
+        known = {R.index_url(u) for u in [*self.urls, *R.load_config()]}      # la lista puede traer la base de Pages y no la URL del index.json
+        if url in known:
+            raise R.RemoteError(tr("catalog_online.indice_repetido", url=url))
+        R.save_config(R.load_config() + [url])                # a la configuración se suma sobre lo que ya había (no se pisa con una lista de prueba)
+        self.urls.append(url)
+        return url
+
     # ---- instalar
     def propose(self, e: R.Entry, version: str | None = None, *, como_linea: bool = False, allow_fbx: bool = False, allow_retirada: bool = False,
                 progress=None) -> Proposal:
@@ -568,6 +628,9 @@ class OnlineState:
             task.set_text(tr("catalog_online.midiendo"))
             return self.compat_lines(e)
         return Task(work, notify=notify, name="afm-compat")
+
+    def task_cover(self, e: R.Entry, *, notify=None) -> Task:
+        return Task(lambda task: self.cover(e), notify=notify, name="afm-portada")
 
     def task_propose(self, e: R.Entry, version: str | None = None, *, notify=None, **kw) -> Task:
         def work(task: Task):

@@ -108,6 +108,7 @@ class _SwitchValue:
 
 class MainWindow(Gtk.ApplicationWindow):
     _catalog_win = None                                # ventana «Administrar catálogo» abierta (una sola)
+    _online_win = None                                 # ventana «Explorar catálogos en línea…» abierta (una sola)
     _prop_win = None                                   # ventana «Comparar proporciones con un patrón» abierta (una sola)
     _build_win = None                                  # ventana «Armar figura desde catálogo» abierta (una sola)
 
@@ -1438,6 +1439,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self.btn_proportions.set_sensitive(bool(loaded and root and not ctrl.busy))
         self.btn_cat_manage.set_sensitive(not ctrl.busy)       # sin proyecto ni catálogo abierto: al apretar abre el recordado o pide la carpeta
         self.btn_cat_build.set_sensitive(not ctrl.busy)
+        self.btn_cat_online.set_sensitive(not ctrl.busy)
         self.btn_build_cat.set_sensitive(not ctrl.busy)
         if self._catalog_win is not None:
             self._catalog_win.refresh_if_changed()
@@ -1987,6 +1989,22 @@ class MainWindow(Gtk.ApplicationWindow):
             dlg.select_folder(self, None, finished)
             return
         self._open_catalog_manager()
+
+    def _on_catalog_online(self, *_) -> None:
+        """«Explorar catálogos en línea…» (D18): una sola ventana; el catálogo abierto (si hay) es el destino de lo que se instale."""
+        if self._online_win is not None:
+            self._online_win.present()
+            return
+        from .catalog_online_window import OnlineCatalogWindow
+
+        win = OnlineCatalogWindow(self, self.ctrl)
+        win.connect("close-request", self._on_online_closed)
+        self._online_win = win
+        win.present()
+
+    def _on_online_closed(self, *_) -> bool:
+        self._online_win = None
+        return False
 
     def _open_catalog_manager(self) -> None:
         from .catalog_window import CatalogManagerWindow
