@@ -477,7 +477,16 @@
   "menu_vista": "View",
   "menu_vista_tip": "Back to the 3/4 view and zoom the piece in or out",
   "menu_compartir": "Share",
-  "menu_compartir_tip": "Publish packages from this catalog for other people"
+  "menu_compartir_tip": "Publish packages from this catalog for other people",
+  "menu_catalogos": "Catalogs",
+  "menu_catalogos_tip": "Create, open, forget or delete catalogs; build a figure without an STL; new hero from the pattern",
+  "crear_catalogo_tip": "Creates the folder of a new catalog (line name and height) and leaves it open",
+  "abrir_catalogo_tip": "Browse the file system for a catalog folder and open it",
+  "eliminar_catalogo": "Delete the open catalog…",
+  "eliminar_catalogo_tip": "Deletes the open catalog folder and all its parts from disk (asks first). The project is not touched.",
+  "eliminar_el_catalogo_pregunta": "Delete this catalog from disk?",
+  "eliminar_el_catalogo_detalle": "The folder %{root} with its %{total} part versions will be deleted. This cannot be undone. The open project is not touched.",
+  "eliminar_catalogo_accion": "Delete catalog"
  },
  "controller": {
   "arista_de_la_caja_mm": "Box edge (mm)",
@@ -1100,7 +1109,10 @@
   "propagar_nada_elegido": "No destination chosen: nothing was written.",
   "valores_por_defecto_de_fabrica": "Factory defaults restored. New figures start with them.",
   "sin_valores_por_defecto_propios": "There were no own defaults: they are already the factory ones.",
-  "agarre_mano_mango": "grip (hand + handle)"
+  "agarre_mano_mango": "grip (hand + handle)",
+  "no_se_elimino_la_carpeta_no_es_un_catalogo": "Nothing was deleted: the folder is not a catalog.",
+  "no_se_pudo_eliminar_el_catalogo": "Could not delete the catalog: %{error}",
+  "catalogo_eliminado_root": "Catalog deleted: %{root}"
  },
  "figure_builder": {
   "sin_soportes_resumen": "No supports: cut %{corte} mm above the tail; arms rotated forward: %{giro}",
@@ -1682,7 +1694,9 @@
   "ayuda_del_catalogo": "Catalog help",
   "crear_catalogo_arma_una_carpeta_nueva": "“Create catalog” builds a new folder for the line (name and figure height; it is the same as “afm catalogo crear”) and leaves it open. If you already have one, open it with “Open catalog”. “Catalog this figure” (you choose the places and whether it goes as a new version; with a replacement head it saves THAT head) saves its raw parts (head, torso, arm, leg, with the planes and outlines you already defined) to use in other figures. In each place choose “the model's” or a catalog part: “Generate figure” puts it on the port the model has in that place, without scaling it, and the row shows how it couples (ok / warning / no, IoU and step between the faces). The catalog hand couples to the catalog arm's wrist. “Check” measures each part's coupling WITHOUT generating and draws it already placed (green = ok, amber = warning, red = no); “See why” overlays the two faces. A lone pelvis keeps the model's torso, arms and legs: define the waist plane first. “Assemble figure from catalog” (also in the top bar) builds a NEW figure without opening an STL: one part per place, each marked with how it couples to the one already chosen, and exports the parts, the assembled figure and the recipe. “Manage catalog” opens a window with all the part versions, a 3/4 preview of each and deletion of one or several (useful if you cataloged from a wrong project); this figure's places that used a deleted part go back to the model's. “Split current figure” separates the raw parts to adjust their scale (a single one or per X, Y, Z axis; it works for the model's part and the catalog's); ports follow the change and pins are regenerated with the project's measurements. Arms and legs are adjusted as a mirrored pair. “Reset” goes back to the original proportions. With a catalog torso the figure comes entirely from the catalog. The catalog reopens by itself when you load the figure.",
   "dibujar_las_piezas_elegidas_antes_de": "Draw the chosen parts before generating",
-  "pieza_de_cada_lugar_al_cambiar": "Part for each place (changing it requires generating)"
+  "pieza_de_cada_lugar_al_cambiar": "Part for each place (changing it requires generating)",
+  "administrar_catalogo": "Manage catalog…",
+  "administrar_catalogo_tip": "Opens the catalog window: parts, certification, compatibility and, in its «Catalogs» menu, create, open, build a figure, hero from pattern, forget and delete"
  },
  "figura": {
   "marcar_coronilla_clic": "Mark crown (click)",

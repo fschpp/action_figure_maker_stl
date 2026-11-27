@@ -1,3 +1,20 @@
+## Current Focus — Catálogo en una sola pantalla: dos botones en la ventana principal (2026-11-27, rama feat/catalogo-una-pantalla sobre main 9cbcef8)
+**Objetivo.** Sacar el desplegable «Catálogo ▾» de «Lugares de la figura» y dejar en su lugar dos botones («Administrar catálogo…», «Explorar catálogos en línea…»); toda la gestión de catálogos pasa a la ventana de administración.
+**Hecho.**
+- `gui/steps/catalogo.py`: se quitó el popover; quedan los dos botones y, debajo, lo que depende de la figura abierta (Catalogar esta figura, Guía de cortes, Ajustar cintura y muñeca, Revisar piezas).
+- `gui/catalog_window.py`: menú nuevo «Catálogos ▾» (primero de la barra) con Crear, Abrir (buscar en el sistema de archivos), Armar figura desde catálogo (sin STL), Nuevo héroe desde el patrón, Olvidar y **Eliminar** (nuevo, con confirmación). Funciona sin catálogo abierto (olvidar y eliminar piden uno).
+- `gui/window.py`: «Administrar catálogo…» abre siempre la ventana (reabre el último catálogo si existe; si no, queda vacía para crear/abrir); `_cat_parent()` hace que los diálogos cuelguen de esa ventana. `hero_wizard.py` usa el mismo padre.
+- `gui/controller.py` + `gui/settings.py`: `Controller.delete_catalog()` (borra la carpeta solo si tiene `linea.json`; nunca `~` ni `/`) y `settings.forget_root()`.
+- Claves es/en/pt: `catalogo.administrar_catalogo*`, `catalog_window.menu_catalogos*`, `crear/abrir/eliminar_catalogo*`, `controller.*eliminar*`.
+**Pruebas.** `test_gui_window_build`, `test_i18n`, `test_catalog_window_real`, `test_catalog_online_window_real`, `test_gui_window_reopen`, `test_import_zip_window_real`, `test_installed_packages_window_real` pasan; nuevas: ventana de gestión sin catálogo y `delete_catalog`. Fallan 3 pruebas `grip` de `test_gui_controller.py` (`grip_channel`) **también en main limpio**.
+
+### Todo List
+- [x] Done: dos botones en la ventana principal, menú «Catálogos» en la ventana de administración, Eliminar catálogo
+- [ ] Todo: probar a mano con pantalla real el menú «Catálogos» y los diálogos de carpeta (selector del sistema)
+
+### Latest Blockers/Discoveries
+- Las pruebas `grip` de `test_gui_controller.py` fallan en main limpio (no son de este cambio).
+
 ## Current Focus — Probeta de agarre mano / mango y selección del par (2026-11-27, rama probeta_agarre sobre main 7e9f43a)
 **Objetivo.** Poder probar qué par «mano (taladro) + mango (dentado)» sujeta mejor un accesorio sin imprimir una mano entera, y elegir el par ganador.
 **Hecho.**

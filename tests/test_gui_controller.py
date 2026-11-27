@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import pytest
 
@@ -895,3 +896,26 @@ def test_weapon_uses_the_hand_drilled_in_the_session(tmp_path):
     assert ctrl.weapon_grip_source() == ("mano-test-01@1", "malla", fit)
     ctrl._grip_preview = {"key": ("otra",), "error": "", "fit": fit, "hand": "malla"}      # elección cambiada: previsualización vieja
     assert ctrl.weapon_grip_source() is None
+
+
+def test_delete_catalog_removes_folder_and_forgets_it(tmp_path, monkeypatch):
+    """«Eliminar catálogo»: borra la carpeta del catálogo abierto, lo cierra y lo olvida; una carpeta sin `linea.json` no se toca."""
+    import shutil
+    from afm.gui import settings as GUI_SETTINGS
+
+    monkeypatch.setenv("AFM_GUI_CONFIG", str(tmp_path / "gui.json"))
+    ejemplo = os.path.join(os.path.dirname(__file__), "..", "catalogo", "ejemplo")
+    root = str(tmp_path / "linea")
+    shutil.copytree(ejemplo, root, ignore=shutil.ignore_patterns("compat.json", "COMPATIBILIDAD.md"))
+    c = Controller()
+    assert not c.delete_catalog()                                   # sin catálogo abierto no hace nada
+    assert c.open_catalog(root)
+    assert c.delete_catalog()
+    assert not os.path.exists(root) and c.session.catalog_root is None
+    assert GUI_SETTINGS.last_catalog() is None
+    # carpeta que no es un catálogo: no se borra
+    other = tmp_path / "otra"
+    other.mkdir()
+    (other / "dato.txt").write_text("x")
+    c.session.catalog_root = str(other)
+    assert not c.delete_catalog() and (other / "dato.txt").exists()

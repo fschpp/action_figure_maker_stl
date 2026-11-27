@@ -13,6 +13,7 @@ from ..i18n import tr, lz, loc
 import json
 import os
 import re
+import shutil
 from dataclasses import dataclass
 from enum import Enum
 
@@ -4354,6 +4355,27 @@ class Controller:
         self.session.catalog_root = None
         self.session._part_preview = None
         self._changed(tr("controller.catalogo_olvidado_la_proxima_vez_hay"), scene=False)
+
+    def delete_catalog(self) -> bool:
+        """«Eliminar catálogo»: borra DEL DISCO la carpeta del catálogo abierto (con sus piezas) y lo olvida. Solo si la carpeta es
+        un catálogo (tiene `linea.json`); no toca el proyecto abierto. La confirmación la pide la ventana, no esta función."""
+        root = self.session.catalog_root
+        if not root:
+            return False
+        real = os.path.realpath(root)
+        if not os.path.isfile(os.path.join(real, "linea.json")) or real in (os.path.realpath(os.path.expanduser("~")), os.sep):
+            self._changed(tr("controller.no_se_elimino_la_carpeta_no_es_un_catalogo"), scene=False)
+            return False
+        try:
+            shutil.rmtree(real)
+        except OSError as e:
+            self._changed(tr("controller.no_se_pudo_eliminar_el_catalogo", error=e), scene=False)
+            return False
+        GUI_SETTINGS.forget_root(real)
+        self.session.catalog_root = None
+        self.session._part_preview = None
+        self._changed(tr("controller.catalogo_eliminado_root", root=real), scene=False)
+        return True
 
     # ---- revisión previa de las piezas (sin generar)
     def begin_preview_parts(self):

@@ -1430,21 +1430,16 @@ class MainWindow(Gtk.ApplicationWindow):
     def _sync_catalog(self, loaded: bool) -> None:
         ctrl = self.ctrl
         root = ctrl.session.catalog_root
-        self.btn_cat_new.set_sensitive(not ctrl.busy)
-        self.btn_cat_open.set_sensitive(not ctrl.busy)
-        self.btn_cat_hero.set_sensitive(not ctrl.busy)
         self.btn_cat_add.set_sensitive(bool(loaded and root and not ctrl.busy))
         self.btn_cat_guide.set_sensitive(bool(loaded and not ctrl.busy))
         self.btn_cat_fitcm.set_sensitive(bool(loaded and root and not ctrl.busy))
         self.btn_proportions.set_sensitive(bool(loaded and root and not ctrl.busy))
         self.btn_cat_manage.set_sensitive(not ctrl.busy)       # sin proyecto ni catálogo abierto: al apretar abre el recordado o pide la carpeta
-        self.btn_cat_build.set_sensitive(not ctrl.busy)
         self.btn_cat_online.set_sensitive(not ctrl.busy)
         self.btn_build_cat.set_sensitive(not ctrl.busy)
         if self._catalog_win is not None:
             self._catalog_win.refresh_if_changed()
         self.lbl_catalog.set_text(tr("common.sin_catalogo_abierto") if not root else tr("window.catalogo_root", root=root))
-        self.btn_cat_forget.set_sensitive(bool(root and not ctrl.busy))
         self.btn_cat_review.set_sensitive(bool(loaded and (ctrl.session.project.parts or ctrl.session.project.part_scales) and not ctrl.busy))
         self.btn_divide_model.set_sensitive(bool(loaded and not ctrl.busy and not ctrl.session.catalog_only()))
         self.btn_reset_piece_scales.set_sensitive(bool(loaded and ctrl.session.project.part_scales and not ctrl.busy))
@@ -1854,6 +1849,10 @@ class MainWindow(Gtk.ApplicationWindow):
     def _on_align_all(self, *_):
         self.ctrl.align_cuts_to_line()
 
+    def _cat_parent(self) -> Gtk.Window:
+        """Ventana de la que cuelgan los diálogos de catálogo: la de «Administrar catálogo» si está abierta (desde ahí se lanzan), si no esta."""
+        return self._catalog_win if self._catalog_win is not None else self
+
     def _on_catalog_new(self, *_):
         """«Crear catálogo…»: elegir la carpeta nueva, después nombre de la línea y altura de figura."""
         name0, height0 = self.ctrl.default_catalog_line()
@@ -1866,10 +1865,10 @@ class MainWindow(Gtk.ApplicationWindow):
                 return                      # cancelado
             self._catalog_line_dialog(f.get_path(), height0)
 
-        dlg.save(self, None, picked)
+        dlg.save(self._cat_parent(), None, picked)
 
     def _catalog_line_dialog(self, path: str, height0: float) -> None:
-        win = Gtk.Window(title=tr("window.crear_catalogo_de_la_linea"), transient_for=self, modal=True, resizable=False)
+        win = Gtk.Window(title=tr("window.crear_catalogo_de_la_linea"), transient_for=self._cat_parent(), modal=True, resizable=False)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_top=12, margin_bottom=12,
                       margin_start=12, margin_end=12)
         box.append(Gtk.Label(label=tr("window.carpeta_path", path=path), xalign=0, wrap=True, max_width_chars=50))
@@ -1900,6 +1899,7 @@ class MainWindow(Gtk.ApplicationWindow):
         win.present()
 
     def _on_catalog_open(self, *_):
+        """«Abrir catálogo…»: busca la carpeta de un catálogo en el sistema de archivos."""
         dlg = Gtk.FileDialog(title=tr("window.catalogo_de_la_linea_carpeta"))
 
         def finished(d, res):
@@ -1913,7 +1913,7 @@ class MainWindow(Gtk.ApplicationWindow):
             except Exception as e:          # noqa: BLE001
                 self._error(e)
 
-        dlg.select_folder(self, None, finished)
+        dlg.select_folder(self._cat_parent(), None, finished)
 
     def _on_catalog_build(self, *_):
         """«Armar figura desde catálogo»: no hace falta un STL. Usa el catálogo abierto, el último que se usó o pide la carpeta."""
@@ -1940,7 +1940,7 @@ class MainWindow(Gtk.ApplicationWindow):
                 except Exception as e:          # noqa: BLE001
                     self._error(e)
 
-            dlg.select_folder(self, None, finished)
+            dlg.select_folder(self._cat_parent(), None, finished)
             return
         self._open_builder()
 
@@ -1961,33 +1961,19 @@ class MainWindow(Gtk.ApplicationWindow):
         return False
 
     def _on_catalog_manage(self, *_):
-        """«Administrar catálogo…»: ventana con la lista de piezas, vista previa 3/4 y eliminación (una sola ventana)."""
+        """«Administrar catálogo…»: ventana con la lista de piezas, vista previa 3/4 y todo lo de catálogos (crear, abrir, armar
+        figura, héroe desde el patrón, olvidar, eliminar). Abre aunque no haya catálogo: desde ahí se crea o se abre uno
+        (una sola ventana)."""
         if self._catalog_win is not None:
             self._catalog_win.refresh_if_changed()
             self._catalog_win.present()
             return
-        if not self.ctrl.session.catalog_root:           # no hace falta proyecto ni STL: usa el último catálogo o pide la carpeta
+        if not self.ctrl.session.catalog_root:
             from . import settings as GUI_SETTINGS
 
             last = GUI_SETTINGS.last_catalog()
-            if last and self.ctrl.open_catalog(last):
-                self._open_catalog_manager()
-                return
-            dlg = Gtk.FileDialog(title=tr("window.catalogo_de_la_linea_carpeta"))
-
-            def finished(d, res):
-                try:
-                    f = d.select_folder_finish(res)
-                except GLib.Error:
-                    return                                # cancelado
-                try:
-                    if self.ctrl.open_catalog(f.get_path()):
-                        self._open_catalog_manager()
-                except Exception as e:                    # noqa: BLE001
-                    self._error(e)
-
-            dlg.select_folder(self, None, finished)
-            return
+            if last:
+                self.ctrl.open_catalog(last)            # el último que se usó, si todavía existe; si no, la ventana abre vacía
         self._open_catalog_manager()
 
     def _on_catalog_online(self, *_) -> None:

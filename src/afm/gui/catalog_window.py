@@ -39,6 +39,7 @@ class CatalogManagerWindow(Gtk.Window):
     def __init__(self, parent: Gtk.Window, ctrl):
         super().__init__(title=tr("catalog_window.administrar_catalogo_de_piezas"), transient_for=parent, default_width=1240, default_height=780)
         self.ctrl = ctrl
+        self._main = parent                  # la ventana principal: de ahí salen crear, abrir, armar figura y héroe desde el patrón
         # D22: importar un paquete .zip (menú Compartir) y soltar archivos sobre la ventana llegan a la misma cola y al mismo diálogo de confirmación
         self._zip_queue = IZW.ImportQueue(self, lambda: self.ctrl.session.catalog_root or "", on_installed=lambda _results: self.refresh_if_changed())
         self._zip_drop = IZW.attach_drop(self, self._zip_queue)
@@ -367,6 +368,7 @@ class CatalogManagerWindow(Gtk.Window):
         (Importar, Catálogo, Vista). Antes eran ~15 botones sueltos en el panel de la derecha."""
         self._menu_buttons: list[Gtk.Button] = []
         self._import_buttons: list[Gtk.Button] = []
+        self.menu_lines = self._build_lines_menu()
         self.menu_piece = self._make_menu(tr("catalog_window.menu_pieza"), tr("catalog_window.menu_pieza_tip"), [
             self.btn_rename,
             self._state_row,
@@ -400,11 +402,44 @@ class CatalogManagerWindow(Gtk.Window):
         ])
         self.menu_view = self._make_menu(tr("catalog_window.menu_vista"), tr("catalog_window.menu_vista_tip"), list(self._view_items))
         bar = WrapRow(spacing=6)
-        for mb in (self.menu_piece, self.menu_edit, self.menu_color, self.menu_analysis, self.menu_import, self.menu_cat, self.menu_share, self.menu_view):
+        for mb in (self.menu_lines, self.menu_piece, self.menu_edit, self.menu_color, self.menu_analysis, self.menu_import, self.menu_cat, self.menu_share, self.menu_view):
             bar.append(mb)
         wrap = Gtk.Box(margin_top=6, margin_bottom=6, margin_start=8, margin_end=8)
         wrap.append(bar)
         return wrap
+
+    def _build_lines_menu(self) -> Gtk.MenuButton:
+        """Menú «Catálogos ▾»: crear, abrir, armar una figura sin STL, héroe desde el patrón, olvidar y eliminar. Funciona sin catálogo abierto
+        (antes estaba en un desplegable de la ventana principal)."""
+        def entry(label: str, cb, tip: str) -> Gtk.Button:
+            b = Gtk.Button(label=label, tooltip_text=tip)
+            b.connect("clicked", lambda _b: cb())
+            return b
+
+        self.btn_cat_new = entry(tr("catalogo.crear_catalogo_de_la_linea_carpeta"), lambda: self._main._on_catalog_new(), tr("catalog_window.crear_catalogo_tip"))
+        self.btn_cat_open = entry(tr("catalogo.abrir_catalogo_de_la_linea_carpeta"), lambda: self._main._on_catalog_open(), tr("catalog_window.abrir_catalogo_tip"))
+        self.btn_cat_build = entry(tr("catalogo.armar_figura_desde_catalogo_sin_stl"), lambda: self._main._on_catalog_build(), tr("window.figura_nueva_solo_con_piezas_del"))
+        self.btn_cat_hero = entry(tr("catalogo.nuevo_heroe_desde_el_patron_p"), lambda: self._main._on_new_from_pattern(), tr("catalogo.crea_el_proyecto_de_un_heroe"))
+        self.btn_cat_forget = entry(tr("catalogo.olvidar_el_catalogo_recordado"), lambda: self.ctrl.forget_catalog(), tr("catalogo.cierra_el_catalogo_y_borra_lo"))
+        self.btn_cat_delete = entry(tr("catalog_window.eliminar_catalogo"), self._on_delete_catalog, tr("catalog_window.eliminar_catalogo_tip"))
+        self.btn_cat_delete.add_css_class("destructive-action")
+        self._lines_buttons = [self.btn_cat_new, self.btn_cat_open, self.btn_cat_build, self.btn_cat_hero, self.btn_cat_forget, self.btn_cat_delete]
+        return self._make_menu(tr("catalog_window.menu_catalogos"), tr("catalog_window.menu_catalogos_tip"), [
+            self.btn_cat_new, self.btn_cat_open,
+            None,
+            self.btn_cat_build, self.btn_cat_hero,
+            None,
+            self.btn_cat_forget, self.btn_cat_delete,
+        ])
+
+    def _on_delete_catalog(self) -> None:
+        """«Eliminar catálogo…»: borra del disco la carpeta del catálogo abierto (con todas sus piezas) después de confirmar."""
+        root = self.ctrl.session.catalog_root
+        if not root:
+            return
+        self._confirm(tr("catalog_window.eliminar_el_catalogo_pregunta"),
+                      tr("catalog_window.eliminar_el_catalogo_detalle", root=root, total=len(self.ctrl.catalog_pieces())),
+                      tr("catalog_window.eliminar_catalogo_accion"), self.ctrl.delete_catalog)
 
     def _entry_select_all(self) -> Gtk.Button:
         b = Gtk.Button(label=tr("catalog_window.elegir_todas_las_que_se_ven"))
@@ -624,6 +659,9 @@ class CatalogManagerWindow(Gtk.Window):
         for b in self._menu_buttons:
             b.set_sensitive(free)
         self.menu_cat.set_sensitive(bool(self.ctrl.session.catalog_root))
+        has, idle = bool(self.ctrl.session.catalog_root), not self.ctrl.busy
+        for b in self._lines_buttons:               # crear, abrir, armar y héroe no piden catálogo; olvidar y eliminar sí
+            b.set_sensitive(idle and (has or b in (self.btn_cat_new, self.btn_cat_open, self.btn_cat_build, self.btn_cat_hero)))
         for b in self._import_buttons:
             b.set_sensitive(free)
         self.menu_import.set_sensitive(bool(self.ctrl.session.catalog_root))

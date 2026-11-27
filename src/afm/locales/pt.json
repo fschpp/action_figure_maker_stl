@@ -477,7 +477,16 @@
   "menu_vista": "Vista",
   "menu_vista_tip": "Voltar à vista 3/4 e aproximar ou afastar a peça",
   "menu_compartir": "Compartilhar",
-  "menu_compartir_tip": "Publicar pacotes deste catálogo para outras pessoas"
+  "menu_compartir_tip": "Publicar pacotes deste catálogo para outras pessoas",
+  "menu_catalogos": "Catálogos",
+  "menu_catalogos_tip": "Criar, abrir, esquecer ou excluir catálogos; montar uma figura sem STL; novo herói a partir do padrão",
+  "crear_catalogo_tip": "Cria a pasta de um catálogo novo (nome da linha e altura) e o deixa aberto",
+  "abrir_catalogo_tip": "Procura no sistema de arquivos a pasta de um catálogo e o abre",
+  "eliminar_catalogo": "Excluir o catálogo aberto…",
+  "eliminar_catalogo_tip": "Apaga do disco a pasta do catálogo aberto com todas as peças (pede confirmação). Não mexe no projeto.",
+  "eliminar_el_catalogo_pregunta": "Excluir este catálogo do disco?",
+  "eliminar_el_catalogo_detalle": "A pasta %{root} com suas %{total} versões de peças será apagada. Não dá para desfazer. O projeto aberto não é alterado.",
+  "eliminar_catalogo_accion": "Excluir catálogo"
  },
  "controller": {
   "arista_de_la_caja_mm": "Aresta da caixa (mm)",
@@ -1100,7 +1109,10 @@
   "propagar_nada_elegido": "Nenhum destino escolhido: nada foi escrito.",
   "valores_por_defecto_de_fabrica": "Valores padrão de fábrica restaurados. As figuras novas começam com eles.",
   "sin_valores_por_defecto_propios": "Não havia valores padrão próprios: já são os de fábrica.",
-  "agarre_mano_mango": "pegada (mão + cabo)"
+  "agarre_mano_mango": "pegada (mão + cabo)",
+  "no_se_elimino_la_carpeta_no_es_un_catalogo": "Nada foi excluído: a pasta não é um catálogo.",
+  "no_se_pudo_eliminar_el_catalogo": "Não foi possível excluir o catálogo: %{error}",
+  "catalogo_eliminado_root": "Catálogo excluído: %{root}"
  },
  "figure_builder": {
   "sin_soportes_resumen": "Sem suportes: corte a %{corte} mm sobre a cauda; braços girados para frente: %{giro}",
@@ -1682,7 +1694,9 @@
   "ayuda_del_catalogo": "Ajuda do catálogo",
   "crear_catalogo_arma_una_carpeta_nueva": "“Criar catálogo” monta uma pasta nova para a linha (nome e altura da figura; é o mesmo que “afm catalogo crear”) e a deixa aberta. Se você já tem uma, abra-a com “Abrir catálogo”. “Catalogar esta figura” (você escolhe os lugares e se vai como versão nova; com cabeça de substituição salva ESSA cabeça) salva suas peças cruas (cabeça, torso, braço, perna, com os planos e silhuetas que você já definiu) para usá-las em outras figuras. Em cada lugar escolha “a do modelo” ou uma peça do catálogo: “Gerar figura” a coloca na porta que o modelo tem nesse lugar, sem escalá-la, e a linha mostra como acopla (ok / aviso / não, IoU e degrau entre as faces). A mão de catálogo se acopla ao punho do braço de catálogo. “Revisar” mede o acoplamento de cada peça SEM gerar e a desenha já colocada (verde = ok, âmbar = aviso, vermelho = não); “Ver por quê” sobrepõe as duas faces. Uma pelve sozinha mantém o torso, braços e pernas do modelo: defina antes o plano da cintura. “Montar figura a partir do catálogo” (também na barra de cima) monta uma figura NOVA sem abrir um STL: uma peça por lugar, cada uma marcada com como acopla à já escolhida, e exporta as peças, a figura montada e a receita. “Gerenciar catálogo” abre uma janela com todas as versões de peça, uma visualização 3/4 de cada uma e a exclusão de uma ou várias (útil se foi catalogado de um projeto errado); os lugares desta figura que usavam uma peça excluída voltam à do modelo. “Dividir figura atual” separa as peças cruas para ajustar sua escala (uma só ou por eixo X, Y, Z; serve para a peça do modelo e para a de catálogo); as portas acompanham a mudança e os pinos são regenerados com as medidas do projeto. Braços e pernas se ajustam por par espelhado. “Restabelecer” volta às proporções originais. Com um torso de catálogo a figura sai inteira do catálogo. O catálogo se reabre sozinho ao carregar a figura.",
   "dibujar_las_piezas_elegidas_antes_de": "Desenhar as peças escolhidas antes de gerar",
-  "pieza_de_cada_lugar_al_cambiar": "Peça de cada lugar (ao mudar é preciso gerar)"
+  "pieza_de_cada_lugar_al_cambiar": "Peça de cada lugar (ao mudar é preciso gerar)",
+  "administrar_catalogo": "Gerenciar catálogo…",
+  "administrar_catalogo_tip": "Abre a janela do catálogo: peças, certificação, compatibilidade e, no menu «Catálogos», criar, abrir, montar figura, herói a partir do padrão, esquecer e excluir"
  },
  "figura": {
   "marcar_coronilla_clic": "Marcar topo da cabeça (clique)",

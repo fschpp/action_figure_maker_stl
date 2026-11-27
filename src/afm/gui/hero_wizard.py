@@ -77,7 +77,7 @@ def open_hero_wizard(window) -> None:
 
     if window.ctrl.busy:
         return
-    win = Gtk.Window(title=tr("hero_wizard.nuevo_heroe_desde_el_patron"), transient_for=window, modal=True, default_width=640)
+    win = Gtk.Window(title=tr("hero_wizard.nuevo_heroe_desde_el_patron"), transient_for=(window._cat_parent() if hasattr(window, "_cat_parent") else window), modal=True, default_width=640)
     root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin_top=12, margin_bottom=12, margin_start=12, margin_end=12)
     values: dict = {"stl": "", "patron": "", "out": "", "corona": "", "entrepierna": ""}
     entries: dict = {}

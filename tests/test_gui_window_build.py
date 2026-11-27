@@ -186,9 +186,10 @@ def test_catalog_tab_places_first_and_menu():
     def act(a):
         try:
             win = MainWindow(a, Controller())
-            res["menu"] = isinstance(win.menu_catalog, Gtk.MenuButton)
-            res["btns"] = all(hasattr(win, n) for n in ("btn_cat_new", "btn_cat_open", "btn_cat_add", "btn_cat_hero", "btn_cat_guide",
-                                                         "btn_cat_fitcm", "btn_cat_manage", "btn_cat_build", "btn_cat_forget", "btn_cat_review"))
+            res["menu"] = not hasattr(win, "menu_catalog")                     # ya no hay desplegable: dos botones
+            res["btns"] = all(hasattr(win, n) for n in ("btn_cat_add", "btn_cat_guide", "btn_cat_fitcm", "btn_cat_manage", "btn_cat_online", "btn_cat_review"))
+            res["moved"] = not any(hasattr(win, n) for n in ("btn_cat_new", "btn_cat_open", "btn_cat_hero", "btn_cat_build", "btn_cat_forget"))
+            res["labels"] = (win.btn_cat_manage.get_label(), win.btn_cat_online.get_label())
             # el cuadro de lugares está antes que los ajustes en la pestaña
             res["parts_visible"] = win.parts_box.get_ancestor(Gtk.Expander) is not None
         except Exception as e:      # noqa: BLE001
@@ -198,7 +199,8 @@ def test_catalog_tab_places_first_and_menu():
     app.connect("activate", act)
     app.run([])
     assert "error" not in res, res.get("error")
-    assert res["menu"] and res["btns"] and res["parts_visible"]
+    assert res["menu"] and res["btns"] and res["moved"] and res["parts_visible"]
+    assert res["labels"] == ("Administrar catálogo…", "Explorar catálogos en línea…")
 
 
 def test_trim_size_row_follows_shape_and_profile_is_first_in_params():
@@ -241,20 +243,28 @@ def test_trim_size_row_follows_shape_and_profile_is_first_in_params():
     assert t.index("Perfil de línea") < t.index("Parámetros de articulación")
 
 
-def test_catalog_menu_closes_when_an_item_is_chosen():
-    """Al elegir una opción del menú «Catálogo» el menú se cierra (antes quedaba encima de la ventana que se abría)."""
+def test_manager_window_hosts_catalog_management_without_an_open_catalog(tmp_path, monkeypatch):
+    """«Administrar catálogo» abre aunque no haya catálogo y trae crear, abrir, armar, héroe, olvidar y eliminar en su menú «Catálogos»."""
+    from afm.gui import settings as GUI_SETTINGS
+
+    monkeypatch.setattr(GUI_SETTINGS, "last_catalog", lambda: None)
     res = {}
-    app = Gtk.Application(application_id="ar.afm.test3")
+    app = Gtk.Application(application_id="ar.afm.test5b")
 
     def act(a):
         try:
             win = MainWindow(a, Controller())
             win.present()
-            pop = win.menu_catalog.get_popover()
-            pop.popup()
-            res["abierto"] = pop.get_visible()
-            win.btn_cat_forget.emit("clicked")                      # acción inocua: sin catálogo no hace nada
-            res["cerrado"] = not pop.get_visible() or not pop.is_mapped()
+            win.btn_cat_manage.emit("clicked")
+            mgr = win._catalog_win
+            res["abre"] = mgr is not None and not win.ctrl.session.catalog_root
+            res["menu"] = isinstance(mgr.menu_lines, Gtk.MenuButton)
+            res["libres"] = [b.get_sensitive() for b in (mgr.btn_cat_new, mgr.btn_cat_open, mgr.btn_cat_build, mgr.btn_cat_hero)]
+            res["sin_catalogo"] = [b.get_sensitive() for b in (mgr.btn_cat_forget, mgr.btn_cat_delete)]
+            win.btn_cat_manage.emit("clicked")                          # una sola ventana
+            res["una"] = win._catalog_win is mgr
+            res["padre"] = win._cat_parent() is mgr
+            mgr.destroy()
         except Exception as e:      # noqa: BLE001
             res["error"] = e
         GLib.idle_add(a.quit)
@@ -262,4 +272,5 @@ def test_catalog_menu_closes_when_an_item_is_chosen():
     app.connect("activate", act)
     app.run([])
     assert "error" not in res, res.get("error")
-    assert res["abierto"] and res["cerrado"]
+    assert res["abre"] and res["menu"] and res["una"] and res["padre"]
+    assert res["libres"] == [True] * 4 and res["sin_catalogo"] == [False, False]

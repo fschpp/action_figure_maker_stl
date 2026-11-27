@@ -85,6 +85,16 @@ def forget_catalog(line: str | None = None) -> bool:
     return save(d)
 
 
+def forget_root(root: str) -> bool:
+    """Olvida lo recordado que apunte a la carpeta `root` (se usa al eliminar un catálogo del disco)."""
+    d = load()
+    root = os.path.abspath(root)
+    d["catalogos"] = {k: v for k, v in d["catalogos"].items() if os.path.abspath(v) != root}
+    if d.get("ultimo_catalogo") and os.path.abspath(d["ultimo_catalogo"]) == root:
+        d["ultimo_catalogo"] = None
+    return save(d)
+
+
 def language() -> str | None:
     """Idioma elegido en la interfaz (es / en / pt) o None si nunca se eligió (entonces manda el del sistema)."""
     from ..i18n import normalize
