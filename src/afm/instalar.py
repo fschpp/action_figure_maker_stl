@@ -454,6 +454,15 @@ def _plan_registry(plan, add, reg: dict, pkg: Q.Paquete) -> None:
         if not got or not dep.satisfied_by(got.get("version", "0.0.0")):
             add(WARNING, pkg.id, f"requiere «{text}» y no está instalado",
                 "instalalo antes: el paquete puede quedar incompleto")
+    from . import joint_types as JT                  # nunca se instala código: solo se avisa del tipo que falta
+    for t in getattr(pkg, "tipos_articulacion", []):
+        got = JT.REGISTRY.get(t["id"])
+        if got is None:
+            add(WARNING, pkg.id, f"requiere el tipo de articulación «{t['id']}» (API {t['api']}) y no está instalado",
+                "la línea o las piezas que lo usen no se van a armar como las hizo el autor hasta que tengas ese tipo")
+        elif got.api_version != t["api"]:
+            add(WARNING, pkg.id, f"requiere el tipo «{t['id']}» con la API {t['api']} y el instalado habla la {got.api_version}",
+                "actualizá el tipo o el motor")
 
 
 # ------------------------------------------------------------------------------------------------------------------------ aplicar

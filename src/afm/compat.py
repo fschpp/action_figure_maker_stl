@@ -47,6 +47,9 @@ def recipe_key(recipe: Recipe, cat: Catalog) -> tuple[str, dict]:
         for spec in recipe.mount_specs():
             armas[spec.arma] = cat.meta(spec.arma).sha256
         payload["monturas_armas"] = armas
+    from .joint_types import cache_key_info
+    if tipos := cache_key_info(recipe_params(recipe, cat)):   # solo con plugins: los tipos internos no cambian la clave de siempre
+        payload["tipos"] = tipos
     contract = cat.contract()
     if contract is not None:        # sin contrato la clave es la de siempre: no se invalidan los resultados guardados
         payload["contrato"] = contract.hash()

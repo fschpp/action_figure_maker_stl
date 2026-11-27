@@ -319,7 +319,7 @@ class Issue:
 
 _KNOWN_KEYS = ("formato", "id", "nombre", "version", "descripcion", "tipo", "autores", "licencia", "origen", "github", "linea",
                "motor", "contenido", "requiere", "conflicts", "experimental", "categorias", "etiquetas", "archivos",
-               "referencias_requeridas")
+               "referencias_requeridas", "tipos_articulacion")
 
 
 def _need(d: dict, key: str, kind, what: str):
@@ -347,6 +347,19 @@ def _str_list(d: dict, key: str) -> list:
     return list(v)
 
 
+_JOINT_ID_RE = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
+
+
+def _joint_type_list(d: dict) -> list:
+    v = _opt(d, "tipos_articulacion", list, "una lista", [])
+    out = []
+    for i, x in enumerate(v):
+        if not (isinstance(x, dict) and isinstance(x.get("id"), str) and isinstance(x.get("api"), int) and not isinstance(x.get("api"), bool)):
+            raise PaqueteError(f"«tipos_articulacion[{i}]» tiene que ser {{\"id\": texto, \"api\": entero}}")
+        out.append({"id": x["id"], "api": x["api"]})
+    return out
+
+
 @dataclass
 class Paquete:
     """Manifiesto `afm-paquete-1`. `Paquete.from_dict(p.to_dict()) == p`; `avisos` (claves desconocidas) no entra en la igualdad."""
@@ -364,6 +377,7 @@ class Paquete:
     motor: str = ""                                   # rango de versiones del motor (`>=0.2.1`); vacío = sin requisito
     contenido: Contents = field(default_factory=Contents)
     requiere: list = field(default_factory=list)      # textos `id[@rango][#owner/repo]`
+    tipos_articulacion: list = field(default_factory=list)   # [{"id": "ball", "api": 1}]: tipos que el paquete necesita; nunca trae código
     conflicts: list = field(default_factory=list)
     experimental: bool = False
     categorias: list = field(default_factory=list)
@@ -386,6 +400,8 @@ class Paquete:
             d["motor"] = self.motor
         d["contenido"] = self.contenido.to_dict()
         d["requiere"] = list(self.requiere)
+        if self.tipos_articulacion:
+            d["tipos_articulacion"] = [dict(t) for t in self.tipos_articulacion]
         d["conflicts"] = list(self.conflicts)
         d["experimental"] = bool(self.experimental)
         d["categorias"] = list(self.categorias)
@@ -452,6 +468,7 @@ class Paquete:
                    origen=_need(d, "origen", str, "un texto"), github=_opt(d, "github", str, "un texto", ""), linea=linea,
                    motor=_opt(d, "motor", str, "un texto", ""), contenido=contents,
                    requiere=_str_list(d, "requiere"), conflicts=_str_list(d, "conflicts"),
+                   tipos_articulacion=_joint_type_list(d),
                    experimental=_opt(d, "experimental", bool, "verdadero o falso", False),
                    categorias=_str_list(d, "categorias"), etiquetas=_str_list(d, "etiquetas"), archivos=dict(files),
                    referencias_requeridas=refs,
@@ -547,6 +564,15 @@ class Paquete:
                 add("", "conflicts", f"«{_safe_dep_id(t)}» está en «requiere» y en «conflicts»")
         if len(set(ids)) != len(ids):
             add("", "requiere", "un mismo id aparece más de una vez (una versión por id)")
+        seen_types = set()
+        for i, t in enumerate(self.tipos_articulacion):
+            if not _JOINT_ID_RE.match(t["id"]):
+                add("", f"tipos_articulacion[{i}]", f"«{t['id']}» no es un id de tipo válido (minúsculas, números y _)")
+            if t["id"] in seen_types:
+                add("", f"tipos_articulacion[{i}]", f"«{t['id']}» está repetido")
+            seen_types.add(t["id"])
+            if t["api"] < 1:
+                add("", f"tipos_articulacion[{i}]", "«api» tiene que ser 1 o más")
         if not (CATEGORIES_MIN <= len(self.categorias) <= CATEGORIES_MAX):
             add("CK106", "categorias", f"tiene que haber de {CATEGORIES_MIN} a {CATEGORIES_MAX} categorías (hay {len(self.categorias)})")
         for cat in self.categorias:

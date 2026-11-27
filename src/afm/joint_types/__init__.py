@@ -37,6 +37,42 @@ from .detent import Detent  # noqa: E402  (los internos se registran al importar
 from .hinge import Hinge  # noqa: E402
 from .mushroom import Mushroom  # noqa: E402
 
+BUILTIN: frozenset[str] = frozenset({"mushroom", "detent", "hinge"})   # los que viajan con el motor: su versión es la del motor
+
+
+def type_version(t: JointType) -> int:
+    """Versión del tipo (atributo opcional `version`, 1 si no lo trae). Subirla invalida la caché de compatibilidad."""
+    return int(getattr(t, "version", 1) or 1)
+
+
+def used_type_ids(params: Params) -> set[str]:
+    """Tipos que usa una línea: los del perfil `Params.joints` y los que fija por clase de puerto."""
+    from .resolve import PIN_ATTR_OF_CLASS, class_type_id
+    ids = {class_type_id(c, params) for c in PIN_ATTR_OF_CLASS}
+    ids |= {e["type"] for e in (params.joints or {}).values() if isinstance(e, dict) and e.get("type")}
+    return {i for i in ids if i}
+
+
+def cache_key_info(params: Params) -> dict:
+    """`{id: {"version": n, "sha256": h}}` de los tipos de la línea que NO son internos (plugins): actualizar un plugin sin tocar
+    `Params` cambia la geometría, así que entra en `compat.recipe_key`. Vacío con tipos internos: la clave de siempre no cambia."""
+    import hashlib
+    import inspect
+    out: dict = {}
+    for tid in sorted(used_type_ids(params) - BUILTIN):
+        t = REGISTRY.get(tid)
+        if t is None:
+            out[tid] = {"version": 0}                  # usado y no instalado: la clave cambia cuando se instale
+            continue
+        info = {"version": type_version(t)}
+        try:
+            info["sha256"] = hashlib.sha256(open(inspect.getsourcefile(type(t)), "rb").read()).hexdigest()
+        except (TypeError, OSError):
+            pass
+        out[tid] = info
+    return out
+
+
 for _t in (Mushroom(), Detent(), Hinge()):
     register(_t)
 
