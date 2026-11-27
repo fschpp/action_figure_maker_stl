@@ -353,7 +353,7 @@ register(Swivel())
 - **Pared**: el corte transversal deja la cara del bíceps o la canilla; con una figura de 129 mm [V `REFERENCE_FIGURE_HEIGHT`] el vástago puede quedar cerca de `min_pin_d`: `requires()` lo informa antes de armar.
 
 ### 4.2 `hinge` como *rocker* y tobillo
-- Bisagra con rango ±30° y lugar nuevo `tobillo`. Necesita que el pie sea un corte (`LimbSpec`/`JointSpec` con `slot="tobillo"`). **[P]** ¿el pie es parte de la pierna o pieza propia en las figuras del cliente?
+- Bisagra con rango ±30° y lugar nuevo `tobillo`. Necesita que el pie sea un corte (`LimbSpec`/`JointSpec` con `slot="tobillo"`). **[P]** _(respondida: se corta como la mano; ver `PLAN_pie_tobillo.md`)_ ¿el pie es parte de la pierna o pieza propia en las figuras del cliente?
 
 ### 4.3 `ball` (rótula) y `tcrotch`: cintura, cadera, cabeza
 - **Geometría** [I]: esfera Ø `ball_d` sobre un cuello, en la hija. El zócalo del padre sale de `dilate(esfera + cono del cuello)`; el labio que queda sobre el ecuador retiene la bola (imprime armada, sin soportes en la bola). `detent.revolved_envelope` da la envolvente del cuello.
@@ -425,7 +425,7 @@ Esfuerzos **[I]**: días de trabajo de una persona con el repo ya conocido; sin 
 4. **¿Plugins de terceros o solo extensibilidad interna?** Si es solo interna, la Fase 5 se achica a perfiles (N1) y la API puede cambiar sin avisar.
 5. **Cintura, cuello y muñeca**: ¿pasan a ser tipos intercambiables (usan `mushroom_pin` por separado) o se dejan fijos? Propuesta: dejarlos para después de la Fase 3; son los de más efectos laterales.
 6. **Catálogo**: ¿una línea fija un tipo por lugar (propuesta) o se quiere mezclar tipos entre líneas?
-7. **Pie y tobillo**: ¿el pie es parte de la pierna en tus figuras o una pieza aparte?
+7. **Pie y tobillo** _(respondida 2026-11-27: el pie puede cortarse como se hace con la mano; consecuencias y dos caminos en `PLAN_pie_tobillo.md`)_: ¿el pie es parte de la pierna en tus figuras o una pieza aparte?
 8. **Durabilidad**: ¿el criterio de «miles de cambios de pose» del clic aplica también a `swivel` y rótula? Define si hace falta una probeta de ciclado.
 9. **Orden entre este plan y el de catálogos en línea**: hoy D05–D07 ya están en `main`; si se quiere que los paquetes viajen con `tipos_articulacion` desde el primer día, la Fase 1 conviene antes de publicar paquetes con perfiles nuevos.
 

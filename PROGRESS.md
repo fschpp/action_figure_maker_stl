@@ -1,3 +1,8 @@
+## Current Focus — Plugins de articulación: el pie y el tobillo «como la mano» (plan) (2026-11-27, sobre main 88f0f39)
+**Hecho.** `docs/PLAN_pie_tobillo.md` (solo plan): lo que hace hoy la mano de punta a punta (`hand.py`, `pipeline`, catálogo, CLI, GUI: no es un tipo del registro sino una función entera) y dos caminos: **A** tobillo como articulación de la pierna (tipo `swivel` en el lugar `tobillo`, sobre la Fase 3) y **B** pie estándar compartido, la mano repetida (21–34 d [I]). Recomendación: A primero. P7 de `PLAN_plugins_articulacion.md` marcada como respondida.
+**Pendiente del cliente.** ¿A, B o A y después B? (§5 del plan: intercambiables entre figuras, giro libre o flexión, tope, altura de la línea).
+**Siguiente.** Fase 3 (varias articulaciones por miembro) — la necesitan el tobillo (A), bíceps + codo + muñeca y el ejemplo de `swivel`.
+
 ## Current Focus — Plugins de articulación, Fase 2 (corte 4): oferta de tipos en `afm catalogo explicar` (2026-11-27, sobre main 5f00469)
 **Hecho.** `catalog_ops.port_offer_lines` (usada por `explain_lines`, o sea `afm catalogo explicar` y la ventana de administrar catálogo): bajo el encabezado de la pieza, qué tipos admite la cara de cada puerto de hombro/cadera (con la profundidad si la toma trae su `capacidad` medida). `guide.format_offers` (nuevo, con sangría) comparte el formato con `format_types`. El cuello y la muñeca no imprimen nada (no hay tipos registrados para ese lugar).
 **Pruebas.** `tests/test_guide_offer.py` (+2): brazo y torso del ejemplo, con y sin capacidad guardada, cuello sin oferta y CLI. Con `test_catalog_ops` y `test_certify`: 40 pasan; sigue fallando solo `test_every_catalog_subcommand_is_registered_for_the_window` (ya fallaba en main).
