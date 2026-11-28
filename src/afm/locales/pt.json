@@ -483,9 +483,9 @@
   "crear_catalogo_tip": "Cria a pasta de um catálogo novo (nome da linha e altura) e o deixa aberto",
   "abrir_catalogo_tip": "Procura no sistema de arquivos a pasta de um catálogo e o abre",
   "eliminar_catalogo": "Excluir o catálogo aberto…",
-  "eliminar_catalogo_tip": "Apaga do disco a pasta do catálogo aberto com todas as peças (pede confirmação). Não mexe no projeto.",
-  "eliminar_el_catalogo_pregunta": "Excluir este catálogo do disco?",
-  "eliminar_el_catalogo_detalle": "A pasta %{root} com suas %{total} versões de peças será apagada. Não dá para desfazer. O projeto aberto não é alterado.",
+  "eliminar_catalogo_tip": "Move para a lixeira do sistema a pasta do catálogo aberto com todas as peças (pede confirmação). Não mexe no projeto.",
+  "eliminar_el_catalogo_pregunta": "Enviar este catálogo para a lixeira?",
+  "eliminar_el_catalogo_detalle": "A pasta %{root} com suas %{total} versões de peças vai para a lixeira do sistema, de onde dá para recuperá-la. O projeto aberto não é alterado.",
   "eliminar_catalogo_accion": "Excluir catálogo"
  },
  "controller": {
@@ -1111,8 +1111,8 @@
   "sin_valores_por_defecto_propios": "Não havia valores padrão próprios: já são os de fábrica.",
   "agarre_mano_mango": "pegada (mão + cabo)",
   "no_se_elimino_la_carpeta_no_es_un_catalogo": "Nada foi excluído: a pasta não é um catálogo.",
-  "no_se_pudo_eliminar_el_catalogo": "Não foi possível excluir o catálogo: %{error}",
-  "catalogo_eliminado_root": "Catálogo excluído: %{root}"
+  "no_se_pudo_eliminar_el_catalogo": "Não foi possível enviar o catálogo para a lixeira (nada foi excluído): %{error}",
+  "catalogo_eliminado_root": "Catálogo enviado para a lixeira: %{root}"
  },
  "figure_builder": {
   "sin_soportes_resumen": "Sem suportes: corte a %{corte} mm sobre a cauda; braços girados para frente: %{giro}",

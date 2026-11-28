@@ -29,6 +29,7 @@ from ..waist import PELVIS_NAME, WAIST_NAME
 from .. import cut_ref as CR
 from ..limbs import cut_plane, silhouette_on_plane
 from ..pin_ghost import MIN_SHAFT_D, PinProposal, ghost_meshes, propose_smaller_pin, shrunk_dims, widest_point
+from ..papelera import move_to_trash
 from ..orient import OrientResult, overhang_mask, pose_orientation
 from ..planes import Plane
 from ..trims import Trim
@@ -4358,8 +4359,9 @@ class Controller:
         self._changed(tr("controller.catalogo_olvidado_la_proxima_vez_hay"), scene=False)
 
     def delete_catalog(self) -> bool:
-        """«Eliminar catálogo»: borra DEL DISCO la carpeta del catálogo abierto (con sus piezas) y lo olvida. Solo si la carpeta es
-        un catálogo (tiene `linea.json`); no toca el proyecto abierto. La confirmación la pide la ventana, no esta función."""
+        """«Eliminar catálogo»: manda a la papelera del sistema la carpeta del catálogo abierto (con sus piezas, recuperable desde
+        el gestor de archivos) y lo olvida. Solo si la carpeta es un catálogo (tiene `linea.json`); no toca el proyecto abierto. Si la
+        papelera falla no se borra nada. La confirmación la pide la ventana, no esta función."""
         root = self.session.catalog_root
         if not root:
             return False
@@ -4368,7 +4370,7 @@ class Controller:
             self._changed(tr("controller.no_se_elimino_la_carpeta_no_es_un_catalogo"), scene=False)
             return False
         try:
-            shutil.rmtree(real)
+            move_to_trash(real)
         except OSError as e:
             self._changed(tr("controller.no_se_pudo_eliminar_el_catalogo", error=e), scene=False)
             return False
