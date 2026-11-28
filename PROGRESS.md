@@ -1,3 +1,22 @@
+## Current Focus — Plugins de articulación, Fase 4 (corte 2): validación de recorrido sobre grilla de poses y pose impresa de la rótula (2026-11-28, sobre el corte 1 dc4b3a3)
+**Objetivo.** Que una rótula (`ConeMotion`) no quede sin validar ni fuera de la pose impresa, antes de tener el tipo `ball` (`docs/PLAN_plugins_articulacion.md` §3.3, §5 Fase 4).
+**Hecho.**
+- `joint_types.motion_interference(motion, obstacle, step)` (peor interferencia en mm³ y cantidad de poses medidas; vale para cualquier `Motion`) y `moved(limb, pose)`.
+- `pipeline.validate`: cada movimiento que no es de un eje recorre su grilla de poses contra el torso; `recorrido[nombre]` + `recorrido_poses[nombre]`, y «interfiere con el torso dentro de su cono de giro» si pasa de 1e-4 mm³. Con solo ejes, el informe no cambia (no aparece `recorrido_poses`).
+- `posed_pieces`: una pierna/brazo con rótula sale en su `print_pose()` (ya no falta en el resultado); el ángulo de cadera no se le aplica.
+- `tests/test_joint_motion.py` (+2, ahora 17): interferencia lejos/encima, `validate` con cono de 0° (1 pose, sin choque) y de 80° (choca, problema listado), pose impresa.
+**Pruebas.** `tools/golden.py comparar muneco`: idéntica. Pasan 132 (+1 skip): joints, cadena, registro, swivel, pipeline, detent, colorreg, impresión plana, pose de montura y `test_joint_motion`.
+**No hecho (siguientes cortes).** `guide.SeatedClash` con `print_pose` (hoy gira por `sit_angle` sobre el puerto; necesita que el puerto sepa su tipo); `_validate_chain`/`_validate_detent` siguen pensadas para ejes; la validación mide solo contra el torso (no contra otras piezas ni la pierna opuesta); tipo `ball`, probeta de rótula (H2); dorados de figuras reales.
+
+### Todo List
+- [x] Done: grilla de poses en `validate` y rótula en `posed_pieces`
+- [/] In Progress: Fase 4 — `SeatedClash` con `print_pose`; validación contra otras piezas
+- [ ] Todo: tipo `ball` (zócalo con labio, `requires`, `offer`); probeta de rótula (H2)
+
+### Latest Blockers/Discoveries
+- En este código `^` entre `Manifold` es **intersección** (no XOR): las pruebas comparan volúmenes con ese sentido.
+- No hay ninguna construcción que produzca una `ConeMotion` todavía: las pruebas la inyectan en `BuildResult.motion` a mano.
+
 ## Current Focus — Plugins de articulación, Fase 4 (corte 1): `Motion` general y `ConeMotion` (2026-11-27, sobre main 64ece5b)
 **Objetivo.** Que el movimiento de una articulación deje de ser «un eje» (`docs/PLAN_plugins_articulacion.md` §3.3, §5 Fase 4) sin tocar geometría: es la base de `ball`.
 **Hecho.**

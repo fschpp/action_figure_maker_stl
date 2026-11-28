@@ -10,7 +10,8 @@ from afm import joint_types as JT
 from afm import pipeline as P, solids as S
 from afm.colorreg import IDENTITY_SEED, seeds_for_piece
 from afm.equestrian import RiderError, rider_profile
-from afm.joint_types import ConeMotion, Motion, RevoluteMotion, as_revolute, revolute_motions, rotation_matrix
+from afm.joint_types import (ConeMotion, Motion, RevoluteMotion, as_revolute, motion_interference, moved, revolute_motions,
+                             rotation_matrix)
 from afm.project import demo_project
 from afm.testfigure import make_doll
 
@@ -151,11 +152,43 @@ def test_color_seeds_of_a_ball_limb_are_identity_only(doll):
     assert seeds_for_piece("pierna_izq", _with_ball_hip(res), p) == [IDENTITY_SEED]   # …con una rótula, solo la identidad
 
 
-def test_posed_pieces_and_pose_limit_skip_a_ball_limb(doll):
+def test_posed_pieces_puts_a_ball_limb_in_its_print_pose(doll):
     res, p = doll
-    posed = P.posed_pieces(_with_ball_hip(res), 90.0, None, p)
-    assert not any(k.startswith("pierna") for k in posed)                      # la rótula no se gira como un eje: sin KeyError ni pieza falsa
+    old = res.motion["pierna"]
+    ball = ConeMotion(old.limb, old.center, old.axis, 40.0, print_tilt=(30.0, 0.0, 0.0))
+    posed = P.posed_pieces(dataclasses.replace(res, motion={**res.motion, "pierna": ball}), 90.0, None, p)
+    want = moved(old.limb, ball.print_pose())                                   # el ángulo de cadera no se aplica: manda print_tilt
+    assert (posed["pierna_izq"] ^ want).volume() == pytest.approx(want.volume(), rel=1e-6)   # `^` = intersección: coinciden
+    assert posed["pierna_der"].volume() == pytest.approx(want.volume(), rel=1e-6)
     assert any(k.startswith("brazo") for k in posed)
+
+
+# --- validación de recorrido sobre grilla de poses -----------------------------------------------------------------------------
+
+def test_motion_interference_is_zero_far_away_and_positive_when_it_overlaps():
+    m = _cone()
+    far = S.to_manifold(trimesh.creation.box((2, 2, 2)))
+    far = far.translate((100.0, 0.0, 0.0))
+    worst, n = motion_interference(m, far, 15.0)
+    assert worst == 0.0 and n == len(list(m.poses(15.0)))
+    near = S.to_manifold(trimesh.creation.box((6, 6, 6))).translate((1.0, 2.0, 3.0))   # sobre el centro de la esfera
+    assert motion_interference(m, near, 15.0)[0] > 1.0
+
+
+def test_validate_walks_the_cone_grid_and_flags_an_interference(doll):
+    res, p = doll
+    proj = demo_project()
+    base = P.validate(res, p, proj.limbs, True, 15.0)
+    assert "pierna" in base["recorrido"] and "recorrido_poses" not in base
+    old = res.motion["pierna"]
+    # un cono de 0° con la pierna de reposo: sin interferencia nueva, y se midió una sola pose
+    still = ConeMotion(old.limb, old.center, old.axis, 0.0)
+    ok = P.validate(dataclasses.replace(res, motion={**res.motion, "pierna": still}), p, proj.limbs, True, 15.0)
+    assert ok["recorrido_poses"]["pierna"] == 1 and ok["recorrido"]["pierna"] <= 1e-4
+    # un cono amplio gira la pierna sobre la cadera en todas direcciones: choca con el torso
+    wide = ConeMotion(old.limb, old.center, old.axis, 80.0)
+    bad = P.validate(dataclasses.replace(res, motion={**res.motion, "pierna": wide}), p, proj.limbs, True, 30.0)
+    assert bad["recorrido"]["pierna"] > 1e-4 and any("cono de giro" in x for x in bad["problems"])
 
 
 def test_rider_profile_explains_that_a_ball_hip_has_no_single_axis(doll):

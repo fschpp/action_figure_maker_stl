@@ -6,7 +6,7 @@ llegarán más adelante y no se cargan sin consentimiento explícito.
 from __future__ import annotations
 
 from .base import (API_VERSION, ConeMotion, FaceRequirements, Finding, JointResult, JointSite, JointType, Motion, RevoluteMotion,
-                   as_revolute, revolute_motions, rotation_axis, rotation_matrix, sweep_angles)
+                   as_revolute, motion_interference, moved, revolute_motions, rotation_axis, rotation_matrix, sweep_angles)
 
 REGISTRY: dict[str, JointType] = {}
 
@@ -80,5 +80,5 @@ for _t in (Mushroom(), Detent(), Hinge(), Swivel()):
 
 from . import resolve  # noqa: E402,F401  (qué tipo y qué medidas le tocan a cada miembro/articulación)
 
-__all__ = ["API_VERSION", "REGISTRY", "ConeMotion", "as_revolute", "revolute_motions", "FaceRequirements", "Finding", "JointResult", "JointSite", "JointType", "Motion",
+__all__ = ["API_VERSION", "REGISTRY", "ConeMotion", "as_revolute", "motion_interference", "moved", "revolute_motions", "FaceRequirements", "Finding", "JointResult", "JointSite", "JointType", "Motion",
            "RevoluteMotion", "get", "ids", "register", "rotation_axis", "rotation_matrix", "sweep_angles"]

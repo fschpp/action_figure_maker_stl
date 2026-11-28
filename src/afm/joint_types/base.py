@@ -157,6 +157,21 @@ def as_revolute(motion) -> "RevoluteMotion | None":
     return None
 
 
+def moved(limb: S.Manifold, pose: np.ndarray) -> S.Manifold:
+    """La pieza móvil llevada por una pose 4×4 de `Motion.poses()` / `print_pose()`."""
+    return limb.transform(np.asarray(pose, float)[:3, :])
+
+
+def motion_interference(motion: "Motion", obstacle: S.Manifold, step_deg: float = 5.0) -> tuple[float, int]:
+    """Peor interferencia (mm³) entre la pieza móvil y `obstacle` en todas las poses de `motion.poses(step_deg)`, y cuántas poses se
+    midieron. Sirve para cualquier `Motion` (un eje o rótula): es la validación de recorrido sobre grilla de poses."""
+    worst, n = 0.0, 0
+    for T in motion.poses(step_deg):
+        worst = max(worst, float((moved(motion.limb, T) ^ obstacle).volume()))
+        n += 1
+    return worst, n
+
+
 def revolute_motions(motions: dict | None) -> dict:
     """`{nombre: RevoluteMotion}` de los movimientos de un solo eje de `BuildResult.motion`, en el mismo orden. Los de rótula quedan
     afuera: quien recorre ángulos con esto (validación, color, caballos) los saltea y no se rompe."""

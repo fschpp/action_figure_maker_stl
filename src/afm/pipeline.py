@@ -792,6 +792,14 @@ def validate(res: BuildResult, p: Params, limbs: list[LimbSpec], sit: bool = Tru
         out["recorrido"][name] = round(float(worst), 5)
         if worst > 1e-4:
             out["problems"].append(f"{name}: interfiere con el torso durante el giro ({worst:.4f} mm³)")
+    for name, mo in res.motion.items():                      # rótulas: no hay un eje que barrer, se recorre la grilla de poses del cono
+        if JT.as_revolute(mo) is not None:
+            continue
+        worst, n_poses = JT.motion_interference(mo, torso, max(float(sweep_check_step), 1.0))
+        out["recorrido"][name] = round(float(worst), 5)
+        out.setdefault("recorrido_poses", {})[name] = n_poses
+        if worst > 1e-4:
+            out["problems"].append(f"{name}: interfiere con el torso dentro de su cono de giro ({worst:.4f} mm³)")
     out["cadera"] = _validate_hip_pin(res, p, limbs, out)
     out["detent"] = _validate_detent(res, p, out, detent_free_step)
     out["articulaciones"] = _validate_joints(res, p, joints, out, sweep_check_step)
@@ -970,9 +978,15 @@ def posed_pieces(res: BuildResult, hip_angle: float, flex: dict | None = None,
     for jn, r in rep.items():                                 # en el orden de la cadena (el informe se arma así)
         by_limb.setdefault(r["limb"], []).append((jn, r))
     out: dict = {}
-    for name, (limb0, center, axis, (a0, a1)) in JT.revolute_motions(res.motion).items():
+    for name, mo in res.motion.items():
         if name == HEAD_NAME:
             continue
+        if JT.as_revolute(mo) is None:                       # rótula: sin ángulo de cadera que aplicar, va en su pose impresa
+            mf = JT.moved(mo.limb, mo.print_pose())
+            out[f"{name}_izq"] = mf
+            out[f"{name}_der"] = S.mirror_x(mf)
+            continue
+        limb0, center, axis, (a0, a1) = mo
         turns = a1 > a0
         if name in by_limb:
             links = by_limb[name]
