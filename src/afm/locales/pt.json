@@ -1696,7 +1696,9 @@
   "dibujar_las_piezas_elegidas_antes_de": "Desenhar as peças escolhidas antes de gerar",
   "pieza_de_cada_lugar_al_cambiar": "Peça de cada lugar (ao mudar é preciso gerar)",
   "administrar_catalogo": "Gerenciar catálogo…",
-  "administrar_catalogo_tip": "Abre a janela do catálogo: peças, certificação, compatibilidade e, no menu «Catálogos», criar, abrir, montar figura, herói a partir do padrão, esquecer e excluir"
+  "administrar_catalogo_tip": "Abre a janela do catálogo: peças, certificação, compatibilidade e, no menu «Catálogos», criar, abrir, montar figura, herói a partir do padrão, esquecer e excluir",
+  "menu_figura_abierta": "Da figura aberta ▾",
+  "menu_figura_abierta_tip": "Ações que dependem da figura aberta: catalogá-la, guia de cortes, ajustar cintura e pulso ao padrão e revisar as peças escolhidas"
  },
  "figura": {
   "marcar_coronilla_clic": "Marcar topo da cabeça (clique)",

@@ -1696,7 +1696,9 @@
   "dibujar_las_piezas_elegidas_antes_de": "Dibujar las piezas elegidas antes de generar",
   "pieza_de_cada_lugar_al_cambiar": "Pieza de cada lugar (al cambiar hay que generar)",
   "administrar_catalogo": "Administrar catálogo…",
-  "administrar_catalogo_tip": "Abre la ventana del catálogo: piezas, certificación, compatibilidad y, en su menú «Catálogos», crear, abrir, armar figura, héroe desde el patrón, olvidar y eliminar"
+  "administrar_catalogo_tip": "Abre la ventana del catálogo: piezas, certificación, compatibilidad y, en su menú «Catálogos», crear, abrir, armar figura, héroe desde el patrón, olvidar y eliminar",
+  "menu_figura_abierta": "De la figura abierta ▾",
+  "menu_figura_abierta_tip": "Acciones que dependen de la figura abierta: catalogarla, guía de cortes, ajustar cintura y muñeca al patrón y revisar las piezas elegidas"
  },
  "figura": {
   "marcar_coronilla_clic": "Marcar coronilla (clic)",

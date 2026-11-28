@@ -1696,7 +1696,9 @@
   "dibujar_las_piezas_elegidas_antes_de": "Draw the chosen parts before generating",
   "pieza_de_cada_lugar_al_cambiar": "Part for each place (changing it requires generating)",
   "administrar_catalogo": "Manage catalog…",
-  "administrar_catalogo_tip": "Opens the catalog window: parts, certification, compatibility and, in its «Catalogs» menu, create, open, build a figure, hero from pattern, forget and delete"
+  "administrar_catalogo_tip": "Opens the catalog window: parts, certification, compatibility and, in its «Catalogs» menu, create, open, build a figure, hero from pattern, forget and delete",
+  "menu_figura_abierta": "Open figure ▾",
+  "menu_figura_abierta_tip": "Actions that depend on the open figure: catalog it, cut guide, fit waist and wrist to the pattern and review the chosen parts"
  },
  "figura": {
   "marcar_coronilla_clic": "Mark crown (click)",

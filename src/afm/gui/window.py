@@ -1433,6 +1433,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self.btn_cat_add.set_sensitive(bool(loaded and root and not ctrl.busy))
         self.btn_cat_guide.set_sensitive(bool(loaded and not ctrl.busy))
         self.btn_cat_fitcm.set_sensitive(bool(loaded and root and not ctrl.busy))
+        self.menu_cat_figure.set_sensitive(bool(loaded and not ctrl.busy))     # sin figura abierta no hay nada que elegir dentro
         self.btn_proportions.set_sensitive(bool(loaded and root and not ctrl.busy))
         self.btn_cat_manage.set_sensitive(not ctrl.busy)       # sin proyecto ni catálogo abierto: al apretar abre el recordado o pide la carpeta
         self.btn_cat_online.set_sensitive(not ctrl.busy)

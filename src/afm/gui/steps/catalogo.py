@@ -11,6 +11,22 @@ from ..widgets import collapsible as _collapsible
 from ..widgets import help_note as _help
 
 
+def _popover_menu(label: str, tip: str, items: list) -> Gtk.MenuButton:
+    """`Gtk.MenuButton` con un popover de ítems planos: cada botón cierra el menú al usarse. Los ítems conservan su
+    sensibilidad propia (un ítem deshabilitado se ve gris dentro del menú)."""
+    mb = Gtk.MenuButton(label=label, tooltip_text=tip)
+    pop = Gtk.Popover()
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, margin_top=6, margin_bottom=6, margin_start=6, margin_end=6)
+    for b in items:
+        b.set_has_frame(False)
+        b.set_halign(Gtk.Align.START)
+        b.connect("clicked", lambda *_: pop.popdown())
+        box.append(b)
+    pop.set_child(box)
+    mb.set_popover(pop)
+    return mb
+
+
 def build(win) -> None:
     """Agrega la pestaña «Catálogo» a `win.tabs` (win = la `MainWindow`)."""
     box = win._tab_page(tr("common.catalogo_2"))
@@ -45,9 +61,12 @@ def build(win) -> None:
     bar.append(win.btn_cat_manage)
     bar.append(win.btn_cat_online)
     places.append(bar)
+    # lo que depende de la figura abierta va en un desplegable (antes eran 4 botones en una segunda fila); los botones
+    # siguen siendo atributos de la ventana: `_sync_catalog` les pone la sensibilidad a cada uno
+    win.menu_cat_figure = _popover_menu(tr("catalogo.menu_figura_abierta"), tr("catalogo.menu_figura_abierta_tip"),
+                                        [win.btn_cat_add, win.btn_cat_guide, win.btn_cat_fitcm, win.btn_cat_review])
     bar2 = Gtk.Box(spacing=6)
-    for b in (win.btn_cat_add, win.btn_cat_guide, win.btn_cat_fitcm, win.btn_cat_review):      # lo que depende de la figura abierta
-        bar2.append(b)
+    bar2.append(win.menu_cat_figure)
     places.append(bar2)
     places.append(Gtk.Label(label=tr("catalogo.pieza_de_cada_lugar_al_cambiar"), xalign=0, css_classes=["dim-label"]))
     places.append(win.parts_box)
