@@ -101,7 +101,9 @@ def class_type_id(clase: str, params) -> str | None:
 
 def class_pin(clase: str, params):
     """Pasador (PinSpec) de la clase en esta línea, o None si no lleva: el de `Params` con encima las medidas del perfil de línea
-    cuando el tipo del lugar es `mushroom` (con clic el hongo queda el de `Params`, como en `pipeline._pin_spec`)."""
+    cuando el tipo del lugar es `mushroom` (con clic el hongo queda el de `Params`, como en `pipeline._pin_spec`). Con una rótula es el
+    pasador equivalente (`ball.equivalent_pin`: vástago = cono del cuello sobre la cara, cabeza = bola) para que la guía, la capacidad y
+    el contrato de interfaz midan lo que de verdad atraviesa la cara."""
     attr = PIN_ATTR_OF_CLASS.get(clase)
     if attr is None:
         return None
@@ -109,6 +111,9 @@ def class_pin(clase: str, params):
     e = profile_entry(params, clase) if clase in SWAPPABLE_CLASSES else None
     if e and e["type"] == "mushroom" and e.get("params"):
         return replace_params(base, e["params"], clase)
+    if e and e["type"] == "ball":
+        from .ball import equivalent_pin
+        return equivalent_pin(class_ball(clase, params), float(params.clearance))
     return base
 
 
@@ -120,8 +125,21 @@ def class_detent(clase: str, params):
     return params.detent
 
 
+def class_ball(clase: str, params):
+    """Medidas de la rótula de la clase: las de siempre (`BallSpec()`) con encima las del perfil si el tipo del lugar es `ball`."""
+    from .ball import BallSpec
+    e = profile_entry(params, clase) if clase in SWAPPABLE_CLASSES else None
+    if e and e["type"] == "ball" and e.get("params"):
+        return replace_params(BallSpec(), e["params"], clase)
+    return BallSpec()
+
+
 def _class_jp(clase: str, params, type_id: str):
-    return class_detent(clase, params) if type_id == "detent" else class_pin(clase, params)
+    if type_id == "detent":
+        return class_detent(clase, params)
+    if type_id == "ball":
+        return class_ball(clase, params)
+    return class_pin(clase, params)
 
 
 def class_requirements(clase: str, params):

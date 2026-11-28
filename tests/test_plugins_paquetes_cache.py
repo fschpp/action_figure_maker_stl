@@ -127,11 +127,11 @@ def _zip_with_types(cat, tmp_path, types, name="t.zip"):
 
 def test_instalar_warns_about_a_missing_joint_type_and_never_installs_code(cat, dest, tmp_path):
     add_arm(cat)
-    z = _zip_with_types(cat, tmp_path, [{"id": "ball", "api": 1}])
+    z = _zip_with_types(cat, tmp_path, [{"id": "tcrotch", "api": 1}])
     before = set(JT.REGISTRY)
     plan = I.plan_install(z, dest.root)
     assert plan.ok
-    assert any("tipo de articulación «ball»" in i.message and "no está instalado" in i.message for i in plan.warnings)
+    assert any("tipo de articulación «tcrotch»" in i.message and "no está instalado" in i.message for i in plan.warnings)
     I.apply(plan)
     assert set(JT.REGISTRY) == before
 

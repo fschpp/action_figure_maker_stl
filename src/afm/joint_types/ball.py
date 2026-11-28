@@ -17,7 +17,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .. import solids as S
-from ..params import Params
+from ..params import Params, PinSpec
 from ..planes import Plane
 from .base import API_VERSION, ConeMotion, FaceRequirements, JointResult, JointSite
 
@@ -62,6 +62,13 @@ def mouth_radius(jp: BallSpec, clearance: float) -> float:
     """Radio del cono del zócalo sobre el plano de la cara de contacto: lo que tiene que caber en la cara del anfitrión."""
     t = np.tan(np.radians(jp.half_angle))
     return float(jp.neck_d / 2 + clearance + (jp.neck_len + jp.ball_d / 2) * t)
+
+
+def equivalent_pin(jp: BallSpec, clearance: float) -> PinSpec:
+    """`PinSpec` que hace de la rótula para lo que solo sabe de pasadores (guía de cortes, capacidad del anfitrión, contrato de interfaz,
+    cabezas enfrentadas de la cadera): el «vástago» es el cono del cuello sobre la cara (Ø = 2 · `mouth_radius`, lo que tiene que caber en
+    ella) y la «cabeza» es la bola. Con la bola vista como un disco la separación entre caderas sale algo menor que la real: del lado seguro."""
+    return PinSpec(2.0 * mouth_radius(jp, clearance), float(jp.neck_len), float(jp.ball_d), float(jp.ball_d))
 
 
 class Ball:

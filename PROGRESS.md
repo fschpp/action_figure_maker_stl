@@ -1,3 +1,27 @@
+## Current Focus — Plugins de articulación, Fase 4 (corte 4): `ball` registrado y despachado en `pipeline.build` (2026-11-28, sobre el corte 3 f07ec68)
+**Objetivo.** Que un `mechanism="ball"` (o `Params.joints[lugar]` con `type: ball`) arme de verdad una rótula en hombro o cadera, con su validación, y deje de caer al hongo (`docs/PLAN_plugins_articulacion.md` §4.3, §5 Fase 4).
+**Hecho.**
+- `joint_types`: `Ball` en `REGISTRY` y `BUILTIN` (aparece en la oferta de tipos de hombro y cadera); `ball.equivalent_pin` = el `PinSpec` que representa a la rótula ante lo que solo sabe de pasadores (vástago = cono del cuello sobre la cara, cabeza = bola).
+- `resolve`: `class_ball` (perfil de línea sobre `BallSpec()`), `_class_jp` entrega la `BallSpec` cuando el tipo es `ball`, `class_pin` entrega el pasador equivalente. Con eso `capacity`, `interface`, `guide`, `ports`, `pin_aid` y `class_signature` miden la rótula y no un hongo que no existe.
+- `pipeline.build`: el bucle de miembros despacha por `limb_type_id`; con `ball` resta el zócalo del torso y deja `ConeMotion` en `res.motion`. `_print_posed` aplica la pose impresa del movimiento (de pie: identidad; hongo y clic siguen girando `th`, así que su salida no cambia). `report["limbs"][n]` suma `mecanismo: "rotula"` y `rotula` (margen del labio, radio de la boca, `boca_margen_mm`).
+- `validate`: la rótula no pasa por el chequeo de vástago de hongo; avisa si el cono sobresale de la cara; en cadera mide la separación entre las dos bolas (≥ 2·holgura) en vez de las paredes del pasador; recorrido sobre grilla (ya existía).
+- `flat_for_print`: un brazo o cadera de rótula ya no rompe (el brazo no se gira hacia el plano; la cadena de pierna usa el centro del cono con `th = 0`).
+- **Bug corregido** en `ConeMotion.poses`: con un cono menor que el paso (p. ej. 2° y paso 2,5°) la grilla solo traía el reposo y la validación «pasaba» sin recorrer nada. Ahora cierra siempre en el borde del cono (`_closed_range`); `sweep_angles` no se tocó (la cavidad del hongo sigue igual).
+- `tests/test_joint_ball_pipeline.py` (16): registro, medidas por clase, grilla de un cono chico, brazo y cadera armados, informe, validación (un cono de 4° se reporta como problema), «sin ball nada cambia». `test_guide_offer` ajustado (la oferta ahora trae `ball`; con sus medidas por defecto no entra en el muñeco).
+**Pruebas.** `tools/golden.py comparar muneco`: «idéntica a la dorada». Pasan 156 de la tanda joints/guía/registro/puertos (`test_joint_ball_pipeline`, `test_joint_ball`, `test_joint_motion`, `test_joint_registry`, `test_joint_swivel`, `test_guide_offer`, `test_guide`, `test_port_joint_type`, `test_params_joints`, `test_joint_options`, `test_joint_chain`).
+**No hecho.** `guide.SeatedClash` con `print_pose`; probeta de rótula (H2); pose sentada de una cadera de rótula; la rótula no se ofrece en la GUI de parámetros (solo por `mechanism`/perfil); dorados con STL reales (belgrano, guemes, mickey); validación de la rótula solo contra el torso (no contra otras piezas).
+
+### Todo List
+- [x] Done: `ball` registrado, despachado en `pipeline.build`, medido por clase de puerto y validado
+- [/] In Progress: Fase 4 — `SeatedClash` con `print_pose`
+- [ ] Todo: probeta de rótula (H2); decidir la cadera sentada (cono ≥ 90° no retiene); relieve en el cuerpo de la hija para que el cono declarado sea el real
+
+### Latest Blockers/Discoveries
+- Con el muñeco, un brazo de rótula valida limpio hasta ~1° y ya interfiere a 2° (0,0006 mm³) y a 4° (8,9 mm³): el cuerpo de la hija contra el anfitrión limita antes que el cono. Hace falta relieve o más luz para usar los 20° por defecto.
+- Con las medidas por defecto (bola Ø7, cono 20°) la rótula no entra en los cortes del muñeco: la oferta la marca «no» (cara con poca pared; la pierna además sin profundidad: pide 10,2 mm y hay 8,76).
+- La validación de recorrido de una rótula es cara (una grilla de poses contra el torso): 20–50 s según el cono; con `sweep_check_step` mayor se acorta.
+- Dependencias de este entorno: hubo que instalar `manifold3d`, `trimesh`, `shapely`, etc. con pip para correr nada.
+
 ## Current Focus — Plugins de articulación, Fase 4 (corte 3): el tipo `ball` (rótula), sin registrar todavía (2026-11-28, sobre el corte 2 139eb87)
 **Objetivo.** Tener el tipo `ball` construido y probado con el kit de conformidad antes de enchufarlo a `pipeline.build` (`docs/PLAN_plugins_articulacion.md` §4.3).
 **Hecho.**

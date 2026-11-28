@@ -94,6 +94,14 @@ def _pin_spec(spec: LimbSpec, p: Params):
     return base
 
 
+def _ball_spec(spec: LimbSpec, p: Params):
+    """Medidas de la rótula del miembro: las del tipo (`BallSpec()`) con encima las del perfil de línea y las propias del miembro."""
+    from .joint_types.resolve import limb_overrides, replace_params
+    base = JT.get("ball").default_params(p, spec.name)
+    over = limb_overrides(spec, p, "ball")
+    return replace_params(base, over, spec.name) if over else base
+
+
 _rotation_axis = JT.rotation_axis       # el eje de giro del pasador vive en el contrato de los tipos (`joint_types.base`)
 
 
@@ -241,6 +249,19 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
                                          if pocket_in_body > 0 else 0.0)
                 limb_raw = S.difference(limb_raw, hand_build.pocket)
         axis = _rotation_axis(face)
+        if JT.resolve.limb_type_id(spec, p) == "ball":
+            # Rótula: no hay un eje de giro. El zócalo (hija dilatada + cono del cuello) se resta del torso y el movimiento es un
+            # `ConeMotion`; la pose impresa es la declarada por el movimiento (de pie: la rótula no llega a la pose sentada).
+            bjp = _ball_spec(spec, p)
+            jr = JT.get("ball").build(JT.JointSite(slot=spec.name, side="izq", child=limb_raw, face=face, params=p, jp=bjp,
+                                                   print_hint={"print_tilt": (0.0, 0.0, 0.0)}, say=say))
+            for c in jr.cutters["parent"]:
+                torso_half = S.difference(torso_half, c)
+                cutters.append(c)
+            built[spec.name] = {"limb": jr.pieces["child"], "face": face, "axis": axis, "spec": spec,
+                                "angles": [0.0, float(bjp.half_angle)], "print_angle": 0.0, "pin_margin": None,
+                                "motion": jr.motion, "ball": jr}
+            continue
         dspec = DT.detent_spec_for(spec, p)
         if dspec is not None:
             th = _print_angle(spec, p, dspec, sit)
@@ -312,11 +333,10 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
         limb = b["limb"]
         hip_sit = sit and b["spec"].kind == "leg"
         th = b.get("print_angle", p.sit_angle if hip_sit else 0.0)       # giro de la pose impresa alrededor del pasador
-        res_motion[name] = JT.RevoluteMotion(b["limb"], b["face"].center, b["axis"], (b["angles"][0], b["angles"][-1]))
+        res_motion[name] = b.get("motion") or JT.RevoluteMotion(b["limb"], b["face"].center, b["axis"], (b["angles"][0], b["angles"][-1]))
         jbs = joint_builds.get(name)
         if jbs is None:
-            if th:
-                limb = S.rotate_about_axis(limb, b["face"].center, b["axis"], th)
+            limb = _print_posed(b, limb, th)
             pieces[f"{name}_izq"] = limb
             pieces[f"{name}_der"] = S.mirror_x(limb)
         else:
@@ -326,8 +346,7 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
             posed = _chain_pieces([jb.proximal for jb in jbs] + [jbs[-1].distal],
                                   jbs, flexes)
             for nm, mf in zip(names, posed):
-                if th:
-                    mf = S.rotate_about_axis(mf, b["face"].center, b["axis"], th)
+                mf = _print_posed(b, mf, th)
                 pieces[f"{nm}_izq"] = mf
                 pieces[f"{nm}_der"] = S.mirror_x(mf)
             for k, (j, jb) in enumerate(zip(chain, jbs)):
@@ -349,6 +368,11 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
         }
         if b["pin_margin"] is not None:
             report["limbs"][name]["pin_margin_mm"] = round(float(b["pin_margin"]), 3)
+        if "ball" in b:
+            report["limbs"][name]["mecanismo"] = "rotula"
+            report["limbs"][name]["rotula"] = dict(b["ball"].report)
+            mm = pin_margin(b["face"], 2.0 * b["ball"].report["mouth_radius_mm"])
+            report["limbs"][name]["rotula"]["boca_margen_mm"] = None if mm is None else round(float(mm), 3)
         if name in detents:
             dl = detents[name]
             report["limbs"][name]["mecanismo"] = "clic"
@@ -496,6 +520,16 @@ def build_from_parts(parts: dict[str, PartChoice], p: Params, sit: bool = True, 
     host = synthesize_host(parts, p)
     return build(host.body, host.limbs, p, None, sit, progress, trims, host.head, joints, host.waist, hand, host.parts,
                  host_faces=host.faces)
+
+
+def _print_posed(b: dict, mf: S.Manifold, th: float) -> S.Manifold:
+    """Una pieza del miembro en su pose impresa: con rótula, la que declara su movimiento (`Motion.print_pose`, hoy de pie = identidad);
+    con un eje, el giro `th` alrededor del pasador. Sin giro devuelve la misma malla."""
+    mo = b.get("motion")
+    if mo is not None:
+        T = np.asarray(mo.print_pose(), float)
+        return mf if np.allclose(T, np.eye(4)) else JT.moved(mf, T)
+    return S.rotate_about_axis(mf, b["face"].center, b["axis"], th) if th else mf
 
 
 def _place_hand_piece(hb, jbs, joints, b: dict, th: float, p: Params, pieces: dict) -> dict:
@@ -710,6 +744,14 @@ def validate(res: BuildResult, p: Params, limbs: list[LimbSpec], sit: bool = Tru
     out: dict = {"ok": True, "problems": [], "avisos": [], "avisos_pasador": [], "pieces": {}, "gaps": {}}
     torso = body_ref(res)         # con cintura: pecho + pelvis
     for name, info in res.report.get("limbs", {}).items():
+        rot = info.get("rotula")
+        if rot is not None:
+            out["avisos"].extend(rot.get("avisos", []))
+            bm = rot.get("boca_margen_mm")
+            if bm is not None and bm < 0:
+                out["avisos_pasador"].append(f"{name}: el cono de la rótula sobresale {-bm:.2f} mm de la cara de contacto")
+            elif bm is not None and bm < p.min_wall:
+                out["avisos_pasador"].append(f"{name}: el cono de la rótula queda a {bm:.2f} mm del borde de la cara (< {p.min_wall:.1f} mm de pared)")
         m = info.get("pin_margin_mm")
         if m is not None and m < 0:
             out["avisos_pasador"].append(f"{name}: el vástago del pasador sobresale {-m:.2f} mm de la cara de contacto")
@@ -778,6 +820,8 @@ def validate(res: BuildResult, p: Params, limbs: list[LimbSpec], sit: bool = Tru
             if (res.pieces[a] ^ res.pieces[b]).volume() > 1e-6:
                 out["problems"].append(f"{a} y {b} se interpenetran")
     for spec in limbs:
+        if res.report.get("limbs", {}).get(spec.name, {}).get("mecanismo") == "rotula":
+            continue                      # el cuello de la rótula avisa por su cuenta (`Ball.build`)
         pin = _pin_spec(spec, p)
         if pin.shaft_d < p.min_pin_d:
             out["problems"].append(f"{spec.name}: vástago Ø{pin.shaft_d} < {p.min_pin_d}")
@@ -866,6 +910,19 @@ def _validate_hip_pin(res: BuildResult, p: Params, limbs: list[LimbSpec], out: d
     for spec in limbs:
         r = res.report.get("limbs", {}).get(spec.name)
         if spec.kind != "leg" or r is None:
+            continue
+        if (rot := r.get("rotula")) is not None:
+            # Sin pasador: el zócalo de una cadera no puede tocar el del otro lado. La bola (centro a neck_len + R de la cara, R = ball_d/2)
+            # llega a `|x| − R`; separación entre las dos bolas = 2 · eso, y los zócalos (dilatados la holgura) piden 2 · holgura.
+            d = np.asarray(r["pin_dir"], float)
+            d = d / np.linalg.norm(d)
+            R = float(_ball_spec(spec, p).ball_d) / 2
+            reach = float(_ball_spec(spec, p).neck_len) + R
+            sep = 2.0 * float((np.asarray(r["pin_center"], float) + d * reach)[0] - R)
+            info[spec.name] = {"separacion_cabezas_mm": round(sep, 3)}
+            if sep < 2 * p.clearance - 1e-9:
+                out["problems"].append(f"{spec.name}: las bolas de las dos caderas quedan a {sep:.2f} mm "
+                                       f"(< 2·holgura = {2 * p.clearance:.2f} mm)")
             continue
         pin = _pin_spec(spec, p)
         d = np.asarray(r["pin_dir"], float)
@@ -1727,7 +1784,8 @@ def flat_for_print(res: BuildResult, depth: float = 1.0, p: Params | None = None
     for limb_name, links in straight_by_limb.items():
         rs = [res.report["joints"][jn] for jn, _fl in links]
         jbs = [res.joints[jn] for jn, _fl in links]
-        _l, hc, hax, _rng = JT.as_revolute(res.motion[limb_name])
+        mo = res.motion[limb_name]
+        hc, hax = ((rv.center, rv.axis) if (rv := JT.as_revolute(mo)) is not None else (mo.center, mo.axis))   # rótula: th = 0, no se gira
         th = float(rs[0].get("print_hip", p.sit_angle))
         names = [rs[0]["piezas"][0]] + [r["piezas"][1] for r in rs]
         posed = _chain_pieces([jbs[0].proximal] + [jb.proximal for jb in jbs[1:]] + [jbs[-1].distal], jbs, [fl for _jn, fl in links])
@@ -1792,6 +1850,9 @@ def flat_for_print(res: BuildResult, depth: float = 1.0, p: Params | None = None
         fwd = 1.0 if ly >= ty else -1.0          # hacia dónde apuntan las piernas sentadas = adelante
     angles: dict = {}
     for limb in arm_limbs:
+        if JT.as_revolute(res.motion[limb]) is None:
+            angles[limb] = 0.0                  # rótula: no hay un eje sobre el que girar el brazo hacia el plano; queda como está
+            continue
         _l, center, axis, _ = JT.as_revolute(res.motion[limb])
         left = {pn: res.pieces[f"{pn}_izq"] for pn in _limb_piece_names(res, limb)}
         pts = np.vstack([S.to_trimesh(m).vertices for m in left.values()])

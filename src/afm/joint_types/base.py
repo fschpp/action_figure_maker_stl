@@ -39,6 +39,15 @@ def sweep_angles(rng: tuple[float, float], step: float) -> list[float]:
     return [float(a) for a in angles]
 
 
+def _closed_range(rng: tuple[float, float], step: float) -> list[float]:
+    """Como `sweep_angles`, pero con un rango más corto que el paso también llega a `rng[1]` (`sweep_angles` devuelve solo `rng[0]`: lo de
+    siempre para la cavidad del hongo). La grilla de una rótula tiene que tocar el borde de su cono aunque el cono sea de 2° y el paso de 2,5°."""
+    a = sweep_angles(rng, step)
+    if rng[1] > rng[0] and a[-1] < rng[1] - 1e-9:
+        a.append(float(rng[1]))
+    return a
+
+
 class RevoluteMotion(NamedTuple):
     """Movimiento de un solo eje. Es IDÉNTICA a la tupla `(limb, centro, eje, (a0, a1))` que `BuildResult.motion` guarda desde
     siempre: se desempaqueta igual (`_l, c, ax, (a0, a1) = res.motion[n]`), así que ningún consumidor existente cambia."""
@@ -124,9 +133,9 @@ class ConeMotion:
 
     def poses(self, step_deg: float = 5.0) -> Iterable[np.ndarray]:
         step = max(float(step_deg), 1e-6)
-        twists = sweep_angles(tuple(self.twist), step)
+        twists = _closed_range(tuple(self.twist), step)
         yield from (self.pose(0.0, 0.0, tw) for tw in twists)
-        for tilt in (t for t in sweep_angles((0.0, float(self.half_angle)), step) if t > 1e-9):
+        for tilt in (t for t in _closed_range((0.0, float(self.half_angle)), step) if t > 1e-9):
             n_az = max(4, int(np.ceil(360.0 * np.sin(np.radians(tilt)) / step)))
             for k in range(n_az):
                 for tw in twists:
