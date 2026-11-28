@@ -1,185 +1,31 @@
-# action_figure_maker_stl
+# afm-catalogo-indice
 
-Aplicación de escritorio (Python + GTK4) que toma un STL de una sola pieza (figura de 10 cm)
-y devuelve una figura **articulada, sentada y armada en una sola impresión** (print-in-place),
-al estilo de las Kenner de los 80: torso en una pieza, brazos y piernas atrapados en cavidades
-sobre pasadores tipo hongo.
+Índice de paquetes de [afm](https://github.com/fschpp/action_figure_maker_stl). Solo guarda **metadatos**: nombre, descripción, portada y un
+enlace al Release de GitHub donde vive cada `.zip`. Un bot arma `data/index.json` y lo publica en GitHub Pages.
 
-[Versión online](https://fschpp.github.io/action_figure_maker_stl/)
+- Sitio: `https://fschpp.github.io/afm-catalogo-indice/`
+- En afm: **Explorar → Agregar índice…** con `https://fschpp.github.io/afm-catalogo-indice/data/index.json`.
 
-Documentación de diseño: [`docs/PLAN_herramienta_stl_articulable.md`](docs/PLAN_herramienta_stl_articulable.md).
-Proceso manual de referencia (Onshape): [`docs/tutorial_onshape.md`](docs/tutorial_onshape.md).
+## Cómo funciona
 
-## Estado
+1. Publicás tu paquete en tu repo (Release con `<id>-<versión>.zip`) con **Publicar un paquete** de afm.
+2. `afm catalogo paquete enviar <carpeta>` abre un Pull Request acá con `paquetes/<Autor>@<id>/` (`meta.json`, `descripcion.md`, `portada`).
+3. El CI del PR revisa el alta (IX101–IX108) y baja el zip del Release para validarlo como `afm catalogo validar --estricto`.
+4. Al fusionar, `build-index.yml` regenera el índice. También corre cada noche para recoger Releases nuevos.
 
-Ver [`PROGRESS.md`](PROGRESS.md).
+Reglas: solo GitHub Releases, zip de hasta 100 MB, portada de hasta 2 MB, 1–4 categorías de la lista cerrada. Ver `docs/POLITICA_catalogos_online.md`
+en el repo de afm y `CONTRIBUTING.md`.
 
-## Instalación (uso)
+## Retiros y reclamos
 
-En Debian / Ubuntu y derivados, con GTK4 de apt:
+Abrí un issue «Reclamo». Se retira primero (`bloqueados.json`) y se discute después. Listar no es verificar.
 
-```bash
-sudo apt install python3-venv python3-gi python3-gi-cairo gir1.2-gtk-4.0 libgl1 libegl1
-./packaging/instalar.sh
+## Desarrollo
+
 ```
-
-Deja el programa en el menú y `afm-gui` / `afm` en `~/.local/bin`. Resumen de una página: [`docs/manual_corto.md`](docs/manual_corto.md).
-
-## Instalación (desarrollo)
-
-```bash
-pip install -e ".[dev]"
+pip install -r requirements.txt
 pytest
+python scripts/construir_indice.py --salida data          # sin red: solo desde los meta.json
 ```
 
-## Interfaz gráfica
-
-```bash
-afm-gui [figura.stl | proyecto.proyecto]
-```
-
-Guía de uso: [`docs/tutorial_gui.md`](docs/tutorial_gui.md).
-
-### Idioma de la interfaz (es / en / pt)
-
-La interfaz está en español, inglés y portugués (con [`python-i18n`](https://pypi.org/project/python-i18n/)). Se cambia
-desde el botón de idioma de la cabecera (la ventana se vuelve a armar sin perder la figura) y se recuerda para el próximo
-arranque. También: `afm-gui --lang en` o la variable `AFM_LANG=pt`; sin nada de eso se usa el idioma del sistema.
-Orden de prioridad: `--lang` > `AFM_LANG` > el elegido en la ventana > el del sistema > español.
-
-Los textos viven en `src/afm/locales/{es,en,pt}.json` (claves anidadas; `%{var}` para variables). El español es el idioma de
-origen y el de reserva. Para agregar un texto: crear la clave en `es.json`, traducirla en `en.json` y `pt.json` y usar
-`tr("seccion.clave", var=...)` (o `lz("seccion.clave")` en constantes de módulo, que se traducen al mostrarse con `loc()`).
-`tests/test_i18n.py` verifica que los tres idiomas tengan las mismas claves y variables.
-
-## Uso (motor, sin interfaz)
-
-```bash
-afm demo --out out/demo            # genera una figura sintética y la articula
-afm build figura.stl proyecto.json --out out/figura
-```
-
-Accesorios para la mano estándar (espadas, fusiles… con empuñadura dentada que encaja en el puño sin pegamento; `src/afm/props.py`):
-
-```bash
-afm agarre out/mano/mano.stl --out out/agarre      # taladra el puño y genera una placa de espadas de prueba con 3 dentados
-# opciones: --taladro 2.4 --vastago 2.0 --ranura 0.5 --largo-lengueta 8 --dentados 2.7,2.9,3.1
-# escribe <mano>_agarre.stl (+ .mano.json con el eje y el Ø del taladro), <mano>_espadas_prueba.stl (acostadas, fondo plano) e informe .json
-afm agarre out/mano/mano.stl --catalogo RUTA --id-mano mano-guemes-agarre-01 --id-accesorio espada-prueba-01   # además lo guarda en el catálogo
-afm catalogo importar-accesorio RUTA espada.stl --largo-canal 10.1 --taladro 2.4 --dentado 2.9               # un arma propia con su empuñadura
-afm catalogo listar RUTA --compatible-con mano-guemes-agarre-01    # qué accesorios se sujetan en esa mano (y al revés)
-```
-
-Armas propias (cualquier STL → arma de la línea, con la empuñadura que ya sabemos que encaja; `src/afm/weapon.py`):
-
-```bash
-# 1) escalar (--largo MM o --escala F; por defecto 0,40 × la altura de la línea) y 2) cortar el mango original por un plano de 3 puntos
-#    (coordenadas del STL original; con el signo igual para que un primer número negativo no se tome por opción) y ponerle la empuñadura
-afm catalogo importar-arma RUTA excalibur.stl --corte=44,0,0;44,1,0;44,0,1 --largo 51 --id excalibur-01
-# 3) queda como pieza «accesorio» de la línea (con la mano con agarre más reciente del catálogo; --mano REF para otra)
-afm catalogo listar RUTA --tipo accesorio
-# 4) viaja con la figura: receta con "accesorios": ["excalibur-01"] (afm armar) o el proyecto de la ventana principal
-```
-
-En la ventana principal: sección «Arma (accesorio)» (importar el STL, largo/escala, plano de corte con 3 clics, invertir lado, giro, guardar en el
-catálogo abierto) y sección «Accesorios que viajan con la figura» (casillas con los accesorios del catálogo). Al exportar, el arma sale como STL
-aparte en `piezas/<figura>_<id>.stl` (acostada, lista para imprimir) y TAMBIÉN dentro de `<figura>_ensamblada.stl`, a la derecha de la figura y a
-la altura de su cama, con 10 mm de separación; no va en el puño. Los `.proyecto` y las recetas la guardan como referencia al catálogo (ruta + id@versión + sha256).
-
-¿El arma salió chica o grande? Simulación de tamaño (`src/afm/weapon_fit.py`, sin imprimir nada): en la ventana, el resumen de «Arma (accesorio)»
-suma cuánto sobresale del puño de la mano estándar (y cuánto de la altura de la figura ocupa), la guarda frente al puño, si toca la mano y si sale
-torcida; la vista previa de una montura suma cuánto de la altura ocupa el arma enfundada, a qué altura del piso queda la punta, cuánto asoma sobre
-la cabeza y si choca con los miembros de ese lado. Son avisos orientativos (una espada de la línea mide ≈ 0,40 × la altura): no bloquean nada. Por
-línea de comandos:
-
-```bash
-afm simular-arma RUTA excalibur-01 [--mano REF] [--out carpeta]   # --out escribe arma_en_mano.stl (mano y arma juntas) para mirarla en el visor
-```
-
-En el catálogo, la mano con agarre es una pieza `mano` y el arma una pieza `accesorio`; el agarre (Ø del taladro, canal, vástago, dentado…) va en
-`mecanismo.agarre` de cada una y `afm catalogo verificar` lo comprueba. La compatibilidad es barata (solo metadatos): Ø del taladro, vástago,
-dentado que retiene, deformación de la lengüeta, hombro del dentado contra el largo del canal y contorno de apoyo.
-
-Catálogo de piezas de una línea (plan `docs/PLAN_piezas_intercambiables_catalogo.md`, fases 0–2):
-
-```bash
-afm catalogo crear ~/catalogos/proceres-130 --linea proceres-130 --altura 130
-afm catalogo importar-mano ~/catalogos/proceres-130 out/mano/mano.stl   # mano estándar de `afm extraer-mano`
-afm catalogo agregar-stl RUTA pierna.stl --tipo pierna --puerto cadera x1 y1 z1 x2 y2 z2 x3 y3 z3
-# brazo del catálogo con la mano pegada → versión nueva sin mano (puerto «muneca») + pieza «mano» aparte (el original no se toca):
-afm catalogo cortar-muneca RUTA brazo-guemes-01 --muneca x1 y1 z1 x2 y2 z2 x3 y3 z3   # punto 1 = lado del pulgar
-# en la GUI: «Administrar catálogo» → elegí el brazo → «Cortar la mano…» → 3 clics en la muñeca sobre la vista previa (el 1.º del lado del pulgar);
-# en la vista previa: arrastrar gira, la rueda (o − / +) acerca y aleja, el botón derecho mueve, «Vista 3/4» restablece.
-# se ve la mano en verde («Invertir lado» si es al revés), se elige el id de la mano y «Guardar». El brazo original no se toca.
-afm catalogo listar RUTA [--tipo mano] [--compatible-con brazo-01]
-afm catalogo verificar RUTA
-# en la GUI: «Armar desde catálogo…» arma una figura nueva con piezas del catálogo, sin abrir un STL (equivale a `afm armar` con una receta).
-# «Armar y exportar» (y `afm armar`) escribe además `<figura>.proyecto`: se abre en la ventana principal SIN el STL (el cuerpo base sale del
-# catálogo de la línea y la figura se ve por partes); si el catálogo cambió de carpeta, la ventana pide dónde está.
-# Las tareas largas (armar, generar, exportar, abrir STL) muestran una barra con porcentaje, tareas pendientes y tiempo estimado.
-# Accesorios que acompañan a la figura: la receta admite «accesorios»: ["espada-prueba-01@1"] (piezas `accesorio` del catálogo; en la GUI,
-# sección «Accesorios que acompañan a la figura» de «Armar desde catálogo»). `afm armar` los escribe aparte en piezas/<figura>_<id>.stl (apoyados en la
-# cama, mm reales), los suma a <figura>_lista_de_piezas.{json,md} y al informe con su compatibilidad con la mano de la figura; NO van en el
-# ensamblado ni en el puño. Un accesorio que «no se sujeta» en esa mano (sin taladro, o Ø distinto) igual la acompaña, con aviso.
-afm catalogo eliminar RUTA pierna-belgrano-01@1 brazo-belgrano-01@1 [--buscar DIR] [--si]   # borra versiones (id@n) del disco; avisa quién las usa
-
-# Guía de cortes (plan `docs/PLAN_compatibilidad_cortes_catalogo.md`, fases 0 y 2): cuánto del catálogo acepta cada corte, sin generar nada.
-afm catalogo cobertura RUTA pierna-guemes-01 [--todas]       # cada puerto de la pieza contra el resto del catálogo (mismo criterio que --compatible-con)
-afm guia figura.stl figura.proyecto --catalogo RUTA          # mide la cara de cada corte (hombro, cadera, cuello): radio equivalente e inscrito,
-                                                             # posición lateral, margen del pasador, y su cobertura como enchufe y como toma
-afm guia figura.stl figura.proyecto --catalogo RUTA --ajustar [--rango 2 --paso 0.25] [--guardar salida.proyecto]   # prueba desplazar el plano de corte de cada
-afm guia figura.stl figura.proyecto --catalogo RUTA --estandar [--guardar salida.proyecto]   # lleva la cara de cada miembro al talle más cercano del contrato (ajusta cap_radius; con extrusión «outward» también cut_offset) y dice qué no pudo arreglar
-afm desde-patron guemes.proyecto heroe.stl [--out heroe.proyecto] [--corona Z] [--entrepierna MM]   # proyecto de un héroe nuevo a partir de la figura patrón: copia sus planos (cintura, cuello, rodilla, codo, muñeca), vuelve a dibujar las siluetas con la propuesta automática y deja un PNG de revisión (planos sobre la figura, de frente y de costado)
-                                                             # miembro «outward» y dice cuál da más cobertura (en miembros «symmetric» no aplica: la cara sale del STL)
-python tools/calibrar_compat.py RUTA --escribir --out docs/CALIBRACION_compat.md   # contrasta la barata con build + validate (minutos por combinación)
-
-# Contrato de interfaz de la línea (fase 1 del mismo plan): talles de cara y posición lateral por clase de puerto, en la clave `interfaz` de linea.json.
-afm catalogo contrato RUTA --calibrar [--tolerancia 0.4] [--metrica equivalente|inscrito]   # propone talles agrupando los radios de los enchufes del catálogo (no escribe nada)
-afm catalogo contrato RUTA --calibrar --guardar              # …y la guarda en linea.json (se niega si la propuesta tiene problemas)
-afm catalogo contrato RUTA [--ver | --validar | --quitar]    # ver el contrato y el talle de cada pieza / comprobar coherencia / borrarlo
-
-# Capacidad del anfitrión (fase 3): cuánto cuerpo deja el torso o la pelvis detrás de cada toma con pasador.
-afm catalogo capacidad RUTA [ID …]                           # mide sobre el STL de piezas ya catalogadas y dice si el pasador de la línea cabe
-afm catalogo certificar RUTA [ID…] [--estado] [--forzar]   # arma cada brazo/pierna/cabeza en un panel de torsos (el propio + menor/mediana/mayor capacidad) y guarda la certificación en compat.json; `listar` muestra «certificada k/n»; la clave incluye piezas, Params, contrato y motor: cualquier cambio la vence
-python tools/dejar_uno_afuera.py RUTA --figuras CARPETA [--metrica inscrito] [--out informe.md]   # prueba «dejar uno afuera»: cada figura real como nueva (contrato con las demás, ajuste, combinaciones cruzadas del mismo talle)
-afm catalogo capacidad RUTA [ID …] --escribir                # …y lo guarda en el .pieza.json (no toca el STL, el hash ni la versión)
-```
-
-«Catalogar» (`afm catalogo agregar`) imprime la cobertura de cada pieza recién guardada. La cobertura es **barata** (solo metadatos) y cuenta, entre las
-piezas de OTRAS figuras con el puerto opuesto, cuántas dan ok / aviso / no. Con `<catálogo>/calibracion.json` (lo escribe `tools/calibrar_compat.py --escribir`)
-suma la probabilidad *esperada* de que la compatibilidad completa también pase (límite inferior de Wilson al 95 %, con su *n*). En la GUI,
-«Guía de cortes…» (pestaña Catálogo) muestra lo mismo para la figura abierta.
-
-El **contrato** (`src/afm/interface.py`) fija, por clase, los talles (radio equivalente de la cara ± tolerancia), la posición lateral x del
-hombro y la cadera y el eje; cuello y cintura llevan un contrato blando (escala ≤ ±10 %). La métrica del radio es del contrato (`metrica` por clase): «equivalente» (el del círculo de la misma área, por defecto) o «inscrito» (el mayor círculo que
-entra en la cara, que es el que decide si el pasador entra con pared; en caras alargadas es 25–35 % menor). Un contrato sin `metrica` es el de siempre y su huella no cambia.
-Las medidas se llevan a la altura del contrato
-(los pasadores no escalan) y un talle no puede bajar del piso físico (Ø vástago / 2 + pared mínima). Las piezas son inmutables: su talle se
-deriva al vuelo, no se guarda en ellas. `afm catalogo verificar` avisa de los enchufes «fuera de contrato» (no es un problema) y la huella
-del contrato entra en la clave de `compat.json`; sin contrato todo funciona como antes.
-
-La **capacidad** (`src/afm/capacity.py`) se mide al catalogar (`extract_all`) y queda en el puerto de cada toma con pasador (`capacidad`,
-clave opcional de `afm-pieza-1`): la profundidad hasta la piel opuesta bajo la huella de la cabeza (rayos sin los puntos a menos de
-`min_wall` del borde de la cara, donde la piel se curva) y, en la cadera, dónde queda la cabeza respecto del plano de simetría (misma cuenta que
-`pipeline.hip_pin_walls`). `port_compat` la compara con lo que pide el pasador de la línea (`shaft_len + head_h + holgura + min_wall`) y da «no» si no
-alcanza, aviso si sobran menos de 0,5 mm. Una toma sin el dato (pieza vieja) no se juzga: queda marcada `sin_capacidad` y no baja de nivel.
-
-## Convenciones
-
-* Unidades: mm. Figura normalizada a `ref_height` mm de los pies a la coronilla (100 por defecto; se cambia en la GUI,
-  «Parámetros → Altura de la figura» + «Aplicar», que reescala también planos, siluetas y recortes; los pasadores,
-  la holgura y el clic son medidas absolutas y no se escalan).
-* Ejes: Z arriba, X izquierda-derecha, Y atrás-adelante (frente = +Y).
-* Se trabaja el lado **izquierdo (+X)** y se espeja; el torso sale soldado en una sola pieza.
-  Si el torso tiene un diseño asimétrico (banda cruzada, condecoraciones de un solo lado), poné
-  `torso_mirror = 0` («Parámetros → Torso espejado» en la GUI): el torso conserva ambos lados del STL y solo
-  los miembros se espejan (la cabeza ya sale entera del STL).
-
-### Ajustes de proporciones y pelvis de catálogo
-
-Podés conservar el torso del proyecto al importar una pelvis, dividir la figura actual y escalar sus piezas originales
-por separado antes de regenerar las uniones. Ver [uso en GUI y CLI](docs/ajustes_piezas.md).
-
-## Licencia
-
-GPL-3.0-or-later (ver `LICENSE`). Usa manifold3d (Apache-2.0), three.js (MIT) y Pyodide (MPL-2.0).
+Licencia del código: GPL-3.0. Cada paquete tiene la suya.

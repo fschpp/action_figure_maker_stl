@@ -1,0 +1,5 @@
+# afm (el motor) se instala desde su repo; fíjalo a un tag cuando haya uno.
+afm @ git+https://github.com/fschpp/action_figure_maker_stl.git@main
+jsonschema>=4
+Pillow>=10
+pytest>=8

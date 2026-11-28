@@ -1,0 +1,3 @@
+[console_scripts]
+afm = afm.cli:main
+afm-gui = afm.gui.app:main
