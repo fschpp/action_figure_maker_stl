@@ -98,6 +98,8 @@ def probe_cell_summary(manifest: dict, cell: dict) -> str:
         return f"holgura {cell['holgura']:g} mm, vástago Ø{cell['vastago']:g} mm ({manifest.get('pasador', 'hombro')})"
     if tipo == "giro":
         return f"holgura {cell['holgura']:g} mm, vástago Ø{cell['vastago']:g} mm (giro)"
+    if tipo == "rotula":
+        return f"holgura {cell['holgura']:g} mm, bola Ø{cell['bola']:g} mm, labio {cell['labio']:g} mm (rótula)"
     if tipo == "bisagra":
         return (f"holgura radial {cell['holgura']:g} mm, axial {cell['holgura_axial']:g} mm, "
                 f"bulón Ø{cell['bulon']:g} mm")
@@ -146,6 +148,7 @@ def probe_cell_changes(manifest: dict, n: int, archivo: str | None = None) -> di
       · hongo: `clearance` y el Ø de vástago del pasador de la tirada (cadera u hombro);
       · giro (swivel): solo `clearance`: el Ø de vástago del giro todavía no tiene lugar en `Params` (`Params.joints` admite hombro, cadera,
         rodilla y codo; llega con la Fase 3), así que se anota en el resumen;
+      · rótula (ball): solo `clearance`: el Ø de la bola no tiene lugar en `Params` (como el vástago del giro), así que se anota en el resumen;
       · bisagra: `clearance`, `axial_clearance` y `hinge_pin.pin_d`;
       · clic: la `DetentSpec` completa de la celda."""
     from .params import DetentSpec
@@ -155,7 +158,7 @@ def probe_cell_changes(manifest: dict, n: int, archivo: str | None = None) -> di
     if tipo == "hongo":
         pin = "hip_pin" if manifest.get("pasador") == "cadera" else "shoulder_pin"
         return {"clearance": float(cell["holgura"]), f"{pin}.shaft_d": float(cell["vastago"])}
-    if tipo == "giro":
+    if tipo in ("giro", "rotula"):
         return {"clearance": float(cell["holgura"])}
     if tipo == "bisagra":
         return {"clearance": float(cell["holgura"]), "axial_clearance": float(cell["holgura_axial"]),

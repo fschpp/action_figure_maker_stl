@@ -1,3 +1,22 @@
+## Current Focus — Plugins de articulación, Fase 4 (corte 6): probeta de rótula, hilo físico H2 (2026-11-28, sobre el corte 5 305117b)
+**Objetivo.** Poder imprimir la probeta que decide si la rótula va (`docs/PLAN_plugins_articulacion.md` §4.3, R3, H2: holgura radial y Ø de bola con boquilla 0,4) antes de usar `ball` en una figura.
+**Hecho.**
+- `probes.py`: `ball_probe_cells` (holgura 0,2/0,3/0,4/0,5 × Ø de bola 6/7/8 mm = 12 celdas; descarta las que no retendrían la bola), `_ball_cell` (armada con `Ball.build`: bloque con el zócalo boca arriba apoyado en la cama + miembro suelto —vástago, cuello y bola— con mango en T arriba, número en relieve), `build_ball_probe(_cells)`, `ball_cell_text`/`ball_labels_text` (la tabla trae el margen del labio de cada celda). `probe_files("rotula")` da `probetas.stl/.3mf/.txt/.json` (`tipo: rotula`; por celda `holgura`, `bola`, `cuello`, `semiangulo`, `labio`).
+- `cli`: `afm probe --tipo rotula` (`--clearances`, `--deltas` = variación del Ø de bola). `profile`: `probe-resultado` guarda `clearance` de la celda elegida (el Ø de bola solo se anota en el resumen: como el vástago del giro, no tiene lugar en `Params`).
+- `tests/test_ball_probe.py` (12): grilla, celdas descartadas, la celda es dos piezas sueltas, el miembro se inclina hasta el cono (4 azimuts) y gira sin tocar, no se saca (subir 1 mm choca con el labio; 0,05 mm no), apoya en la cama, archivos de la tirada, resultado al perfil, CLI.
+**Pruebas.** Pasan `test_ball_probe` (12) y `test_probes`, `test_swivel_probe`, `test_probe_propagate`, `test_gui_probe_propagate` (40, 1 skip). Sin tocar el motor: sin golden.
+**Qué mirar al imprimir.** (a) Con boquilla 0,4 ¿la luz de 0,2–0,3 mm se funde y queda pegada? (b) ¿la bola de Ø6 con 0,5 mm de luz (labio 0,22 mm) se sale al tirar? (c) El puente de la cúpula del zócalo y la parte baja de la bola, que cuelgan sobre la luz (el plan lo anota como riesgo (a)): si sale feo, probar sin la plaqueta/con otra orientación o con la cúpula achaflanada. (d) ¿se inclina libre a 20° o el cuello roza? Anotar el número de la mejor celda y correr `afm probe-resultado probetas.json N --perfil X`.
+**No hecho.** La ventana de probetas de la GUI y la página (Pyodide) no ofrecen todavía «rótula» (solo CLI y `probe_files`); pose sentada de una cadera de rótula; relieve en el cuerpo de la hija; dorados con STL reales.
+
+### Todo List
+- [x] Done: probeta de rótula (generador, manifiesto, CLI, perfil)
+- [ ] Todo (cliente): imprimir `afm probe --tipo rotula` y reportar la celda ganadora (cierra H2)
+- [ ] Todo: según H2, decidir la cadera sentada y el relieve del cuerpo de la hija; ofrecer «rótula» en la ventana de probetas
+
+### Latest Blockers/Discoveries
+- El margen de labio cae con la holgura y rápido con la bola chica: con 0,5 mm de luz la bola de Ø6 retiene solo 0,22 mm y la de Ø8 0,84 mm; con 1 mm de luz solo la de Ø8 retiene. Por eso la tirada por defecto baja a 0,2–0,5 mm (las de los pasadores, 0,3–0,6, dejarían el labio muy fino).
+- La celda tarda ~8–10 s en armarse (dilatación de la hija): la tirada completa, ~100 s.
+
 ## Current Focus — Plugins de articulación, Fase 4 (corte 5): `guide.SeatedClash` con la pose impresa de la rótula (2026-11-28, sobre main 7ed1c79)
 **Objetivo.** Que el choque en pose sentada de la guía de cortes no gire una cadera de rótula `sit_angle` sobre un eje que no tiene (`docs/PLAN_plugins_articulacion.md` §3.3, Fase 4).
 **Hecho.**

@@ -400,6 +400,91 @@ def swivel_labels_text(cells: list[SwivelProbeCell]) -> str:
 
 
 # --------------------------------------------------------------------------------------------------
+# Probeta de rótula (ball: hombro / cadera): PLAN_plugins_articulacion.md §4.3 y R3, hilo físico H2.
+#   La rótula es el tipo de más incertidumbre (¿imprime armada con boquilla 0,4?, ¿una holgura de 0,5 mm sobre una bola de Ø6–8 mm la
+#   deja suelta?): esta probeta lo decide antes de comprometer su uso en figuras.
+# --------------------------------------------------------------------------------------------------
+BALL_CLEARANCES = (0.2, 0.3, 0.4, 0.5)       # la bola es esférica: con la holgura de los pasadores (0,3–0,6) el labio queda muy fino
+BALL_DIAMETER_DELTAS = (-1.0, 0.0, 1.0)      # sobre `BallSpec.ball_d`
+BALL_STEM_LEN = 8.0                          # mm de vástago sobre la cara hasta el mango (el cuello sigue por dentro hasta la bola)
+
+
+@dataclass
+class BallProbeCell:
+    label: str
+    clearance: float
+    spec: "object"          # `joint_types.ball.BallSpec`
+    lip_margin: float       # cuánto más ancha que el labio es la bola (mm): lo que la retiene
+
+
+def ball_probe_cells(p: Params, base=None, clearances=BALL_CLEARANCES, diameter_deltas=BALL_DIAMETER_DELTAS) -> list[BallProbeCell]:
+    """Todas las combinaciones holgura × Ø de bola del tipo `ball` (cuello y cono se mantienen). Se descartan las que no retendrían la
+    bola (margen de labio ≤ 0): no serían una rótula."""
+    from .joint_types.ball import BallSpec, lip_margin
+    base = base or BallSpec()
+    cells = []
+    for c in clearances:
+        for dd in diameter_deltas:
+            spec = replace(base, ball_d=round(base.ball_d + dd, 3))
+            if spec.ball_d <= spec.neck_d:
+                continue
+            m = lip_margin(spec, float(c))
+            if m > 0:
+                cells.append(BallProbeCell(f"{c:.1f}/{spec.ball_d:.1f}", float(c), spec, round(float(m), 3)))
+    return cells
+
+
+def _ball_cell(cell: BallProbeCell, p: Params, pitch: float = 20.0, number: int | None = None) -> S.Manifold:
+    """Una rótula de prueba armada con el MISMO código del tipo (`Ball.build`): un bloque con el zócalo (boca arriba, apoyado en la
+    cama) y el miembro suelto — vástago Ø del cuello, cuello y bola — con un mango en T arriba para inclinarlo y girarlo con los dedos.
+    Imprime en el lugar: la bola queda en el zócalo con `clearance` de luz."""
+    from .joint_types.ball import Ball
+    from .joint_types.base import JointSite
+    from .limbs import ContactFace
+
+    q = replace(p, clearance=cell.clearance)
+    spec = cell.spec
+    t = Ball()
+    w = pitch - 4.0
+    depth = t.requires(spec, q).profundidad_mm + q.min_wall                     # cuerpo para el zócalo + una pared bajo la bola
+    block = S.Manifold.cube((w, w, depth), center=False).translate((-w / 2, -w / 2, -depth))
+    stem = S.cylinder_along((0, 0, -0.01), (0, 0, 1), spec.neck_d / 2, BALL_STEM_LEN + 0.01, 48, start=0)
+    face = ContactFace(center=np.array([0.0, 0.0, 0.0]), outward=np.array([0.0, 0.0, -1.0]), area=w * w)
+    res = t.build(JointSite(slot="hombro", side="izq", child=stem, face=face, params=q, jp=spec, parent=block, segments=24))
+    host = S.difference(block, *res.cutters["parent"])
+    top = BALL_STEM_LEN
+    post = S.cylinder_along((0, 0, top - 0.01), (0, 0, 1), HANDLE_POST_R, HANDLE_POST_H + 0.01, 24, start=0)
+    bl, bw, bh = HANDLE_BAR
+    bar = S.Manifold.cube((bl, bw, bh), center=True).translate((0, 0, top + HANDLE_POST_H + bh / 2 - 0.01))
+    member = S.union(res.pieces["child"], post, bar)
+    parts = [host.translate((0, 0, depth)), member.translate((0, 0, depth))]      # el bloque apoya en la cama (z = 0)
+    if number is not None:
+        parts.append(number_plaque(number, 0.0, -w / 2, 0.0, w))
+    return S.union(*parts)
+
+
+def build_ball_probe_cells(p: Params, cells: list[BallProbeCell], columns: int = 3, pitch: float = 20.0) -> list[S.Manifold]:
+    """Una malla por celda, ya en su lugar de la grilla (para el 3MF con un objeto con nombre por celda)."""
+    py = probe_pitch_y(pitch)
+    return [_ball_cell(c, p, pitch=pitch, number=i + 1).translate(((i % columns) * pitch, -(i // columns) * py, 0))
+            for i, c in enumerate(cells)]
+
+
+def build_ball_probe(p: Params | None = None, cells: list[BallProbeCell] | None = None, columns: int = 3, pitch: float = 20.0) -> S.Manifold:
+    p = p or Params()
+    return S.union(*build_ball_probe_cells(p, cells or ball_probe_cells(p), columns, pitch))
+
+
+def ball_cell_text(i: int, c: BallProbeCell) -> str:
+    return f"#{i + 1}: holgura {c.clearance:.1f} mm, bola Ø{c.spec.ball_d:.1f} mm (labio {c.lip_margin:.2f} mm)"
+
+
+def ball_labels_text(cells: list[BallProbeCell]) -> str:
+    """Tabla en el orden de la grilla, para anotar cuál se inclina libre, sin juego ni roce, y no se sale al tirar."""
+    return "\n".join(ball_cell_text(i, c) for i, c in enumerate(cells))
+
+
+# --------------------------------------------------------------------------------------------------
 # Probeta de clic (hombro / cadera): PLAN_mecanismo_clic_hombro_cadera.md §5, Fase 0.
 # --------------------------------------------------------------------------------------------------
 DEFAULT_DETENT_DEPTH_DELTAS = (-0.2, 0.0, 0.2)       # sobre `DetentSpec.notch_depth`
@@ -805,6 +890,15 @@ def probe_files(tipo: str = "hongo", clearances=None, deltas=None, axiales=None,
         mesh, text = S.union(*ms), swivel_labels_text(cells)
         objs = _objects([swivel_cell_text(i, c) for i, c in enumerate(cells)], ms)
         manifest = _manifest("giro", [{"n": i + 1, "holgura": c.clearance, "vastago": c.pin.shaft_d} for i, c in enumerate(cells)])
+    elif tipo == "rotula":
+        cells = ball_probe_cells(p, clearances=list(clearances or BALL_CLEARANCES), diameter_deltas=list(deltas or BALL_DIAMETER_DELTAS))
+        if not cells:
+            raise ValueError("ninguna combinación de holgura y Ø de bola retiene la bola: bajá la holgura o agrandá la bola")
+        ms = build_ball_probe_cells(p, cells)
+        mesh, text = S.union(*ms), ball_labels_text(cells)
+        objs = _objects([ball_cell_text(i, c) for i, c in enumerate(cells)], ms)
+        manifest = _manifest("rotula", [{"n": i + 1, "holgura": c.clearance, "bola": c.spec.ball_d, "cuello": c.spec.neck_d,
+                                         "semiangulo": c.spec.half_angle, "labio": c.lip_margin} for i, c in enumerate(cells)])
     elif tipo == "hongo":
         if pasador not in ("hombro", "cadera"):
             raise ValueError(f"pasador desconocido: {pasador!r} (hombro o cadera)")

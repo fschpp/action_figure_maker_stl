@@ -661,9 +661,9 @@ def main(argv=None) -> int:
     pr = sub.add_parser("probe", help="generar placa de probetas de articulación (§8.11)")
     pr.add_argument("--out", default="out/probetas")
     pr.add_argument("--clearances", default=None, help="holguras radiales a probar (mm)")
-    pr.add_argument("--deltas", default=None, help="variación del Ø de vástago (hongo, giro) o de bulón (bisagra), en mm")
-    pr.add_argument("--tipo", default="hongo", choices=("hongo", "bisagra", "clic", "montura", "giro", "agarre"),
-                    help="hongo = cadera/hombro (§8.11); giro = pivote (swivel) de bíceps, muslo y canilla (PLAN_plugins_articulacion.md §4.1); bisagra = rodilla/codo (plan de articulaciones, Fase 6); "
+    pr.add_argument("--deltas", default=None, help="variación del Ø de vástago (hongo, giro), de bulón (bisagra) o de bola (rótula), en mm")
+    pr.add_argument("--tipo", default="hongo", choices=("hongo", "bisagra", "clic", "montura", "giro", "rotula", "agarre"),
+                    help="hongo = cadera/hombro (§8.11); giro = pivote (swivel) de bíceps, muslo y canilla (PLAN_plugins_articulacion.md §4.1); rotula = bola en zócalo de hombro/cadera (§4.3, H2: holgura × Ø de bola); bisagra = rodilla/codo (plan de articulaciones, Fase 6); "
                          "clic = disco con muescas + lengüetas (PLAN_mecanismo_clic_hombro_cadera.md, Fase 0); "
                          "montura = puente para enganchar un arma al cuerpo + tira de hoja (PLAN_enganche_armas_cuerpo.md, M09); "
                          "agarre = manos de prueba (taladro) + mangos (dentado) para elegir el par que mejor sujeta un accesorio")
