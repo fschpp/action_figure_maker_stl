@@ -424,7 +424,7 @@ def build(body: S.Manifold, limbs: list[LimbSpec], p: Params, sym: Plane | None 
         return _memo[id(m)]
 
     pieces = {n: _compact(m) for n, m in pieces.items()}
-    res_motion = {n: v._replace(limb=_compact(v.limb)) for n, v in res_motion.items()}
+    res_motion = {n: v.with_limb(_compact(v.limb)) for n, v in res_motion.items()}
     if p.decimate > 0:
         say("Reduciendo triángulos…")
         n0 = pieces["torso"].num_tri()
@@ -782,7 +782,7 @@ def validate(res: BuildResult, p: Params, limbs: list[LimbSpec], sit: bool = Tru
         if pin.shaft_d < p.min_pin_d:
             out["problems"].append(f"{spec.name}: vástago Ø{pin.shaft_d} < {p.min_pin_d}")
     out["recorrido"] = {}
-    for name, (limb0, center, axis, (a0, a1)) in res.motion.items():
+    for name, (limb0, center, axis, (a0, a1)) in JT.revolute_motions(res.motion).items():
         if a1 <= a0:
             continue
         worst = 0.0
@@ -950,7 +950,7 @@ def straight_leg_flex(res: BuildResult) -> dict:
     rep = res.report.get("joints", {})
     out: dict = {}
     for jn, r in rep.items():
-        m = res.motion.get(r["limb"])
+        m = JT.as_revolute(res.motion.get(r["limb"]))
         if m is not None and m[3][1] > m[3][0]:
             out[jn] = 0.0
     return out
@@ -970,7 +970,7 @@ def posed_pieces(res: BuildResult, hip_angle: float, flex: dict | None = None,
     for jn, r in rep.items():                                 # en el orden de la cadena (el informe se arma así)
         by_limb.setdefault(r["limb"], []).append((jn, r))
     out: dict = {}
-    for name, (limb0, center, axis, (a0, a1)) in res.motion.items():
+    for name, (limb0, center, axis, (a0, a1)) in JT.revolute_motions(res.motion).items():
         if name == HEAD_NAME:
             continue
         turns = a1 > a0
@@ -1207,7 +1207,7 @@ def _mount_poses(res: BuildResult, p: Params, limbs, side: str, hip_step: float,
 
     stand = posed_pieces(res, 0.0, straight, p)
     poses = [("de pie", 0.0, {k: v for k, v in stand.items() if k.endswith(side)}, True)]
-    for name, (_l, _c, _a, (a0, a1)) in res.motion.items():
+    for name, (_l, _c, _a, (a0, a1)) in JT.revolute_motions(res.motion).items():
         if name == HEAD_NAME or a1 <= a0:
             continue
         if kinds.get(name, "arm") == "leg":
@@ -1519,7 +1519,7 @@ def _arm_turn_to_plane(pts: np.ndarray, center, axis, z_cut: float, fwd: float) 
 
 def _forward_sign(res: BuildResult, pieces: dict) -> float:
     legs = [m for n, m in pieces.items() if n != "torso" and n != HEAD_NAME
-            and n.rsplit("_", 1)[0] in {pn for ln, (_l, _c, _a, (a0, a1)) in res.motion.items() if a1 > a0
+            and n.rsplit("_", 1)[0] in {pn for ln, (_l, _c, _a, (a0, a1)) in JT.revolute_motions(res.motion).items() if a1 > a0
                                         for pn in _limb_piece_names(res, ln)}]
     if not legs:
         return 1.0
@@ -1534,9 +1534,10 @@ def flat_click_advice(res: BuildResult, depth: float = 1.0) -> dict:
     z_cut = body_base_z(res.pieces) + float(depth)
     fwd = _forward_sign(res, res.pieces)
     for n, dl in res.detent.items():
-        if n not in res.motion or res.motion[n][3][1] > res.motion[n][3][0]:
+        mo = JT.as_revolute(res.motion.get(n))
+        if mo is None or mo.range[1] > mo.range[0]:
             continue
-        _l, center, axis, _r = res.motion[n]
+        _l, center, axis, _r = mo
         pts = np.vstack([S.to_trimesh(res.pieces[f"{pn}_izq"]).vertices for pn in _limb_piece_names(res, n)])
         low = float(pts[:, 2].min())
         if low >= z_cut - 1e-6:
@@ -1568,7 +1569,7 @@ def _extend_thighs(res: BuildResult, pieces: dict, z_cut: float, p: Params) -> t
     mismas piezas."""
     out, rep = dict(pieces), {}
     body = [n for n in ("torso", PELVIS_NAME) if n in pieces]
-    for limb, (_l, c, ax, (a0, a1)) in res.motion.items():
+    for limb, (_l, c, ax, (a0, a1)) in JT.revolute_motions(res.motion).items():
         if limb == HEAD_NAME or a1 <= a0:
             continue
         key = f"{_limb_piece_names(res, limb)[0]}_izq"
@@ -1712,7 +1713,7 @@ def flat_for_print(res: BuildResult, depth: float = 1.0, p: Params | None = None
     for limb_name, links in straight_by_limb.items():
         rs = [res.report["joints"][jn] for jn, _fl in links]
         jbs = [res.joints[jn] for jn, _fl in links]
-        _l, hc, hax, _rng = res.motion[limb_name]
+        _l, hc, hax, _rng = JT.as_revolute(res.motion[limb_name])
         th = float(rs[0].get("print_hip", p.sit_angle))
         names = [rs[0]["piezas"][0]] + [r["piezas"][1] for r in rs]
         posed = _chain_pieces([jbs[0].proximal] + [jb.proximal for jb in jbs[1:]] + [jbs[-1].distal], jbs, [fl for _jn, fl in links])
@@ -1724,7 +1725,7 @@ def flat_for_print(res: BuildResult, depth: float = 1.0, p: Params | None = None
         for (jn, fl), r in zip(links, rs):
             stretched[jn] = {"flexion_grados": fl, "flexion_impresa_grados": r["print_flex"]}
     info["rodillas_estiradas"] = stretched
-    arm_limbs = [n for n, (_l, _c, _a, (a0, a1)) in res.motion.items() if n != HEAD_NAME and a1 <= a0 and n not in res.detent]
+    arm_limbs = [n for n, (_l, _c, _a, (a0, a1)) in JT.revolute_motions(res.motion).items() if n != HEAD_NAME and a1 <= a0 and n not in res.detent]
     info["clic_brazos"] = flat_click_advice(res, depth)
     for n, a in info["clic_brazos"].items():
         if a["angulo_apoyo"] is None:
@@ -1735,7 +1736,8 @@ def flat_for_print(res: BuildResult, depth: float = 1.0, p: Params | None = None
                                   f"generá la figura con «Clic: ángulo del brazo al imprimir» = {a['angulo_apoyo']:g}° (ahora {a['angulo_actual']:g}°) "
                                   "para que apoye")
     arm_pieces = {f"{pn}{side}" for n in arm_limbs for pn in _limb_piece_names(res, n) for side in ("_izq", "_der")}
-    protected = arm_pieces | {f"{pn}{side}" for n in res.detent if res.motion[n][3][1] <= res.motion[n][3][0]
+    rev = JT.revolute_motions(res.motion)
+    protected = arm_pieces | {f"{pn}{side}" for n in res.detent if n in rev and rev[n].range[1] <= rev[n].range[0]
                               for pn in _limb_piece_names(res, n) for side in ("_izq", "_der")}
     if p.flat_fill_hip:
         z0 = body_base_z(pieces) + depth
@@ -1776,7 +1778,7 @@ def flat_for_print(res: BuildResult, depth: float = 1.0, p: Params | None = None
         fwd = 1.0 if ly >= ty else -1.0          # hacia dónde apuntan las piernas sentadas = adelante
     angles: dict = {}
     for limb in arm_limbs:
-        _l, center, axis, _ = res.motion[limb]
+        _l, center, axis, _ = JT.as_revolute(res.motion[limb])
         left = {pn: res.pieces[f"{pn}_izq"] for pn in _limb_piece_names(res, limb)}
         pts = np.vstack([S.to_trimesh(m).vertices for m in left.values()])
         if pts[:, 2].min() >= z_cut - 1e-6:

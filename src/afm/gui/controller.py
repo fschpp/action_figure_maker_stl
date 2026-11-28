@@ -20,6 +20,7 @@ from enum import Enum
 import numpy as np
 import trimesh
 
+from .. import joint_types as JT
 from .. import solids as S
 from . import settings as GUI_SETTINGS
 from ..head import HEAD_NAME, MIN_BASE_IOU, REPLACEMENT_UPS, neck_plane
@@ -2513,7 +2514,7 @@ class Controller:
         out = self.session.outcome
         if out is None:
             return None
-        limits = [a1 for n, (_limb, _c, _ax, (a0, a1)) in out.result.motion.items()
+        limits = [a1 for n, (_limb, _c, _ax, (a0, a1)) in JT.revolute_motions(out.result.motion).items()
                   if a1 > a0 and n != HEAD_NAME]
         return max(limits) if limits else None
 

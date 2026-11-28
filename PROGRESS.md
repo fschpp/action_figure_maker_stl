@@ -1,3 +1,22 @@
+## Current Focus — Plugins de articulación, Fase 4 (corte 1): `Motion` general y `ConeMotion` (2026-11-27, sobre main 64ece5b)
+**Objetivo.** Que el movimiento de una articulación deje de ser «un eje» (`docs/PLAN_plugins_articulacion.md` §3.3, §5 Fase 4) sin tocar geometría: es la base de `ball`.
+**Hecho.**
+- `joint_types/base.py`: `ConeMotion` (rótula: centro, eje de reposo, `half_angle`, giro propio `twist`, `print_tilt`; `poses(step)` recorre una grilla de inclinación × azimut × giro con paso de arco acotado; `print_pose()`, `contains()`, `revolute()` → `None`). `RevoluteMotion` suma `print_pose(angle)` y `with_limb`. `Motion` (protocolo) suma `limb`, `print_pose`, `with_limb`. `JointResult.motion: Motion`.
+- `as_revolute(m)` (acepta `Motion`, la tupla de 4 de siempre o `None`) y `revolute_motions(dict)` (solo los de un eje, mismo orden).
+- Consumidores de un eje pasan por ahí y **saltean** la rótula: `pipeline` (validación de recorrido, `posed_pieces`, `flat_for_print`, relleno de muslos, `_compact` con `with_limb`), `colorreg` (import perezoso; una rótula da solo la semilla identidad), `equestrian.rider_profile` (error claro de «sin articulación de cadera»), `gui/controller.pose_limit`.
+- `tests/test_joint_motion.py` (15): cono dentro de su ángulo y rígido, densidad de la grilla, giro, pose impresa, validaciones, `as_revolute`/`revolute_motions`, figura armada solo con `RevoluteMotion`, y consumidores con una cadera de rótula puesta a mano.
+**Pruebas.** `tools/golden.py comparar muneco`: «idéntica a la dorada». `test_colorreg` (14), `test_joint_motion` (15), joints/cadena/registro/swivel/pipeline/detent/rider (89), impresión plana/color de articulaciones/pose de montura/GUI de joints (80) pasan.
+**No hecho (siguientes cortes).** Tipo `ball` y su zócalo; validación sobre grilla de poses (hoy una rótula **no se valida**: `_validate_*` la saltean); `guide.SeatedClash` con `print_pose`; probeta de rótula (H2); `posed_pieces` no coloca una pierna con rótula (queda fuera del resultado); dorados de figuras reales (necesitan sus STL).
+
+### Todo List
+- [x] Done: `Motion` general, `ConeMotion` y consumidores de un eje
+- [/] In Progress: Fase 4 — validación sobre grilla de poses y `SeatedClash` con `print_pose`
+- [ ] Todo: tipo `ball` (zócalo con labio, `requires`, `offer`); probeta de rótula (H2)
+
+### Latest Blockers/Discoveries
+- `Motion.print_pose` en un eje necesita el ángulo (lo fijan `sit_angle`/`print_angle`): `RevoluteMotion.print_pose(angle)`; la rótula lo trae declarado en `print_tilt`.
+- Antes de poner `ball` en un perfil hay que cerrar la validación: con el código de este corte una rótula no entra en ninguna validación de recorrido.
+
 ## Current Focus — Plugins de articulación, Fase 3 (corte 3): cadenas en la impresión plana y en el registro de color (2026-11-27, sobre main cc66c19)
 **Objetivo.** Que lo que ya sabía hacer una rodilla o un codo funcione con una cadena (rodilla + tobillo): `flat_for_print` y las semillas de color por pieza.
 **Hecho.**

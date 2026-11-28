@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import trimesh
 
+from . import joint_types as JT
 from . import solids as S
 
 HORSE_FORMAT = "afm-caballo-1"
@@ -275,7 +276,7 @@ def rider_profile(asm) -> RiderProfile:
     legs = {k: v for k, v in pieces.items() if k.startswith(LEG_PREFIXES)}
     if not legs:
         raise RiderError("la figura no tiene piernas (piezas pierna/muslo/pantorrilla): no hay con qué montar")
-    motion = (res.motion or {}).get("pierna")
+    motion = JT.as_revolute((res.motion or {}).get("pierna"))
     if motion is None:
         raise RiderError("la figura no tiene articulación de cadera (sin recorrido «pierna»): faltan los puertos de cadera")
     center = np.asarray(motion[1], float)

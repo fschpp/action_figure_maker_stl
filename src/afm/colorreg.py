@@ -107,6 +107,17 @@ def _uniq(vals) -> list[float]:
     return out
 
 
+def _revolute(motions):
+    """`{nombre: RevoluteMotion}` de los movimientos de un solo eje (la rótula no tiene semillas de giro). Import perezoso: este módulo no arrastra `manifold3d`."""
+    from .joint_types.base import revolute_motions
+    return revolute_motions(motions)
+
+
+def _as_revolute(motion):
+    from .joint_types.base import as_revolute
+    return as_revolute(motion)
+
+
 def _mirror_step(step):
     c, ax, th = step
     return (MIRROR_X @ np.asarray(c, float)).tolist(), (MIRROR_X @ np.asarray(ax, float)).tolist(), 0.0 - float(th)
@@ -120,7 +131,7 @@ def _joint_info(owner, key: str):
     """Si `key` es una pieza de articulación (rodilla, codo…): `(nombre_art, informe, índice 0=proximal 1=distal)`."""
     for jn, r in getattr(owner, "report", {}).get("joints", {}).items():
         piezas = r.get("piezas", [])
-        if key in piezas and r.get("limb") in owner.motion and jn in getattr(owner, "joints", {}):
+        if key in piezas and r.get("limb") in _revolute(owner.motion) and jn in getattr(owner, "joints", {}):
             return jn, r, piezas.index(key)
     return None
 
@@ -147,15 +158,16 @@ def _axes_for_piece(piece_name: str, res):
     if ji is not None:
         jn, r, idx = ji
         jb = owner.joints[jn]
-        mo = owner.motion[r["limb"]]
+        mo = _revolute(owner.motion)[r["limb"]]
         if idx == 1:
             out.append((np.asarray(jb.center, float), np.asarray(jb.axis, float)))
             for an, _ar in _ancestors(owner, jn):             # cadena: la pieza también gira con las articulaciones anteriores
                 ab = owner.joints[an]
                 out.append((np.asarray(ab.center, float), np.asarray(ab.axis, float)))
         out.append((np.asarray(mo[1], float), np.asarray(mo[2], float)))
-    elif key in owner.motion:
-        out.append((np.asarray(owner.motion[key][1], float), np.asarray(owner.motion[key][2], float)))
+    elif key in _revolute(owner.motion):          # una rótula no tiene un eje: sin semillas de giro (la pieza sale por identidad)
+        mo = _revolute(owner.motion)[key]
+        out.append((np.asarray(mo[1], float), np.asarray(mo[2], float)))
     if side == "der":
         out = [(MIRROR_X @ c, MIRROR_X @ a) for c, a in out]
     return out
@@ -166,7 +178,7 @@ def _joint_seeds(owner, key, jn, r, idx, params) -> list:
     «flexión de la articulación y después cadera/hombro» (lo que hace `pipeline.build`), la exacta primero; de respaldo, las
     4 combinaciones de signo (flexión ±, giro ±) y los giros sin flexión."""
     jb = owner.joints[jn]
-    mo = owner.motion[r["limb"]]
+    mo = _revolute(owner.motion)[r["limb"]]
     c_h, ax_h = np.asarray(mo[1], float).tolist(), np.asarray(mo[2], float).tolist()
     th, pf = float(r.get("print_hip", 0.0)), float(r.get("print_flex", 0.0))
     sg = float(jb.sign)
@@ -207,7 +219,7 @@ def seeds_for_piece(piece_name: str, res, params) -> list:
         if side == "der":
             seeds = [[_mirror_step(st) for st in sd] for sd in seeds]
         return seeds
-    mo = owner.motion.get(key)
+    mo = _as_revolute(owner.motion.get(key))
     if mo is None:
         return [IDENTITY_SEED]
     _limb, c, ax, rng = mo
