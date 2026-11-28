@@ -1,3 +1,19 @@
+## Current Focus — Plugins de articulación, Fase 4 (corte 5): `guide.SeatedClash` con la pose impresa de la rótula (2026-11-28, sobre main 7ed1c79)
+**Objetivo.** Que el choque en pose sentada de la guía de cortes no gire una cadera de rótula `sit_angle` sobre un eje que no tiene (`docs/PLAN_plugins_articulacion.md` §3.3, Fase 4).
+**Hecho.**
+- `SeatedClash.volume`: si la toma de cadera o el puerto del miembro son de tipo `ball` (`Port.joint_type`), la pierna queda en `ConeMotion.print_pose()` (de pie, como la arma `pipeline.build`); con cualquier otro tipo o sin tipo (pieza vieja) gira `sit_angle` como siempre.
+- `tests/test_guide.py` (+1): con un torso de «otra figura» donde el brazo cuelga dentro del muslo sentado, la cadera de rótula da el volumen común sin giro (calculado a mano con `coupling_transform`) y distinto del sentado; basta con que lo diga cualquiera de los dos puertos.
+**Pruebas.** `test_guide` (34), `test_cut_aid`, `test_compat_remota`, `test_guide_offer`, `test_joint_ball_pipeline`: 95 pasan (1 skip). No se tocó el motor: sin golden.
+**No hecho.** Probeta de rótula (H2); pose sentada de una cadera de rótula (cono ≥ 90° no retiene: decisión del cliente); relieve en el cuerpo de la hija; la rótula en la GUI de parámetros; dorados con STL reales.
+
+### Todo List
+- [x] Done: `SeatedClash` con rótula
+- [/] In Progress: Fase 4 — probeta de rótula (H2)
+- [ ] Todo: decidir la cadera sentada; relieve en el cuerpo de la hija
+
+### Latest Blockers/Discoveries
+- Mientras una cadera de rótula imprima de pie, el choque «sentado» de la guía mide el brazo contra una pierna de pie: es lo que se imprime, no la pose sentada final. Si se decide una cadera sentada con rótula, la pose saldrá de `print_tilt` y este método ya la toma de `print_pose()`.
+
 ## Current Focus — «Eliminar catálogo» manda la carpeta a la papelera del sistema (2026-11-28, sobre main 0f58bd1)
 **Objetivo.** Que borrar el catálogo completo sea recuperable: va a la papelera del sistema en vez de `shutil.rmtree`.
 **Hecho.**

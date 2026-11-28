@@ -33,6 +33,8 @@ from . import solids as S
 from .catalog import Catalog
 from .hand import STEP_WARN_MM
 from .head import MIN_BASE_IOU
+from .joint_types.base import ConeMotion, moved
+from .joint_types.ball import BallSpec
 from .joint_types.resolve import class_pin
 from .ports import COMPLEMENT, Compat, Port, PortFace, PortFrame, coupling_transform, pin_diagnosis, port_compat
 from .params import Params
@@ -97,7 +99,12 @@ class SeatedClash:
         l = leg.mesh.transform(tl[:3, :])
         axis = -np.asarray(hip.frame.axis, float)
         axis = axis if axis[0] >= 0 else -axis                      # como `pipeline._rotation_axis`: + = hacia adelante
-        l = S.rotate_about_axis(l, hip.frame.center, axis, self.p.sit_angle)
+        if "ball" in (hip.joint_type, leg.port.joint_type):
+            # una cadera de rótula no gira `sit_angle` sobre un eje (el cono no llega a 90°): la pierna queda en la pose impresa de su
+            # movimiento, la misma que arma `pipeline.build` (`print_tilt` por defecto = de pie)
+            l = moved(l, ConeMotion(l, hip.frame.center, axis, BallSpec().half_angle).print_pose())
+        else:
+            l = S.rotate_about_axis(l, hip.frame.center, axis, self.p.sit_angle)
         return float(S.intersection(a, l).volume())
 
     def limb_on_torso(self, limb: Limb, torso, partner: Limb | None = None) -> float | None:

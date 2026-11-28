@@ -486,3 +486,27 @@ def test_fit_cut_leaves_a_cut_already_in_contract_alone(doll):
     con = _contract(proj, "hombro", m.r_eq)
     (r,) = G.fit_cut(proj, body, con, kinds=("arm",))
     assert r.ok and not r.changes and r.volumen_quitado_mm3 == 0.0 and r.antes.talle == "M"
+
+
+def test_seated_clash_with_a_ball_hip_uses_the_print_pose_not_the_sit_angle(cat):
+    """Con una cadera de rótula la pierna no se gira `sit_angle` sobre un eje: queda en su pose impresa (de pie), como la arma el motor."""
+    import numpy as np
+    from afm import solids as S
+    from afm.ports import coupling_transform
+    low = lowered_torso(cat)
+    clone(cat, "pierna-muneco-01", "pierna-otra", 1.0)
+    sc = G.SeatedClash(cat)
+    arm = sc.limb_of(cat.meta("brazo-muneco-01"))
+    leg = sc.partner("otra.stl", "arm")                                                       # la pierna de «otra figura»
+    assert leg is not None
+    sh, hip = low.puertos["hombro_izq"], low.puertos["cadera_izq"]
+    seated = sc.volume(arm, leg, sh, hip)                                                    # tipo desconocido (pieza vieja): gira como siempre
+    assert seated > 100.0
+    ball_hip = dataclasses.replace(hip, joint_type="ball")
+    standing = sc.volume(arm, leg, sh, ball_hip)
+    ta, tl = coupling_transform(arm.port.frame, sh.frame), coupling_transform(leg.port.frame, hip.frame)
+    expect = float(S.intersection(arm.mesh.transform(ta[:3, :]), leg.mesh.transform(tl[:3, :])).volume())   # sin ningún giro
+    assert standing == pytest.approx(expect)
+    assert standing != pytest.approx(seated)
+    leg_ball = G.Limb(leg.mesh, dataclasses.replace(leg.port, joint_type="ball"), leg.kind, leg.figura)
+    assert sc.volume(arm, leg_ball, sh, hip) == pytest.approx(expect)                         # basta con que lo diga el puerto del miembro
