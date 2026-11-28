@@ -639,8 +639,10 @@ def _check_contents(p: Paquete, add) -> None:
     if p.tipo == "coleccion":
         if c.piezas or c.recetas or c.paleta:
             add("CK403", "contenido", "una colección solo lleva «pines»: no trae piezas, recetas ni paleta")
-        if p.archivos:
-            add("CK403", "archivos", "una colección no trae archivos de piezas, fichas ni color")
+        content = sorted(a for a in p.archivos if a.startswith(("piezas/", "figuras/")) or a in ("paleta.json", "linea.json")
+                         or a.endswith((".stl", ".color.npz", ".fbx", ".pieza.json", ".receta.json")))
+        if content:                                    # README, LICENSE, CREDITOS y previews sí pueden viajar: son lo que `paquete init` deja en la carpeta
+            add("CK403", "archivos", f"una colección no trae archivos de piezas, fichas ni color (trae {', '.join(content[:3])}{'…' if len(content) > 3 else ''})")
         if not c.pines:
             add("", "contenido.pines", "una colección tiene que fijar al menos un paquete")
         seen: set[str] = set()

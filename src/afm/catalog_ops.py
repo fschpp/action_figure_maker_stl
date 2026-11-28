@@ -44,6 +44,7 @@ COMMANDS: dict[str, tuple[str, bool, bool]] = {
     "instalar": (CONSOLE, False, True),        # D06: paquete .zip → catálogo (escribe); «Compartir → Importar paquete .zip…» de la ventana es D22
     "remoto": (CONSOLE, True, True),           # D14: buscar/ver/versiones/instalar/actualizar desde un índice; «Explorar catálogos en línea…» de la ventana es D18
     "referencia": (GUI, False, True),          # D26: «Paquetes instalados» → «Importar archivo requerido…» (listar/importar/quitar)
+    "coleccion": (CONSOLE, False, False),      # D34: CK402 contra el índice (CI); instalar una colección va por `remoto instalar` y «Explorar»
     "paquete": (CONSOLE, False, False),        # D04: `paquete validar`; «Publicar…» de la ventana (D21) lo usa
     "paleta": (CONSOLE, False, True),          # T39: paleta.json de la línea; la pestaña «Paleta» de la ventana es T46 (PLAN_paleta_color_linea.md)
 }

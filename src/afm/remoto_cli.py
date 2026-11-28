@@ -220,6 +220,8 @@ def _instalar(args, indexes) -> int:
     if rel is None:
         print(f"ERROR: «{e.folder}» no tiene {'la versión ' + version if version else 'una versión instalable'} en el índice", file=sys.stderr)
         return 2
+    if e.tipo == "coleccion":                                          # D34: no trae piezas; fija otros paquetes
+        return _instalar_coleccion(args, indexes, e, version)
     if args.en:
         root = args.en
     else:
@@ -229,6 +231,27 @@ def _instalar(args, indexes) -> int:
     if e.experimental:
         print("AVISO: el paquete se marcó como experimental.")
     return _install_with_deps(args, indexes, root, e, version)
+
+
+def _instalar_coleccion(args, indexes, e, version: str | None) -> int:
+    """D34: baja la colección, resuelve cada pin contra el índice (versión y `sha256` exactos) y los instala **todos o ninguno** con una sola confirmación."""
+    from . import coleccion as C
+
+    retirada = getattr(args, "permitir_retirada", False)
+    print(f"Descargando la colección {e.folder} {(e.release(version) or e.latest).version}…", file=sys.stderr)
+    pkg = C.cargar(R.download_package(e, version=version, allow_retirada=retirada))
+    dep = C.resolver(indexes, pkg, args.en, allow_retirada=retirada)
+    print(f"Colección «{pkg.nombre}» ({pkg.id} {pkg.version}): fija {len(pkg.contenido.pines)} paquete(s); se instalan todos o ninguno:")
+    for n, s_ in enumerate(dep.pasos, 1):
+        print(f"  {n}. {s_.entry.folder} {s_.release.version}")
+    if dep.errors:
+        for i in dep.errors:
+            print(f"  {i}")
+        print(f"FALLA: la colección no se puede instalar: {len(dep.errors)} error(es) en sus pines. No se instaló nada.")
+        return 1
+    print("Descargando…", file=sys.stderr)
+    chain = D.plan_chain(dep, como_linea=args.como_linea, allow_fbx=args.permitir_fbx, allow_retirada=retirada)
+    return _install_chain(args, chain, dep)
 
 
 def _install_with_deps(args, indexes, root: str, e, version: str | None) -> int:

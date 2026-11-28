@@ -241,6 +241,8 @@ def add_parsers(sub) -> None:
     paquete_cli.add_parsers(cs, root)            # exportar (D03); los demás subcomandos de paquetes cuelgan de ahí
     from . import remoto_cli
     remoto_cli.add_parsers(cs)                   # D14: remoto buscar|ver|versiones|instalar|actualizar
+    from . import coleccion_cli
+    coleccion_cli.add_parsers(cs)                # D34: coleccion comprobar (CK402 contra el índice, para el CI)
     from . import bloqueos_cli
     bloqueos_cli.add_parsers(cs)                 # D24: bloqueados validar|comprobar|retirar (lo que usa el CI del índice)
     from . import referencias_cli
@@ -510,6 +512,9 @@ def _run(args) -> int:
     if cmd == "remoto":                        # D14: habla con un índice; el destino es --en o la ruta de la línea
         from .remoto_cli import run_remoto
         return run_remoto(args)
+    if cmd == "coleccion":                     # D34: trabaja sobre un zip y un index.json, no necesita catálogo
+        from .coleccion_cli import run_coleccion
+        return run_coleccion(args)
     if cmd == "bloqueados":                    # D24: trabaja sobre archivos, no necesita catálogo
         from .bloqueos_cli import run_bloqueados
         return run_bloqueados(args)

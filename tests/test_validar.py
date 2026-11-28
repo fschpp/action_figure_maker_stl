@@ -207,14 +207,16 @@ def test_coleccion_ck402_ck403(tmp_path):
     base = {"formato": "afm-paquete-1", "id": "col", "nombre": "Col", "version": "1.0.0", "descripcion": "d", "tipo": "coleccion",
             "autores": [{"nombre": "Ana"}], "licencia": "CC-BY-4.0", "origen": "propia", "categorias": ["colecciones"],
             "contenido": {"piezas": [], "recetas": [], "paleta": False, "pines": [{"id": "a", "github": "mal", "version": "1", "sha256": "x"}]},
-            "archivos": {"README.md": sha(b"r"), "LICENSE": sha(b"l")}}
+            "archivos": {"README.md": sha(b"r"), "LICENSE": sha(b"l"), "piezas/brazo/x.stl": sha(b"s")}}
     z = tmp_path / "c.zip"
     with zipfile.ZipFile(z, "w") as zf:
         zf.writestr("paquete.json", json.dumps(base))
         zf.writestr("README.md", b"r")
         zf.writestr("LICENSE", b"l")
+        zf.writestr("piezas/brazo/x.stl", b"s")                    # README y LICENSE pueden viajar; un STL no (D34)
     res = V.validate_package(str(z))
     assert {"CK402", "CK403"} <= set(codes(res, V.ERROR))
+    assert [f.path for f in res.findings if f.code == "CK403"] == ["paquete.json:archivos"] and "piezas/brazo/x.stl" in next(f.message for f in res.findings if f.code == "CK403")
     assert "CK105" not in codes(res)                               # una colección no lleva portada obligatoria
 
 

@@ -308,6 +308,13 @@ def test_colecciones_ck402_y_ck403():
     d["archivos"] = {"piezas/x.stl": SHA}
     assert "CK403" in codes(d)
     d = coleccion()
+    d["archivos"] = {"README.md": SHA, "LICENSE": SHA, "CREDITOS.md": SHA, "previews/portada.png": SHA}
+    assert codes(d) == []                                        # lo que `paquete init` deja en la carpeta puede viajar (D34)
+    for name in ("figuras/x.receta.json", "paleta.json", "piezas/brazo/x-01@1.pieza.json", "x.color.npz"):
+        d = coleccion()
+        d["archivos"] = {name: SHA}
+        assert "CK403" in codes(d), name
+    d = coleccion()
     d["contenido"]["pines"] = []
     assert any(i.field == "contenido.pines" for i in Q.Paquete.from_dict(d).issues())
 
