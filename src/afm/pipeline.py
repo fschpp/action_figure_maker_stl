@@ -1971,6 +1971,10 @@ def parts_list_markdown(lst: dict) -> str:
             notes += [(n, a) for a in (list(m.get("problemas") or []) + list(m.get("avisos") or []) or m.get("avisos_construccion") or [])]
     if notes:
         out += ["", "## Avisos", *[f"- **{lugar}**: {a}" for lugar, a in notes]]
+    if lst.get("licencia"):                                   # D23: solo si el armado vino del catálogo y se calculó
+        from .licencias import markdown as _lic_md
+
+        out += _lic_md(lst["licencia"]).rstrip("\n").split("\n")
     return "\n".join(out) + "\n"
 
 

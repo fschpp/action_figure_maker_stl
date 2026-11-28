@@ -466,6 +466,8 @@ Además, todo Release que el bot adopta pasa `afm catalogo paquete validar --est
 
 **Estado (2026-11-27, D22):** [x] **D22** hecha: `gui/import_zip.py` (sin GTK: `LocalZipFlow`, un `InstallFlow` con los ganchos cambiados, y `LegacyData` para el autor, la licencia y el origen de un zip heredado), `gui/import_zip_window.py` («Compartir → Importar paquete .zip…», `ImportQueue` y `attach_drop` para soltar archivos sobre «Administrar catálogo») y `InstallConfirmDialog` con formulario de zip heredado y «Cambiar los datos»; ambos caminos llegan al **mismo diálogo** que «Instalar» de «Explorar». Corrige `_open_publish` (usaba `ctrl.catalog_root`, que no existe).
 
+**Estado (2026-11-27, D23):** [x] **D23** hecha: `licencias.py` (licencia efectiva del armado y `CREDITOS.txt` con autor, licencia y enlace de cada pieza; bloque `licencia` en la lista de piezas y el informe), aviso en `afm armar` y, en «Armar desde catálogo…», etiqueta de licencia y confirmación antes de exportar si hay una pieza `NC`, `SA`, `ND` o reservada.
+
 ### Orden y paralelismo
 
 ```text

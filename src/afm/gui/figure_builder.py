@@ -593,6 +593,16 @@ class FigureBuilder:
         return warns
 
     # ------------------------------------------------------------------ color: paleta de la línea y cambios de esta figura (T48)
+    def license_report(self, cat: Catalog | None = None):
+        """D23: la licencia efectiva de lo elegido (`licencias.Efectiva`), sin armar nada: lugares y accesorios según `paquetes.json`.
+        None si todavía no hay ninguna pieza elegida."""
+        from .. import licencias as L
+
+        cat = cat or self.catalog()
+        usos = [(pl, L._resolve(cat, self.choices[pl])) for pl in PLACE_ORDER if self.choices.get(pl)]
+        usos += [("accesorio", L._resolve(cat, r)) for r in self.accessories]
+        return L.licencia_de_figura(cat.root, usos) if usos else None
+
     def _chosen_metas(self, cat: Catalog | None = None) -> list:
         """Fichas de las piezas elegidas (lugares y accesorios no: el accesorio sale sin color) que existen en el catálogo."""
         cat = cat or self.catalog()
@@ -1277,6 +1287,9 @@ def summary(info: dict) -> str:
         giro = ", ".join(f"{k} {v:g}°" for k, v in (ss.get("giro_brazos_grados") or {}).items()) or "0°"
         lines.append(tr("figure_builder.sin_soportes_resumen", corte=f"{ss['corte_sobre_cola_mm']:g}", giro=giro))
         lines += [f"• {t}" for t in ss.get("avisos", [])[:5]]
+    lic = info.get("licencia") or {}
+    if lic.get("archivo"):
+        lines.append(tr("licencias.resumen_creditos", archivo=lic["archivo"]))
     if info.get("proyecto"):
         lines.append(tr("figure_builder.proyecto_basename_se_abre_en_la", basename=os.path.basename(info['proyecto'])))
     return "\n".join(lines)

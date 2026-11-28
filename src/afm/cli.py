@@ -335,6 +335,12 @@ def run_armar(recipe_path: str, outdir: str, name: str | None = None, catalog_ro
     if asm.res.mounts:                    # M12: las monturas con lo que dijo la validación, en el informe y en la lista de piezas
         info["monturas"] = P.mounts_report(asm.res, val)
         P.attach_mounts_to_parts_list(outdir, name, info["monturas"])
+    from .licencias import finalizar_exportacion
+
+    lic = finalizar_exportacion(asm.catalog.root, recipe, asm.catalog, outdir, name, progress)      # D23: licencia efectiva y CREDITOS.txt
+    if lic:
+        info["licencia"] = lic
+        files["creditos"] = lic["archivo"]
     if colorize is not None:
         info["color"] = {**color_info, **({"salida": files["color"]} if "color" in files else {})}
         if keep is not None:
@@ -392,6 +398,13 @@ def _armar_con_caballo(recipe, ride, horse, asm, val: dict, items: list, outdir:
     if cab["ok"] and asm.res.mounts:
         info["monturas"] = P.mounts_report(asm.res, val)
         P.attach_mounts_to_parts_list(outdir, name, info["monturas"])
+    if cab["ok"]:                                          # D23: el caballo de la biblioteca no entra (no tiene datos de licencia)
+        from .licencias import finalizar_exportacion
+
+        lic = finalizar_exportacion(asm.catalog.root, recipe, asm.catalog, outdir, name, progress)
+        if lic:
+            info["licencia"] = lic
+            info["archivos"]["creditos"] = lic["archivo"]
     H.write_report(info, os.path.join(outdir, f"{name}_informe.json"))
     out_recipe.save(os.path.join(outdir, f"{name}.receta.json"))
     return info

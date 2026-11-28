@@ -156,6 +156,8 @@ class FigureBuilderWindow(Gtk.Window):
         self.lbl_problems = Gtk.Label(xalign=0, wrap=True)
         self.lbl_problems.add_css_class("dim-label")
         box.append(self.lbl_problems)
+        self.lbl_license = Gtk.Label(xalign=0, wrap=True, selectable=True)      # D23: la licencia efectiva, antes de exportar
+        box.append(self.lbl_license)
 
         bar = Gtk.Box(spacing=6, margin_top=4)
         self.btn_recipe = Gtk.Button(label=tr("figure_window.guardar_receta_en_el_catalogo"))
@@ -1221,12 +1223,29 @@ class FigureBuilderWindow(Gtk.Window):
             self._sync_joints()
         probs = self.builder.problems()
         self.lbl_problems.set_text((tr("common.falta") + ' ') + "; ".join(probs) if probs else tr("figure_window.listo_para_armar"))
+        self._sync_license()
         self.btn_build.set_sensitive(not probs and not self._busy)
         self.btn_recipe.set_sensitive(not probs and not self._busy)
         self.ent_name.set_sensitive(not self._busy)
         self.btn_open.set_sensitive(not self._busy)
         if hasattr(self, "exp_colors"):                      # el bloque «Colores» ya se construyó
             self._update_color_status()
+
+    def _license(self):
+        """`licencias.Efectiva` de lo elegido, o None (sin piezas o sin catálogo legible)."""
+        try:
+            return self.builder.license_report()
+        except Exception:                                     # noqa: BLE001 — la licencia informa, nunca frena la ventana
+            return None
+
+    def _sync_license(self) -> None:
+        e = self._license()
+        self.lbl_license.set_visible(e is not None)
+        if e is None:
+            return
+        self.lbl_license.set_text(tr("licencias.efectiva_titulo") + " " + e.resumen())
+        for c in ("warning",):
+            (self.lbl_license.add_css_class if e.restringe else self.lbl_license.remove_css_class)(c)
 
     def _on_name(self, entry: Gtk.Entry) -> None:
         self.builder.name = entry.get_text().strip()
@@ -2120,6 +2139,24 @@ class FigureBuilderWindow(Gtk.Window):
         self.lbl_result.set_text(tr("figure_window.receta_guardada_en_path", path=path))
 
     def _on_build(self, *_) -> None:
+        e = self._license()
+        if e is not None and e.restringe:                     # D23: lo dice ANTES de exportar y deja cancelar
+            dlg = Gtk.AlertDialog(message=tr("licencias.confirmar_titulo"), detail=e.resumen(),
+                                  buttons=[tr("common.cancelar"), tr("licencias.exportar_igual")], cancel_button=0, default_button=1)
+
+            def answered(d, res):
+                try:
+                    ok = d.choose_finish(res) == 1
+                except GLib.Error:
+                    return
+                if ok:
+                    self._choose_folder()
+
+            dlg.choose(self, None, answered)
+            return
+        self._choose_folder()
+
+    def _choose_folder(self) -> None:
         dlg = Gtk.FileDialog(title=tr("figure_window.carpeta_donde_exportar_la_figura"))
 
         def picked(d, res):

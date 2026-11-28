@@ -197,6 +197,24 @@
 **Verificado.** 69 tests (guía, oferta, swivel, registro) en verde; `golden comparar muneco` idéntica. Fallo ya existente en main: `test_ports::test_extract_tolerates_a_slightly_tilted_cut_plane`. La ventana GTK no se probó (el texto sale del controller).
 **Pendiente de Fase 2.** Probeta de `swivel` (H1, `probes.py`), ejemplo en `examples/`, tobillo (espera la respuesta a P7: ¿el pie es parte de la pierna?) y `afm catalogo explicar`.
 
+## Current Focus — Catálogos en línea: D23 licencia efectiva y créditos (2026-11-27, rama feat/catalogos-online-d23 sobre main f79f141)
+**Objetivo.** Que al armar con piezas de varios paquetes la app calcule la restricción de licencia más fuerte, la diga **antes** de exportar y deje `CREDITOS.txt` junto al STL.
+**Hecho.**
+- `licencias.py` (sin GTK): `traits` (SPDX → NC/SA/ND/reservada/crédito), `fuentes` (pieza `id@n` → paquete según `paquetes.json`; sin paquete = del propio catálogo, no impone nada), `efectiva` (NC ⇒ no comercial; SA/GPL ⇒ compartir igual; ND ⇒ no compartir el armado; reservada ⇒ permiso del autor; conflictos: dos SA distintas, ND+SA), `escribir_creditos`, `agregar_a_lista_de_piezas`, `finalizar_exportacion`.
+- `cli.run_armar` (con y sin caballo): avisa `AVISO: licencia efectiva…` si restringe, escribe `CREDITOS.txt`, agrega el bloque `licencia` a `<figura>_lista_de_piezas.{json,md}` y al informe (`info["licencia"]`, `archivos.creditos`). `pipeline.parts_list_markdown` dibuja la sección.
+- GUI: `FigureBuilder.license_report()`; en «Armar desde catálogo…» una etiqueta «Licencia efectiva» siempre visible y un diálogo «Exportar igual / Cancelar» si restringe. Claves `licencias.*` es/en/pt.
+**Pruebas.** `test_licencias.py` (30) pasa; siguen verdes `test_recipe`, `test_figure_builder*`, `test_equestrian_recipe`, `test_accessories`, `test_mount_report`, `test_i18n`.
+
+### Todo List
+- [x] Done: D02–D09, D11, D13–D23
+- [ ] Todo: D10, D12, D31, D33; D24–D29
+- [ ] Todo: probar a mano la etiqueta y el diálogo de licencia de «Armar desde catálogo…» con GTK real (acá no había GTK: solo se compiló)
+
+### Latest Blockers/Discoveries
+- El caballo de la biblioteca no entra en los créditos (no tiene datos de licencia).
+- Las piezas de la línea base que ningún paquete trajo salen «sin paquete».
+
+
 ## Current Focus — Catálogos en línea: D22 importar `.zip` y arrastrar y soltar (2026-11-27, rama feat/catalogos-online-d22 sobre main 165b664)
 **Objetivo.** Que un `.zip` elegido o soltado en la ventana llegue al **mismo diálogo** de confirmación que «Instalar» de «Explorar», con soporte de zips heredados (D07).
 **Hecho.**
