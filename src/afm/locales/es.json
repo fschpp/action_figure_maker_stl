@@ -483,9 +483,9 @@
   "crear_catalogo_tip": "Crea la carpeta de un catálogo nuevo (nombre de la línea y altura) y lo deja abierto",
   "abrir_catalogo_tip": "Busca en el sistema de archivos la carpeta de un catálogo y lo abre",
   "eliminar_catalogo": "Eliminar el catálogo abierto…",
-  "eliminar_catalogo_tip": "Borra del disco la carpeta del catálogo abierto con todas sus piezas (pide confirmación). No toca el proyecto.",
-  "eliminar_el_catalogo_pregunta": "¿Eliminar este catálogo del disco?",
-  "eliminar_el_catalogo_detalle": "Se borra la carpeta %{root} con sus %{total} versiones de piezas. No se puede deshacer. El proyecto abierto no se toca.",
+  "eliminar_catalogo_tip": "Manda a la papelera del sistema la carpeta del catálogo abierto con todas sus piezas (pide confirmación). No toca el proyecto.",
+  "eliminar_el_catalogo_pregunta": "¿Mandar este catálogo a la papelera?",
+  "eliminar_el_catalogo_detalle": "La carpeta %{root} con sus %{total} versiones de piezas va a la papelera del sistema; se puede recuperar desde ahí. El proyecto abierto no se toca.",
   "eliminar_catalogo_accion": "Eliminar catálogo"
  },
  "controller": {
@@ -1111,8 +1111,8 @@
   "sin_valores_por_defecto_propios": "No había valores por defecto propios: ya son los de fábrica.",
   "agarre_mano_mango": "agarre (mano + mango)",
   "no_se_elimino_la_carpeta_no_es_un_catalogo": "No se eliminó nada: la carpeta no es un catálogo.",
-  "no_se_pudo_eliminar_el_catalogo": "No se pudo eliminar el catálogo: %{error}",
-  "catalogo_eliminado_root": "Catálogo eliminado: %{root}"
+  "no_se_pudo_eliminar_el_catalogo": "No se pudo mandar el catálogo a la papelera (no se borró nada): %{error}",
+  "catalogo_eliminado_root": "Catálogo enviado a la papelera: %{root}"
  },
  "figure_builder": {
   "sin_soportes_resumen": "Sin soportes: corte a %{corte} mm sobre la cola; brazos girados hacia adelante: %{giro}",

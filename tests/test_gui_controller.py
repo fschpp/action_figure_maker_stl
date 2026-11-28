@@ -898,12 +898,13 @@ def test_weapon_uses_the_hand_drilled_in_the_session(tmp_path):
     assert ctrl.weapon_grip_source() is None
 
 
-def test_delete_catalog_removes_folder_and_forgets_it(tmp_path, monkeypatch):
-    """«Eliminar catálogo»: borra la carpeta del catálogo abierto, lo cierra y lo olvida; una carpeta sin `linea.json` no se toca."""
+def test_delete_catalog_sends_folder_to_system_trash_and_forgets_it(tmp_path, monkeypatch):
+    """«Eliminar catálogo»: manda la carpeta del catálogo abierto a la papelera del sistema, lo cierra y lo olvida; una carpeta sin `linea.json` no se toca."""
     import shutil
     from afm.gui import settings as GUI_SETTINGS
 
     monkeypatch.setenv("AFM_GUI_CONFIG", str(tmp_path / "gui.json"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "share"))      # la papelera del sistema, aislada
     ejemplo = os.path.join(os.path.dirname(__file__), "..", "catalogo", "ejemplo")
     root = str(tmp_path / "linea")
     shutil.copytree(ejemplo, root, ignore=shutil.ignore_patterns("compat.json", "COMPATIBILIDAD.md"))
@@ -913,6 +914,9 @@ def test_delete_catalog_removes_folder_and_forgets_it(tmp_path, monkeypatch):
     assert c.delete_catalog()
     assert not os.path.exists(root) and c.session.catalog_root is None
     assert GUI_SETTINGS.last_catalog() is None
+    trash = tmp_path / "share" / "Trash"                              # fue a la papelera, no se borró de verdad
+    assert (trash / "files" / "linea" / "linea.json").is_file()
+    assert "Path=" + str(root) in (trash / "info" / "linea.trashinfo").read_text()
     # carpeta que no es un catálogo: no se borra
     other = tmp_path / "otra"
     other.mkdir()

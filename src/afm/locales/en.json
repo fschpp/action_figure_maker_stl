@@ -483,9 +483,9 @@
   "crear_catalogo_tip": "Creates the folder of a new catalog (line name and height) and leaves it open",
   "abrir_catalogo_tip": "Browse the file system for a catalog folder and open it",
   "eliminar_catalogo": "Delete the open catalog…",
-  "eliminar_catalogo_tip": "Deletes the open catalog folder and all its parts from disk (asks first). The project is not touched.",
-  "eliminar_el_catalogo_pregunta": "Delete this catalog from disk?",
-  "eliminar_el_catalogo_detalle": "The folder %{root} with its %{total} part versions will be deleted. This cannot be undone. The open project is not touched.",
+  "eliminar_catalogo_tip": "Moves the open catalog folder and all its parts to the system trash (asks first). The project is not touched.",
+  "eliminar_el_catalogo_pregunta": "Move this catalog to the trash?",
+  "eliminar_el_catalogo_detalle": "The folder %{root} with its %{total} part versions will go to the system trash, where you can recover it. The open project is not touched.",
   "eliminar_catalogo_accion": "Delete catalog"
  },
  "controller": {
@@ -1111,8 +1111,8 @@
   "sin_valores_por_defecto_propios": "There were no own defaults: they are already the factory ones.",
   "agarre_mano_mango": "grip (hand + handle)",
   "no_se_elimino_la_carpeta_no_es_un_catalogo": "Nothing was deleted: the folder is not a catalog.",
-  "no_se_pudo_eliminar_el_catalogo": "Could not delete the catalog: %{error}",
-  "catalogo_eliminado_root": "Catalog deleted: %{root}"
+  "no_se_pudo_eliminar_el_catalogo": "Could not move the catalog to the trash (nothing was deleted): %{error}",
+  "catalogo_eliminado_root": "Catalog moved to the trash: %{root}"
  },
  "figure_builder": {
   "sin_soportes_resumen": "No supports: cut %{corte} mm above the tail; arms rotated forward: %{giro}",

@@ -1,3 +1,20 @@
+## Current Focus — «Eliminar catálogo» manda la carpeta a la papelera del sistema (2026-11-28, sobre main 0f58bd1)
+**Objetivo.** Que borrar el catálogo completo sea recuperable: va a la papelera del sistema en vez de `shutil.rmtree`.
+**Hecho.**
+- `papelera.py` (nuevo, sin GTK ni dependencias): `move_to_trash(path)` según freedesktop Trash (`$XDG_DATA_HOME/Trash/files` + `info/*.trashinfo`, nombres repetidos con `.2`, `.3`…); si falla levanta `PapeleraError` y deja el original intacto, nunca cae a borrado definitivo.
+- `Controller.delete_catalog` usa `move_to_trash`; textos es/en/pt (tip, pregunta, detalle, avisos) ya no dicen «no se puede deshacer».
+- Pruebas: `tests/test_papelera.py` (4) y `test_gui_controller.py::test_delete_catalog_sends_folder_to_system_trash_and_forgets_it` (con `XDG_DATA_HOME` aislado).
+**Pruebas.** `test_papelera`, `test_i18n`, `test_color_i18n` y el test de `delete_catalog` verdes.
+
+### Todo List
+- [x] Done: `papelera.py`, `delete_catalog`, textos es/en/pt, pruebas
+- [ ] Todo: decidir si «vaciar papelera del catálogo» (`.papelera` interna) y desinstalar paquetes también deben ir a la papelera del sistema
+- [ ] Todo: probar en un escritorio real (GNOME/KDE) que el gestor de archivos lo muestre y lo restaure; macOS/Windows no cubiertos (spec freedesktop)
+
+### Latest Blockers/Discoveries
+- La papelera en otro disco (p. ej. catálogo en un USB) se resuelve copiando a `~/.local/share/Trash`; la spec prevé `.Trash-UID` en ese disco, no implementado.
+- Corrí solo las pruebas relacionadas; no la suite completa.
+
 ## Current Focus — Publicar el color de las piezas extraído del FBX, sin el FBX (2026-11-28, sobre main 9929dfc)
 **Objetivo.** Que «Publicar…» lleve el color de las piezas `modo: rgb` sin empaquetar el FBX (26–36 MB cada uno; el paquete heroes-america-wave-1 llegó a 179 MB): se extrae del FBX solo lo que hace falta para colorear y el paquete no referencia al FBX.
 **Hecho.**
