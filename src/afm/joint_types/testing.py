@@ -5,7 +5,7 @@ con su resultado. Lo corre un test sobre CADA tipo de `REGISTRY` (también los i
 
 Hecho en la Fase 0: 1 determinismo · 2 piezas y cortadores válidos (manifold), volumen > 0, sin NaN · 3 giro libre en todas las poses del recorrido ·
 5 pared del padre alrededor de la cavidad · 6 espejo (`S.mirror_x`) · 7 `requires()` coherente · 8 solo importa la superficie pública
-permitida. Falta (necesita `Motion` general, Fase 2): 4 retención por desplazamiento ±1 mm.
+permitida. El giro libre (3) recorre `motion.poses()`, sea de un eje o una rótula. Falta: 4 retención por desplazamiento ±1 mm.
 """
 from __future__ import annotations
 
@@ -93,10 +93,8 @@ def check_type(t, site: JointSite | None = None, parent: S.Manifold | None = Non
             target = S.difference(target, c)
     worst, free = 0.0, True
     if target is not None:
-        motion = r1.motion.revolute()
-        for T in (motion.poses(TURN_STEP_DEG) if motion is not None else []):
-            moved = r1.motion.limb.transform(T[:3, :])
-            worst = max(worst, _volume(S.intersection(moved, target)))
+        for T in r1.motion.poses(TURN_STEP_DEG):               # cualquier `Motion`: un eje o la grilla de poses de una rótula
+            worst = max(worst, _volume(S.intersection(r1.motion.limb.transform(T[:3, :]), target)))
         free = worst < FREE_TURN_TOL_MM3
     out.append(Check(3, "giro libre en todo el recorrido", free, f"interferencia máxima {worst:.4g} mm³" if not free else ""))
 

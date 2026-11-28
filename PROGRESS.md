@@ -1,3 +1,22 @@
+## Current Focus — Plugins de articulación, Fase 4 (corte 3): el tipo `ball` (rótula), sin registrar todavía (2026-11-28, sobre el corte 2 139eb87)
+**Objetivo.** Tener el tipo `ball` construido y probado con el kit de conformidad antes de enchufarlo a `pipeline.build` (`docs/PLAN_plugins_articulacion.md` §4.3).
+**Hecho.**
+- `joint_types/ball.py`: `BallSpec(ball_d=7, neck_d=3, neck_len=1.5, half_angle=20, twist=0)`; `Ball.build` arma cuello + bola en la hija y, para el anfitrión, un zócalo = hija dilatada la holgura + cono del cuello (`half_angle`) que sale 1 mm más allá de la cara. `motion` = `ConeMotion` (centro de la bola, `print_tilt` desde `print_hint`). `lip`/`lip_margin`/`mouth_radius`: el labio es el anillo donde el cono corta la esfera del zócalo; margen = radio de la bola − radio del labio (0,526 mm con los valores por defecto). Error claro si el labio no retiene (margen ≤ 0) o el cuello no es más fino que la bola; aviso si el margen es < 0,4 mm o el cuello < `min_pin_d`.
+- `requires` (profundidad = cuello + bola + holgura; luz de 2 holguras en cadera), `face_radius` = radio del cono sobre la cara (lo usa `offer`), `test_site`.
+- `testing.check_type`: el giro libre (3) recorre `motion.poses()`, sea de un eje o rótula.
+- `tests/test_joint_ball.py` (8): el kit pasa; hija/zócalo/centro de la bola; retención (1 mm hacia afuera choca con el labio); geometría del labio vs. ángulo; rechazos; avisos; `requires` y `offer`; inclinación libre dentro del cono.
+**Pruebas.** Pasan 55: `test_joint_ball`, `test_joint_motion`, `test_joint_registry`, `test_guide_offer`, `test_joint_swivel`. No se tocó `pipeline.py`, así que no se corrió golden.
+**No hecho (corte 4).** Registrar `ball` en `REGISTRY`/`BUILTIN` y despacharlo en `pipeline.build` (hoy un `mechanism="ball"` caería al hongo en silencio: hay que levantar un error o armarlo); `class_pin`/`_class_jp` para un tipo que no es hongo ni clic; `res_motion` con `ConeMotion` y la pose impresa de una cadera; `test_guide_offer` (lista de tipos por lugar); `SeatedClash` con `print_pose`; probeta de rótula (H2); dorados con STL reales.
+
+### Todo List
+- [x] Done: tipo `ball` y su prueba
+- [/] In Progress: Fase 4 — registrar y despachar `ball` en `pipeline.build`
+- [ ] Todo: `SeatedClash` con `print_pose`; probeta de rótula (H2); pose sentada de una cadera de rótula (90° fuera del cono)
+
+### Latest Blockers/Discoveries
+- Lo que limita la inclinación real no es el cono sino el cuerpo de la hija: el borde de la cara se corre `r·sen a + L·(1−cos a)` hacia el padre y también de costado `L·sen a`, fuera del redondeo de la luz. Con un brazo Ø6 y 0,5 mm de luz solo admite ≈4°. Hará falta relieve en el cuerpo (o una luz mayor en el anfitrión) para que el cono declarado sea el real; la validación por grilla (corte 2) lo detecta.
+- Una cadera de rótula no alcanza la pose sentada (90°) con un cono de 20°: decisión pendiente (cono ≥ 90° no retiene; ¿cadera sentada con otro tipo?).
+
 ## Current Focus — Plugins de articulación, Fase 4 (corte 2): validación de recorrido sobre grilla de poses y pose impresa de la rótula (2026-11-28, sobre el corte 1 dc4b3a3)
 **Objetivo.** Que una rótula (`ConeMotion`) no quede sin validar ni fuera de la pose impresa, antes de tener el tipo `ball` (`docs/PLAN_plugins_articulacion.md` §3.3, §5 Fase 4).
 **Hecho.**
