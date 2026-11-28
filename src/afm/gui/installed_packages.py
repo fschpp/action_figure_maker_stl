@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from .. import desinstalar as DS
 from .. import instalar as I
 from .. import paquete as Q
+from .. import referencias as RF
 from .. import remoto as R
 from ..catalog import Catalog, CatalogError
 from ..i18n import tr
@@ -69,6 +70,21 @@ class Row:
     @property
     def estado_texto(self) -> str:
         return tr(f"installed_packages.estado_{self.estado}", version=self.actualizar_a)
+
+
+@dataclass
+class RequiredRow:
+    """Un archivo que el paquete le pide a la persona (D26, §5.11)."""
+
+    id: str
+    nombre: str
+    importado: bool
+    piezas: list
+
+    @property
+    def texto(self) -> str:
+        key = "installed_packages.req_importado" if self.importado else "installed_packages.req_falta"
+        return tr(key, nombre=self.nombre, piezas=", ".join(self.piezas) or "—")
 
 
 @dataclass
@@ -195,7 +211,34 @@ class InstalledState:
                (tr("installed_packages.l_catalogo"), row.root)]
         if row.roles:
             out.append((tr("installed_packages.l_roles"), ", ".join(row.roles)))
+        req = self.required_files(row)
+        if req:
+            out.append((tr("installed_packages.l_requeridos"), "\n".join(r.texto for r in req)))
         return out
+
+    # ---- archivos requeridos (paquetes por referencia, D26)
+    @staticmethod
+    def required_files(row: Row) -> list[RequiredRow]:
+        """Los archivos que pide este paquete y si ya están; vacío si no es «por referencia» (o el catálogo no se puede leer)."""
+        try:
+            reqs = RF.estado(Catalog.open(row.root))
+        except (CatalogError, OSError, ValueError):
+            return []
+        return [RequiredRow(r.id, r.nombre, r.importado, list(r.piezas)) for r in reqs if r.paquete == row.id]
+
+    @staticmethod
+    def import_required(row: Row, req_id: str, path: str) -> list[str]:
+        """Verifica `path` y lo guarda como el archivo requerido `req_id` de este paquete. Devuelve el resultado en líneas; `CatalogError`
+        (`referencias.ReferenceError`) con el motivo si no es el archivo pedido: en ese caso no se guardó nada."""
+        cat = Catalog.open(row.root)
+        mine = {r.id for r in RF.estado(cat) if r.paquete == row.id}
+        if req_id not in mine:
+            raise RF.ReferenceError(f"«{row.id}» no pide ningún archivo «{req_id}»")
+        res = RF.importar(cat, path, req_id)
+        out = [tr("installed_packages.req_ya_estaba") if res.ya_estaba else tr("installed_packages.req_resultado", nombre=res.requerido.nombre)]
+        if res.completadas:
+            out.append(tr("installed_packages.req_completas", piezas=", ".join(res.completadas)))
+        return out + list(res.avisos)
 
     # ---- versiones y actualización
     def versions(self, row: Row) -> list[VersionRow]:

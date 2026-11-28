@@ -2706,6 +2706,12 @@
   "sin_piezas": "nenhuma",
   "sin_recetas": "nenhuma",
   "y_n_mas": " e mais %{n}",
+  "l_requeridos": "Arquivos necessários",
+  "req_falta": "%{nombre}: FALTA (completa %{piezas})",
+  "req_importado": "%{nombre}: importado",
+  "req_resultado": "Importado: “%{nombre}”.",
+  "req_completas": "Peças que agora estão completas: %{piezas}",
+  "req_ya_estaba": "Esse arquivo já estava importado.",
   "q_titulo": "Remover «%{id}» %{version}",
   "q_se_van": "Vão para a lixeira: %{piezas} peça(s) e %{recetas} receita(s).",
   "q_pieza": "  · peça %{ref}",
@@ -2751,7 +2757,12 @@
   "quitar_confirmar_dep": "Remover mesmo assim",
   "quitado_titulo": "Pacote removido",
   "revision_lista": "Verificação concluída: %{n} problema(s).",
-  "sin_indice": "Este pacote não está nos índices (ou foi instalado de outro repositório): sem atualizações nem versões para oferecer."
+  "sin_indice": "Este pacote não está nos índices (ou foi instalado de outro repositório): sem atualizações nem versões para oferecer.",
+  "requeridos_titulo": "Arquivos que você precisa fornecer",
+  "requeridos_ayuda": "Este pacote traz apenas a articulação: o STL original é você quem fornece. Ele é verificado por sha256 e fica no seu catálogo (nunca viaja em um pacote). Até lá as peças não podem ser montadas.",
+  "importar_requerido": "Importar arquivo necessário…",
+  "elegir_archivo": "Escolha o arquivo “%{nombre}”",
+  "importado_titulo": "Arquivo importado"
  },
  "publish": {
   "lic_elegi": "Escolha uma licença: ela diz o que outras pessoas podem fazer com o seu trabalho.",

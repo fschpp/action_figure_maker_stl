@@ -240,6 +240,19 @@ class InstalledPackagesWindow(Gtk.Window):
         rem.connect("clicked", lambda *_: self._on_remove(r))
         buttons.append(rem)
         box.append(buttons)
+        missing = [q for q in self.st.required_files(r) if not q.importado]
+        if missing:                                              # D26: piezas por referencia: el STL lo aporta la persona
+            box.append(_label(tr("installed_packages_window.requeridos_titulo"), css=("heading",)))
+            box.append(_label(tr("installed_packages_window.requeridos_ayuda"), css=("dim-label",)))
+            for q in missing:
+                line = Gtk.Box(spacing=6)
+                lb = _label(q.texto, wrap=True, css=("warning",))
+                lb.set_hexpand(True)
+                line.append(lb)
+                btn = Gtk.Button(label=tr("installed_packages_window.importar_requerido"))
+                btn.connect("clicked", lambda *_, req=q: self._on_import_required(r, req))
+                line.append(btn)
+                box.append(line)
         if r.entry is None:
             box.append(_label(tr("installed_packages_window.sin_indice"), css=("dim-label",)))
         self.versions_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -311,6 +324,28 @@ class InstalledPackagesWindow(Gtk.Window):
                 if row is not None:
                     self._show_detail(row)
         step()
+
+    def _on_import_required(self, r: IP.Row, req: IP.RequiredRow) -> None:
+        """«Importar archivo requerido…»: elegir el STL; se verifica por sha256 y recién ahí se guarda (si no es el pedido se dice por qué)."""
+        dlg = Gtk.FileDialog(title=tr("installed_packages_window.elegir_archivo", nombre=req.nombre))
+
+        def chosen(d, res):
+            try:
+                f = d.open_finish(res)
+            except GLib.Error:
+                return                                              # cancelado
+            path = f.get_path() if f is not None else None
+            if not path:
+                return
+            try:
+                lines = self.st.import_required(r, req.id, path)
+            except Exception as exc:                                # noqa: BLE001 — el motivo (otro archivo, pesa de más, catálogo ilegible) se dice, no se cierra
+                self._error(str(exc))
+                return
+            self._changed()
+            self._message(tr("installed_packages_window.importado_titulo"), "\n".join(lines))
+
+        dlg.open(self, None, chosen)
 
     def _on_remove(self, r: IP.Row) -> None:
         try:

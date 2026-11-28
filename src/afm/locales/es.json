@@ -2706,6 +2706,12 @@
   "sin_piezas": "ninguna",
   "sin_recetas": "ninguna",
   "y_n_mas": " y %{n} más",
+  "l_requeridos": "Archivos requeridos",
+  "req_falta": "%{nombre}: FALTA (completa %{piezas})",
+  "req_importado": "%{nombre}: importado",
+  "req_resultado": "Importado: «%{nombre}».",
+  "req_completas": "Piezas que ahora están completas: %{piezas}",
+  "req_ya_estaba": "Ese archivo ya estaba importado.",
   "q_titulo": "Quitar «%{id}» %{version}",
   "q_se_van": "Se van a la papelera: %{piezas} pieza(s) y %{recetas} receta(s).",
   "q_pieza": "  · pieza %{ref}",
@@ -2751,7 +2757,12 @@
   "quitar_confirmar_dep": "Quitar igual",
   "quitado_titulo": "Paquete quitado",
   "revision_lista": "Revisión lista: %{n} problema(s).",
-  "sin_indice": "Este paquete no figura en los índices (o se instaló desde otro repo): no hay actualizaciones ni versiones para ofrecer."
+  "sin_indice": "Este paquete no figura en los índices (o se instaló desde otro repo): no hay actualizaciones ni versiones para ofrecer.",
+  "requeridos_titulo": "Archivos que tenés que aportar",
+  "requeridos_ayuda": "Este paquete trae solo la articulación: el STL original lo ponés vos. Se verifica por sha256 y queda en tu catálogo (no viaja en ningún paquete). Hasta entonces las piezas no se arman.",
+  "importar_requerido": "Importar archivo requerido…",
+  "elegir_archivo": "Elegí el archivo «%{nombre}»",
+  "importado_titulo": "Archivo importado"
  },
  "publish": {
   "lic_elegi": "Elegí una licencia: dice qué puede hacer otra persona con tu trabajo.",

@@ -186,23 +186,30 @@ def _with_hands(cat: Catalog, metas: list[P.PieceMeta], avisos: list) -> list[P.
 
 
 def _piece_entries(cat: Catalog, m: P.PieceMeta, include_fbx: bool, avisos: list, include_color: bool = False,
-                   color_kw: dict | None = None) -> list[_Entry]:
+                   color_kw: dict | None = None, por_referencia: frozenset = frozenset()) -> list[_Entry]:
     """Los archivos de la pieza. Verifica el hash del STL y del archivo de color contra la ficha.
 
     `include_fbx`: el FBX entero viaja tal cual. `include_color`: viaja solo el color extraído del FBX (`colorrgb`, mucho más liviano) y la ficha
-    del paquete apunta a ese archivo, sin mencionar el FBX; `include_fbx` manda si están los dos."""
+    del paquete apunta a ese archivo, sin mencionar el FBX; `include_fbx` manda si están los dos.
+
+    D26: si el `sha256` de la pieza está en `por_referencia` (las `referencias_requeridas` del paquete), el STL **no** viaja: la persona que instale
+    el paquete lo aporta. Ni siquiera hace falta que esté en el catálogo del autor (puede tenerlo importado en `referencias/`)."""
     files = cat._piece_files(m)
     if not files:
         raise ExportError(f"{m.ref}: no está la ficha en piezas/*/ del catálogo")
     folder = os.path.dirname(files[0])
     by_name = {os.path.basename(f): f for f in files}
     stl_name = os.path.basename(m.stl or P.stl_name(m.id, m.version))
-    if stl_name not in by_name:
-        raise ExportError(f"{m.ref}: falta el STL «{stl_name}»")
-    if m.sha256 and P.sha256_file(by_name[stl_name]) != m.sha256:
-        raise ExportError(f"{m.ref}: el STL no coincide con el hash de la ficha (¿se modificó?); corré `afm catalogo verificar`")
     base = f"piezas/{m.tipo}/"
-    out = [_entry_from_path(base + stl_name, by_name[stl_name])]
+    out = []
+    if m.sha256 and m.sha256 in por_referencia:
+        avisos.append(f"{m.ref}: el STL no viaja en el paquete (es una referencia requerida); la persona que lo instale tiene que aportarlo")
+    else:
+        if stl_name not in by_name:
+            raise ExportError(f"{m.ref}: falta el STL «{stl_name}»")
+        if m.sha256 and P.sha256_file(by_name[stl_name]) != m.sha256:
+            raise ExportError(f"{m.ref}: el STL no coincide con el hash de la ficha (¿se modificó?); corré `afm catalogo verificar`")
+        out.append(_entry_from_path(base + stl_name, by_name[stl_name]))
     keep_color = bool(m.color)
     color_names: list[str] = []
     derived: tuple | None = None                       # (nombre, bytes) del color extraído del FBX
@@ -412,8 +419,10 @@ def export_package(cat: Catalog, out: str, *, piezas=(), recetas=(), linea_compl
             add(m)
     color_kw = {k: v for k, v in (("max_side", color_max_lado), ("quality", color_calidad)) if v}
     ordered = [metas[r] for r in sorted(metas, key=lambda r: (parse_ref(r)[0], parse_ref(r)[1]))]
+    refs = list(base.referencias_requeridas) if base else []                      # D26: las declara el autor en su paquete.json
+    por_referencia = frozenset(h for r in refs for h in r.sha256)
     for m in ordered:
-        for e in _piece_entries(cat, m, incluir_fbx, avisos, incluir_color, color_kw):
+        for e in _piece_entries(cat, m, incluir_fbx, avisos, incluir_color, color_kw, por_referencia):
             entries[e.arcname] = e
     uses_roles = any(k.endswith(".color.npz") for k in entries)
     with_palette = os.path.isfile(cat.palette_path) and (linea_completa or uses_roles or has_override)
@@ -438,7 +447,7 @@ def export_package(cat: Catalog, out: str, *, piezas=(), recetas=(), linea_compl
         requiere=list(b.requiere) if b else [], conflicts=list(b.conflicts) if b else [],
         experimental=bool(b.experimental) if b else False,
         categorias=list(categorias) or (list(b.categorias) if b else []) or default_categories(tipo, ordered),
-        etiquetas=list(etiquetas) or (list(b.etiquetas) if b else []))
+        etiquetas=list(etiquetas) or (list(b.etiquetas) if b else []), referencias_requeridas=refs)
     if not (pkg.licencia and pkg.origen and pkg.autores):
         miss = [n for n, v in (("--licencia", pkg.licencia), ("--origen", pkg.origen), ("--autor", pkg.autores)) if not v]
         raise ExportError("faltan datos que solo el autor puede dar: " + ", ".join(miss) + " (cada persona responde por su contenido)")

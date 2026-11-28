@@ -17,7 +17,7 @@ from .recipe import RecipeError
 
 
 def add_parsers(sub) -> None:
-    c = sub.add_parser("catalogo", help="catálogo de piezas de una línea (crear, listar, verificar, importar-mano, taladrar-mano, agregar, agregar-stl, guardar-montura, cortar-muneca, usos, eliminar, estado, compat, certificar, matriz, cobertura, contrato, capacidad, paleta, color, color-girar, retoque, exportar, instalar, paquete, remoto)")
+    c = sub.add_parser("catalogo", help="catálogo de piezas de una línea (crear, listar, verificar, importar-mano, taladrar-mano, agregar, agregar-stl, guardar-montura, cortar-muneca, usos, eliminar, estado, compat, certificar, matriz, cobertura, contrato, capacidad, paleta, color, color-girar, retoque, exportar, instalar, paquete, remoto, referencia)")
     cs = c.add_subparsers(dest="catcmd", required=True)
 
     def root(p):
@@ -243,6 +243,8 @@ def add_parsers(sub) -> None:
     remoto_cli.add_parsers(cs)                   # D14: remoto buscar|ver|versiones|instalar|actualizar
     from . import bloqueos_cli
     bloqueos_cli.add_parsers(cs)                 # D24: bloqueados validar|comprobar|retirar (lo que usa el CI del índice)
+    from . import referencias_cli
+    referencias_cli.add_parsers(cs, root)        # D26: referencia listar|importar|quitar (archivos que aporta la persona a un paquete «por referencia»)
 
 
 def _open(args) -> Catalog:
@@ -515,6 +517,9 @@ def _run(args) -> int:
         from .paquete_cli import run_instalar
         return run_instalar(args)
     cat = _open(args)
+    if cmd == "referencia":                    # D26
+        from .referencias_cli import run_referencia
+        return run_referencia(cat, args)
     if cmd == "exportar":
         from .paquete_cli import run_exportar
         return run_exportar(cat, args)

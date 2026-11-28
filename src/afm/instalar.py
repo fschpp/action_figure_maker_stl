@@ -91,6 +91,7 @@ class InstallPlan:
     descartados: list = field(default_factory=list)    # D07: archivos del zip heredado que no se instalan (derivados, otros)
     heredado_sha256: str = ""                          # D07: sha256 del zip original (el del plan es el del paquete convertido)
     indice: str = ""                                   # D13: URL del índice de donde se bajó el zip (se guarda en `paquetes.json`); "" si fue un zip local
+    requeridas: list = field(default_factory=list)     # D26: [(RequiredReference, ya_importado)] de un paquete `origen: referencia`
 
     @property
     def errors(self) -> list:
@@ -130,11 +131,15 @@ class InstallPlan:
             add = [i for i in self.a_instalar if i.kind == kind]
             skip = [i for i in self.omitidas if i.kind == kind]
             if add:
-                out.append(f"{label} a instalar ({len(add)}): " + ", ".join(i.name for i in add))
+                out.append(f"{label} a instalar ({len(add)}): " + ", ".join(i.name + (" (incompleta)" if "incompleta" in i.detail else "") for i in add))
             if skip:
                 out.append(f"{label} que ya están (se omiten, {len(skip)}): " + ", ".join(i.name for i in skip))
         if self.roles_nuevos:
             out.append("Roles de paleta a agregar: " + ", ".join(f"{r.id} ({r.hex})" for r in self.roles_nuevos))
+        faltan = [r for r, hecho in self.requeridas if not hecho]
+        if faltan:
+            out.append(f"Archivos que tenés que aportar ({len(faltan)}): " + ", ".join(f"«{r.nombre}»" for r in faltan)
+                       + "; hasta importarlos las piezas quedan incompletas y no se arman")
         if self.descartados:
             shown = ", ".join(self.descartados[:6]) + (f" y {len(self.descartados) - 6} más" if len(self.descartados) > 6 else "")
             out.append(f"Del zip heredado no se instalan {len(self.descartados)} archivo(s) (derivados que se recalculan, o ajenos al catálogo): {shown}")
@@ -151,6 +156,7 @@ class InstallResult:
     roles: list
     omitidas: list
     avisos: list = field(default_factory=list)
+    faltan_archivos: list = field(default_factory=list)      # D26: nombres de los archivos requeridos que todavía hay que importar
 
 
 # ------------------------------------------------------------------------------------------------------------------------ utilidades
@@ -274,6 +280,8 @@ def plan_install(zip_path: str, root: str, *, como_linea: bool = False, allow_fb
         # ---- piezas y recetas del paquete contra el destino (1, 5, 6)
         _plan_pieces(plan, add, zf, names, cat)
         _plan_recipes(plan, add, zf, names, cat)
+        for r in pkg.referencias_requeridas:                           # D26: qué archivos tiene que aportar la persona (los ya importados no)
+            plan.requeridas.append((r, cat is not None and any(os.path.isfile(cat.reference_state_path(h)) for h in r.sha256)))
 
         # ---- 4 · paleta
         _plan_palette(plan, add, zf, names, cat, pkg)
@@ -346,7 +354,12 @@ def _plan_pieces(plan, add, zf, names: set, cat: Catalog | None) -> None:
             except CatalogError:
                 local = None
         if local is None:
-            plan.items.append(Item("pieza", ref, "instalar", f"{meta.tipo}", files))
+            detail = f"{meta.tipo}"
+            if not any(x.endswith(".stl") for x in files):
+                req = next((r for r in plan.paquete.referencias_requeridas if meta.sha256 in r.sha256), None)
+                if req is not None:
+                    detail += f"; incompleta hasta importar «{req.nombre}»"
+            plan.items.append(Item("pieza", ref, "instalar", detail, files))
         elif local.sha256 == meta.sha256:
             note = "ya estaba (mismo STL)"
             if (local.color or {}).get("sha256") != (meta.color or {}).get("sha256"):
@@ -572,7 +585,8 @@ def apply(plan: InstallPlan, *, confirmar_origen: bool = False, now: datetime | 
         avisos = [str(i) for i in plan.warnings]
         cat_dest = None if plan.como_linea else Catalog.open(root)
         merged = _merged_palette(cat_dest, plan)
-        _verify_staging(staging, line_bytes if plan.como_linea else _line_bytes(root), merged, avisos)
+        _verify_staging(staging, line_bytes if plan.como_linea else _line_bytes(root), merged, avisos,
+                        extra_refs={h: r.nombre for r in pkg.referencias_requeridas for h in r.sha256})
         for it in plan.a_instalar:
             if it.kind == "receta":
                 from .recipe import Recipe, RecipeError
@@ -603,6 +617,8 @@ def apply(plan: InstallPlan, *, confirmar_origen: bool = False, now: datetime | 
             "fecha": when, "licencia": pkg.licencia, "autores": [a.to_dict() for a in pkg.autores], "origen": pkg.origen,
             "conflicts": list(pkg.conflicts), "requiere": list(pkg.requiere), "refs": merged_refs,
         }
+        if pkg.referencias_requeridas:                                # D26: lo que `Catalog` y `referencias` leen para saber qué piezas están incompletas
+            reg["paquetes"][pkg.id]["referencias"] = [r.to_dict() for r in pkg.referencias_requeridas]
         if plan.heredado_sha256:
             reg["paquetes"][pkg.id]["heredado_sha256"] = plan.heredado_sha256
         journal.write(os.path.join(root, REGISTRY_FILE), _dump(reg))            # al final: es lo que da la instalación por hecha
@@ -616,7 +632,8 @@ def apply(plan: InstallPlan, *, confirmar_origen: bool = False, now: datetime | 
         raise
     shutil.rmtree(staging, ignore_errors=True)
     return InstallResult(paquete=pkg, root=root, piezas=refs["piezas"], recetas=refs["recetas"], roles=refs["roles"],
-                         omitidas=[i.name for i in plan.omitidas], avisos=avisos)
+                         omitidas=[i.name for i in plan.omitidas], avisos=avisos,
+                         faltan_archivos=[r.nombre for r, hecho in plan.requeridas if not hecho])
 
 
 def _line_bytes(root: str) -> bytes:
@@ -631,7 +648,7 @@ def _merged_palette(cat: Catalog | None, plan: InstallPlan) -> Palette | None:
     return Palette(list(local.roles if local else []) + list(plan.roles_nuevos))
 
 
-def _verify_staging(staging: str, line_bytes: bytes, palette: Palette | None, avisos: list) -> None:
+def _verify_staging(staging: str, line_bytes: bytes, palette: Palette | None, avisos: list, extra_refs: dict | None = None) -> None:
     """Arma en el staging un catálogo de juguete (la línea de destino, la paleta ya fusionada y las piezas nuevas) y corre `Catalog.verify`."""
     with open(os.path.join(staging, "linea.json"), "wb") as f:
         f.write(line_bytes)
@@ -641,12 +658,12 @@ def _verify_staging(staging: str, line_bytes: bytes, palette: Palette | None, av
     for sub in ("piezas", "figuras"):
         os.makedirs(os.path.join(staging, sub), exist_ok=True)
     try:
-        rep = Catalog.open(staging).verify()
+        rep = Catalog.open(staging).verify(extra_refs=extra_refs)
     except (CatalogError, OSError, ValueError) as exc:
         raise InstallError(f"lo extraído no abre como catálogo: {exc}") from None
     if rep.problems:
         raise InstallError("lo que trae el paquete no pasa `verificar`: " + "; ".join(rep.problems[:3]) + (f" (+{len(rep.problems) - 3})" if len(rep.problems) > 3 else ""))
-    avisos += [w for w in rep.warnings if "versiones no consecutivas" not in w]
+    avisos += [w for w in rep.warnings if "versiones no consecutivas" not in w and ": incompleta: falta el archivo requerido" not in w]
     for n in ("linea.json", "paleta.json"):                           # no son parte de lo que se mueve al catálogo
         p = os.path.join(staging, n)
         if os.path.isfile(p):

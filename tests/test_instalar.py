@@ -270,7 +270,7 @@ def test_si_verificar_falla_el_catalogo_no_cambia(cat, dest, tmp_path, monkeypat
     z = export(cat, tmp_path)
     plan = I.plan_install(z, dest.root)
     before = I.tree_digest(dest.root)
-    monkeypatch.setattr(Catalog, "verify", lambda self: type("R", (), {"problems": ["x@1: malla rota"], "warnings": [], "ok": False})())
+    monkeypatch.setattr(Catalog, "verify", lambda self, **kw: type("R", (), {"problems": ["x@1: malla rota"], "warnings": [], "ok": False})())
     with pytest.raises(I.InstallError, match="verificar"):
         I.apply(plan)
     assert I.tree_digest(dest.root) == before

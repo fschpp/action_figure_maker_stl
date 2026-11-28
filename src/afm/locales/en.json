@@ -2706,6 +2706,12 @@
   "sin_piezas": "none",
   "sin_recetas": "none",
   "y_n_mas": " and %{n} more",
+  "l_requeridos": "Required files",
+  "req_falta": "%{nombre}: MISSING (completes %{piezas})",
+  "req_importado": "%{nombre}: imported",
+  "req_resultado": "Imported: “%{nombre}”.",
+  "req_completas": "Pieces that are now complete: %{piezas}",
+  "req_ya_estaba": "That file was already imported.",
   "q_titulo": "Remove “%{id}” %{version}",
   "q_se_van": "Going to the trash: %{piezas} piece(s) and %{recetas} recipe(s).",
   "q_pieza": "  · piece %{ref}",
@@ -2751,7 +2757,12 @@
   "quitar_confirmar_dep": "Remove anyway",
   "quitado_titulo": "Package removed",
   "revision_lista": "Check done: %{n} problem(s).",
-  "sin_indice": "This package isn't in the indexes (or was installed from another repo): no updates or versions to offer."
+  "sin_indice": "This package isn't in the indexes (or was installed from another repo): no updates or versions to offer.",
+  "requeridos_titulo": "Files you have to provide",
+  "requeridos_ayuda": "This package only brings the joint design: you provide the original STL. It is verified by sha256 and kept in your catalog (it never travels in a package). Until then the pieces cannot be assembled.",
+  "importar_requerido": "Import required file…",
+  "elegir_archivo": "Choose the file “%{nombre}”",
+  "importado_titulo": "File imported"
  },
  "publish": {
   "lic_elegi": "Pick a license: it says what other people may do with your work.",

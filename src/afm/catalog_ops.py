@@ -43,6 +43,7 @@ COMMANDS: dict[str, tuple[str, bool, bool]] = {
     "exportar": (CONSOLE, False, False),       # D03 (PLAN_catalogos_online.md): paquete .zip; «Compartir → Publicar…» de la ventana es D21 (`gui/publish_window.py`)
     "instalar": (CONSOLE, False, True),        # D06: paquete .zip → catálogo (escribe); «Compartir → Importar paquete .zip…» de la ventana es D22
     "remoto": (CONSOLE, True, True),           # D14: buscar/ver/versiones/instalar/actualizar desde un índice; «Explorar catálogos en línea…» de la ventana es D18
+    "referencia": (GUI, False, True),          # D26: «Paquetes instalados» → «Importar archivo requerido…» (listar/importar/quitar)
     "paquete": (CONSOLE, False, False),        # D04: `paquete validar`; «Publicar…» de la ventana (D21) lo usa
     "paleta": (CONSOLE, False, True),          # T39: paleta.json de la línea; la pestaña «Paleta» de la ventana es T46 (PLAN_paleta_color_linea.md)
 }

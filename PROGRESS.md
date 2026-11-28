@@ -47,11 +47,12 @@
 **Pruebas.** `tests/test_bloqueos.py` (27); siguen verdes `test_dependencias`, `test_remoto`, `test_indice`, `test_installed_packages`, `test_catalog_online`.
 
 ### Todo List
-- [x] Done: D02–D09, D11, D13–D24
-- [ ] Todo: D10, D12 (los scripts del repo del índice llaman a `afm catalogo bloqueados`), D31, D33; D25–D29
+- [x] Done: D02–D09, D11, D13–D24, D26
+- [ ] Todo: D10, D12 (los scripts del repo del índice llaman a `afm catalogo bloqueados`), D31, D33; D25, D27–D29
 - [ ] Todo: plazos de respuesta de `docs/RECLAMOS.md` (decisión del mantenedor, D00) y plantilla «Reclamo» del repo del índice (D12)
 
 ### Latest Blockers/Discoveries
+- D26: `referencias.py` (importar/quitar/estado por sha256 en `<catálogo>/referencias/`), `Catalog.load` lanza `PieceIncompleteError`, `verify(extra_refs=)`, `afm catalogo referencia`, botón en «Paquetes instalados». Decisiones: el sha256 de la ficha completa la pieza; una variante aceptada se guarda con aviso; desinstalar no borra lo importado. **No probado:** la ventana real con GTK. Ya fallaba antes: test_catalog_ops (guardar-montura, retoque, bloqueados sin registrar).
 - El cliente ya bloqueaba por `id`/autor/`sha256` del zip desde D16; D24 agrega el lado del CI, las piezas y el documento.
 - Una pieza bloqueada sin paquete solo aparece en `remoto auditar`: «Paquetes instalados» lista paquetes, no piezas sueltas.
 

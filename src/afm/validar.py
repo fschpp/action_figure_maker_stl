@@ -5,6 +5,9 @@
 (CK203). Cada hallazgo trae el archivo y qué corregir. Con `estricto`, los avisos cuentan como errores (así lo usa la puerta de releases
 del índice). No modifica el zip ni ningún catálogo.
 
+Paquetes por referencia (D26): una pieza sin STL cuyo `sha256` es el de una `referencias_requeridas` no es un error de CK203 (se espera que la
+persona aporte el archivo); el archivo en sí dentro del zip sí lo es (CK304).
+
 Pendiente del plan: CK305 (licencias distintas por pieza sin CREDITOS.md) no se evalúa porque `PieceMeta` no tiene licencia por pieza todavía.
 """
 from __future__ import annotations
@@ -173,6 +176,12 @@ def validate_package(path: str, *, estricto: bool = False, allow_fbx: bool = Fal
 
         # ---- fichas: CK307 (FBX ausente), CK204 (roles sin paleta)
         metas = _piece_metas(zf, names, fs)
+        used_hashes = {m.sha256 for _n, m in metas if m.sha256}            # D26: el sha256 de la ficha es el del archivo que completa la pieza
+        for i, r in enumerate(pkg.referencias_requeridas):
+            if not used_hashes & set(r.sha256):
+                add("", WARNING, f"{Q.MANIFEST_FILE}:referencias_requeridas[{i}]",
+                    f"ninguna pieza del paquete tiene el sha256 de «{r.id}»: el archivo no completaría nada",
+                    "el sha256 de la ficha de la pieza tiene que estar entre los de la referencia")
         palette_ids: set[str] | None = None
         if "paleta.json" in listed:
             try:
@@ -217,7 +226,7 @@ def validate_package(path: str, *, estricto: bool = False, allow_fbx: bool = Fal
             with tempfile.TemporaryDirectory(prefix="afm-validar-") as tmp:
                 try:
                     Z.extract_all(zf, tmp, insp, only={n for n in names if n != Q.MANIFEST_FILE})
-                    rep = Catalog.open(tmp).verify()
+                    rep = Catalog.open(tmp).verify(extra_refs={h: r.nombre for r in pkg.referencias_requeridas for h in r.sha256})
                 except (Z.ZipError, CatalogError, OSError, ValueError) as exc:
                     add("CK203", ERROR, "linea.json", f"el contenido no abre como catálogo: {exc}", "volvé a exportar el paquete")
                 else:
@@ -226,7 +235,7 @@ def validate_package(path: str, *, estricto: bool = False, allow_fbx: bool = Fal
                             tag, _, text = p.partition(": ")
                             add("CK203", ERROR, tag, text or p, "corregí la pieza en el catálogo de origen y volvé a exportar")
                     for w in rep.warnings:
-                        if _GAP_WARNING in w:                      # un hueco de versiones es a propósito (las recetas fijan `id@versión`): `instalar` también lo ignora
+                        if _GAP_WARNING in w or ": incompleta: falta el archivo requerido" in w:   # hueco de versiones a propósito; D26: lo esperable en un paquete por referencia
                             continue
                         tag, _, text = w.partition(": ")
                         add("CK203", WARNING, tag, text or w)

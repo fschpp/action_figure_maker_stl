@@ -48,6 +48,14 @@ class CatalogError(ValueError):
     """Error del catálogo (no existe, la pieza ya existe, referencia inválida…)."""
 
 
+class PieceIncompleteError(CatalogError):
+    """La pieza vino de un paquete «por referencia» (D26, §5.11) y todavía falta el archivo que tiene que aportar la persona."""
+
+
+REFERENCES_DIR = "referencias"            # D26: estado local (`<sha256>.stl`); nunca viaja en un paquete ni lo toca `exportar`
+REGISTRY_NAME = "paquetes.json"           # el mismo archivo que escribe `instalar.py` (acá solo se lee)
+
+
 class CatalogFrontError(CatalogError):
     """El FBX calza con la cabeza pero la cara quedó hacia atrás (o no se pudo decidir hacia dónde mira): no se guarda sin `front_confirmed=True`.
     `frame` es la alineación que se habría guardado."""
@@ -416,10 +424,62 @@ class Catalog:
             raise CatalogError(f"no hay ninguna pieza «{ref}» en el catálogo «{self.name}»")
         return max(found, key=lambda m: m.version)
 
+    # ------------------------------------------------------------------ piezas por referencia (D26)
+    def reference_state_path(self, sha256: str) -> str:
+        """Dónde se guarda el archivo requerido con ese `sha256` (exista o no): `<raíz>/referencias/<sha256>.stl`."""
+        return os.path.join(self.root, REFERENCES_DIR, f"{sha256}.stl")
+
+    def declared_references(self) -> dict:
+        """`sha256 -> {id, nombre, paquete, tamano_max}` de los archivos que piden los paquetes instalados (lee `paquetes.json`; vacío si no hay)."""
+        path = os.path.join(self.root, REGISTRY_NAME)
+        try:
+            with open(path, encoding="utf-8") as f:
+                reg = json.load(f)
+            entries = reg.get("paquetes", {}).items()
+        except (OSError, ValueError, AttributeError):
+            return {}
+        out: dict = {}
+        for pid, e in entries:
+            for r in (e.get("referencias") or []) if isinstance(e, dict) else []:
+                if not (isinstance(r, dict) and isinstance(r.get("sha256"), list)):
+                    continue
+                for sha in r["sha256"]:
+                    out.setdefault(sha, {"id": r.get("id", ""), "nombre": r.get("nombre", ""), "paquete": pid, "tamano_max": r.get("tamano_max", 0)})
+        return out
+
+    def stl_path(self, meta: P.PieceMeta) -> str | None:
+        """Ruta del STL de `meta`: el de la pieza, o (si vino por referencia) el de la carpeta de estado local; `None` si no está en ninguno."""
+        own = os.path.join(self._dir(meta.tipo), meta.stl or P.stl_name(meta.id, meta.version))
+        if os.path.isfile(own):
+            return own
+        if meta.sha256:
+            local = self.reference_state_path(meta.sha256)
+            if os.path.isfile(local):
+                return local
+        return None
+
+    def incomplete_info(self, meta: P.PieceMeta, declared: dict | None = None) -> dict | None:
+        """Si `meta` es una pieza por referencia a la que le falta su archivo: los datos de la referencia (`id`, `nombre`, `paquete`…); si no, `None`."""
+        if not meta.sha256 or self.stl_path(meta) is not None:
+            return None
+        return (declared if declared is not None else self.declared_references()).get(meta.sha256)
+
+    def is_incomplete(self, ref: str) -> bool:
+        return self.incomplete_info(self.meta(ref)) is not None
+
     def load(self, ref: str, check_hash: bool = True):
-        """(meta, malla trimesh) de `ref`."""
+        """(meta, malla trimesh) de `ref`. `PieceIncompleteError` si es una pieza por referencia y falta el archivo requerido."""
         m = self.meta(ref)
-        return P.read_piece(self._dir(m.tipo), m.id, m.version, check_hash)
+        info = self.incomplete_info(m)
+        if info is not None:
+            raise PieceIncompleteError(f"«{m.ref}» está incompleta: falta el archivo requerido «{info.get('nombre') or info.get('id')}» "
+                                       f"(del paquete «{info.get('paquete')}»); importalo con `afm catalogo referencia importar`")
+        path = self.stl_path(m)
+        if path is None or os.path.dirname(path) == self._dir(m.tipo):
+            return P.read_piece(self._dir(m.tipo), m.id, m.version, check_hash)
+        if check_hash and m.sha256 and P.sha256_file(path) != m.sha256:
+            raise P.PieceError(f"«{m.ref}»: el archivo requerido importado no coincide con el hash guardado (¿se modificó el archivo?)")
+        return m, P.load_mesh(path)
 
     def add_piece(self, mesh, meta: P.PieceMeta, new_version: bool = False,
                   color_fbx: str | None = None, color_roles=None, similarity=None, alignment=None,
@@ -1069,9 +1129,15 @@ class Catalog:
         return out
 
     # ------------------------------------------------------------------ verificar
-    def verify(self) -> Report:
-        """Formato, hash, mallas cerradas, puertos, caras y altura de cada pieza; versiones salteadas."""
+    def verify(self, extra_refs: dict | None = None) -> Report:
+        """Formato, hash, mallas cerradas, puertos, caras y altura de cada pieza; versiones salteadas.
+
+        Una pieza por referencia (D26) a la que le falta su archivo no es un problema: sale como aviso «incompleta». `extra_refs`
+        (`sha256 -> nombre`) suma referencias que todavía no están en `paquetes.json` (lo usa `instalar` sobre el staging y `validar` sobre el zip)."""
         problems, warnings = [], []
+        declared = self.declared_references()
+        for sha, nombre in (extra_refs or {}).items():
+            declared.setdefault(sha, {"id": nombre, "nombre": nombre, "paquete": ""})
         by_id: dict[str, list[int]] = {}
         palette, palette_error = None, None
         try:
@@ -1093,19 +1159,25 @@ class Catalog:
                 problems.append(f"{tag}: el nombre del archivo no coincide con id@versión")
             problems += [f"{tag}: {x}" for x in m.problems()]
             stl = os.path.join(os.path.dirname(path), m.stl)
+            if not os.path.isfile(stl) and m.sha256 and os.path.isfile(self.reference_state_path(m.sha256)):
+                stl = self.reference_state_path(m.sha256)                 # D26: el archivo requerido ya importado
             if not os.path.isfile(stl):
-                problems.append(f"{tag}: falta el STL «{m.stl}»")
-                continue
-            if m.sha256 and P.sha256_file(stl) != m.sha256:
-                problems.append(f"{tag}: el STL no coincide con el hash guardado (¿se modificó?)")
-                continue
-            try:
-                mesh = P.load_mesh(stl)
-            except Exception as exc:       # STL ilegible
-                problems.append(f"{tag}: no se pudo leer el STL: {exc}")
-                continue
-            if not mesh.is_watertight:
-                problems.append(f"{tag}: la malla no es estanca")
+                ref_info = declared.get(m.sha256) if m.sha256 else None
+                if ref_info is None:
+                    problems.append(f"{tag}: falta el STL «{m.stl}»")
+                    continue
+                warnings.append(f"{tag}: incompleta: falta el archivo requerido «{ref_info.get('nombre') or ref_info.get('id')}»")
+            else:
+                if m.sha256 and P.sha256_file(stl) != m.sha256:
+                    problems.append(f"{tag}: el STL no coincide con el hash guardado (¿se modificó?)")
+                    continue
+                try:
+                    mesh = P.load_mesh(stl)
+                except Exception as exc:       # STL ilegible
+                    problems.append(f"{tag}: no se pudo leer el STL: {exc}")
+                    continue
+                if not mesh.is_watertight:
+                    problems.append(f"{tag}: la malla no es estanca")
             if m.color and P.color_mode(m.color) in P.COLOR_MODES:   # T35/T42: el archivo de color (FBX o paquete de roles) existe y es el de la ficha
                 what = "el paquete de roles de color" if P.color_mode(m.color) == "roles" else "el FBX de color"
                 col = os.path.join(os.path.dirname(path), m.color.get("fuente") or "")
