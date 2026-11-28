@@ -221,7 +221,7 @@ def _piece_entries(cat: Catalog, m: P.PieceMeta, include_fbx: bool, avisos: list
                     avisos.append(f"{m.ref}: la ficha declara un retoque de color y falta «{rname}»: se exporta sin él")
         elif not include_fbx:
             keep_color = False
-            avisos.append(f"{m.ref}: se exporta sin color (el FBX no viaja; usá --incluir-fbx o pasá la pieza a roles de color)")
+            avisos.append(f"{m.ref}: se exporta sin color (el FBX no viaja; marcá «Incluir el FBX de color» al publicar, usá --incluir-fbx o pasá la pieza a roles de color)")
         elif not os.path.isfile(cpath):
             keep_color = False
             avisos.append(f"{m.ref}: se exporta sin color (falta el FBX «{color_name}» en el catálogo)")

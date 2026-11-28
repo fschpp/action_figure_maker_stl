@@ -12,7 +12,7 @@ from afm import instalar as I
 from afm import paquete as Q
 from afm import validar as V
 from afm.gui import publish as PB
-from test_exportar import add_arm, add_recipe, cat  # noqa: F401  (cat es una fixture)
+from test_exportar import add_arm, add_colored, add_recipe, cat  # noqa: F401  (cat es una fixture)
 from test_instalar import dest  # noqa: F401  (dest es una fixture)
 
 OWNER = ["Ana Pérez:owner"]
@@ -236,6 +236,33 @@ def test_publicar_una_receta_con_sus_piezas(cat, tmp_path):
 
 # ---------------------------------------------------------------------------------------------------------------- ventana e idiomas
 
+def test_publicar_con_el_fbx_de_color(cat, tmp_path):
+    """Sin la casilla el FBX no viaja (y se avisa); con ella viaja y el paquete pasa la validación estricta."""
+    from PIL import Image
+    add_colored(cat, "brazo-rgb-01", "rgb", b"FBX" * 10)
+    portada = str(tmp_path / "portada.png")
+    Image.new("RGB", (1280, 720), (200, 200, 200)).save(portada)
+    fl = filled(PB.PublishFlow(cat.root), piezas=["brazo-rgb-01"], portada=portada)
+    try:
+        rep = fl.validate()
+        assert rep.ok and any("se exporta sin color" in a and "Incluir el FBX de color" in a for a in rep.avisos_exportacion)
+        assert not any("aviso_fbx" in w or "FBX de color" in w for w in fl.warnings_before())
+        fl.form.incluir_fbx = True
+        assert not fl.validated                                  # cambiar la casilla obliga a validar de nuevo
+        assert any("FBX" in w for w in fl.warnings_before())
+        rep = fl.validate()
+        assert rep.ok and not rep.errores and not any("se exporta sin color" in a for a in rep.avisos_exportacion)
+        out = fl.export_zip(str(tmp_path / "con-fbx.zip"))
+        assert V.validate_package(out, estricto=True, allow_fbx=True).ok
+        import zipfile
+        assert "piezas/brazo/brazo-rgb-01@1.fbx" in zipfile.ZipFile(out).namelist()
+        dest_dir = tmp_path / "repo"
+        fl.prepare_repo(str(dest_dir), "owner/brazo-rgb")
+        assert (dest_dir / "piezas" / "brazo" / "brazo-rgb-01@1.fbx").is_file()
+    finally:
+        fl.close()
+
+
 def test_las_claves_de_publicar_existen_en_los_tres_idiomas():
     src = os.path.join(os.path.dirname(PB.__file__))
     used = set()
@@ -243,6 +270,7 @@ def test_las_claves_de_publicar_existen_en_los_tres_idiomas():
         text = open(os.path.join(src, name), encoding="utf-8").read()
         used |= set(re.findall(r'tr\(\s*"([a-z_]+\.[a-z_0-9]+)"', text))
         used |= set(re.findall(r'tr\(f"(publish_window\.paso)_', text))
+    used |= {"publish.aviso_fbx", "publish_window.incluir_fbx", "publish_window.incluir_fbx_tip"}
     used |= {f"publish_window.paso_{p}" for p in ("contenido", "datos", "licencia", "revisar")}
     used |= {f"publish.origen_{o.replace('-', '_')}" for o in Q.ORIGINS} | {"catalog_window.menu_compartir", "catalog_window.menu_compartir_tip"}
     assert len(used) > 50

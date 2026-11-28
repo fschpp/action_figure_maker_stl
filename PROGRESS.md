@@ -1,3 +1,22 @@
+## Current Focus — Publicar paquetes con el FBX de color desde la ventana (2026-11-28, sobre main 9929dfc)
+**Objetivo.** Que «Publicar…» pueda llevar el `.fbx` de las piezas `modo: rgb`: hasta ahora la ventana no tenía forma de pedirlo (solo existía `--incluir-fbx` en la CLI) y las piezas salían sin color.
+**Hecho.**
+- `gui/publish_window.py`: casilla «Incluir el FBX de color de las piezas» en el paso 1 (contenido); `_collect` la pasa a `Form.incluir_fbx`.
+- `gui/publish.py`: `task_validate` valida con `allow_fbx=self.form.incluir_fbx` (antes la validación estricta rechazaba cualquier `.fbx` aunque el exportador lo hubiera incluido); `warnings_before` avisa del peso (26–36 MB por pieza, tope 64 MB por archivo).
+- `exportar.py`: el aviso «se exporta sin color» ahora nombra la casilla de la ventana además de `--incluir-fbx`.
+- Locales es/en/pt: `publish.aviso_fbx`, `publish_window.incluir_fbx` e `incluir_fbx_tip`.
+- `tests/test_publish.py::test_publicar_con_el_fbx_de_color` (sin casilla: sin FBX y con aviso; con casilla: el zip trae el `.fbx`, pasa `estricto` y `prepare_repo` lo desempaqueta); falla si se saca `allow_fbx` de la validación.
+**Pruebas.** `test_exportar`, `test_validar`, `test_i18n`, `test_color_i18n` verdes; la prueba nueva pasa.
+
+### Todo List
+- [x] Done: casilla en la ventana, validación con `allow_fbx`, avisos y traducciones
+- [ ] Todo: arreglar 10 pruebas viejas de `tests/test_publish.py` (los fixtures no pasan portada y la validación estricta la exige desde 9929dfc; fallan igual sin este cambio)
+- [ ] Todo: tope total descomprimido de 512 MB (`ziplector.MAX_TOTAL_BYTES`): un paquete con muchos FBX grandes puede pasarlo; revisar con D01
+
+### Latest Blockers/Discoveries
+- Los 5 avisos de la captura (cabeza-belgrano, guemes, sanmartin, simon-bolivar, sucre) salían porque la casilla no existía: la ventana nunca pasaba `incluir_fbx`.
+- Instalar ya tenía `allow_fbx` (ventana de confirmación); faltaba solo el lado de publicar.
+
 ## Current Focus — Catálogos en línea: D24 bloqueo y retiro (2026-11-27, rama feat/catalogos-online-d24 sobre main aafa118)
 **Objetivo.** `bloqueados.json` (id / autor / sha256, motivo, fecha), `comprobar_bloqueados` para el CI del índice (IX106), comparación local con los `sha256` de las piezas instaladas y el documento de reclamos.
 **Hecho.**

@@ -243,6 +243,8 @@ class PublishFlow:
             out.append(tr("publish.aviso_derivada_libre"))
         if f.origen == "referencia":
             out.append(tr("publish.aviso_referencia"))
+        if f.incluir_fbx:
+            out.append(tr("publish.aviso_fbx"))
         return out
 
     # ------------------------------------------------------------------------------------------------------------ armar y validar
@@ -287,7 +289,7 @@ class PublishFlow:
                 sig = self._signature()
                 res = X.export_package(self.catalog(), out, **self._export_args(out))
                 task.progress(0, 0, tr("publish.validando"))
-                val = V.validate_package(out, estricto=True)
+                val = V.validate_package(out, estricto=True, allow_fbx=self.form.incluir_fbx)
             except TaskCancelled:
                 self.stage = INICIO
                 self._cleanup()
