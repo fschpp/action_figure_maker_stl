@@ -185,8 +185,12 @@ def _with_hands(cat: Catalog, metas: list[P.PieceMeta], avisos: list) -> list[P.
 # ---------------------------------------------------------------------------------------------------- archivos de cada pieza
 
 
-def _piece_entries(cat: Catalog, m: P.PieceMeta, include_fbx: bool, avisos: list) -> list[_Entry]:
-    """Los archivos de la pieza. Verifica el hash del STL y del archivo de color contra la ficha."""
+def _piece_entries(cat: Catalog, m: P.PieceMeta, include_fbx: bool, avisos: list, include_color: bool = False,
+                   color_kw: dict | None = None) -> list[_Entry]:
+    """Los archivos de la pieza. Verifica el hash del STL y del archivo de color contra la ficha.
+
+    `include_fbx`: el FBX entero viaja tal cual. `include_color`: viaja solo el color extraído del FBX (`colorrgb`, mucho más liviano) y la ficha
+    del paquete apunta a ese archivo, sin mencionar el FBX; `include_fbx` manda si están los dos."""
     files = cat._piece_files(m)
     if not files:
         raise ExportError(f"{m.ref}: no está la ficha en piezas/*/ del catálogo")
@@ -201,6 +205,7 @@ def _piece_entries(cat: Catalog, m: P.PieceMeta, include_fbx: bool, avisos: list
     out = [_entry_from_path(base + stl_name, by_name[stl_name])]
     keep_color = bool(m.color)
     color_names: list[str] = []
+    derived: tuple | None = None                       # (nombre, bytes) del color extraído del FBX
     if m.color:
         roles = P.color_mode(m.color) == "roles"
         default = P.roles_name(m.id, m.version) if roles else P.color_name(m.id, m.version)
@@ -219,9 +224,23 @@ def _piece_entries(cat: Catalog, m: P.PieceMeta, include_fbx: bool, avisos: list
                     color_names.append(rname)
                 else:
                     avisos.append(f"{m.ref}: la ficha declara un retoque de color y falta «{rname}»: se exporta sin él")
+        elif include_color and not include_fbx:
+            if not os.path.isfile(cpath):
+                keep_color = False
+                avisos.append(f"{m.ref}: se exporta sin color (falta el FBX «{color_name}» en el catálogo)")
+            elif m.color.get("sha256") and P.sha256_file(cpath) != m.color["sha256"]:
+                raise ExportError(f"{m.ref}: el FBX «{color_name}» no coincide con el hash de la ficha")
+            else:
+                from .colorrgb import ColorRgbError, compact_file
+                from .fbxio import FbxError
+                try:
+                    derived = (P.colorrgb_name(m.id, m.version), compact_file(cpath, **(color_kw or {})))
+                except (FbxError, ColorRgbError, OSError, MemoryError) as exc:
+                    keep_color = False
+                    avisos.append(f"{m.ref}: se exporta sin color (no se pudo extraer el color del FBX: {exc})")
         elif not include_fbx:
             keep_color = False
-            avisos.append(f"{m.ref}: se exporta sin color (el FBX no viaja; marcá «Incluir el FBX de color» al publicar, usá --incluir-fbx o pasá la pieza a roles de color)")
+            avisos.append(f"{m.ref}: se exporta sin color (el FBX no viaja; marcá «Incluir el color de las piezas» al publicar, usá --incluir-color o --incluir-fbx, o pasá la pieza a roles de color)")
         elif not os.path.isfile(cpath):
             keep_color = False
             avisos.append(f"{m.ref}: se exporta sin color (falta el FBX «{color_name}» en el catálogo)")
@@ -235,7 +254,12 @@ def _piece_entries(cat: Catalog, m: P.PieceMeta, include_fbx: bool, avisos: list
     for cn in color_names:
         out.append(_entry_from_path(base + cn, os.path.join(folder, cn)))
     meta_name = P.meta_name(m.id, m.version)
-    if m.color and not keep_color:                     # CK307: sin el archivo de color, la ficha no puede declararlo
+    if derived is not None:                            # la ficha del paquete apunta al color extraído (su hash), no al FBX
+        out.append(_entry_from_data(base + derived[0], derived[1]))
+        swapped = P.PieceMeta.from_dict(m.to_dict())
+        swapped.color = dict(swapped.color, fuente=derived[0], sha256=hashlib.sha256(derived[1]).hexdigest())
+        out.append(_entry_from_data(base + meta_name, _dump(swapped.to_dict())))
+    elif m.color and not keep_color:                   # CK307: sin el archivo de color, la ficha no puede declararlo
         clean = P.PieceMeta.from_dict(m.to_dict())
         clean.color = None
         out.append(_entry_from_data(base + meta_name, _dump(clean.to_dict())))
@@ -336,6 +360,7 @@ def write_zip(out: str, entries: list) -> None:
 
 
 def export_package(cat: Catalog, out: str, *, piezas=(), recetas=(), linea_completa: bool = False, incluir_fbx: bool = False,
+                   incluir_color: bool = False, color_max_lado: int | None = None, color_calidad: int | None = None,
                    base: Paquete | None = None, id: str = "", nombre: str = "", version: str = "", descripcion: str = "",
                    tipo: str = "", autores=(), licencia: str = "", origen: str = "", github: str = "", categorias=(),
                    etiquetas=(), readme: str = "", license_file: str = "", creditos: str = "", portada: str = "",
@@ -385,9 +410,10 @@ def export_package(cat: Catalog, out: str, *, piezas=(), recetas=(), linea_compl
         has_override = has_override or override
         for m in rmetas:
             add(m)
+    color_kw = {k: v for k, v in (("max_side", color_max_lado), ("quality", color_calidad)) if v}
     ordered = [metas[r] for r in sorted(metas, key=lambda r: (parse_ref(r)[0], parse_ref(r)[1]))]
     for m in ordered:
-        for e in _piece_entries(cat, m, incluir_fbx, avisos):
+        for e in _piece_entries(cat, m, incluir_fbx, avisos, incluir_color, color_kw):
             entries[e.arcname] = e
     uses_roles = any(k.endswith(".color.npz") for k in entries)
     with_palette = os.path.isfile(cat.palette_path) and (linea_completa or uses_roles or has_override)

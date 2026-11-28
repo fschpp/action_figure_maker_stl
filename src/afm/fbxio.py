@@ -185,9 +185,18 @@ def _triangulate(verts: np.ndarray, polys: list[list[int]]):
 
 
 def load_textured(source):
-    """`TexturedMesh` desde la ruta de un FBX binario o desde sus bytes. Errores de formato: `FbxError`."""
+    """`TexturedMesh` desde la ruta de un FBX binario o desde sus bytes. Errores de formato: `FbxError`.
+
+    También lee el color compacto extraído de un FBX (`colorrgb`, `.colorrgb.npz`): las piezas publicadas sin el FBX lo usan en su lugar y
+    todo lo que lee el color de una pieza sigue igual."""
+    from . import colorrgb
     from .texmesh import TexturedMesh
 
+    if colorrgb.is_compact(source):
+        try:
+            return colorrgb.load(source)
+        except colorrgb.ColorRgbError as exc:
+            raise FbxError(str(exc)) from exc
     data = source if isinstance(source, (bytes, bytearray)) else open(source, "rb").read()
     data = bytes(data)
     root = parse_fbx(data)

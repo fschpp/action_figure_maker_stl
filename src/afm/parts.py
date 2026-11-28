@@ -82,6 +82,11 @@ def color_name(piece_id: str, version: int) -> str:
     return f"{piece_id}@{version}.fbx"
 
 
+def colorrgb_name(piece_id: str, version: int) -> str:
+    """Nombre del color extraído de un FBX (`colorrgb`, sin el FBX) de una pieza `rgb` publicada con «incluir el color»."""
+    return f"{piece_id}@{version}.colorrgb.npz"
+
+
 ROLE_ID_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")        # igual que `palette.Role`
 
 

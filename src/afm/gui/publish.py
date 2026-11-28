@@ -120,6 +120,7 @@ class Form:
     readme: str = ""                             # ruta a un README.md propio ("" = el que arma afm)
     portada: str = ""                            # ruta a la imagen de portada ("" = sin portada)
     incluir_fbx: bool = False
+    incluir_color: bool = False        # el color extraído del FBX (liviano, sin el FBX); `incluir_fbx` lleva el FBX entero
 
     def effective_id(self) -> str:
         return (self.id or suggest_id(self.nombre)).strip()
@@ -250,14 +251,14 @@ class PublishFlow:
     # ------------------------------------------------------------------------------------------------------------ armar y validar
     def _export_args(self, out: str) -> dict:
         f = self.form
-        return dict(piezas=list(f.piezas), recetas=list(f.recetas), linea_completa=f.linea_completa, incluir_fbx=f.incluir_fbx, id=f.effective_id(),
+        return dict(piezas=list(f.piezas), recetas=list(f.recetas), linea_completa=f.linea_completa, incluir_fbx=f.incluir_fbx, incluir_color=f.incluir_color, id=f.effective_id(),
                     nombre=f.nombre.strip(), version=f.version.strip(), descripcion=f.descripcion.strip(), tipo=f.tipo if f.tipo in TIPOS else "piezas",
                     autores=[a.strip() for a in f.autores if a.strip()], licencia=f.licencia, origen=f.origen, github=f.github.strip(),
                     categorias=list(f.categorias), etiquetas=list(f.etiquetas), readme=f.readme, creditos=f.creditos, portada=f.portada, overwrite=True)
 
     def _signature(self) -> tuple:
         f = self.form
-        return (self.root, tuple(f.piezas), tuple(f.recetas), f.linea_completa, f.incluir_fbx, f.effective_id(), f.nombre, f.version, f.descripcion, f.tipo,
+        return (self.root, tuple(f.piezas), tuple(f.recetas), f.linea_completa, f.incluir_fbx, f.incluir_color, f.effective_id(), f.nombre, f.version, f.descripcion, f.tipo,
                 tuple(f.autores), f.licencia, f.origen, f.github, tuple(f.categorias), tuple(f.etiquetas), f.readme, f.creditos, f.portada)
 
     @property

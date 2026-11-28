@@ -132,10 +132,10 @@ class PublishWindow(Gtk.Window):
             self.box_recipes.append(chk)
         box.append(_label(tr("publish_window.recetas"), css=("heading",), selectable=False))
         box.append(_scrolled(self.box_recipes, 120) if self._recipe_checks else _label(tr("publish_window.sin_recetas"), css=("dim-label",)))
-        self.chk_fbx = Gtk.CheckButton(label=tr("publish_window.incluir_fbx"))
-        self.chk_fbx.set_tooltip_text(tr("publish_window.incluir_fbx_tip"))
-        self.chk_fbx.set_active(self.flow.form.incluir_fbx)
-        box.append(self.chk_fbx)
+        self.chk_color = Gtk.CheckButton(label=tr("publish_window.incluir_color"))
+        self.chk_color.set_tooltip_text(tr("publish_window.incluir_color_tip"))
+        self.chk_color.set_active(self.flow.form.incluir_color)
+        box.append(self.chk_color)
         return box
 
     def _on_line_toggled(self, btn: Gtk.CheckButton) -> None:
@@ -255,7 +255,7 @@ class PublishWindow(Gtk.Window):
         f = self.flow.form
         f.tipo = "heroe" if self.dd_tipo.get_selected() == 1 else "piezas"
         f.linea_completa = self.chk_line.get_active()
-        f.incluir_fbx = self.chk_fbx.get_active()
+        f.incluir_color = self.chk_color.get_active()
         f.piezas = [] if f.linea_completa else [c._ref for c in self._piece_checks if c.get_active()]
         f.recetas = [] if f.linea_completa else [c._ref for c in self._recipe_checks if c.get_active()]
         f.nombre, f.id = self.e_nombre.get_text().strip(), self.e_id.get_text().strip()

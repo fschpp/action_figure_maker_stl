@@ -21,7 +21,7 @@ def _csv(values) -> list[str]:
 def add_parsers(cs, root) -> None:
     """`cs`: los subparsers de `afm catalogo`; `root(p)`: agrega el argumento `ruta` del catálogo."""
     a = cs.add_parser("exportar", help="armar un paquete .zip (afm-paquete-1) con piezas, recetas o la línea completa para compartirlo; "
-                                       "no incluye el FBX de color salvo --incluir-fbx ni lo derivado (compat, papelera, caballos)")
+                                       "no incluye el color de los FBX salvo --incluir-color (liviano) o --incluir-fbx ni lo derivado (compat, papelera, caballos)")
     root(a)
     g = a.add_mutually_exclusive_group(required=True)
     g.add_argument("--piezas", action="append", metavar="A,B", help="piezas a exportar (id = la última versión, o id@n); un brazo con muñeca lleva su mano si existe")
@@ -30,6 +30,9 @@ def add_parsers(cs, root) -> None:
     a.add_argument("-o", "--salida", required=True, metavar="paquete.zip")
     a.add_argument("--sobrescribir", action="store_true", help="reemplazar la salida si ya existe")
     a.add_argument("--incluir-fbx", action="store_true", help="incluir el FBX de color de las piezas en modo rgb (pesa 26–36 MB cada uno); sin esto salen sin color")
+    a.add_argument("--incluir-color", action="store_true", help="incluir el color de las piezas en modo rgb **extraído de su FBX** (textura en JPEG, sin el FBX: unos pocos MB por pieza en vez de 26–36); sin esto ni --incluir-fbx salen sin color")
+    a.add_argument("--color-max-lado", type=int, default=None, metavar="PX", help="con --incluir-color: lado máximo de la textura (por defecto 4096)")
+    a.add_argument("--color-calidad", type=int, default=None, metavar="Q", help="con --incluir-color: calidad JPEG de la textura, 1–95 (por defecto 90)")
     a.add_argument("--manifiesto", default=None, metavar="paquete.json", help="paquete.json ya escrito: sus campos son los valores por defecto de los de abajo")
     a.add_argument("--id", default="", help="id del paquete (por defecto sale de la línea y la receta)")
     a.add_argument("--nombre", default="")
@@ -111,7 +114,7 @@ def run_exportar(cat: Catalog, args) -> int:
             print(f"AVISO: {args.manifiesto}: {w}")
     res = export_package(
         cat, args.salida, piezas=_csv(args.piezas), recetas=_csv(args.receta), linea_completa=args.linea_completa,
-        incluir_fbx=args.incluir_fbx, base=base, id=args.id, nombre=args.nombre, version=args.version_paquete,
+        incluir_fbx=args.incluir_fbx, incluir_color=args.incluir_color, color_max_lado=args.color_max_lado, color_calidad=args.color_calidad, base=base, id=args.id, nombre=args.nombre, version=args.version_paquete,
         descripcion=args.descripcion, tipo=args.tipo, autores=args.autor, licencia=args.licencia, origen=args.origen,
         github=args.github, categorias=_csv(args.categoria), etiquetas=args.etiqueta, readme=args.readme,
         license_file=args.licencia_archivo, creditos=args.creditos, portada=args.portada, overwrite=args.sobrescribir)

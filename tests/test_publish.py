@@ -245,7 +245,7 @@ def test_publicar_con_el_fbx_de_color(cat, tmp_path):
     fl = filled(PB.PublishFlow(cat.root), piezas=["brazo-rgb-01"], portada=portada)
     try:
         rep = fl.validate()
-        assert rep.ok and any("se exporta sin color" in a and "Incluir el FBX de color" in a for a in rep.avisos_exportacion)
+        assert rep.ok and any("se exporta sin color" in a and "Incluir el color de las piezas" in a for a in rep.avisos_exportacion)
         assert not any("aviso_fbx" in w or "FBX de color" in w for w in fl.warnings_before())
         fl.form.incluir_fbx = True
         assert not fl.validated                                  # cambiar la casilla obliga a validar de nuevo
@@ -263,6 +263,32 @@ def test_publicar_con_el_fbx_de_color(cat, tmp_path):
         fl.close()
 
 
+def test_publicar_con_el_color_extraido_sin_el_fbx(cat, tmp_path):
+    """La casilla «Incluir el color de las piezas»: el paquete lleva el color extraído (no el FBX), pasa la validación estricta y se desempaqueta."""
+    import zipfile
+
+    from color_helpers import write_doll_fbx
+    from PIL import Image
+    add_colored(cat, "brazo-rgb-01", "rgb", open(write_doll_fbx(tmp_path / "m.fbx"), "rb").read())
+    portada = str(tmp_path / "portada.png")
+    Image.new("RGB", (1280, 720), (200, 200, 200)).save(portada)
+    fl = filled(PB.PublishFlow(cat.root), piezas=["brazo-rgb-01"], portada=portada)
+    try:
+        assert any("se exporta sin color" in a for a in fl.validate().avisos_exportacion)
+        fl.form.incluir_color = True
+        assert not fl.validated                                  # cambiar la casilla obliga a validar de nuevo
+        rep = fl.validate()
+        assert rep.ok and not rep.errores and not any("se exporta sin color" in a for a in rep.avisos_exportacion)
+        out = fl.export_zip(str(tmp_path / "con-color.zip"))
+        ns = zipfile.ZipFile(out).namelist()
+        assert "piezas/brazo/brazo-rgb-01@1.colorrgb.npz" in ns and not any(n.endswith(".fbx") for n in ns)
+        assert V.validate_package(out, estricto=True).ok         # sin permitir .fbx
+        fl.prepare_repo(str(tmp_path / "repo"), "owner/brazo-rgb")
+        assert (tmp_path / "repo" / "piezas" / "brazo" / "brazo-rgb-01@1.colorrgb.npz").is_file()
+    finally:
+        fl.close()
+
+
 def test_las_claves_de_publicar_existen_en_los_tres_idiomas():
     src = os.path.join(os.path.dirname(PB.__file__))
     used = set()
@@ -270,7 +296,7 @@ def test_las_claves_de_publicar_existen_en_los_tres_idiomas():
         text = open(os.path.join(src, name), encoding="utf-8").read()
         used |= set(re.findall(r'tr\(\s*"([a-z_]+\.[a-z_0-9]+)"', text))
         used |= set(re.findall(r'tr\(f"(publish_window\.paso)_', text))
-    used |= {"publish.aviso_fbx", "publish_window.incluir_fbx", "publish_window.incluir_fbx_tip"}
+    used |= {"publish.aviso_fbx", "publish_window.incluir_color", "publish_window.incluir_color_tip"}
     used |= {f"publish_window.paso_{p}" for p in ("contenido", "datos", "licencia", "revisar")}
     used |= {f"publish.origen_{o.replace('-', '_')}" for o in Q.ORIGINS} | {"catalog_window.menu_compartir", "catalog_window.menu_compartir_tip"}
     assert len(used) > 50

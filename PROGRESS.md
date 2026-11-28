@@ -1,21 +1,24 @@
-## Current Focus — Publicar paquetes con el FBX de color desde la ventana (2026-11-28, sobre main 9929dfc)
-**Objetivo.** Que «Publicar…» pueda llevar el `.fbx` de las piezas `modo: rgb`: hasta ahora la ventana no tenía forma de pedirlo (solo existía `--incluir-fbx` en la CLI) y las piezas salían sin color.
+## Current Focus — Publicar el color de las piezas extraído del FBX, sin el FBX (2026-11-28, sobre main 9929dfc)
+**Objetivo.** Que «Publicar…» lleve el color de las piezas `modo: rgb` sin empaquetar el FBX (26–36 MB cada uno; el paquete heroes-america-wave-1 llegó a 179 MB): se extrae del FBX solo lo que hace falta para colorear y el paquete no referencia al FBX.
 **Hecho.**
-- `gui/publish_window.py`: casilla «Incluir el FBX de color de las piezas» en el paso 1 (contenido); `_collect` la pasa a `Form.incluir_fbx`.
-- `gui/publish.py`: `task_validate` valida con `allow_fbx=self.form.incluir_fbx` (antes la validación estricta rechazaba cualquier `.fbx` aunque el exportador lo hubiera incluido); `warnings_before` avisa del peso (26–36 MB por pieza, tope 64 MB por archivo).
-- `exportar.py`: el aviso «se exporta sin color» ahora nombra la casilla de la ventana además de `--incluir-fbx`.
-- Locales es/en/pt: `publish.aviso_fbx`, `publish_window.incluir_fbx` e `incluir_fbx_tip`.
-- `tests/test_publish.py::test_publicar_con_el_fbx_de_color` (sin casilla: sin FBX y con aviso; con casilla: el zip trae el `.fbx`, pasa `estricto` y `prepare_repo` lo desempaqueta); falla si se saca `allow_fbx` de la validación.
-**Pruebas.** `test_exportar`, `test_validar`, `test_i18n`, `test_color_i18n` verdes; la prueba nueva pasa.
+- `colorrgb.py` (nuevo): formato `afm-color-rgb-1` (`<id>@<v>.colorrgb.npz`): vértices/caras/UV de esquina en float32/int32 + textura base re-codificada a JPEG (calidad 90, tope 4096 px por lado); sin normales/materiales y **sin nombre ni hash del FBX**. Mismo marco que el FBX: la `similitud` de la ficha sigue valiendo.
+- `fbxio.load_textured` lee también el `.npz` compacto (por extensión / magic `PK`): armado, vista previa, horneado y `catalog.verify` funcionan igual.
+- `exportar`: `incluir_color` (+ `color_max_lado`, `color_calidad`): la pieza viaja con el `.colorrgb.npz` y la ficha del paquete apunta a él (`fuente`, `sha256` nuevos); el catálogo de origen no se toca. `incluir_fbx` (FBX entero) manda si están los dos. Un FBX ilegible o sin textura sale sin color con aviso.
+- CLI: `afm catalogo exportar --incluir-color [--color-max-lado PX] [--color-calidad Q]`.
+- Ventana Publicar: casilla «Incluir el color de las piezas (extraído del FBX, sin el FBX)» en el paso 1 (`Form.incluir_color`); la validación acepta `.fbx` solo con `incluir_fbx` (`allow_fbx`). Textos es/en/pt.
+- Pruebas: `tests/test_colorrgb.py` (7) y `test_publish.py` (`test_publicar_con_el_color_extraido_sin_el_fbx`, `test_publicar_con_el_fbx_de_color`).
+**Pruebas.** `test_colorrgb`, `test_exportar`, `test_validar`, `test_i18n`, `test_color_i18n`, `test_fbxio`, `test_catalog`, `test_instalar` verdes.
 
 ### Todo List
-- [x] Done: casilla en la ventana, validación con `allow_fbx`, avisos y traducciones
+- [x] Done: formato compacto, lector, exportador, CLI, casilla y traducciones
+- [ ] Todo: medir el peso real con los FBX de proceres-127 (la textura sin recomprimir es lo que más pesa; bajar `--color-max-lado` a 2048 si hace falta)
 - [ ] Todo: arreglar 10 pruebas viejas de `tests/test_publish.py` (los fixtures no pasan portada y la validación estricta la exige desde 9929dfc; fallan igual sin este cambio)
-- [ ] Todo: tope total descomprimido de 512 MB (`ziplector.MAX_TOTAL_BYTES`): un paquete con muchos FBX grandes puede pasarlo; revisar con D01
+- [ ] Todo: ofrecer «convertir a color compacto» también dentro del catálogo (hoy solo al exportar)
 
 ### Latest Blockers/Discoveries
-- Los 5 avisos de la captura (cabeza-belgrano, guemes, sanmartin, simon-bolivar, sucre) salían porque la casilla no existía: la ventana nunca pasaba `incluir_fbx`.
-- Instalar ya tenía `allow_fbx` (ventana de confirmación); faltaba solo el lado de publicar.
+- Los 5 avisos de la captura salían porque la ventana nunca pasaba `incluir_fbx`; el FBX entero sí viajaba con `--incluir-fbx`, pero pesaba demasiado.
+- La malla del FBX (float32) sigue en el archivo compacto porque la `similitud` y el muestreo del color trabajan sobre ella; reducirla (decimar) cambiaría los UV.
+- La textura va a JPEG: baja unos pocos niveles de color; no cambia de región.
 
 ## Current Focus — Catálogos en línea: D24 bloqueo y retiro (2026-11-27, rama feat/catalogos-online-d24 sobre main aafa118)
 **Objetivo.** `bloqueados.json` (id / autor / sha256, motivo, fecha), `comprobar_bloqueados` para el CI del índice (IX106), comparación local con los `sha256` de las piezas instaladas y el documento de reclamos.
