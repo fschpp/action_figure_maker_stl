@@ -2862,7 +2862,13 @@
   "preparar_alta_tip": "Deixa a pasta Autor@id com meta.json e descripcion.md para pedir que o índice liste",
   "zip_guardado": "Salvo: %{ruta}",
   "repo_listo": "Pasta do repositório pronta.",
-  "alta_lista": "Pasta da inclusão pronta: %{ruta}"
+  "alta_lista": "Pasta da inclusão pronta: %{ruta}",
+  "portada": "Capa (imagem do pacote)",
+  "portada_ayuda": "PNG ou JPG de 1280×720 (16:9), com menos de 2 MB, com a figura montada. É necessária para publicar: o validador estrito não deixa publicar sem capa.",
+  "portada_sin": "(sem capa)",
+  "portada_elegir": "Escolher…",
+  "portada_elegir_titulo": "Escolher a capa",
+  "portada_filtro": "Imagens PNG ou JPG"
  },
  "import_zip": {
   "no_es_archivo": "“%{ruta}” não é um arquivo.",

@@ -29,6 +29,7 @@ HEIGHT_TOL_MM = 0.5                                  # CK104 (§6)
 
 # `Catalog.verify` ya detecta estas dos y el validador las reporta con su código propio: se descartan de CK203 para no duplicarlas
 _VERIFY_AS_OTHER = ("falta el FBX de color", "paleta de la línea no tiene", "usa roles que la paleta")
+_GAP_WARNING = "versiones no consecutivas"       # aviso de `Catalog.verify` tras `delete_pieces`; no impide compartir el paquete
 
 
 @dataclass(frozen=True)
@@ -225,6 +226,8 @@ def validate_package(path: str, *, estricto: bool = False, allow_fbx: bool = Fal
                             tag, _, text = p.partition(": ")
                             add("CK203", ERROR, tag, text or p, "corregí la pieza en el catálogo de origen y volvé a exportar")
                     for w in rep.warnings:
+                        if _GAP_WARNING in w:                      # un hueco de versiones es a propósito (las recetas fijan `id@versión`): `instalar` también lo ignora
+                            continue
                         tag, _, text = w.partition(": ")
                         add("CK203", WARNING, tag, text or w)
     return res

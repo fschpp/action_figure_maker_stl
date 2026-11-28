@@ -252,3 +252,16 @@ def test_cli_codigos_de_salida(cat, tmp_path, capsys):
     assert "CK201 README.md" in capsys.readouterr().out
     (tmp_path / "n.zip").write_text("nada")
     assert main(["catalogo", "paquete", "validar", str(tmp_path / "n.zip")]) == 2
+
+
+def test_un_hueco_de_versiones_no_es_un_hallazgo(cat, tmp_path):
+    """Eliminar una versión (`delete_pieces`) deja un hueco a propósito; el validador estricto no puede bloquear la publicación por eso."""
+    from test_exportar import arm_piece
+    add_arm(cat)                                              # brazo-test-01@1
+    mesh, meta = arm_piece("brazo-test-01")
+    cat.add_piece(mesh, meta, new_version=True)               # @2
+    cat.delete_pieces(["brazo-test-01@1"])                    # queda solo la @2: hueco
+    assert any("versiones no consecutivas" in w for w in cat.verify().warnings)      # el catálogo sí lo avisa
+    p = X.export_package(cat, str(tmp_path / "p.zip"), piezas=["brazo-test-01"], **OWNER).path
+    res = V.validate_package(p, estricto=True)
+    assert not [f for f in res.findings if "versiones no consecutivas" in f.message]

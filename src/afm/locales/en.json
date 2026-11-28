@@ -2862,7 +2862,13 @@
   "preparar_alta_tip": "Leaves the Author@id folder with meta.json and descripcion.md to ask the index to list it",
   "zip_guardado": "Saved: %{ruta}",
   "repo_listo": "Repository folder ready.",
-  "alta_lista": "Listing folder ready: %{ruta}"
+  "alta_lista": "Listing folder ready: %{ruta}",
+  "portada": "Cover (package image)",
+  "portada_ayuda": "A 1280×720 (16:9) PNG or JPG under 2 MB showing the assembled figure. Needed to publish: the strict validator does not allow publishing without a cover.",
+  "portada_sin": "(no cover)",
+  "portada_elegir": "Choose…",
+  "portada_elegir_titulo": "Choose the cover",
+  "portada_filtro": "PNG or JPG images"
  },
  "import_zip": {
   "no_es_archivo": "“%{ruta}” is not a file.",

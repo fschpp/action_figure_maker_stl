@@ -154,7 +154,39 @@ class PublishWindow(Gtk.Window):
         self.e_repo = self._field(box, tr("publish_window.repo"), tr("publish_window.repo_tip"))
         self.e_cats = self._field(box, tr("publish_window.categorias"))
         self.e_tags = self._field(box, tr("publish_window.etiquetas"))
+        box.append(_label(tr("publish_window.portada"), css=("heading",), selectable=False))
+        box.append(_label(tr("publish_window.portada_ayuda"), css=("dim-label",)))
+        row = Gtk.Box(spacing=6)
+        self.e_portada = Gtk.Entry(hexpand=True, placeholder_text=tr("publish_window.portada_sin"))
+        pick = Gtk.Button(label=tr("publish_window.portada_elegir"))
+        pick.connect("clicked", self._on_pick_cover)
+        row.append(self.e_portada)
+        row.append(pick)
+        box.append(row)
         return box
+
+    def _on_pick_cover(self, *_) -> None:
+        """Elige la imagen de portada (PNG o JPG); queda en el campo y se copia a `previews/portada.png` al armar el paquete."""
+        dlg = Gtk.FileDialog(title=tr("publish_window.portada_elegir_titulo"))
+        flt = Gtk.FileFilter()
+        flt.set_name(tr("publish_window.portada_filtro"))
+        for pat in ("*.png", "*.jpg", "*.jpeg"):
+            flt.add_pattern(pat)
+        store = Gio.ListStore.new(Gtk.FileFilter)
+        store.append(flt)
+        dlg.set_filters(store)
+        dlg.set_default_filter(flt)
+
+        def finished(d, res):
+            try:
+                f = d.open_finish(res)
+            except GLib.Error:
+                return                                            # cancelado
+            path = f.get_path() if isinstance(f, Gio.File) else None
+            if path:
+                self.e_portada.set_text(path)
+
+        dlg.open(self, None, finished)
 
     def _on_name_changed(self, *_) -> None:
         self.e_id.set_placeholder_text(PB.suggest_id(self.e_nombre.get_text()))
@@ -226,6 +258,7 @@ class PublishWindow(Gtk.Window):
         f.autores = PB.parse_authors(_text(self.tv_autores))
         f.github = self.e_repo.get_text().strip()
         f.categorias, f.etiquetas = PB._csv(self.e_cats.get_text()), PB._csv(self.e_tags.get_text())
+        f.portada = self.e_portada.get_text().strip()
         f.licencia = self._selected(self.dd_lic, Q.LICENSES)
         f.origen = self._selected(self.dd_org, Q.ORIGINS)
         f.creditos = _text(self.tv_creditos).strip()
