@@ -1,3 +1,21 @@
+## Current Focus — Catálogos en línea: D24 bloqueo y retiro (2026-11-27, rama feat/catalogos-online-d24 sobre main aafa118)
+**Objetivo.** `bloqueados.json` (id / autor / sha256, motivo, fecha), `comprobar_bloqueados` para el CI del índice (IX106), comparación local con los `sha256` de las piezas instaladas y el documento de reclamos.
+**Hecho.**
+- `bloqueos.py` (sin GTK ni red): `leer_bloqueados` / `validar_bloqueados` (el CI no salta líneas raras: un criterio por línea, motivo y fecha reales, sin repetidos), `comprobar_bloqueados(modo="alta"|"listado")` → IX106, `retirar` (entrada entera por `id`/autor o por `sha256` de la última versión; versión suelta por `sha256`; conserva `bloqueados` y recalcula `cantidad`/`categorias`) y `piezas_bloqueadas(raiz, bloqueados)` (el `sha256` del STL de cada pieza instalada, atribuida al paquete que la trajo o «sin paquete»).
+- `dependencias.audit` suma las piezas bloqueadas (también las importadas a mano); `Alert.__str__` tolera paquete vacío.
+- `afm catalogo bloqueados validar | comprobar | retirar` (`bloqueos_cli.py`): lo que va a llamar el CI del repo del índice (D12). `Block.sha256` ahora vale para el zip **o** el STL de una pieza (docstring).
+- `docs/RECLAMOS.md`: cómo reclamar, qué hace quien mantiene el índice, qué ve la persona en la app, apelación y límites.
+**Pruebas.** `tests/test_bloqueos.py` (27); siguen verdes `test_dependencias`, `test_remoto`, `test_indice`, `test_installed_packages`, `test_catalog_online`.
+
+### Todo List
+- [x] Done: D02–D09, D11, D13–D24
+- [ ] Todo: D10, D12 (los scripts del repo del índice llaman a `afm catalogo bloqueados`), D31, D33; D25–D29
+- [ ] Todo: plazos de respuesta de `docs/RECLAMOS.md` (decisión del mantenedor, D00) y plantilla «Reclamo» del repo del índice (D12)
+
+### Latest Blockers/Discoveries
+- El cliente ya bloqueaba por `id`/autor/`sha256` del zip desde D16; D24 agrega el lado del CI, las piezas y el documento.
+- Una pieza bloqueada sin paquete solo aparece en `remoto auditar`: «Paquetes instalados» lista paquetes, no piezas sueltas.
+
 ## Current Focus — Plugins de articulación, Fase 4 (corte 4): `ball` registrado y despachado en `pipeline.build` (2026-11-28, sobre el corte 3 f07ec68)
 **Objetivo.** Que un `mechanism="ball"` (o `Params.joints[lugar]` con `type: ball`) arme de verdad una rótula en hombro o cadera, con su validación, y deje de caer al hongo (`docs/PLAN_plugins_articulacion.md` §4.3, §5 Fase 4).
 **Hecho.**

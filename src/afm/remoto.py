@@ -253,8 +253,9 @@ def _index_cache_paths(url: str, cache: str) -> tuple[str, str]:
 class Block:
     """Una línea de `bloqueados` del índice (§5.5, D16/D24): lo que el índice se niega a listar, con motivo y fecha.
 
-    Bloquea por **`id`**, por **autor** o por **`sha256`** del zip (exactamente uno de los tres): un reclamo no se esquiva volviendo a subir lo
-    mismo con otro nombre. El que bloquea por `sha256` afecta a esa versión; por `id` o autor, a todo el paquete.
+    Bloquea por **`id`**, por **autor** o por **`sha256`** (exactamente uno de los tres): un reclamo no se esquiva volviendo a subir lo
+    mismo con otro nombre. El que bloquea por `sha256` afecta a esa versión (el del zip) o a esa pieza (el de su STL, `bloqueos.piezas_bloqueadas`);
+    por `id` o autor, a todo el paquete.
     """
 
     id: str = ""

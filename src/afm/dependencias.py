@@ -354,7 +354,8 @@ class Alert:
     message: str
 
     def __str__(self):
-        return f"{'BLOQUEADO' if self.kind == 'bloqueado' else 'RETIRADA'} {self.paquete} {self.version}: {self.message}"
+        quien = f"{self.paquete} {self.version}".strip() or "(sin paquete)"
+        return f"{'BLOQUEADO' if self.kind == 'bloqueado' else 'RETIRADA'} {quien}: {self.message}"
 
 
 def audit(indexes, raiz: str) -> list:
@@ -381,6 +382,10 @@ def audit(indexes, raiz: str) -> list:
                     better, _ = best_release(e)
                     fix = f"hay una versión mejor ({better.version}): `afm catalogo remoto actualizar {pid}`" if better and Q.parse_semver(better.version) > Q.parse_semver(have) else "no hay una versión mejor publicada"
                     out.append(Alert("retirada", pid, have, f"sus responsables la retiraron; {fix}"))
+    from .bloqueos import piezas_bloqueadas     # D24: el `sha256` de cada pieza instalada contra la lista, aunque el paquete se haya importado a mano
+
+    for p in piezas_bloqueadas(raiz, blocks):
+        out.append(Alert("bloqueado", p.paquete, p.version, p.mensaje()))
     seen, uniq = set(), []
     for a in out:
         if a not in seen:

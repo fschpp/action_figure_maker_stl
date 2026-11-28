@@ -468,6 +468,8 @@ Además, todo Release que el bot adopta pasa `afm catalogo paquete validar --est
 
 **Estado (2026-11-27, D23):** [x] **D23** hecha: `licencias.py` (licencia efectiva del armado y `CREDITOS.txt` con autor, licencia y enlace de cada pieza; bloque `licencia` en la lista de piezas y el informe), aviso en `afm armar` y, en «Armar desde catálogo…», etiqueta de licencia y confirmación antes de exportar si hay una pieza `NC`, `SA`, `ND` o reservada.
 
+**Estado (2026-11-27, D24):** [x] **D24** hecha: `bloqueos.py` (`bloqueados.json` validado con rigor, `comprobar_bloqueados` = IX106, `retirar` y `piezas_bloqueadas` contra el `sha256` de cada pieza instalada), `afm catalogo bloqueados validar | comprobar | retirar` para el CI del índice (D12), alertas de `dependencias.audit` también para piezas importadas a mano y `docs/RECLAMOS.md`. Quedan los plazos de respuesta (D00) y la plantilla de reclamo del repo del índice (D12).
+
 ### Orden y paralelismo
 
 ```text
